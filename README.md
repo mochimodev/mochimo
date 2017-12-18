@@ -1,2 +1,2 @@
 # mochimo
-Mochimo Cryptocurrency Public Development Repository
+Mochimo Project - Public Development Repository
