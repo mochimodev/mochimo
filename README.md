@@ -8,8 +8,11 @@ RECOMMENDED HARDWARE/SOFTWARE: The included code is designed to be run on Ubuntu
 INSTRUCTIONS: Basic usage instructions for compiling can be found in the mochi-beta directory included in the package.  The code will compile without issue on most Linux-based gcc compatible machines with a 64-bit long.  However please be aware that developer support for troubleshooting will be restricted to those users running the recommended configuration.  Please complete the following steps from your ubuntu machine after downloading the software:
 
 tar -xzvf mochimo-beta-package-v23a.tgz
+
 cd mochi-beta
+
 more README
+
 
 JOIN THE COMMUNITY!
 
