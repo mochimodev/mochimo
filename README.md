@@ -5,7 +5,11 @@ SUMMARY: The Mochimo Crypto Engine Beta Test code is a fully functional crypto c
 
 RECOMMENDED HARDWARE/SOFTWARE: The included code is designed to be run on Ubuntu 16.04 LTS 64-Bit Desktop, with at least 2 processor threads and 2GB of RAM.  Most users choose to run this as a VM using VMWare or VirtualBox.
 
-The code may compile without issue on most Linux-based gcc compatible machines with a 64-bit long, however please be aware that developer support for troubleshooting will be restricted to those users running the recommended configuration.
+INSTRUCTIONS: Basic usage instructions for compiling can be found in the mochi-beta directory included in the package.  The code will compile without issue on most Linux-based gcc compatible machines with a 64-bit long.  However please be aware that developer support for troubleshooting will be restricted to those users running the recommended configuration.  Please complete the following steps from your ubuntu machine after downloading the software:
+
+tar -xzvf mochimo-beta-package-v23a.tgz
+cd mochi-beta
+more README
 
 JOIN THE COMMUNITY!
 
@@ -13,6 +17,10 @@ Please follow the below link to join in the discussion of mochimo with the rest 
 
 https://join.slack.com/t/mochimo/shared_invite/enQtMzA4NDc3NDU3MzY2LTUwOGExMmM1YWFmMzhiYzdmOWQ5MzcxYzE1MmM3YTA5ZGVlNzZjMGJkZTc1YjM3NGQ3MTVlNWMxYzhiYWQ4NDg
 
-The Mochimo Beta Package is copyright 2018 Adequate Systems, LLC.  
 
+
+
+The Mochimo Beta Package is copyright 2018 Adequate Systems, LLC.  
 Please read the license file in the package for additional restrictions.
+
+Contact: support@mochimo.org
