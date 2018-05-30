@@ -1,5 +1,5 @@
 # mochimo
-Mochimo Project - Public Development Repository
+Mochimo Project - Open Beta Development Repository
 
 SUMMARY: The Mochimo Crypto Engine Beta Test code is a fully functional crypto currency network node with text-based wallet included.
 
