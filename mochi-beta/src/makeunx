@@ -1,0 +1,71 @@
+#!/bin/sh
+# Master makefile for Mochimo
+#
+# Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+# See LICENSE.TXT   **** NO WARRANTY ****
+#
+# Date: 25 December 2017
+# Revised 28 May 2018
+#
+# ****************       set the CC variable for your system:
+# Set compiler command
+# Edit config.h and edit next line if needed:
+export set CC="cc -DUNIXLIKE -DLONG64 $2 $3 $4 $5 $6 $7 $8 $9"
+# ****************
+if test ! -f mochimo.c
+then
+   echo "You need to be in mochi/src"
+   exit 1
+fi
+if [ $1 ]
+then
+echo
+else
+echo
+echo usage:
+echo "   makeunx bin       make all binary programs"
+echo "   makeunx install   copy binaries and run scripts to ../bin"
+echo
+exit 1
+fi
+if [ $1 = 'install' ]
+then
+echo moving binaries to ../bin
+cp genblock.bc tfile.dat maddr.dat coreip.lst ../bin
+mv mochimo bval bcon bup sortlt neogen txclean wallet bx ../bin
+cp gomochi resume ../bin
+echo
+exit
+fi
+#
+# Compile binaries
+#
+rm ccerror.log
+$CC -c sha256.c                    2>>ccerror.log
+#
+# Make WOTS+
+#
+cd wots
+$CC -c wots.c    2>>../ccerror.log
+cd ..
+$CC -c trigg/trigg.c   2>>ccerror.log
+echo Building Mochimo server...
+$CC -o mochimo mochimo.c trigg.o wots/wots.o sha256.o  2>>ccerror.log
+echo Building helper programs...
+$CC -o bval    bval.c    trigg.o wots/wots.o sha256.o  2>>ccerror.log
+$CC -o bcon    bcon.c    sha256.o  2>>ccerror.log
+$CC -o bup     bup.c     sha256.o  2>>ccerror.log
+$CC -o sortlt  sortlt.c  sha256.o  2>>ccerror.log
+$CC -o neogen  neogen.c  sha256.o  2>>ccerror.log
+$CC -o txclean txclean.c sha256.o  2>>ccerror.log
+$CC -o bx      bx.c trigg.o sha256.o  2>>ccerror.log
+$CC -o wallet wallet.c wots/wots.o sha256.o  2>>ccerror.log
+# show the errors if any:
+grep error: ccerror.log
+if [ -s ccerror.log ]
+then
+        echo Error messages are in ccerror.log
+        ls -l ccerror.log
+else
+        echo Build successful
+fi
