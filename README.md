@@ -11,7 +11,7 @@ tar -xzvf main-net-v1.4.tgz
 
 cd mochi
 
-more README
+more LICENSE.TXT
 
 
 JOIN THE COMMUNITY!
