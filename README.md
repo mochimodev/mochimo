@@ -1,3 +1,7 @@
+Update: Code version 1.6 will be posted shortly.  Temporarily removing the mining package to save peope the hassle of having to reinstall once we release the latest patch-level.
+
+Check back here soon, or join us on Discord for the latest news: https://discord.gg/J3qCEqb
+
 # mochimo
 Mochimo Project - Main Net Development Repository
 
@@ -7,7 +11,7 @@ RECOMMENDED HARDWARE/SOFTWARE: The included code is designed to be run on Ubuntu
 
 INSTRUCTIONS: Basic usage instructions for compiling can be found in the mochi directory included in the package.  The code will compile without issue on most Linux-based gcc compatible machines with a 64-bit long.  However please be aware that developer support for troubleshooting will be restricted to those users running the recommended configuration.  Please complete the following steps from your ubuntu machine after downloading the software:
 
-tar -xzvf main-net-v1.4.tgz
+tar -xzvf main-net-v1.6.tgz
 
 cd mochi
 
@@ -18,10 +22,7 @@ JOIN THE COMMUNITY!
 
 Please follow the below link to join in the discussion of mochimo with the rest of the developer and beta testing community:
 
-https://join.slack.com/t/mochimo/shared_invite/enQtMzA4NDc3NDU3MzY2LTUwOGExMmM1YWFmMzhiYzdmOWQ5MzcxYzE1MmM3YTA5ZGVlNzZjMGJkZTc1YjM3NGQ3MTVlNWMxYzhiYWQ4NDg
-
-
-
+https://discord.gg/J3qCEqb
 
 The Mochimo Main Net Package is copyright 2018 Adequate Systems, LLC.  
 Please read the license file in the package for additional restrictions.
