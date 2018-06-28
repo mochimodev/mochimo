@@ -1,6 +1,6 @@
-Update: Code version 1.6 will be posted shortly.  Temporarily removing the mining package to save peope the hassle of having to reinstall once we release the latest patch-level.
+Update: Code version 1.6 is live.
 
-Check back here soon, or join us on Discord for the latest news: https://discord.gg/J3qCEqb
+Join us on Discord for the latest news: https://discord.gg/J3qCEqb
 
 # mochimo
 Mochimo Project - Main Net Development Repository
