@@ -1,4 +1,4 @@
-Update: Code version 1.7 is live.
+Update: Code version 1.8 is live.
 
 Join us on Discord for the latest news: https://discord.gg/J3qCEqb
 
@@ -11,7 +11,7 @@ RECOMMENDED HARDWARE/SOFTWARE: The included code is designed to be run on Ubuntu
 
 INSTRUCTIONS: Basic usage instructions for compiling can be found in the mochi directory included in the package.  The code will compile without issue on most Linux-based gcc compatible machines with a 64-bit long.  However please be aware that developer support for troubleshooting will be restricted to those users running the recommended configuration.  Please complete the following steps from your ubuntu machine after downloading the software:
 
-tar -xzvf mochimo-main-net-v1.7.tgz
+tar -xzvf mochimo-main-net-v1.8.tgz
 
 cd mochi
 
