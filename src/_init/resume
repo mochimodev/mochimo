@@ -1,0 +1,53 @@
+#!/bin/sh
+#
+# Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+# See LICENSE.PDF   **** NO WARRANTY ****
+#
+# Resume Mochimo after a brief pause
+#
+trap "" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+trap ""  24 25 26 27 28 29 30 31
+trap "exit 0" term
+if test -z $1
+then
+  echo 'usage: resume data_dir [parameter...]'
+  exit 1
+fi
+if test ! -f mochimo
+then
+   echo "Please cd to binary directory: no mochimo found."
+   exit 1
+fi
+if test ! -d $1/bc
+then
+   echo "no $1/bc directory!"
+   exit 1
+fi
+cd $1
+# We are in d/ now
+echo copy mining address
+cp ../maddr.dat .
+cp ../coreip.lst .
+while true
+do
+echo leave files in place
+#../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
+../mochimo -x345678 -e  -p2095 -q4 -l -t3 -F -f -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+if test $? -eq 0
+then
+   echo Resume paused system with ./resume
+   exit 0
+fi
+rm -f cblock.dat mblock.dat miner.tmp
+echo remove some files...
+rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
+rm -f mq.dat mirror.dat
+echo copy some files...
+cp ../genblock.bc bc/b0000000000000000.bc
+cp ../tfile.dat .
+touch mq.lck
+echo wait...
+sleep 1
+rm -f cblock.dat mblock.dat miner.tmp
+# RESTART
+done

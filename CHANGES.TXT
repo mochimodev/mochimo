@@ -1,0 +1,46 @@
+/*
+ * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * See LICENSE.PDF   **** NO WARRANTY ****
+ *
+ */
+
+Patch Level 31 (Mochimo Version 2.0)
+
+October 27th, 2018
+
+CHANGELOG
+
+added new open source license
+removed default maddr.dat
+update system version number to 2
+added trigger block for new weight calculation as 17185 (0x4321)
+added trigger block for new reward calculation as 17185 (0x4321)
+added trigger block for new difficulty calculation as 17185 (0x4321)
+added trigger block for tag system validation checks as 17185 (0x4321)
+added dynamic start nodes list download from mochimap.net
+added tag.c, tag related fixes throughout
+updated default coreip.lst
+reorganized source code distro in prep for Github
+removed txq1.lck (process_tx() is now synchronous)
+added wallet Build 31 with tag support
+Adjusted TXVAL to insist src addresses must fully spent
+Enabled balance forwarding to change address
+bup.c: patch a bunch of stuff
+bup.c: balances debit '-' first, then credit 'A'.
+bval.c: trancodes: '-' and 'A'.
+bval.c: enforces no tag on bh.maddr.
+bval.c: tag mods
+bval.c: and init.c: permanent future time fix.
+bupdata.c: new set_difficulty() with preset trigger.
+bupdata.c: new set_difficulty() block trigger = 16383
+gomochi: sleep set to 1 second.
+gomochi: added dynamic startnodes.lst download
+init.c: new add_weight() improved block weight fork on block trigger
+init.c: new add_weight() -DNEWWEIGHT forks chain on block trigger
+init.c: get_eon(): timeout set to 180.
+init.c: modified read_coreipl() and init_coreipl().
+data.c: #define CORELISTLEN 16
+gettx.c: added contention(), catchup(), and bval2()
+server.c: removed LULL timer
+txclean.c: fixed unlink(argv[1]) bug.
+util.c: new get_mreward() on block trigger

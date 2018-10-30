@@ -1,0 +1,106 @@
+#!/bin/sh
+# Master makefile for Mochimo
+#
+# Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+# See LICENSE.PDF   **** NO WARRANTY ****
+#
+# Date: 25 December 2017
+# Revised 17 May 2018
+#
+# ****************       set the CC variable for your system:
+# Set compiler command
+# Edit config.h and edit next line if needed:
+export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib -L/usr/local/cuda-9.2/lib64 $2 $3 $4 $5 $6 $7 $8 $9"
+export set LD_FLAGS="-lcudart -lcuda -lstdc++"
+export set NVCC="nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
+# ****************
+if test ! -f mochimo.c
+then
+   echo "You need to be in mochi/src"
+   exit 1
+fi
+if [ $1 ]
+then
+echo
+else
+echo
+echo usage:
+echo "   makeunx bin       make all binary programs"
+echo "   makeunx install   copy binaries and run scripts to ../bin"
+echo "   makeunx clean     remove object files and log files"
+echo "   makeunx uninstall remove files from mochi/bin directory tree"
+echo
+exit 1
+fi
+if [ $1 = 'uninstall' ]
+then
+echo Uninstalling The Mochimo System Software...
+echo
+cd ../bin
+if test ! -d d/bc
+then
+   echo "Cannot find mochi/bin/ directory"
+   exit 1
+fi
+rm genblock.bc tfile.dat maddr.dat coreip.lst
+rm mochimo bval bcon bup sortlt neogen txclean wallet
+rm gomochi resume
+rm d/bc/* d/*
+du -d 3
+echo Uninstalled.
+exit
+fi
+if [ $1 = 'install' ]
+then
+echo moving binaries to ../bin
+cp _init/* ../bin
+mv mochimo bval bcon bup sortlt neogen txclean wallet ../bin
+echo
+exit
+fi
+if [ $1 = 'clean' ]
+then
+echo Remove executable modules . . .
+rm bcon bup bval mochimo sortlt
+rm genblock wallet neogen txclean
+echo Remove object files . . .
+rm crypto/sha256.o crypto/wots/wots.o trigg/trigg.o trigg/cuda_trigg.o
+echo Remove log files . . .
+rm *.log
+echo
+exit
+fi
+#
+# Compile binaries
+#
+rm -f ccerror.log
+cd crypto
+$CC -c sha256.c $LD_FLAGS                    2>>ccerror.log
+#
+# Make WOTS+
+#
+cd wots
+$CC -c wots.c  $LD_FLAGS  2>>../ccerror.log
+cd ../../trigg
+$CC -c trigg.c $LD_FLAGS  2>>ccerror.log
+$NVCC -c cuda_trigg.cu $LD_FLAGS 2>>ccerror.log
+cd ..
+echo Building Mochimo server...
+$CC -o mochimo mochimo.c trigg/trigg.o crypto/wots/wots.o crypto/sha256.o trigg/cuda_trigg.o $LD_FLAGS 2>>ccerror.log
+echo Building helper programs...
+$CC -o bval    bval.c    trigg/trigg.o crypto/wots/wots.o crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+$CC -o bcon    bcon.c    crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+$CC -o bup     bup.c     crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+$CC -o sortlt  sortlt.c  crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+$CC -o neogen  neogen.c  crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+$CC -o txclean txclean.c crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+$CC -o wallet wallet.c crypto/wots/wots.o crypto/sha256.o $LD_FLAGS 2>>ccerror.log
+# show the errors:
+if [ -s ccerror.log ]
+then
+   grep error: ccerror.log
+   echo Error messages are in ccerror.log
+   ls -l ccerror.log
+else
+   echo No errors.
+fi
