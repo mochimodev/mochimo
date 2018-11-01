@@ -1,0 +1,13 @@
+/bin/
+
+/src/**/ccerror.log
+/src/**/*.o
+
+/src/bcon
+/src/bup
+/src/bval
+/src/mochimo
+/src/neogen
+/src/sortlt
+/src/txclean
+/src/wallet
