@@ -11,3 +11,8 @@
 /src/sortlt
 /src/txclean
 /src/wallet
+
+
+#eclipse cpp
+/src/.cproject
+/src/.project
