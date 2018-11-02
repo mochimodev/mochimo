@@ -46,7 +46,9 @@
 #include "daemon.c"
 #include "bupdata.c"    /* for block updates               */
 #include "str2ip.c"
+#ifndef NO_CUDA
 #include "miner.c"
+#endif
 #include "update.c"
 #include "init.c"       /* read Coreplist[] and get_eon()  */
 #include "server.c"     /* tcp server                      */

@@ -192,7 +192,9 @@ int server(void)
          /* append txq1.dat to txclean.dat */
          system("cat txq1.dat >>txclean.dat 2>/dev/null");
          unlink("txq1.dat");
+         #ifndef NO_CUDA
          stop_miner();  /* pause miner during block construction */
+         #endif
          if(Trace)
             plog("spawning bcon with %d more transactions", Txcount);
          Txcount = 0;  /* txq1.dat is empty now */
@@ -216,7 +218,9 @@ int server(void)
          if(pid > 0) {
             Bcpid = 0;  /* pid not zero means she is done. */
             printf("Solving...\n");
+            #ifndef NO_CUDA
             start_miner();  /* start or re-start miner */
+            #endif
          }
       }
       /* bcon sequence will wait on miner if Txcount > 0,

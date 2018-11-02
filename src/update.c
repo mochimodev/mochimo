@@ -108,7 +108,9 @@ int update(char *fname, int mode)
       if(mode == 0) unlink("mblock.dat");
       Bcpid = 0;
    }
+   #ifndef NO_CUDA
    stop_miner();
+   #endif
 
    /* wait for send_found() to exit */
    if(Sendfound_pid) {
