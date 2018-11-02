@@ -1244,7 +1244,7 @@ int get_tag(byte *addr, byte found[1])
    if(tx.send_total[0])
    {
 	   /* check if the tag on resolved address is the one we asked */
-	   if(memcmp(ADDR_TAG_PTR(addr), ADDR_TAG_PTR(tx.dst_addr)) != 0)
+	   if(memcmp(ADDR_TAG_PTR(addr), ADDR_TAG_PTR(tx.dst_addr), ADDR_TAG_LEN) != 0)
 	   {
 		   found[0] = 0;
 		   return VERROR;
