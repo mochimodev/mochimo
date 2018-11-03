@@ -1,5 +1,8 @@
 /bin/
 
+#ignore miner workspace
+d
+
 /src/**/ccerror.log
 /src/**/*.o
 
