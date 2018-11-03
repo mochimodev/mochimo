@@ -9,7 +9,7 @@ NVCC=nvcc -DLONG64 --generate-code arch="compute_37,code=\"sm_37,compute_37\""
 LDFLAGS=-lcudart -lcuda -lstdc++
 EXEC=mochimo bval bcon bup sortlt neogen txclean wallet
 SOURCE_FOLDER=./
-BIN_FOLDER=../
+BIN_FOLDER=../bin/
 OBJ_FOLDER=obj/Debug
 
 all: $(EXEC)
