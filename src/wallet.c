@@ -967,20 +967,23 @@ void delete_windex(void)
 int read_wheader(WHEADER *whdr)
 {
    FILE *fp;
-   static byte salt[4];
-
-   /* open and read wallet header */
    fp = fopen2(Wfname, "rb", 1);
    if(fread(whdr, 1, sizeof(WHEADER), fp) != sizeof(WHEADER))
       fatal("Cannot read %s", Wfname);
    fclose(fp);
-   /* decrypt it now */
+   return 0;
+}  /* end read_wheader() */
+
+
+int decrypt_wheader(WHEADER *whdr)
+{
+   static byte salt[4];
    shy_setkey(&Xo4ctx, salt, (byte *) Password, PASSWLEN);
    xo4_crypt(&Xo4ctx, &Whdr, &Whdr, sizeof(WHEADER));
    unfuzzname(Whdr.name, 25);
    printf("Loaded wallet '%-1.25s' from %s\n", Whdr.name, Wfname);
    return 0;
-}  /* end read_wheader() */
+}  /* end decrypt_wheader() */
 
 
 /* Read a wallet address entry and de-crypt to entry.
@@ -2196,10 +2199,11 @@ int main(int argc, char **argv)
    if(newflag) init_wallet(&Whdr);
    else if(argv[j]) {
       strncpy(Wfname, argv[j], WFNAMELEN-1);
+      read_wheader(&Whdr);
       printf("Password:\n");
       tgets(Password, PASSWLEN);
       CLEARSCR();
-      read_wheader(&Whdr);
+      decrypt_wheader(&Whdr);
       printf("Press RETURN to continue or ctrl-c to cancel...\n");
       getchar();
       mainmenu();
