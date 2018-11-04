@@ -1243,6 +1243,17 @@ int get_tag(byte *addr, byte found[1])
       found[0] = 0;
       return VERROR;
    }
+
+   if(tx.send_total[0])
+   {
+	   /* check if the tag on resolved address is the one we asked */
+	   if(memcmp(ADDR_TAG_PTR(addr), ADDR_TAG_PTR(tx.dst_addr), ADDR_TAG_LEN) != 0)
+	   {
+		   found[0] = 0;
+		   return VERROR;
+	   }
+   }
+
    memcpy(addr, tx.dst_addr, TXADDRLEN);
    found[0] = tx.send_total[0];  /* 1 if found, else 0 */
    return VEOK;

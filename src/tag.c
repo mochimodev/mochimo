@@ -109,7 +109,7 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, int checkq, byte *
 
    unsigned long tagval_trigger = 0;
    if(checkq == 0 && bnum != NULL) {
-      tagval_trigger = 17185; /* For v2.0 */
+      tagval_trigger = RTRIGGER31; /* For v2.0 */
    }
    if(*((unsigned long *) bnum) >= tagval_trigger){
    /* Ignore the below check prior to block 0x4000...

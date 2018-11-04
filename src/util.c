@@ -531,7 +531,7 @@ void get_mreward(word32 *reward, word32 *bnum)
    static word32 delta3[2] = { 28488, 0 };      /* decrement */ 
 
    if(cmp64(bnum, t1) < 0) {
-      /* bnum < 16383 */
+      /* bnum < 17185 */
       if(sub64(bnum, One, bnum2)) goto noreward;
       mult64(delta, bnum2, reward);
       add64(reward, base1, reward);
