@@ -24,7 +24,7 @@ word32 set_difficulty(word32 difficulty, int seconds, word32 stime, byte *bnum)
 
    /* Change DTRIGGER31 to a non-NG block number trigger for new algorithm. */
    static word32 trigger_block[2] = { DTRIGGER31, 0 };
-
+   static word32 fix_trigger[2] = { 17697, 0 };
    if(seconds < 0) return difficulty;
    if(cmp64(bnum, trigger_block) < 0){ 
       hash = 0; 
@@ -33,7 +33,7 @@ word32 set_difficulty(word32 difficulty, int seconds, word32 stime, byte *bnum)
    }
    else
       hash = (stime >> 6) ^ stime;
-
+   if(cmp64(bnum, fix_trigger) > 0) hash = 0;
    if(seconds > highsolve) {
       if(difficulty > 0) difficulty--;
       if(difficulty > 0 && (hash & 1)) difficulty--;
