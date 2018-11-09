@@ -7,12 +7,13 @@
  *
  * Date: 13 January 2018
  *
-*/
+ */
 
 #include <inttypes.h>
 
-extern int gpu_count_cuda();
-extern char *trigg_generate_cuda(byte *mroot, byte difficulty, byte *blockNumber, uint32_t threads, int gpucount);
+extern int trigg_init_cuda(byte difficulty, byte *blockNumber);
+extern void trigg_free_cuda();
+extern char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku);
 
 /* miner blockin blockout -- child process */
 int miner(char *blockin, char *blockout)
@@ -23,9 +24,9 @@ int miner(char *blockin, char *blockout)
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
    char *haiku;
    time_t htime;
-   unsigned long hcount, hps, total_hcount;
+   unsigned long long hcount, hps;
    word32 temp[3];
-   int gpucount;
+   int initGPU = 0;
 
    /* Keep a separate rand2() sequence for miner child */
    if(read_data(&temp, 12, "mseed.dat") == 12)
@@ -71,33 +72,29 @@ int miner(char *blockin, char *blockout)
        */
       trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
 
-      /*
-       * First GPU - Do this once per thread
-       */
-
-      gpucount = gpu_count_cuda();
+      /* Initialize CUDA specific memory allocations */
+      initGPU = trigg_init_cuda(bt.difficulty[0], bt.bnum);
+      if(initGPU<1 || initGPU>64) {
+         error("miner: unsupported number of GPUs detected -> %d",initGPU);
+         break;
+      }
 
       /* Traverse all TRIGG links to build the
        * solution chain with trigg_generate()...
        */
 
-      uint32_t threads = 600047615;
-      uint64_t total_hcount = 0;
-
-      for(;;){
-         if(threads % gpucount == 0) break;
-         threads--;
-      }
-      threads = threads / gpucount;
-      for(htime = time(NULL), hcount = 0; ; hcount++) {
+      for(htime = time(NULL), hcount = 0; ; ) {
          if(!Running) break;
-         haiku = trigg_generate_cuda(bt.mroot, bt.difficulty[0], bt.bnum, threads, gpucount);
-         total_hcount += threads * gpucount;
+         haiku = trigg_generate_cuda(bt.mroot, &hcount); 
          if(haiku != NULL) break;
       }
+
+      /* Free CUDA specific memory allocations */
+      trigg_free_cuda();
+
       htime = time(NULL) - htime;
       if(htime == 0) htime = 1;
-      hps = total_hcount / htime;
+      hps = hcount / htime;
       write_data(&hps, 8, "hps.dat");  /* unsigned long haiku per second */
       if(!Running) break;
 
