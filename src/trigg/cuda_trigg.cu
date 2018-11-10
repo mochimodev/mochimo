@@ -430,16 +430,9 @@ byte *diff;
 byte *bnum;
 int nGPU = 0;
 
-__host__ int gpu_count_cuda()
-{
-     int gpu_n = 0;
-     cudaGetDeviceCount(&gpu_n);
-     return gpu_n;
-}
-
 __host__ int trigg_init_cuda(byte difficulty, byte *blockNumber) {
     /* Obtain and check system GPU count */
-    nGPU = gpu_count_cuda();
+    cudaGetDeviceCount(&nGPU);
     if(nGPU<1 || nGPU>64) return nGPU;
     /* Allocate pinned host memory */
     cudaMallocHost(&diff, 1);
@@ -527,16 +520,16 @@ __host__ char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku)
 
         /* GPU is done. NO SOLVE || *ctx[i].found == 0 */
         if(*ctx[i].found<1) {
-            /* Set GPU waiting status and add to haiku count */
-            *nHaiku += threads;
-            *ctx[i].found = -1;
-
             /* Start new GPU round */
             cudaSetDevice(i);
             cudaMemcpyToSymbolAsync(c_midstate256, ctx[i].midstate, 32, 0, cudaMemcpyHostToDevice);
             cudaMemcpyToSymbolAsync(c_input32, ctx[i].input, 32, 0, cudaMemcpyHostToDevice);
             trigg<<<grid, block>>>(threads, ctx[i].d_found, ctx[i].d_seed);
             cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+
+            /* Set GPU waiting status and add to haiku count */
+            *nHaiku += threads;
+            *ctx[i].found = -1;
 
             /* Store round vars aside for checks next loop */
             memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
@@ -546,7 +539,6 @@ __host__ char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku)
         }
 
         /* GPU is done. SOLVED! || *ctx[i].found == 1 */
-        *nHaiku += threads;
         cudaSetDevice(i);
         cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
         memcpy(mroot + 32, ctx[i].curr_seed, 16);
