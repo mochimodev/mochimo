@@ -639,7 +639,6 @@ int callserver(NODE *np, word32 ip, char *addrstr)
       if(addrstr == NULL) Nextcore++;
       addrstr = NULL;
    }
-   Nextcore++;
    if(np->sd == INVALID_SOCKET) {
       Nextcore = 0;
       return VERROR;
@@ -654,6 +653,7 @@ int callserver(NODE *np, word32 ip, char *addrstr)
 bad:
       closesocket(np->sd);
       np->sd = INVALID_SOCKET;
+      Nextcore++;
       return VERROR;
    }
    np->id2 = get16(np->tx.id2);
