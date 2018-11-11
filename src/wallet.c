@@ -2188,15 +2188,12 @@ void mainmenu(void)
       if(read_coreipl(Corefile) != VEOK) {
          if(!Peeraddr || !*Peeraddr)
             printf("Cannot open %s... Defaulting to Localhost*\n"
-                   "*If you aren't running a Mochimo node on this machine, the\n"
-                   " wallet will not operate correctly.\n", Corefile);
-      } else printf("%s loaded...\n", Corefile);
+                   "NOTE: If you aren't running a Mochimo node on this machine,\n"
+                   "      the wallet will not operate correctly.\n", Corefile);
+      } else if(Verbose) printf("%s loaded...\n", Corefile);
    }
-   if(Peeraddr && *Peeraddr)
+   if(Peeraddr && *Peeraddr && Verbose)
       printf("Prioritising %s for connection...\n", Peeraddr);
-#ifndef DEBUG
-   shuffle32(Coreplist, CORELISTLEN);
-#endif
 
    query_all();  /* check all old balances */
    display_wallet(0, 0);
@@ -2286,10 +2283,6 @@ int main(int argc, char **argv)
    }  /* end for j */
 
    srand16(time(NULL));
-
-#ifndef DEBUG
-   shuffle32(Coreplist, CORELISTLEN);
-#endif
 
    if(newflag) init_wallet(&Whdr);
    else if(argv[j]) {
