@@ -1213,6 +1213,10 @@ int ext_addr(unsigned idx)
 
    entry = &entryst;
    if(idx == 0) {
+      if(Nindex == 0) {
+         printf("\nNo addresses to export.\n");
+         return VERROR;
+      }
       printf("Export address index (1-%d): ", Nindex);
       tgets(buff, 80);
       idx = atoi(buff);
@@ -1644,6 +1648,10 @@ int delete_addr(void)
    int ecode;
    WENTRY entry;
 
+   if(Nindex == 0) {
+      printf("\nNo addresses to delete.\n");
+      return VERROR;
+   }
    printf("Delete address index (1-%d): ", Nindex);
    tgets(lbuff, 80);
    idx = atoi(lbuff);
@@ -2029,6 +2037,10 @@ int edit_name(void)
    int ecode;
    WENTRY entry;
 
+   if(Nindex == 0) {
+      printf("\nNo addresses to edit.\n");
+      return VERROR;
+   }
    printf("Change address name.\nindex (1-%d): ", Nindex);
    tgets(lbuff, 100);
    idx = atoi(lbuff);
@@ -2075,6 +2087,10 @@ int display_hex(void)
    int ecode;
    WENTRY entry;
 
+   if(Nindex == 0) {
+      printf("\nNo addresses to display.\n");
+      return VERROR;
+   }
    printf("Display address in hexadecimal.\nindex (1-%d): ", Nindex);
    tgets(lbuff, 100);
    idx = atoi(lbuff);
