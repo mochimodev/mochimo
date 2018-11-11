@@ -76,7 +76,7 @@ int tag_qfind(byte *addr)
  * full address to foundaddr.
  * Return VEOK if tag found, else VERROR.
  */
-int tag_find(byte *addr, byte *foundaddr)
+int tag_find(byte *addr, byte *foundaddr, byte *balance)
 {
    FILE *fp;
    byte *tag;
@@ -87,8 +87,14 @@ int tag_find(byte *addr, byte *foundaddr)
    tag = ADDR_TAG_PTR(addr);
    for(;;) {
       if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY)) break;
-      if(memcmp(tag, ADDR_TAG_PTR(le.addr), ADDR_TAG_LEN) == 0) {
-         memcpy(foundaddr, le.addr, TXADDRLEN);
+      if(memcmp(tag, ADDR_TAG_PTR(le.addr), ADDR_TAG_LEN) == 0)
+      {
+    	  memcpy(foundaddr, le.addr, TXADDRLEN);
+         if(balance != NULL)
+         {
+        	 memcpy(balance, le.balance, TXAMOUNT);
+         }
+
          fclose(fp);
          return VEOK;  /* found */
       }
@@ -142,7 +148,7 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, int checkq, byte *
    /* Otherwise, check all queues and ledger.dat for change tag.
     * First, if change tag is in ledger.dat, tx is invalid.
     */
-   if(tag_find(chg_addr, le.addr) == VEOK) {
+   if(tag_find(chg_addr, le.addr, NULL) == VEOK) {
       plog("New CHG_TAG Already Exists in Ledger!");
       goto bad;
    }
@@ -183,13 +189,16 @@ int tag_resolve(NODE *np)
 {
    byte foundaddr[TXADDRLEN];
    static byte zeros[8];
+   byte balance[TXAMOUNT];
    int status, ecode = VERROR;
 
    put64(np->tx.send_total, zeros);
-   status = tag_find(np->tx.dst_addr, foundaddr);  /* in legger.dat */
+   status = tag_find(np->tx.dst_addr, foundaddr, balance);  /* in legger.dat */
    if(status == VEOK) {
       memcpy(np->tx.dst_addr, foundaddr, TXADDRLEN);
+      memcpy(np->tx.change_total, balance, TXAMOUNT);
       put64(np->tx.send_total, One);
+
       ecode = VEOK;
    }
    send_op(np, OP_RESOLVE);
