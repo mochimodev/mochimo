@@ -247,123 +247,121 @@ __constant__ static int Z_INGINF[32] = {18,19,20,21,22,25,26,27,28,29,30,36,37,3
 __constant__ static int Z_TIME[16] = {82,83,84,85,86,87,88,243,249,250,251,252,253,254,255,253}; /* Confirmed */
 __constant__ static int Z_INGADJ[64]  = {18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,23,24,31,32,33,34,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92};/* Confirmed */
 
-__global__ void trigg(uint32_t threads, uint32_t startNonce, int *g_found, uint8_t *g_seed, int gpucount)
+__global__ void trigg(uint32_t threads, int *g_found, uint8_t *g_seed)
 {
  const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
- const uint32_t mGPU = gpucount * threads; /*mGPU Starting Nonce Per Device */
- const uint32_t nonce = thread + mGPU;
  uint8_t seed[16] = {0};
  uint32_t input[16], state[8];
 
- if (thread < threads) {
+ if (thread <= threads) {
 
-   if(0 < nonce <= 131071) { /* Total Permutations, this frame: 131,072 */
-	seed[ 0] = Z_PREP[(nonce & 7)];  
-	seed[ 1] = Z_TIMED[(nonce >> 3) & 7]; 
+   if(0 < thread <= 131071) { /* Total Permutations, this frame: 131,072 */
+	seed[ 0] = Z_PREP[(thread & 7)];  
+	seed[ 1] = Z_TIMED[(thread >> 3) & 7]; 
 	seed[ 2] = 1;
         seed[ 3] = 5; 
-	seed[ 4] = Z_NS[(nonce >> 6) & 63]; 
+	seed[ 4] = Z_NS[(thread >> 6) & 63]; 
 	seed[ 5] = 1;
-        seed[ 6] = Z_ING[(nonce >> 12) & 31];
+        seed[ 6] = Z_ING[(thread >> 12) & 31];
    }
-   if(131071 < nonce <= 262143) { /* Total Permutations, this frame: 131,072 */
-	seed[ 0] = Z_TIME[(nonce & 15)]; 
-	seed[ 1] = Z_MASS[(nonce >> 4) & 31]; 
+   if(131071 < thread <= 262143) { /* Total Permutations, this frame: 131,072 */
+	seed[ 0] = Z_TIME[(thread & 15)]; 
+	seed[ 1] = Z_MASS[(thread >> 4) & 31]; 
 	seed[ 2] = 1;
-        seed[ 3] = Z_INF[(nonce >> 9) & 15]; 
+        seed[ 3] = Z_INF[(thread >> 9) & 15]; 
 	seed[ 4] = 9; 
 	seed[ 5] = 2; 
 	seed[ 6] = 1;
-        seed[ 7] = Z_AMB[(nonce >> 13) & 15];
+        seed[ 7] = Z_AMB[(thread >> 13) & 15];
    }
-   if(262143 < nonce <= 4456447) { /* Total Permutations, this frame: 4,194,304 */
-	seed[ 0] = Z_PREP[(nonce & 7)]; 
-	seed[ 1] = Z_TIMED[(nonce >> 3) & 7]; 
+   if(262143 < thread <= 4456447) { /* Total Permutations, this frame: 4,194,304 */
+	seed[ 0] = Z_PREP[(thread & 7)]; 
+	seed[ 1] = Z_TIMED[(thread >> 3) & 7]; 
 	seed[ 2] = 1;
-        seed[ 3] = Z_ADJ[(nonce >> 6) & 63]; 
-	seed[ 4] = Z_NPL[(nonce >> 12) & 31];
+        seed[ 3] = Z_ADJ[(thread >> 6) & 63]; 
+	seed[ 4] = Z_NPL[(thread >> 12) & 31];
 	seed[ 5] = 1;
-        seed[ 6] = Z_INGINF[(nonce >> 17) & 31];
+        seed[ 6] = Z_INGINF[(thread >> 17) & 31];
    }
-   if(4456447 < nonce <= 12845055) { /* Total Permutations, this frame: 8,388,608 */
+   if(4456447 < thread <= 12845055) { /* Total Permutations, this frame: 8,388,608 */
 	seed[ 0] = 5; 
-	seed[ 1] = Z_NS[(nonce & 63)]; 
+	seed[ 1] = Z_NS[(thread & 63)]; 
 	seed[ 2] = 1;
-        seed[ 3] = Z_PREP[(nonce >> 6) & 7];
-	seed[ 4] = Z_TIMED[(nonce >> 9) & 7];
-	seed[ 5] = Z_MASS[(nonce >> 12) & 31]; 
+        seed[ 3] = Z_PREP[(thread >> 6) & 7];
+	seed[ 4] = Z_TIMED[(thread >> 9) & 7];
+	seed[ 5] = Z_MASS[(thread >> 12) & 31]; 
 	seed[ 6] = 3; 
 	seed[ 7] = 1;
-        seed[ 8] = Z_ADJ[(nonce >> 17) & 63];
+        seed[ 8] = Z_ADJ[(thread >> 17) & 63];
    }
-   if(12845055 < nonce <= 29622271) { /* Total Permutations, this frame: 16,777,216 */
-	seed[ 0] = Z_PREP[nonce & 7];
-	seed[ 1] = Z_ADJ[(nonce >> 3) & 63];
-	seed[ 2] = Z_MASS[(nonce >> 9) & 31];
+   if(12845055 < thread <= 29622271) { /* Total Permutations, this frame: 16,777,216 */
+	seed[ 0] = Z_PREP[thread & 7];
+	seed[ 1] = Z_ADJ[(thread >> 3) & 63];
+	seed[ 2] = Z_MASS[(thread >> 9) & 31];
 	seed[ 3] = 1;
-        seed[ 4] = Z_NPL[(nonce >> 14) & 31];
+        seed[ 4] = Z_NPL[(thread >> 14) & 31];
 	seed[ 5] = 1;
-        seed[ 6] = Z_INGINF[(nonce >> 19) & 31];
+        seed[ 6] = Z_INGINF[(thread >> 19) & 31];
    }
-   if(29622271 < nonce <= 46399487) { /* Total Permutations, this frame: 16,777,216 */
-	seed[ 0] = Z_PREP[(nonce & 7)];  
-	seed[ 1] = Z_MASS[(nonce >> 3) & 31]; 
+   if(29622271 < thread <= 46399487) { /* Total Permutations, this frame: 16,777,216 */
+	seed[ 0] = Z_PREP[(thread & 7)];  
+	seed[ 1] = Z_MASS[(thread >> 3) & 31]; 
 	seed[ 2] = 1;
-        seed[ 3] = Z_ADJ[(nonce >> 8) & 63]; 
-	seed[ 4] = Z_NPL[(nonce >> 14) & 31];  
+        seed[ 3] = Z_ADJ[(thread >> 8) & 63]; 
+	seed[ 4] = Z_NPL[(thread >> 14) & 31];  
 	seed[ 5] = 1;
-        seed[ 6] = Z_INGINF[(nonce >> 19) & 31];
+        seed[ 6] = Z_INGINF[(thread >> 19) & 31];
    }
-   if(46399487 < nonce <= 63176703) { /* Total Permutations, this frame: 16,777,216 */
-	seed[ 0] = Z_TIME[(nonce & 15)]; 
-	seed[ 1] = Z_AMB[(nonce >> 4) & 15]; 
+   if(46399487 < thread <= 63176703) { /* Total Permutations, this frame: 16,777,216 */
+	seed[ 0] = Z_TIME[(thread & 15)]; 
+	seed[ 1] = Z_AMB[(thread >> 4) & 15]; 
 	seed[ 2] = 1;
-        seed[ 3] = Z_ADJ[(nonce >> 8) & 63]; 
-	seed[ 4] = Z_MASS[(nonce >> 14) & 31]; 
+        seed[ 3] = Z_ADJ[(thread >> 8) & 63]; 
+	seed[ 4] = Z_MASS[(thread >> 14) & 31]; 
 	seed[ 5] = 1;
-        seed[ 6] = Z_ING[(nonce >> 19) & 31];
+        seed[ 6] = Z_ING[(thread >> 19) & 31];
    }
-   if(63176703 < nonce <= 600047615 ) { /* Total Permutations, this frame: 536,870,912 */
-	seed[ 0] = Z_TIME[(nonce & 15)]; 
-	seed[ 1] = Z_AMB[(nonce >> 4) & 15]; 
+   if(63176703 < thread <= 600047615 ) { /* Total Permutations, this frame: 536,870,912 */
+	seed[ 0] = Z_TIME[(thread & 15)]; 
+	seed[ 1] = Z_AMB[(thread >> 4) & 15]; 
 	seed[ 2] = 1;
-        seed[ 3] = Z_PREP[(nonce >> 8) & 7];
+        seed[ 3] = Z_PREP[(thread >> 8) & 7];
 	seed[ 4] = 5; 
-	seed[ 5] = Z_ADJ[(nonce >> 11) & 63]; 
-	seed[ 6] = Z_NS[(nonce >> 17) & 63]; 
+	seed[ 5] = Z_ADJ[(thread >> 11) & 63]; 
+	seed[ 6] = Z_NS[(thread >> 17) & 63]; 
 	seed[ 7] = 3;
 	seed[ 8] = 1;
-        seed[ 9] = Z_INGADJ[(nonce >> 23) & 63];
+        seed[ 9] = Z_INGADJ[(thread >> 23) & 63];
    }
 /* Below Two Frames are Valid, But Require 64-Bit Math: if extra entropy req'd.
-   if( < nonce <= ) { /* Total Permutations, this frame: 549,755,813,888
-	seed[ 0] = Z_ING[(nonce & 31)]; 
-	seed[ 1] = Z_PREP[(nonce << 5) & 7];
-	seed[ 2] = Z_TIME[(nonce << 8) & 15]; 
-	seed[ 3] = Z_MASS[(nonce << 12) & 31]; 
+   if( < thread <= ) { /* Total Permutations, this frame: 549,755,813,888
+	seed[ 0] = Z_ING[(thread & 31)]; 
+	seed[ 1] = Z_PREP[(thread << 5) & 7];
+	seed[ 2] = Z_TIME[(thread << 8) & 15]; 
+	seed[ 3] = Z_MASS[(thread << 12) & 31]; 
 	seed[ 4] = 1;
-        seed[ 5] = Z_MASS[(nonce << 17) & 31]; 
-	seed[ 6] = Z_ING[(nonce << 22) & 31];  
+        seed[ 5] = Z_MASS[(thread << 17) & 31]; 
+	seed[ 6] = Z_ING[(thread << 22) & 31];  
 	seed[ 7] = 3; 
 	seed[ 8] = 1;
         seed[ 9] = 5; 
-	seed[10] = Z_ADJ[(nonce << 27) & 63];
-	seed[11] = Z_NS[(nonce << 33) & 63];
+	seed[10] = Z_ADJ[(thread << 27) & 63];
+	seed[11] = Z_NS[(thread << 33) & 63];
    }
-   if( < nonce <= ) { /* Total Permutations, this frame: 4,398,046,511,104
-	seed[ 0] = Z_ING[(nonce & 31)]; 
-	seed[ 1] = Z_PREP[(nonce << 5) & 7]; 
+   if( < thread <= ) { /* Total Permutations, this frame: 4,398,046,511,104
+	seed[ 0] = Z_ING[(thread & 31)]; 
+	seed[ 1] = Z_PREP[(thread << 5) & 7]; 
 	seed[ 2] = 5; 
-	seed[ 3] = Z_ADJ[(nonce << 8) & 63]; 
-	seed[ 4] = Z_NS[(nonce << 14) & 63]; 
+	seed[ 3] = Z_ADJ[(thread << 8) & 63]; 
+	seed[ 4] = Z_NS[(thread << 14) & 63]; 
 	seed[ 5] = 1;
-        seed[ 6] = Z_MASS[(nonce << 19) & 31]; 
-	seed[ 7] = Z_ING[(nonce << 24) & 31];  
+        seed[ 6] = Z_MASS[(thread << 19) & 31]; 
+	seed[ 7] = Z_ING[(thread << 24) & 31];  
 	seed[ 8] = 3; 
 	seed[ 9] = 1;
         seed[10] = 5; 
-	seed[11] = Z_ADJ[(nonce << 30) & 63]; 
-	seed[12] = Z_NS[(nonce << 36) & 63];
+	seed[11] = Z_ADJ[(thread << 30) & 63]; 
+	seed[12] = Z_NS[(thread << 36) & 63];
    }
 End 64-bit Frames */
 
@@ -412,18 +410,79 @@ End 64-bit Frames */
     }
 }
 
-typedef struct __trigg_cuda_ctx {
-    int *d_found;
-    uint8_t *d_seed;
-} TriggCudaCTX;
-
 extern "C" {
 
-__host__ int gpu_count_cuda()
-{
-     int gpu_n;
-     cudaGetDeviceCount(&gpu_n);
-     return gpu_n;
+typedef struct __trigg_cuda_ctx {
+    byte curr_seed[16], next_seed[16];
+    char cp[256], *next_cp;
+    int *found, *d_found;
+    uint8_t *seed, *d_seed;
+    uint32_t *midstate, *input;
+} TriggCudaCTX;
+
+/* Max 64 GPUs Supported */
+TriggCudaCTX ctx[64];
+int threads = 600047615;
+dim3 grid(585984);
+dim3 block(1024);
+char *nullcp = '\0';
+byte *diff;
+byte *bnum;
+int nGPU = 0;
+
+__host__ int trigg_init_cuda(byte difficulty, byte *blockNumber) {
+    /* Obtain and check system GPU count */
+    cudaGetDeviceCount(&nGPU);
+    if(nGPU<1 || nGPU>64) return nGPU;
+    /* Allocate pinned host memory */
+    cudaMallocHost(&diff, 1);
+    cudaMallocHost(&bnum, 8);
+    /* Copy immediate block data to pinned memory */
+    memcpy(diff, &difficulty, 1);
+    memcpy(bnum, blockNumber, 8);
+
+    int i = 0;
+    for ( ; i<nGPU; i++) {
+        cudaSetDevice(i);
+        /* Allocate device memory */
+        cudaMalloc(&ctx[i].d_found, 4);
+        cudaMalloc(&ctx[i].d_seed, 16);
+        /* Allocate associated device-host memory */
+        cudaMallocHost(&ctx[i].found, 4);
+        cudaMallocHost(&ctx[i].seed, 16);
+        cudaMallocHost(&ctx[i].midstate, 32);
+        cudaMallocHost(&ctx[i].input, 32);
+        /* Copy immediate block data to device memory */
+        cudaMemcpyToSymbolAsync(c_blockNumber8, bnum, 8, 0, cudaMemcpyHostToDevice);
+        cudaMemcpyToSymbolAsync(c_difficulty, diff, 1, 0, cudaMemcpyHostToDevice);
+        /* Set remaining device memory */
+        cudaMemsetAsync(ctx[i].d_found, 0, 4);
+        cudaMemsetAsync(ctx[i].d_seed, 0, 16);
+        /* Setup variables for "first round" */
+        *ctx[i].found = 0;
+        ctx[i].next_cp = nullcp;
+    }
+
+    return nGPU;
+}
+
+__host__ void trigg_free_cuda() {
+    /* Free pinned host memory */
+    cudaFreeHost(diff);
+    cudaFreeHost(bnum);
+
+    int i = 0;
+    for ( ; i<nGPU; i++) {
+        cudaSetDevice(i);
+        /* Free device memory */
+        cudaFree(ctx[i].d_found);
+        cudaFree(ctx[i].d_seed);
+        /* Free associated device-host memory */
+        cudaFreeHost(ctx[i].found);
+        cudaFreeHost(ctx[i].seed);
+        cudaFreeHost(ctx[i].midstate);
+        cudaFreeHost(ctx[i].input);
+    }
 }
 
 extern byte Tchain[32 + 256 + 16 + 8];
@@ -431,85 +490,63 @@ extern byte *trigg_gen(byte *in);
 extern char *trigg_expand(byte *in, int diff);
 extern char *trigg_check(byte *in, byte d, byte *bnum);
 
-__host__ char *trigg_generate_cuda(byte *mroot, byte difficulty, byte *blockNumber, uint32_t threads, int gpucount)
+__host__ char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku)
 {
+    int i;
+    for (i=0; i<nGPU; i++) {
+        /* If next_cp is empty... */
+        if(ctx[i].next_cp == nullcp) {
+            /* ... init GPU seeds */
+            trigg_gen(ctx[i].next_seed);
+            ctx[i].next_cp = trigg_expand(ctx[i].next_seed, *diff);
+
+            /* ... copy mroot to Tchain */
+            memcpy(Tchain, mroot, 32);
+
+            /* ... and prepare sha256 midstate for next round */
+            SHA256_CTX sha256;
+            sha256_init(&sha256);
+            sha256_update(&sha256, Tchain, 256);
+            memcpy(ctx[i].midstate, sha256.state, 32);
+            memcpy(ctx[i].input, Tchain + 256, 32);
+        }
+
+        /** Due to the asynchronous nature of this process,
+         ** conditions below MUST be performed in order of
+         ** found status (-1) to (1), so a solve isn't "missed" **/
+
+        /* Waiting on GPU || *ctx[i].found == -1 */
+        if(*ctx[i].found<0) continue;
+
+        /* GPU is done. NO SOLVE || *ctx[i].found == 0 */
+        if(*ctx[i].found<1) {
+            /* Start new GPU round */
+            cudaSetDevice(i);
+            cudaMemcpyToSymbolAsync(c_midstate256, ctx[i].midstate, 32, 0, cudaMemcpyHostToDevice);
+            cudaMemcpyToSymbolAsync(c_input32, ctx[i].input, 32, 0, cudaMemcpyHostToDevice);
+            trigg<<<grid, block>>>(threads, ctx[i].d_found, ctx[i].d_seed);
+            cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+
+            /* Set GPU waiting status and add to haiku count */
+            *nHaiku += threads;
+            *ctx[i].found = -1;
+
+            /* Store round vars aside for checks next loop */
+            memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
+            strcpy(ctx[i].cp,ctx[i].next_cp);
+            ctx[i].next_cp = nullcp;
+            continue;
+        }
+
+        /* GPU is done. SOLVED! || *ctx[i].found == 1 */
+        cudaSetDevice(i);
+        cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
+        memcpy(mroot + 32, ctx[i].curr_seed, 16);
+        memcpy(mroot + 32 + 16, ctx[i].seed, 16);
+        return ctx[i].cp;
+    }
     
-    TriggCudaCTX ctx[64];     /* Max Supported GPUs = 64 */
-    cudaStream_t streams[64]; /* 5 Streams Per GPU */
-
-    int found = 0;
-    int i = 0;
-    uint8_t first_seed[16];
-    uint8_t seed[16];
-    uint32_t __align__(64) midstate[8], input[8];
-    uint32_t threadsPerBlock = 256;
-    dim3 grid(threads / threadsPerBlock);
-    dim3 block(threadsPerBlock);
-
-    trigg_gen(first_seed);
-    char *cp = trigg_expand(first_seed, difficulty);
-    memcpy(Tchain, mroot, 32);
-    memcpy(mroot + 32, first_seed, 16);
-
-    SHA256_CTX sha256;
-    sha256_init(&sha256);
-    sha256_update(&sha256, Tchain, 256);
-    memcpy(midstate, sha256.state, 32);
-    memcpy(input, Tchain + 256, 32);
-
-    uint32_t *hp_midstate[8], *hp_input[8];
-    uint8_t *hp_blockNumber[8], *hp_difficulty[8];
-
-    /* Pin Memory for Asynchronous Host->Dev Copy */
-    cudaMallocHost((void **)&hp_midstate, 32);
-    cudaMallocHost((void **)&hp_input, 32);
-    cudaMallocHost((void **)&hp_blockNumber, 8);
-    cudaMallocHost((void **)&hp_difficulty, 8);
-
-    /* Copy from pageable to pinned host memory */
-    memcpy(hp_midstate, midstate, 8 * sizeof(uint32_t));
-    memcpy(hp_input, input, 8 * sizeof(uint32_t));
-    memcpy(hp_blockNumber, blockNumber, 8 * sizeof(uint8_t));
-    memcpy(hp_difficulty, &difficulty, 8 * sizeof(uint8_t));
-
-    for(i = 0; i < gpucount ; i++) {
-       cudaSetDevice(i);
-       cudaStreamCreate(&streams[i]);
-    }
-    for(i = 0; i < gpucount ; i++) {
-       cudaSetDevice(i);
-       cudaMalloc(&ctx[i].d_found, sizeof(int));
-       cudaMalloc(&ctx[i].d_seed, 16 * sizeof(uint8_t));
-       cudaMemset(ctx[i].d_found, 0, sizeof(int));
-       cudaMemset(ctx[i].d_seed, 0, 16 * sizeof(uint8_t));
-       cudaMemcpyToSymbolAsync(c_midstate256, hp_midstate, 32, 0, cudaMemcpyHostToDevice,streams[i]);
-       cudaMemcpyToSymbolAsync(c_input32, hp_input, 32, 0, cudaMemcpyHostToDevice,streams[i]);
-       cudaMemcpyToSymbolAsync(c_blockNumber8, hp_blockNumber, 8, 0, cudaMemcpyHostToDevice,streams[i]);
-       cudaMemcpyToSymbolAsync(c_difficulty, hp_difficulty, sizeof(uint8_t), 0, cudaMemcpyHostToDevice,streams[i]);
-    }
-    for(i = 0; i < gpucount ; i++) {
-       cudaSetDevice(i);
-       cudaStreamSynchronize(streams[i]);
-       trigg<<<grid, block,0,streams[i]>>>(threads, 0, ctx[i].d_found, ctx[i].d_seed, i);
-    }
-    for(i = 0; i < gpucount ; i++) {
-       cudaSetDevice(i);
-       cudaDeviceSynchronize();
-       cudaMemcpy(&found, ctx[i].d_found, sizeof(int), cudaMemcpyDeviceToHost);
-       if(found == 1){
-          cudaMemcpy(seed, ctx[i].d_seed, 16 * sizeof(uint8_t), cudaMemcpyDeviceToHost);
-          memcpy(mroot + 32 + 16, seed, 16);
-          cudaFree(ctx[i].d_found);
-          cudaFree(ctx[i].d_seed);
-          cudaStreamDestroy(streams[i]);
-          return found ? cp : NULL;
-       }
-       /* Free Malloc'd Pointers & Destroy Stream */
-       cudaFree(ctx[i].d_found);
-       cudaFree(ctx[i].d_seed);
-       cudaStreamDestroy(streams[i]);
-    }
-    return found ? cp : NULL;
+    return NULL;
 }
 
 }
