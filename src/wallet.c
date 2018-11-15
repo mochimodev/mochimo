@@ -253,8 +253,9 @@ word32 Nindex;       /* number of addresses in wallet */
 byte Needcleanup;    /* for Winsock */
 word32 Mfee[2] = { 500, 0 };
 byte Zeros[8];
-word32 Port = 2094;  /* default server port */
+word32 Port = 2095;  /* default server port */
 char *Peeraddr;  /* peer address string optional, set on command line */
+char *Corefile = "startnodes.lst"; /* Uses startnodes.lst if available */
 unsigned Nextcore;  /* index into Coreplist for callserver() */
 byte Verbose;       /* output trace messages */
 byte Default_tag[ADDR_TAG_LEN]
@@ -269,9 +270,7 @@ byte Cblocknum[8];  /* set from network */
 
 /* ip's of the Core Network */
 word32 Coreplist[RPLISTLEN] = {
-   0x1f2a9741,    /* 65.151.42.31-33 */
-   0x202a9741,
-   0x212a9741,
+   0x0100007f,    /* local host */
 };
 
 
@@ -311,6 +310,56 @@ word32 *search32(word32 val, word32 *list, unsigned len)
    return NULL;
 }
 
+/* Taken & modified from str2ip.c */
+word32 str2ip(char *addrstr)
+{
+   struct hostent *host;
+   struct sockaddr_in addr;
+
+   if(addrstr == NULL) return 0;
+
+   memset(&addr, 0, sizeof(addr));
+   if(addrstr[0] < '0' || addrstr[0] > '9') {
+      host = gethostbyname(addrstr);
+      if(host == NULL)
+         return 0;
+      memcpy((char *) &(addr.sin_addr.s_addr),
+             host->h_addr_list[0], host->h_length);
+   }
+   else
+      addr.sin_addr.s_addr = inet_addr(addrstr);
+
+   return addr.sin_addr.s_addr;
+}  /* end str2ip() */
+
+
+/* Read-in the core ip list text file
+ * each line: 1.2.3.4  or  host.domain.name
+ */
+int read_coreipl(char *fname)
+{
+   FILE *fp;
+   char buff[128];
+   int j;
+   char *addrstr;
+   word32 ip;
+
+   if(fname == NULL || *fname == '\0') return VERROR;
+   fp = fopen(fname, "rb");
+   if(fp == NULL) return VERROR;
+   for(j = 0; j < CORELISTLEN; ) {
+      if(fgets(buff, 128, fp) == NULL) break;
+      if(*buff == '#') continue;
+      addrstr = strtok(buff, " \r\n\t");
+      if(addrstr == NULL) break;
+      ip = str2ip(addrstr);
+      if(!ip) continue;
+      /* put ip in Coreplist[j] */
+      Coreplist[j++] = ip;
+   }
+   fclose(fp);
+   return VEOK;
+}  /* end read_coreipl() */
 
 void bytes2hex(byte *addr, int len, int lastchar)
 {
@@ -604,6 +653,7 @@ int callserver(NODE *np, word32 ip, char *addrstr)
 bad:
       closesocket(np->sd);
       np->sd = INVALID_SOCKET;
+      Nextcore++;
       return VERROR;
    }
    np->id2 = get16(np->tx.id2);
@@ -1163,6 +1213,10 @@ int ext_addr(unsigned idx)
 
    entry = &entryst;
    if(idx == 0) {
+      if(Nindex == 0) {
+         printf("\nNo addresses to export.\n");
+         return VERROR;
+      }
       printf("Export address index (1-%d): ", Nindex);
       tgets(buff, 80);
       idx = atoi(buff);
@@ -1594,6 +1648,10 @@ int delete_addr(void)
    int ecode;
    WENTRY entry;
 
+   if(Nindex == 0) {
+      printf("\nNo addresses to delete.\n");
+      return VERROR;
+   }
    printf("Delete address index (1-%d): ", Nindex);
    tgets(lbuff, 80);
    idx = atoi(lbuff);
@@ -1977,6 +2035,10 @@ int edit_name(void)
    int ecode;
    WENTRY entry;
 
+   if(Nindex == 0) {
+      printf("\nNo addresses to edit.\n");
+      return VERROR;
+   }
    printf("Change address name.\nindex (1-%d): ", Nindex);
    tgets(lbuff, 100);
    idx = atoi(lbuff);
@@ -2023,6 +2085,10 @@ int display_hex(void)
    int ecode;
    WENTRY entry;
 
+   if(Nindex == 0) {
+      printf("\nNo addresses to display.\n");
+      return VERROR;
+   }
    printf("Display address in hexadecimal.\nindex (1-%d): ", Nindex);
    tgets(lbuff, 100);
    idx = atoi(lbuff);
@@ -2115,6 +2181,18 @@ void mainmenu(void)
    read_widx();
 
    signal(SIGINT, ctrlc);
+
+   if(Corefile && *Corefile) {
+      if(read_coreipl(Corefile) != VEOK) {
+         if(!Peeraddr || !*Peeraddr)
+            printf("Cannot open %s... Defaulting to Localhost*\n"
+                   "NOTE: If you aren't running a Mochimo node on this machine,\n"
+                   "      the wallet will not operate correctly.\n", Corefile);
+      } else if(Verbose) printf("%s loaded...\n", Corefile);
+   }
+   if(Peeraddr && *Peeraddr && Verbose)
+      printf("Prioritising %s for connection...\n", Peeraddr);
+
    query_all();  /* check all old balances */
    display_wallet(0, 0);
 
@@ -2155,10 +2233,11 @@ void usage(void)
 {
    printf("\nUsage: wallet [-option -option2 . . .] [wallet_file]\n"
       "options:\n"
-      "           -aS set address string to S\n"
-      "           -pN set TCP port to N\n"
-      "           -v  verbose output\n"
-      "           -n  create new wallet\n\n"
+      "           -cFNAME  set alternate IP list to FNAME\n"
+      "           -aS      set address string to S\n"
+      "           -pN      set TCP port to N\n"
+      "           -v       verbose output\n"
+      "           -n       create new wallet\n\n"
    );
    exit(1);
 }
@@ -2191,6 +2270,8 @@ int main(int argc, char **argv)
                     break;
          case 'a':  if(argv[j][2]) Peeraddr = &argv[j][2];
                     break;
+         case 'c':  if(argv[j][2]) Corefile = &argv[j][2];
+                    break;
          case 'v':  Verbose = 1;
                     break;
          case 'n':  newflag = 1;
@@ -2200,10 +2281,6 @@ int main(int argc, char **argv)
    }  /* end for j */
 
    srand16(time(NULL));
-
-#ifndef DEBUG
-   shuffle32(Coreplist, CORELISTLEN);
-#endif
 
    if(newflag) init_wallet(&Whdr);
    else if(argv[j]) {
