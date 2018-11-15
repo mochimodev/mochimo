@@ -1615,16 +1615,14 @@ int delete_addr(void)
 /* Return 1 if tag unusable, else 0. */
 int bad_tag(byte *addr)
 {
-   byte dummy[TXADDRLEN];
    byte found;
    int status;
 
-   memcpy(dummy, addr, ADDR_TAG_LEN);
    Sigint = 0;
    for(;;) {
       printf("\nChecking that change tag is unused.  "
              "Press ctrl-c to cancel...\n");
-      status = get_tag(dummy, &found);
+      status = get_tag(addr, &found);
       sleep(1);
       if(status != VEOK || Sigint) {
          printf("Tag server not found.  Try again.\n");
