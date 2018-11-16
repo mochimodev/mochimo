@@ -10,7 +10,22 @@
 # ****************       set the CC variable for your system:
 # Set compiler command
 # Edit config.h and edit next line if needed:
-export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib -L/usr/local/cuda-9.2/lib64 $2 $3 $4 $5 $6 $7 $8 $9"
+CC_FLAGS="-DUNIXLIKE -DLONG64 -I/usr/lib"
+
+platform=`uname`
+libcuda_location="/usr/local/cuda-9.2/lib64"
+if [ $platform = 'Darwin' ]
+then
+    libcuda_location="/Developer/NVIDIA/CUDA-9.2/lib"
+    CC_FLAGS="$CC_FLAGS -rpath $libcuda_location"
+fi
+
+CC_FLAGS="$CC_FLAGS -L$libcuda_location $2 $3 $4 $5 $6 $7 $8 $9"
+
+export set CC="cc $CC_FLAGS"
+echo "Compiling with $CC"
+echo "If compilation fails, try ./makeunx bin -L<path_to_cuda_lib>\n"
+
 export set LD_FLAGS="-lcudart -lcuda -lstdc++"
 export set NVCC="nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
 # ****************
