@@ -515,12 +515,15 @@ void resign(char *mess)
 /* Get blocks that we need up to network Cblocknum */
 int get_eon(NODE *np, word32 peerip)
 {
+   FILE *fp;                 /* to "lock" files */
+   pid_t Gpid[MAXQUORUM];    /* Gang children */
    word32 gang[MAXQUORUM];
-   byte bnum[8], ngnum[8], highbnum[8];
+   byte bnum[8], ngnum[8], highbnum[8], dlbnum[8];
    byte highhash[HASHLEN], *tfweight;
    byte highweight[HASHLEN];
-   int k, j, result, result2;
+   int i, j, k, result, result2;
    char fname[128];
+   char flock[128];    /* tame the multi-threaded madness */
    time_t timeout;
    BTRAILER bt;
    static byte val256[8] = { 0x0, 0x1 };
@@ -598,16 +601,16 @@ top:
 
    le_close();  /* close ledger */
 
-   peerip = gang[0];
-   k = 1;
+   k = 0;
+   peerip = gang[k];
    put64(bnum, ngnum);
    /* Get peer's neo-genesis block for new ledger.dat */
    if(!iszero(bnum, 8)) {
       sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
       for( ; Running; ) {
          if(get_block2(peerip, bnum, fname, OP_GETBLOCK) != VEOK) {
-            if(k >= Quorum) goto try_again;
-            peerip = gang[k++];
+            if(++k >= Quorum) goto try_again;
+            peerip = gang[k];
             continue;
          }
          if(extract(fname, "ledger.dat") != VEOK) restart("qu extract");
@@ -620,20 +623,69 @@ top:
    le_open("ledger.dat", "rb");    /* re-open extracted ledger */
    reset_difficulty(NULL, Bcdir);  /* based on [neo-]genesis block */
 
+   /* clear any failed download attempts */
+   memset(Gpid, 0, sizeof(pid_t)*MAXQUORUM);
+   memcpy(dlbnum, bnum, 8);
+   do {
+      add64(dlbnum, One, dlbnum);
+      sprintf(fname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
+      sprintf(flock, "rblock%02X%02X.lck", dlbnum[1], dlbnum[0]);
+      unlink(fname);
+      unlink(flock);
+   } while(dlbnum[0] != 0);
+
+   /* download the blockchain */
    add64(bnum, One, bnum);
    for( ; Running; ) {
-      if(Trace) plog("fetch block 0x%s", bnum2hex(bnum));
-      if(get_block2(peerip, bnum, "rblock.dat", OP_GETBLOCK) != VEOK) {
-         if(cmp64(bnum, highbnum) >= 0) break;
-         if(k >= Quorum) goto try_again;
-         peerip = gang[k++];
-         continue;
+      memcpy(dlbnum, bnum, 8);
+      for(i=0, j=0, k=0, result=0; Running && k<Quorum; result=0) {
+         /* poll children */
+         if(Gpid[k] > 0 && waitpid(Gpid[k], &result, WNOHANG) > 0) {
+            if(result) gang[k] = 0;
+            Gpid[k] = 0;
+            ++i;
+         }
+         /* check peer */
+         if((peerip = gang[k]) == 0 && ++k && ++j) continue;
+         /* check blockchain */
+         sprintf(fname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
+         sprintf(flock, "rblock%02X%02X.lck", dlbnum[1], dlbnum[0]);
+         if(dlbnum[0] == 0 || exists(fname)) {
+            add64(dlbnum, One, dlbnum);
+            continue;
+         }
+         /* make-uh da baby */
+         if(!Gpid[k]) {
+            Gpid[k] = fork();
+            if(Gpid[k] > 0) add64(dlbnum, One, dlbnum); /* parent */
+            if(Gpid[k] < 0) gang[k] = 0; /* parent */
+            if(Gpid[k] == 0) { /* child */
+               fclose(fp = fopen(flock, "ab+")); /* get first dibs */
+               result = get_block2(peerip, dlbnum, fname, OP_GETBLOCK);
+               if(result != VEOK) unlink(fname);
+               unlink(flock);
+               exit(result);
+            }
+         }
+         ++k;
       }
-      /* also constructs NG on 0xff blocks */
-      if(update("rblock.dat", 0) != VEOK) goto try_again;
-      add64(bnum, One, bnum);
-      if(bnum[0] == 0)
-         add64(bnum, One, bnum);  /* do not fetch NG blocks */
+      /* rest during no activity */
+      if(!i) usleep(Dynasleep);
+      /* update downloaded blocks (also constructs NG on 0xff blocks) */
+      sprintf(fname, "rblock%02X%02X.dat", bnum[1], bnum[0]);
+      sprintf(flock, "rblock%02X%02X.lck", bnum[1], bnum[0]);
+      while (exists(fname) && !exists(flock)) {
+         if(update(fname, 0) != VEOK) goto try_again;
+         add64(bnum, One, bnum);
+         if(bnum[0] == 0) add64(bnum, One, bnum);
+         sprintf(fname, "rblock%02X%02X.dat", bnum[1], bnum[0]);
+         sprintf(flock, "rblock%02X%02X.lck", bnum[1], bnum[0]);
+      }
+      /* unable to download more blockchain */
+      if(j>=Quorum) {
+         if(cmp64(bnum, highbnum) >= 0) break;
+         goto try_again;
+      }
    }  /* end for block download-update */
    if(!Running) resign("quorum update");
 

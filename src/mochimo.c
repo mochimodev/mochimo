@@ -117,7 +117,7 @@ int main(int argc, char **argv)
          case 't':  Trace = atoi(&argv[j][2]); /* set trace level  */
                     break;
          case 'q':  Quorum = atoi(&argv[j][2]); /* peers in gang[Quorum] */
-                    if((unsigned) Quorum >= MAXQUORUM) usage();
+                    if((unsigned) Quorum > MAXQUORUM) usage();
                     break;
          case 'p':  Port = Dstport = atoi(&argv[j][2]); /* home/dst */
                     break;
