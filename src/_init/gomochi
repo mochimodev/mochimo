@@ -105,7 +105,7 @@ cp ../genblock.bc bc/b0000000000000000.bc
 cp ../tfile.dat .
 touch mq.lck
 #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
 if test $? -eq 0
 then
    echo Resume paused system with ./resume

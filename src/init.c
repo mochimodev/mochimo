@@ -106,6 +106,7 @@ int read_coreipl(char *fname)
    if(fname == NULL || *fname == '\0') return VERROR;
    fp = fopen(fname, "rb");
    if(fp == NULL) return VERROR;
+
    for(j = 0; j < CORELISTLEN; ) {
       if(fgets(buff, 128, fp) == NULL) break;
       if(*buff == '#') continue;
@@ -512,6 +513,122 @@ void resign(char *mess)
 }
 
 
+/* Integrate reward function from block 0 to block bnum.
+ * Return result in sum.
+ */
+byte *get_treward(void *sum, void *bnum)
+{
+   word32 reward[2], bnum2[2];
+
+   put64(bnum2, bnum);
+   if(!iszero(bnum, 8)) {
+      for(memset(sum, 0, 8); ;) {
+         if(((byte *) bnum2)[0]) {
+            get_mreward(reward, bnum2);
+            add64(sum, reward, sum);
+         }
+         if(sub64(bnum2, One, bnum2)) break;
+      }
+   }
+   return sum;
+}
+
+
+#define NGBUFFLEN (16*1024)
+#define NGERROR(e) { ecode = e; goto err; }
+
+/* Check NG block:
+ * 1. check hash is good and == Cblockhash
+ * 2. not to much in amounts
+ * 3. block hash is in tfile.dat
+ *
+ * Return 0 if NG is good, else error code.
+ * (reset_difficulty() has already been called to set Cblockhash.)
+ */
+int check_ng(char *fname, byte *bnum)
+{
+   static word32 premine[2]
+      = { 0xbd1a6400, 0x0010e686 };  /* 4757066000000000 */
+   static word32 tlen[2] = { sizeof(BTRAILER), 0 };
+   byte sum[8], sum2[8], temp[8];
+   LENTRY le;
+   BTRAILER bt;
+   long toffset;
+   byte chash[HASHLEN];
+   byte bhash[HASHLEN];
+   byte buff[NGBUFFLEN];
+   FILE *fp;
+   unsigned long len;
+   unsigned count, n;
+   SHA256_CTX cctx;
+   int ecode = 2;
+
+   fp = fopen(fname, "rb");
+   if(fp == NULL) return 1;
+   if(fseek(fp, 0, SEEK_END)) {
+err:
+      fclose(fp);
+      return ecode;
+   }
+   /* Read hash value in NG trailer */
+   len = ftell(fp);
+   if(len < (sizeof(BTRAILER) + sizeof(LENTRY))) NGERROR(3);
+   if(fseek(fp, -(HASHLEN), SEEK_END)) NGERROR(4);
+   if(fread(bhash, 1, HASHLEN, fp) != HASHLEN) NGERROR(5);
+   /* Compute NG block hash */
+   if(fseek(fp, 0, SEEK_SET)) NGERROR(6);
+   sha256_init(&cctx);
+   len -= HASHLEN;
+   n = NGBUFFLEN;
+   for( ; len; len -= count) {
+      if(len < NGBUFFLEN) n = len;
+      count = fread(buff, 1, n, fp);
+      if(count < 1) break;
+      sha256_update(&cctx, buff, count);
+   }
+   if(len) NGERROR(7);
+   sha256_final(&cctx, chash);
+   /* Check computed hash, chash, against hash from trailer, bhash. */
+   if(memcmp(chash, bhash, HASHLEN) != 0) NGERROR(8);
+   /* and the reset_difficulty() return value. */
+   if(memcmp(chash, Cblockhash, HASHLEN) != 0) NGERROR(9);
+
+   /* Compute total reward + premine into sum. */
+   get_treward(sum, bnum);
+   add64(premine, sum, sum);
+   if(Trace > 1) {
+      plog("premine: %lu  0x%lx\n", *((long *) premine), *((long *) premine));
+      plog("sum:  %lu  0x%lx\n", *((long *) sum), *((long *) sum));
+   }
+   /* Check sum of amounts in NG ledger. */
+   fseek(fp, 4, SEEK_SET);
+   for(memset(sum2, 0, 8); ; ) {
+      if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY)) break;
+      add64(sum2, le.balance, sum2);
+      if(cmp64(sum2, sum) > 0) NGERROR(10);
+   }
+   if(Trace > 1) {
+      plog("sum2: %lu  0x%lx\n", *((long *) sum2), *((long *) sum2));
+   }
+   fclose(fp);
+
+   /* Now check bnum's hash in trailer in tfile.dat */
+   fp = fopen("tfile.dat", "rb");
+   if(fp == NULL) return 11;
+   put64(temp, bnum);
+   mult64(temp, tlen, temp);
+   if(sizeof(toffset) == 8) put64(&toffset, temp);
+   if(sizeof(toffset) != 8) *((word32 *) &toffset) = *((word32 *) temp);
+   if(fseek(fp, toffset, SEEK_SET)) NGERROR(12);
+   if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER))
+      NGERROR(13);
+   if(memcmp(bt.bhash, Cblockhash, HASHLEN) != 0) NGERROR(14);
+   fclose(fp);
+
+   return 0;  /* success */
+}  /* end check_ng() */
+
+
 /* Get blocks that we need up to network Cblocknum */
 int get_eon(NODE *np, word32 peerip)
 {
@@ -527,7 +644,7 @@ int get_eon(NODE *np, word32 peerip)
 
    plog("Entering get_eon()");
 
-   timeout = time(NULL) + 180;
+   timeout = time(NULL) + 300;
 
 top:
    show("quorum");
@@ -583,12 +700,10 @@ top:
 
    if(Trace) plog("get_eon(): tfile.dat is valid.");
 
-   /* ngnum is peer's last neo-genesis block
-    * so delete all bc/ blocks greater.
-    */   
+   /* ngnum is peer's last neo-genesis block */
    put64(ngnum, highbnum);
    ngnum[0] = 0;
-   result = sub64(ngnum, val256, ngnum);  /* go back another 256 */
+   result = sub64(ngnum, val256, ngnum);  /* go back another 256 blocks */
    if(result) memset(ngnum, 0, 8);
    if(Trace) plog("neo-genesis number: 0x%s", bnum2hex(ngnum));
 
@@ -619,6 +734,21 @@ top:
 
    le_open("ledger.dat", "rb");    /* re-open extracted ledger */
    reset_difficulty(NULL, Bcdir);  /* based on [neo-]genesis block */
+
+   /* Cblockhash was set from NG by reset_difficulty()
+    * Check a non-Genesis NG hash against Cblockhash.
+    */
+   if(!iszero(bnum, 8)) {
+      result = check_ng(fname, bnum);
+      if(result != 0) {
+         plog("get_eon(): Bad NG block! ecode: %d", result); 
+         goto try_again;
+      }
+      if(Quorum > 1) {
+         if(k >= Quorum) goto try_again;
+         peerip = gang[k++];  /* get blocks from a different peer */
+      }
+   }
 
    add64(bnum, One, bnum);
    for( ; Running; ) {
@@ -653,7 +783,8 @@ top:
    return VEOK;
 
 try_again:
-   plog(":) (k: %d  time left: %d)", k, (int) (timeout - time(NULL)));
+   plog(":) (k: %d  Will restart in : %d seconds.)", k,
+        (int) (timeout - time(NULL)));
    if(Trace) {
       if(tfweight)
          plog("tfweight = 0x%s...", addr2str(tfweight));

@@ -60,7 +60,7 @@
 #define MAXQUORUM     8        /* for get_eon() gang[] */
 
 #define BCONFREQ 10    /* Run con at least */
-
+#define CBITS         0        /* 8 capability bits for TX */
 #define DTRIGGER31 17185  /* for v2.0 new set_difficulty() */
 #define WTRIGGER31 17185  /* for v2.0 new add_weight() */
 #define RTRIGGER31 17185  /* for v2.0 new get_mreward() */

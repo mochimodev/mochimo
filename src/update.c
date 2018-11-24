@@ -86,6 +86,23 @@ int child_status(NODE *np, pid_t pid, int status)
 }  /* end child_status() */
 
 
+/* Reap cblock and mblock-push children... */
+void reaper2(void)
+{
+   NODE *np;
+
+   /* Don't fear the Reaper, baby...It won't hurt... */
+   for(np = Nodes; np < Hi_node; np++) {
+      if(np->pid == 0) continue;
+      if(np->opcode == OP_GET_CBLOCK || np->opcode == OP_MBLOCK) {
+         kill(np->pid, SIGTERM);
+         waitpid(np->pid, NULL, 0);
+         freeslot(np);
+      }
+   }
+}  /* end reaper2() */
+
+
 /* validate and update from fname = rblock.dat or vblock.dat
  * mode: 0 = their block
  *       1 = our block
@@ -117,6 +134,8 @@ int update(char *fname, int mode)
       waitpid(Sendfound_pid, NULL, 0);
       Sendfound_pid = 0;
    }
+
+   if(!Ininit && Allowpush) reaper2();
 
    write_global();  /* gift bval with Peerip and other globals */
    le_close();      /* close server ledger reference */
@@ -172,8 +191,14 @@ int update(char *fname, int mode)
       }
    }
    if(mode == 1) {
-      Nsolved++;  /* our block */
-      write_data(&Nsolved, 4, "solved.dat");
+      if(exists("cblock.lck")) {
+         unlink("cblock.lck");
+         if(Trace) plog("updated pushed block 0x%s", bnum2hex(Cblocknum));
+      }
+      else {
+         Nsolved++;  /* our block */
+         write_data(&Nsolved, 4, "solved.dat");
+      }
    }
    Nupdated++;
    memset(Crclist, 0, CRCLISTLEN*4);  /* clear recent crc list */

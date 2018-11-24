@@ -24,7 +24,9 @@
 #define OP_BALANCE        12
 #define OP_SEND_BAL       13
 #define OP_RESOLVE        14
-#define LAST_OP           14  /* edit when adding  OP's */
+#define OP_GET_CBLOCK     15
+#define OP_MBLOCK         16
+#define LAST_OP           16  /* edit when adding  OP's */
 
 #define TXNETWORK 0x0539
 #define TXEOT     0xabcd
@@ -53,13 +55,15 @@
   Change RPLISTLEN value to make the above #if true
 #endif
 
+/* Capability bits */
+#define C_PUSH    1
 
 /* Multi-byte numbers are little-endian.
  * Structure is checked on start-up for byte-alignment.
  * HASHLEN is checked to be 32.
  */
 typedef struct {
-   byte version[2];  /* 0x02, 0x00 PVERSION  */
+   byte version[2];  /* { PVERSION, Cbits }  */
    byte network[2];  /* 0x39, 0x05 TXNETWORK */
    byte id1[2];
    byte id2[2];

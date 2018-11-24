@@ -106,6 +106,94 @@ int send_ipl(NODE *np)
 }
 
 
+/* Called from execute() in execute.c
+ * Returns 0.
+ */
+int send_cblock(NODE *np)
+{
+   char cmd[100], fname[32];
+   pid_t pid;
+
+   show("sendcb");
+   if(exists("miner.tmp")) {
+      pid = getpid();
+      sprintf(fname, "cb%u.tmp", (int) pid);
+      sprintf(cmd, "cp miner.tmp %s", fname);
+      system(cmd);
+      send_file(np, fname);
+      unlink(fname);
+   }
+   return 0;
+}  /* end send_cblock() */
+
+
+/* Get a block named fname from np
+ * Returns 0 on good download, else 1
+ */
+int get_block3(NODE *np, char *fname)
+{
+   FILE *fp;
+   word16 len;
+   int n;
+   int ecode = 666;
+
+   if(Trace) plog("get_block3() Recfile is '%s'", fname);
+   show("getmb");
+
+   fp = fopen(fname, "wb");
+   if(fp == NULL) {
+      plog("cannot open %s", fname);
+      return 1;
+   }
+
+   for(;;) {
+      if((ecode = rx2(np, 1, 10)) != VEOK) goto bad;
+      if(get16(np->tx.opcode) != OP_SEND_BL) goto bad; 
+      len = get16(np->tx.len);
+      if(len > TRANLEN) goto bad;
+      if(len) {
+         n = fwrite(TRANBUFF(&np->tx), 1, len, fp);
+         if(n != len) {
+            error("get_block3() I/O error");
+            goto bad;
+         }
+      }
+      /* check EOF */
+      if(len < 1 || n < TRANLEN) {
+         fclose(fp);
+         if(Trace) plog("get_block3(): EOF");
+         return 0;
+      } /* end if EOF */
+   }  /* end for */
+bad:
+   fclose(fp);
+   unlink(fname);  /* delete partial downloads */
+   if(Trace)
+      plog("get_block3(): fail (%d) len = %d opcode = %d",
+           ecode, get16(np->tx.len), get16(np->tx.opcode));
+   return 1;
+}  /* end get_block3() */
+
+
+/* Get a mined block from some random node... */
+int get_mblock(NODE *np)
+{
+   int status;
+
+   /* Get a block or file that is pushed on us.  In execute(): */
+   if(Blockfound || exists("rblock2.dat") || exists("cblock.lck"))
+      return 1;
+   status = get_block3(np, "rblock2.dat");
+   if(status || exists("mblock.dat")) {
+      unlink("rblock2.dat");
+      return 1;
+   }
+   if(rename("rblock2.dat", "mblock.dat")) return 1;
+   system("touch cblock.lck");
+   return 0;
+}  /* end get_mblock() */
+
+
 /**
  * Called from server()  --  NOTE: we are in child here
  * Returns 0 = Aokay! Veronica says child is done.
@@ -140,6 +228,16 @@ int execute(NODE *np)
          if(send_file(np, "tfile.dat") != VEOK) status = 1;
          closesocket(np->sd);
          return status;
+      case OP_GET_CBLOCK:
+         signal(SIGTERM, sendalrm);
+         send_cblock(np);
+         closesocket(np->sd);
+         return 0;
+      case OP_MBLOCK:
+         signal(SIGTERM, sendalrm);
+         get_mblock(np);
+         closesocket(np->sd);
+         return 0;
 
       default:
          Nbadlogs++;  /* bad OP's */

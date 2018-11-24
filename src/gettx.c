@@ -41,7 +41,8 @@ int sendtx(NODE *np)
    time_t timeout;
    byte *buff;
 
-   put16(np->tx.version, PVERSION);
+   np->tx.version[0] = PVERSION;
+   np->tx.version[1] = Cbits;
    put16(np->tx.network, TXNETWORK);
    put16(np->tx.trailer, TXEOT);
 
@@ -307,6 +308,11 @@ int gettx(NODE *np, SOCKET sd)
    } else if(opcode == OP_RESOLVE) {
       tag_resolve(np);
       return 1;
+   } else if(opcode == OP_GET_CBLOCK) {
+      if(!Allowpush || !exists("miner.tmp")) return 1;
+   } else if(opcode == OP_MBLOCK) {
+      if(!Allowpush || (time(NULL) - Pushtime) < 150) return 1;
+      Pushtime = time(NULL);
    }
 
    if(opcode == OP_BUSY || opcode == OP_NACK || opcode == OP_HELLO_ACK)
