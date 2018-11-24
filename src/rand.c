@@ -47,7 +47,7 @@ void getrand2(word32 *x, word32 *y, word32 *z)
 {
    *x = Lseed2;
    *y = Lseed3;
-   *y = Lseed4;
+   *z = Lseed4;
 }
 
 /* Period: 2**32 randl4() -- returns 0-65535 */

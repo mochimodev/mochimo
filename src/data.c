@@ -68,6 +68,9 @@ int Quorum = 4;         /* Number of peers in get_eon() gang[MAXQUORUM] */
 byte Ininit;            /* non-zero when init() runs */
 byte Safemode;          /* Safe mode enable */
 byte Betabait;          /* betabait() display */
+byte Cbits = CBITS;     /* 8 capability bits */
+time_t Pushtime;        /* time of last OP_MBLOCK */
+byte Allowpush;         /* set by -P flag in mochimo.c */
 
 #endif  /* !EXCLUDE_NODES Nodes[] and ip data */
 
