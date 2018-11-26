@@ -71,6 +71,7 @@ void usage(void)
           "         -f         frisky mode (promiscuous mirroring)\n"
           "         -S         Safe mode\n"
           "         -F         Filter private IP's\n"  /* v.28 */
+          "         -P         Allow pushed mblocks\n"
    );
    exit(0);
 }
@@ -137,6 +138,8 @@ int main(int argc, char **argv)
          case 'S':  Safemode = 1;
                     break;
          case 'F':  Noprivate = 1;  /* v.28 */
+                    break;
+         case 'P':  Allowpush = 1;  Cbits |= C_PUSH;
                     break;
          case 'x':  if(strlen(argv[j]) != 8) break;
                     Statusarg = argv[j];
