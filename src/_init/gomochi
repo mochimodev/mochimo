@@ -34,40 +34,8 @@ echo
 echo This software is subject to the terms and conditions of the Mochimo End
 echo User License Agreement v2.0, available at https://www.mochimo.org/license
 sleep 2
-echo 
-echo
-echo
-if test -e startnodes.lst
-then
-   mv startnodes.lst startnodes.bak
-fi
-echo Attempting to download starting node list from mochimap.net...
-echo
-sleep 1
-wget https://www.mochimap.net/startnodes.lst
-if test ! -f startnodes.lst
-then
-   sleep 2
-   echo Could not get the starting nodes list from mochimap.net.
-   echo Attempting to download starting node list from mochimo.org...
-   sleep 1
-   wget https://www.mochimo.org/startnodes.lst
-   if test ! -f startnodes.lst
-   then
-      if test -e startnodes.bak
-	  then
-	     mv startnodes.bak startnodes.lst
-	  fi
-   fi
-   if test ! -f startnodes.lst
-   then
-      echo No startnodes.lst available, will start with default coreip.lst.
-      echo You may specify a bootstrap node list with: -cFNAME as follows:
-      echo ./gomochi d -cMyIPList.txt
-	  sleep 5
-   fi
-fi
 cd $1
+#We are in d/ now
 rm -f *.log *.lck *.lst
 if test -e ../maddr.dat
 then
@@ -89,13 +57,44 @@ else
 fi
 cp ../coreip.lst .
 cp ../maddr.dat .
-if test -e ../startnodes.lst
-then
-   cp ../startnodes.lst .
-fi
-#We are in d/ now
 while true
 do
+echo 
+echo
+echo
+if test -e ../startnodes.lst
+then
+   mv ../startnodes.lst ../startnodes.bak
+fi
+echo Attempting to download starting node list from mochimap.net...
+wget -O ../startnodes.lst https://www.mochimap.net/startnodes.lst
+if test ! -f ../startnodes.lst
+then
+   echo Attempting to download starting node list from mochimo.org...
+   wget -O ../startnodes.lst https://www.mochimo.org/startnodes.lst
+   if test ! -f ../startnodes.lst
+   then
+      if test -e ../startnodes.bak
+      then
+         mv ../startnodes.bak ../startnodes.lst
+      fi
+   fi
+   if test ! -f ../startnodes.lst
+   then
+      cp coreip.lst startnodes.lst
+      echo Unable to obtain a startnodes.lst file. Using coreip.lst...
+      echo Alternatively, you may specify a bootstrap node list as follows:
+      echo ./gomochi d -cMyIPList.txt
+      sleep 5
+   else
+      cp ../startnodes.lst .
+   fi
+fi
+echo
+echo backup neo-genesis blocks...
+rm -f bc/b0000000000000000.bc
+rm -f ng/b*.bc
+cp bc/b*00.bc ng/
 echo remove some files...
 rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
 rm -f mq.dat mirror.dat
@@ -105,7 +104,7 @@ cp ../genblock.bc bc/b0000000000000000.bc
 cp ../tfile.dat .
 touch mq.lck
 #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+../mochimo -x345678 -e -p2095 -q8 -l -t0 -f -F -s100 -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
 if test $? -eq 0
 then
    echo Resume paused system with ./resume

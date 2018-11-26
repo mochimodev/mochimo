@@ -44,6 +44,7 @@ time_t Stime;            /* status display update time */
 word16 Port;             /* Our listening port */
 word16 Dstport;          /* Our send destination port */
 char *Bcdir = BCDIR;     /* block chain directory */
+char *Ngdir = NGDIR;     /* block chain directory */
 
 #ifndef EXCLUDE_NODES
 NODE Nodes[MAXNODES];  /* data structure for connected NODE's     */
