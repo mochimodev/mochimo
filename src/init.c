@@ -771,23 +771,9 @@ top:
    }
    le_open("ledger.dat", "rb");
 
-   /* ****************
-    * Download the blockchain.
-    * Clear any failed download attempts.
-    * Use the entire gang[] to download blocks asynchronously.
-    * Validate blocks as they are ready.
-    */
-   plog("Downloading blockchain");
-   put64(dlbnum, bnum);
-   do {
-      add64(dlbnum, One, dlbnum);
-      sprintf(fname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
-      sprintf(flock, "rblock%02X%02X.lck", dlbnum[1], dlbnum[0]);
-      unlink(fname);
-      unlink(flock);
-   } while(dlbnum[0] != 0);
 
-   /* Cblockhash was set from NG by reset_difficulty()
+   /* ****************
+    * Cblockhash was set from NG by reset_difficulty()
     * Check a non-Genesis NG hash against Cblockhash.
     */
    if(!iszero(bnum, 8)) {
@@ -796,11 +782,23 @@ top:
          plog("get_eon(): Bad NG block! ecode: %d", result); 
          goto try_again;
       }
-      if(Quorum > 1) {
-         if(k >= Quorum) goto try_again;
-         peerip = gang[k++];  /* get blocks from a different peer */
-      }
    }
+
+   /* ****************
+    * Download the blockchain.
+    * Clear any failed download attempts.
+    * Use the entire gang[] to download blocks asynchronously.
+    * Validate blocks as they are ready.
+    */
+   plog("Downloading blockchain");
+   add64(bnum, One, dlbnum);
+   do {
+      sprintf(fname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
+      sprintf(flock, "rblock%02X%02X.lck", dlbnum[1], dlbnum[0]);
+      unlink(fname);
+      unlink(flock);
+      add64(dlbnum, One, dlbnum);
+   } while(dlbnum[0] != 0);
 
    add64(bnum, One, bnum);
    for( ; Running; ) {

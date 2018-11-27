@@ -86,9 +86,11 @@ then
       echo Alternatively, you may specify a bootstrap node list as follows:
       echo ./gomochi d -cMyIPList.txt
       sleep 5
-   else
-      cp ../startnodes.lst .
    fi
+fi
+if test -e ../startnodes.lst
+then
+   cp ../startnodes.lst .
 fi
 echo
 echo backup neo-genesis blocks...
