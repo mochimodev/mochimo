@@ -629,17 +629,17 @@ err:
 /* Get blocks that we need up to network Cblocknum */
 int get_eon(NODE *np, word32 peerip)
 {
-   FILE *fp, *srcfp;         /* to "lock" and transfer files */
-   pid_t Gpid[MAXQUORUM];    /* Gang children */
+   FILE *fp, *tofp;          /* to "lock" and copy files */
+   pid_t Gpid[MAXQUORUM];     /* Gang children */
    word32 gang[MAXQUORUM];
-   byte bnum[8], ngnum[8], highbnum[8], dlbnum[8];
+   byte bnum[8], ngnum[8], highbnum[8];
+   byte dlbnum[8], clbnum[8]; /* download/clear block number */
    byte highhash[HASHLEN], *tfweight;
    byte highweight[HASHLEN];
    int i, j, k, result, result2;
-   size_t cpbytes;           /* neo-gen transfer */
-   char cpbuffer[1024*1024]; /* neo-gen transfer */
-   char fname[128], srcfname[128];
-   char flock[128];  /* tame the multi-threaded madness */
+   size_t cpbytes;            /* neo-gen transfer */
+   char cpbuff[NGBUFFLEN];    /* neo-gen transfer */
+   char fname[128], tofname[128];
    time_t timeout;
    BTRAILER bt;
    static byte val256[8] = { 0x0, 0x1 };
@@ -659,35 +659,36 @@ top:
    memcpy(highweight, np->tx.weight, HASHLEN);
 
    /* ****************
-    * Fill gang[] with a random list of ip's that all have 
-    * the highest block in the network such that all the
-    * block numbers and block hashes are the same!
-    * Select a unique peerip from Rplist and fetch her ip list into *np.
-    * Compare peer's block number/weight/hash with assumed highest.
+    * Fill gang[] with a list of ip's that all have 
+    * the highest block in the network such that
+    * all the block numbers and block hashes are the same!
     */
-   plog("Acquiring quorum");
    show("quorum");
+   plog("Acquiring quorum");
    for(j = 1; j < Quorum && Running; ) {
       if(time(NULL) >= timeout) goto try_again;
+      /* select random peer from Rplist */
       for(peerip = 0; peerip == 0 && Running; )
          peerip = Rplist[rand16() % RPLISTLEN];
+      /* no duplicate gang[] members */
+      if(search32(peerip, gang, Quorum) != NULL) continue;
+      /* fetch her ip list and compare block height/weight/hash */
       if(get_ipl(np, peerip) != VEOK) continue;
       result = cmp64(np->tx.cblock, highbnum);
       result2 = cmp_weight(np->tx.weight, highweight);
       if(result > 0 && result2 > 0) goto top;
       if(result != 0 || result2 != 0) continue;
-      if(search32(peerip, gang, Quorum) != NULL) continue;
       if(memcmp(highhash, np->tx.cblockhash, HASHLEN) != 0) continue;
       gang[j++] = peerip;
    }
    if(!Running) resign("quorum debate");  /* System/360 Emergency Pull! */
 
    /* ****************
-    * Obtain a tfile from a peer in the gang[].
-    * Validate the tfile and compare block number/weight.
+    * Obtain a tfile from a peer in the gang[], validate it
+    * and compare its current bnum/weight against our [high]bnum/weight.
     */
-   plog("Downloading tfile");
    show("tfile");
+   plog("Downloading tfile");
    unlink("tfile.dat");
    if(Trace) plog("   fetching tfile.dat from %s", ntoa((byte *) &gang[0]));
    for(k = 0; k < Quorum && Running; k++) {
@@ -707,56 +708,55 @@ top:
    /* ****************
     * Determine ngnum (starting neo-genesis block) calculated as
     * last neo-genesis block minus 1 aeon (256 blocks).
-    * Clean bc/ directory of block >= ngnum.
-    * Trim the tfile back to the neo-genesis block.
-    * Close the ledger.
-    * Transfer neo-genesis backup if available.
     */
    show("ngnum");
    put64(ngnum, highbnum);
    ngnum[0] = 0;
    if(sub64(ngnum, val256, ngnum)) memset(ngnum, 0, 8);
    if(Trace) plog("neo-genesis number: 0x%s", bnum2hex(ngnum));
+   /* clean bc/ directory of block >= ngnum */
    delete_blocks(ngnum);
+   /* trim the tfile back to the neo-genesis block and close the ledger */
    if(trim_tfile(ngnum) != VEOK) restart("trim_tfile()");  /* panic */
    le_close();
-   sprintf(srcfname, "%s/b%s.bc", Ngdir, bnum2hex(ngnum));
-   sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(ngnum));
-   if(exists(srcfname)) {
-      srcfp = fopen(srcfname, "rb");
-      fp = fopen(fname, "wb");
-      if(!srcfp || !fp) unlink(fname);
+   /* transfer neo-genesis backup if available */
+   sprintf(fname, "%s/b%s.bc", Ngdir, bnum2hex(ngnum));
+   sprintf(tofname, "%s/b%s.bc", Bcdir, bnum2hex(ngnum));
+   if(exists(fname)) {
+      fp = fopen(fname, "rb");
+      tofp = fopen(tofname, "wb");
+      if(!fp || !tofp) unlink(tofname);
       else {
-         while (0 < (cpbytes = fread(cpbuffer, 1, sizeof(cpbuffer), srcfp)))
-            if(fwrite(cpbuffer, 1, cpbytes, fp) != cpbytes) {
-               unlink(fname);
+         while (0 < (cpbytes = fread(cpbuff, 1, sizeof(cpbuff), fp)))
+            if(fwrite(cpbuff, 1, cpbytes, tofp) != cpbytes) {
+               unlink(tofname);
                break;
             }
-         if(exists(fname)) unlink(srcfname);
+         if(exists(tofname)) unlink(fname);
       }
-      if(srcfp) fclose(srcfp);
       if(fp) fclose(fp);
+      if(tofp) fclose(tofp);
    }
 
    /* ****************
-    * Get peer's neo-genesis block for new ledger.dat.
-    * Use existing neo-genesis block if backup available.
-    * Use genesis block if no alternate.
-    * Setup the difficulty, based on [neo]genesis block.
-    * Re-open extracted ledger.
+    * Get peer's neo-genesis block for new ledger.dat, set
+    * the difficulty, open the ledger and validate the block.
     */
    show("neo-gen");
-   peerip = gang[(k = 0)];
+   peerip = gang[0];
+   k = 1;
    put64(bnum, ngnum);
+   /* use neo-genesis backup if available */
    sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
-   if(exists(fname)) plog("Using neo-genesis backup 0x%s", bnum);
+   if(exists(fname)) plog("Using neo-genesis backup 0x%s", bnum2hex(bnum));
+   /* download neo-genesis block if no backup */
    else if(!iszero(bnum, 8)) {
       plog("Downloading neo-genesis 0x%s", bnum2hex(bnum));
       sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
       for( ; Running; ) {
          if(get_block2(peerip, bnum, fname, OP_GETBLOCK) == VEOK) break;
-         if(++k >= Quorum) goto try_again;
-         peerip = gang[k];
+         if(k >= Quorum) goto try_again;
+         peerip = gang[k++];
       }
    }  /* end if neo-genesis download */
    if(!iszero(bnum, 8)) {
@@ -764,16 +764,14 @@ top:
          unlink(fname);  /* incase the backup was the problem */
          restart("qu extract");
       }
-   } else extract_gen("ledger.dat");  /* use our genesis block ledger */
+   } else extract_gen("ledger.dat");  /* use genesis block ledger */
+   /* setup the difficulty, based on [neo]genesis block */
    if(reset_difficulty(NULL, Bcdir) != VEOK) {
       unlink(fname);  /* incase the backup was the problem */
       restart("qu diff");
    }
    le_open("ledger.dat", "rb");
-
-
-   /* ****************
-    * Cblockhash was set from NG by reset_difficulty()
+   /* Cblockhash was set from NG by reset_difficulty()
     * Check a non-Genesis NG hash against Cblockhash.
     */
    if(!iszero(bnum, 8)) {
@@ -785,66 +783,75 @@ top:
    }
 
    /* ****************
-    * Download the blockchain.
-    * Clear any failed download attempts.
-    * Use the entire gang[] to download blocks asynchronously.
-    * Validate blocks as they are ready.
+    * Download the blockchain asynchronously using
+    * all accessible gang[] members.
     */
+   show("dlblocks");
    plog("Downloading blockchain");
-   add64(bnum, One, dlbnum);
-   do {
-      sprintf(fname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
-      sprintf(flock, "rblock%02X%02X.lck", dlbnum[1], dlbnum[0]);
-      unlink(fname);
-      unlink(flock);
-      add64(dlbnum, One, dlbnum);
-   } while(dlbnum[0] != 0);
-
+   put64(clbnum, bnum);
    add64(bnum, One, bnum);
    for( ; Running; ) {
       put64(dlbnum, bnum);
+      /* i -> count children finished downloading
+       * j -> count peers discarded (get_block2() unsuccessful)
+       * k -> gang index
+       */
       for(i=0, j=0, k=0, result=0; Running && k<Quorum; result=0) {
          /* poll children */
          if(Gpid[k] > 0 && waitpid(Gpid[k], &result, WNOHANG) > 0) {
             if(result) gang[k] = 0;
             Gpid[k] = 0;
-            ++i;
+            i++;
          }
-         /* check peer */
-         if((peerip = gang[k]) == 0 && ++k && ++j) continue;
-         /* check block */
-         sprintf(fname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
-         sprintf(flock, "rblock%02X%02X.lck", dlbnum[1], dlbnum[0]);
-         if(dlbnum[0] == 0 || exists(fname)) {
+         /* check peer ok */
+         peerip = gang[k];
+         if(peerip == 0) { j++; k++; continue; }
+         /* set block number to download */
+         sprintf(fname, "dblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
+         sprintf(tofname, "rblock%02X%02X.dat", dlbnum[1], dlbnum[0]);
+         /* cleanup downloaded blocks from past sync attempts */
+         if(dlbnum[0] != 0 && cmp64(dlbnum, clbnum) > 0) {
+            put64(clbnum, dlbnum);
+            unlink(fname);
+            unlink(tofname);
+         }
+         /* check block duplicate */
+         if(dlbnum[0] == 0 || exists(tofname) || exists(fname)) {
             add64(dlbnum, One, dlbnum);
             continue;
          }
-         /* make-uh da baby */
+         /* spawn child to download block */
          if(!Gpid[k]) {
             Gpid[k] = fork();
             if(Gpid[k] > 0) add64(dlbnum, One, dlbnum); /* parent */
             if(Gpid[k] < 0) gang[k] = 0; /* parent */
             if(Gpid[k] == 0) { /* child */
-               fclose(fp = fopen(flock, "ab+")); /* get first dibs */
+               fp = fopen(fname, "ab+"); /* get first dibs */
+               if(!fp) {
+                  error("init: cannot secure block file %s", fname);
+                  exit(VERROR);
+               } else fclose(fp);
                result = get_block2(peerip, dlbnum, fname, OP_GETBLOCK);
                if(result != VEOK) unlink(fname);
-               unlink(flock);
+               else if(rename(fname, tofname) != 0) {
+                  error("init: cannot rename %s",fname);
+                  unlink(fname);
+                  exit(VERROR);
+               }
                exit(result);
             }
          }
-         ++k;
-      }
-      /* rest during no activity */
+         k++;
+      }  /* end for thread handling */
+      /* sleep cpu during no activity */
       if(!i) usleep(Dynasleep);
       /* update downloaded blocks (also constructs NG on 0xff blocks) */
       sprintf(fname, "rblock%02X%02X.dat", bnum[1], bnum[0]);
-      sprintf(flock, "rblock%02X%02X.lck", bnum[1], bnum[0]);
-      while (exists(fname) && !exists(flock)) {
+      while (exists(fname)) {
          if(update(fname, 0) != VEOK) goto try_again;
          add64(bnum, One, bnum);
          if(bnum[0] == 0) add64(bnum, One, bnum);
          sprintf(fname, "rblock%02X%02X.dat", bnum[1], bnum[0]);
-         sprintf(flock, "rblock%02X%02X.lck", bnum[1], bnum[0]);
       }
       /* unable to download more blockchain */
       if(j>=Quorum) {
