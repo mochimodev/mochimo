@@ -32,9 +32,9 @@ while true
 do
 echo
 echo backup neo-genesis blocks...
-rm -f bc/b0000000000000000.bc
 rm -f ng/b*.bc
 cp bc/b*00.bc ng/
+rm -f ng/b0000000000000000.bc
 echo
 echo leave files in place
 #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
