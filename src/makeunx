@@ -52,18 +52,13 @@ exit
 fi
 if [ $1 = 'install' ]
 then
-cd _init
-chmod +x gomochi
-chmod +x resume
-cd ..
-cd ..
-mkdir bin
-cd bin
-mkdir d
-cd d
-mkdir bc
-mkdir ng
-cd ../../src
+echo preparing install directory
+chmod +x ./_init/gomochi
+chmod +x ./_init/resume
+mkdir -p ../bin
+mkdir -p ../bin/d
+mkdir -p ../bin/d/bc
+mkdir -p ../bin/d/ng
 echo moving binaries to ../bin
 cp _init/* ../bin
 mv mochimo bval bcon bup sortlt neogen txclean wallet ../bin

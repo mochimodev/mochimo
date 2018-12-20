@@ -24,9 +24,10 @@ int miner(char *blockin, char *blockout)
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
    char *haiku;
    time_t htime;
-   unsigned long long hcount, hps;
+   unsigned long long hcount, hps, total_hcount;
    word32 temp[3];
-   int initGPU = 0;
+   int initGPU;
+   struct timespec chill = {0,Dynasleep*1000L};
 
    /* Keep a separate rand2() sequence for miner child */
    if(read_data(&temp, 12, "mseed.dat") == 12)
@@ -72,10 +73,19 @@ int miner(char *blockin, char *blockout)
        */
       trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
 
-      /* Initialize CUDA specific memory allocations */
+      /* Initialize CUDA specific memory allocations
+       * and check for obvious errors
+       */
+      initGPU = -1;
       initGPU = trigg_init_cuda(bt.difficulty[0], bt.bnum);
+      if(initGPU==-1) {
+         error("miner: cuda initialization failed. Check GPUs");
+         trigg_free_cuda();
+         break;
+      }
       if(initGPU<1 || initGPU>64) {
          error("miner: unsupported number of GPUs detected -> %d",initGPU);
+         trigg_free_cuda();
          break;
       }
 
@@ -83,21 +93,25 @@ int miner(char *blockin, char *blockout)
        * solution chain with trigg_generate()...
        */
 
-      for(htime = time(NULL), hcount = 0; ; ) {
+      for(haiku = NULL, htime = time(NULL), hcount = 0; ; ) {
          if(!Running) break;
-         haiku = trigg_generate_cuda(bt.mroot, &hcount); 
          if(haiku != NULL) break;
+         haiku = trigg_generate_cuda(bt.mroot, &hcount);
+         if(total_hcount == hcount) nanosleep(&chill, NULL);
+         else total_hcount = hcount;
       }
 
       /* Free CUDA specific memory allocations */
       trigg_free_cuda();
 
+      /* Calculate and write Haiku/s to disk */
       htime = time(NULL) - htime;
       if(htime == 0) htime = 1;
       hps = hcount / htime;
       write_data(&hps, 8, "hps.dat");  /* unsigned long haiku per second */
       if(!Running) break;
 
+      /* Block validation (double)check */
       if (!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
          printf("ERROR - Block is not valid\n");
          break;
