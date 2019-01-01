@@ -10,9 +10,26 @@
 # ****************       set the CC variable for your system:
 # Set compiler command
 # Edit config.h and edit next line if needed:
-export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib -L/usr/local/cuda-9.2/lib64 $2 $3 $4 $5 $6 $7 $8 $9"
-export set LD_FLAGS="-lcudart -lcuda -lstdc++"
-export set NVCC="nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
+CUDA_VERSION=$(pkg-config --list-all | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
+CUDART_VERSION=$(pkg-config --list-all | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
+if [ ! -z "${CUDA_VERSION}" ]; then
+	LIBCUDA="$(pkg-config ${CUDA_VERSION} --libs-only-l --silence-errors)"
+	LIBCUDA_DIR="$(pkg-config ${CUDA_VERSION} --libs-only-L --silence-errors)"
+	CUDAROOT="$(pkg-config ${CUDA_VERSION} --variable=cudaroot --silence-errors)"
+fi
+LIBCUDA="${LIBCUDA:--lcuda}"
+if [ ! -z "${CUDART_VERSION}" ]; then
+	LIBCUDART="$(pkg-config ${CUDART_VERSION} --libs-only-l --silence-errors)"
+fi
+LIBCUDART="${LIBCUDART:--lcudart}"
+NVCC_DIR=""
+if [ ! -z "$CUDAROOT" ]; then
+	NVCC_DIR="$CUDAROOT/bin/"
+fi
+
+export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib ${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
+export set LD_FLAGS="${LIBCUDA} ${LIBCUDART} -lstdc++"
+export set NVCC="${NVCC_DIR}nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
 # ****************
 if test ! -f mochimo.c
 then
