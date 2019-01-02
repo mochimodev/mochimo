@@ -25,7 +25,7 @@ then
 fi
 clear
 echo
-echo Mochimo Cryptocurrency Engine v2.0 Released October 27, 2018
+echo Mochimo Cryptocurrency Engine v2.2, Original Release: October 27, 2018
 sleep 1
 echo Copyright Adequate Systems 2018
 echo All Rights Reserved

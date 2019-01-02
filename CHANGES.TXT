@@ -4,6 +4,21 @@
  *
  */
 
+Patch Level 31-B (Mochimo Version 2.2)
+
+added support for diverse nVidia GPU Models
+CUDA Code optimizations for average HP/s +10-20%
+improved sanity checking in get_eon (prep for ring signatures)
+added OPCODE 15 & 16 (pull candidate / push solved blocks)
+added support for Headless Miners and Mining Pools
+adjusted wait time up to 300 seconds from 180 if no quorum found
+fixed random seed issue in rand.c
+added node capability bits to identify server capabilities during handshake
+added new execute and dispatch functions for handling headless miner requests
+added new reaping function for terminating stale child processes related to headless miners
+various community requested patches
+
+
 Patch Level 31 (Mochimo Version 2.0)
 
 October 27th, 2018
