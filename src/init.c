@@ -787,7 +787,7 @@ top:
     * all accessible gang[] members.
     */
    show("dlblocks");
-   plog("Downloading blockchain");
+   printf("Downloading blockchain...\n");
    put64(clbnum, bnum);
    add64(bnum, One, bnum);
    for( ; Running; ) {
@@ -943,7 +943,7 @@ int init(void)
    memcpy(Weight, wp, HASHLEN);
 
    /* read into Coreplist[], shuffle, and get IPL */
-   printf("\n%s is the bootstrap nodes file list.\n", Corefname);
+   printf("   %s is the bootstrap nodes file list.\n", Corefname);
    Peerip = init_coreipl(&node, Corefname);
    if(Peerip) {
       result = cmp64(Cblocknum, node.tx.cblock);

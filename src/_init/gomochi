@@ -1,120 +1,150 @@
 #!/bin/sh
+# Bring Mochimo online -- cold start
 #
 # Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
-# Bring Mochimo online -- cold start
+# Revised: 2 January 2019
 #
+###################
+# Preconfiguration
+
 trap "" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
 trap ""  24 25 26 27 28 29 30 31
 trap "exit 0" term
-if test -z $1
+
+################
+# Sanity checks
+
+echo
+if test -z "$1" -o ! -d "$1" -o ! -d "$1/bc"
 then
-  echo 'usage: gomochi data_dir [parameter...]'
-  exit 1
+   if test ! -d $1
+   then
+      echo "No data directory $1/"
+   fi
+   if test ! -d $1/bc
+   then
+      echo "No blockchain directory $1/bc"
+   fi
+   echo
+   echo "Usage: ./gomochi <data_dir> [options]"
+   echo "   options:"
+   ./mochimo - | sed -n '1!p'
+   echo
+   exit 1
 fi
 if test ! -f mochimo
 then
    echo "Please cd to binary directory: no mochimo found."
+   echo
    exit 1
 fi
-if test ! -d $1/bc
+if test -f maddr.dat
 then
-   echo "no $1/bc directory!"
+   cp maddr.dat $1/
+else
+   echo "EXITING: Miner was unable to launch."
+   echo
+   echo "There is no maddr.dat file in your /bin directory."
+   echo "You must create a mining address before starting a mining node."
+   echo "Please see README.TXT for instructions on how to create a mining address."
+   echo
+   echo "If you are trying to run the node in Relay mode, trying copying the"
+   echo "default mining address to maddr.dat before starting:"
+   echo "   cp maddr.mat maddr.dat"
+   echo 
    exit 1
 fi
+
+########
+# Start
+
+# Splash screen
 clear
 echo
-echo Mochimo Cryptocurrency Engine v2.2, Original Release: October 27, 2018
+echo "Mochimo Cryptocurrency Engine v2.2, Original Release: October 27, 2018"
 sleep 1
-echo Copyright Adequate Systems 2018
-echo All Rights Reserved
+echo "Copyright Adequate Systems 2018"
+echo "All Rights Reserved"
 sleep 3
 echo
-echo This software is subject to the terms and conditions of the Mochimo End
-echo User License Agreement v2.0, available at https://www.mochimo.org/license
+echo "This software is subject to the terms and conditions of the Mochimo End"
+echo "User License Agreement v2.0, available at https://www.mochimo.org/license"
 sleep 2
+
+# Enter working directory
 cd $1
-#We are in d/ now
 rm -f *.log *.lck *.lst
-if test -e ../maddr.dat
-then
-   cp ../maddr.dat .
-else
-   sleep 1
-   clear
-   echo
-   echo EXITING: Miner was unable to launch.
-   sleep 1
-   echo
-   echo There is no maddr.dat file in your /bin directory.  You must create a mining address.
-   sleep 2
-   echo
-   echo Please see README.TXT for instructions on how to create a mining address.
-   echo
-   echo
-   exit 0
-fi
 cp ../coreip.lst .
 cp ../maddr.dat .
 while true
 do
-echo 
-echo
-echo
-if test -e ../startnodes.lst
-then
-   mv ../startnodes.lst ../startnodes.bak
-fi
-echo Attempting to download starting node list from mochimap.net...
-wget -O ../startnodes.lst https://www.mochimap.net/startnodes.lst
-if test ! -f ../startnodes.lst
-then
-   echo Attempting to download starting node list from mochimo.org...
-   wget -O ../startnodes.lst https://www.mochimo.org/startnodes.lst
+   echo
+   echo
+   # Backup existing list
+   if test -f ../startnodes.lst
+   then
+      mv ../startnodes.lst ../startnodes.bak
+   fi
+   # Obtain fresh list
+   echo "Downloading a fresh startnode.lst file."
+   echo "   Trying mochimap.net..."
+   wget -O ../startnodes.lst https://www.mochimap.net/startnodes.lst >/dev/null 2>&1
    if test ! -f ../startnodes.lst
    then
-      if test -e ../startnodes.bak
+      echo "   Trying mochimo.org..."
+      wget -O ../startnodes.lst https://www.mochimo.org/startnodes.lst >/dev/null 2>&1
+      if test ! -f ../startnodes.lst
       then
-         mv ../startnodes.bak ../startnodes.lst
+         echo "   Trying backup..."
+         if test -f ../startnodes.bak
+         then
+            mv ../startnodes.bak ../startnodes.lst
+         else
+            cp coreip.lst startnodes.lst
+            echo
+            echo "Unable to obtain a startnodes.lst file. Using coreip.lst..."
+            echo "If you experience issues connecting to the network, please"
+            echo "manually download a startnodes.lst file from mochimap.net."
+            echo
+            echo "Alternatively, you may specify a bootstrap node list as follows:"
+            echo "   ./gomochi d -cMyIPList.txt"
+            sleep 8
+         fi
       fi
    fi
-   if test ! -f ../startnodes.lst
+   # Perform pre-start operations
+   if test -f ../startnodes.lst
    then
-      cp coreip.lst startnodes.lst
-      echo Unable to obtain a startnodes.lst file. Using coreip.lst...
-      echo Alternatively, you may specify a bootstrap node list as follows:
-      echo ./gomochi d -cMyIPList.txt
-      sleep 5
+      cp ../startnodes.lst .
    fi
-fi
-if test -e ../startnodes.lst
-then
-   cp ../startnodes.lst .
-fi
-echo
-echo backup neo-genesis blocks...
-rm -f bc/b0000000000000000.bc
-rm -f ng/b*.bc
-cp bc/b*00.bc ng/
-echo remove some files...
-rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
-rm -f mq.dat mirror.dat
-rm -f mseed.dat
-echo copy some files...
-cp ../genblock.bc bc/b0000000000000000.bc
-cp ../tfile.dat .
-touch mq.lck
-#../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
-if test $? -eq 0
-then
-   echo Resume paused system with ./resume
-   exit 0
-fi
-rm -f cblock.dat mblock.dat miner.tmp
-echo wait...
-sleep 1
-rm -f cblock.dat mblock.dat miner.tmp
-# RESTART
+   echo
+   #echo "backup blockchain..."
+   #mkdir -p ../bcbak
+   #cp bc/* ../bcbak/
+   echo "backup neo-genesis blocks..."
+   rm -f ng/b*.bc
+   mv $(ls -1 bc/b*00.bc 2> /dev/null | tail -n 2 | tr '\n' ' ') ng/ 2> /dev/null
+   echo "remove some files..."
+   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
+   rm -f mq.dat mirror.dat
+   rm -f mseed.dat
+   echo "copy some files..."
+   cp ../genblock.bc bc/b0000000000000000.bc
+   cp ../tfile.dat .
+   touch mq.lck
+   echo
+   #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
+   ../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+   if test $? -eq 0
+   then
+      echo "Resume paused system with ./resume"
+      exit 0
+   fi
+   rm -f cblock.dat mblock.dat miner.tmp
+   echo "wait..."
+   sleep 1
+   rm -f cblock.dat mblock.dat miner.tmp
+   # RESTART
 done

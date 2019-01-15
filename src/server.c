@@ -208,10 +208,11 @@ int server(void)
          if(Bcpid == -1) { error("Cannot fork() bcon");  Bcpid = 0; }
          bctime = Ltime + BCONFREQ;
       }
+
       /* Collect bcon status when she is 'done'.  pid == 0 means she
-       * is still busy.
+       * is still busy. Disregard in Relaymode
        */
-      if(Bcpid > 0) {
+      if(!Relaymode && Bcpid > 0) {
          pid = waitpid(Bcpid, &status, WNOHANG);
          if(pid > 0) {
             Bcpid = 0;  /* pid not zero means she is done. */
@@ -222,7 +223,7 @@ int server(void)
       /* bcon sequence will wait on miner if Txcount > 0,
        * else...
        */
-      if(Mpid && Ltime >= mwtime) {
+      if(!Relaymode && Mpid && Ltime >= mwtime) {
          pid = waitpid(Mpid, &status, WNOHANG);
          if(pid > 0) Mpid = 0;  /* Miner exited. */
          mwtime = Ltime + 120;
