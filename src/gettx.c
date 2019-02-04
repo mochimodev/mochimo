@@ -170,6 +170,41 @@ int contention(NODE *np)
 }  /* end contention() */
 
 
+/* Search txq1.dat and txclean.dat for src_addr.
+ * Return VEOK if the src_addr is not found, otherwise VERROR.
+ */
+int txcheck(byte *src_addr)
+{
+   FILE *fp;
+   TXQENTRY tx;
+
+   fp = fopen("txq1.dat", "rb");
+   if(fp != NULL) {
+      for(;;) {
+         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
+         if(memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+            fclose(fp);
+            return VERROR;  /* found */
+         }
+      }  /* end for */
+      fclose(fp);
+   }  /* end if fp */
+
+   fp = fopen("txclean.dat", "rb");
+   if(fp != NULL) {
+      for(;;) {
+         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
+         if(memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+            fclose(fp);
+            return VERROR;  /* found */
+         }
+      }  /* end for */
+      fclose(fp);
+   }  /* end if fp */
+   return VEOK;  /* src_addr not found */
+}  /* end txcheck() */
+
+
 /* opcodes in types.h */
 #define valid_op(op)  ((op) >= FIRST_OP && (op) <= LAST_OP)
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
@@ -197,7 +232,7 @@ int gettx(NODE *np, SOCKET sd)
    int count, status, n;
    word16 opcode;
    TX *tx;
-   word32 crc, ip;
+   word32 ip;
    time_t timeout;
 
    tx = &np->tx;
@@ -262,14 +297,11 @@ int gettx(NODE *np, SOCKET sd)
       return 1;  /* You're done! */
    }
    else if(opcode == OP_TX) {
-      /* crc = crc32(TRANBUFF(tx), TRANLEN);  transaction unique? */
-      crc = crc32(tx->src_addr, TXADDRLEN);  /* src_addr unique? */
-      if(recentcrc(crc)) {
-         if(Trace) plog("got dup TX: 0x%08x", crc);
+      if(txcheck(tx->src_addr) != VEOK) {
+         if(Trace) plog("got dup src_addr");
          Ndups++;
          return 1;  /* suppress child */
       }
-      addtxcrc(crc);  /* add crc32 to table */
       Nlogins++;  /* raw TX in */
       status = process_tx(np);
       if(status > 2) goto bad1;
