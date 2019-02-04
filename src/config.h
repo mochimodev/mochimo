@@ -40,6 +40,13 @@
 #define PVERSION      2      /* protocol version number (short) */
 #endif
 
+/* Node type */
+#ifdef CPU
+#define CPUNODE
+#else
+#define CUDANODE
+#endif
+
 /* Adjustable Parameters */
 #define MAXNODES      37       /* maximum number of connected nodes  */
 #define LQLEN         100      /* listen() queue length              */
@@ -49,6 +56,7 @@
 #define MAXBLTX       32768    /* max TX's in a block for bcon (~1M) */
 #define STATUSFREQ    10       /* status display interval sec.       */
 #define BCDIR         "bc"     /* rename to dir for block storage    */
+#define NGDIR         "ng"     /* rename to dir for neogen storage   */
 #define CPINKLEN     100       /* maximum entries in pinklists       */
 #define LPINKLEN     100
 #define EPINKLEN     100

@@ -11,9 +11,11 @@
 
 #include <inttypes.h>
 
+#ifdef CUDANODE
 extern int trigg_init_cuda(byte difficulty, byte *blockNumber);
 extern void trigg_free_cuda();
 extern char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku);
+#endif
 
 /* miner blockin blockout -- child process */
 int miner(char *blockin, char *blockout)
@@ -24,9 +26,10 @@ int miner(char *blockin, char *blockout)
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
    char *haiku;
    time_t htime;
-   unsigned long long hcount, hps;
+   unsigned long long hcount, hps, total_hcount;
    word32 temp[3];
-   int initGPU = 0;
+   int initGPU;
+   struct timespec chill = {0,Dynasleep*1000L};
 
    /* Keep a separate rand2() sequence for miner child */
    if(read_data(&temp, 12, "mseed.dat") == 12)
@@ -72,32 +75,64 @@ int miner(char *blockin, char *blockout)
        */
       trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
 
-      /* Initialize CUDA specific memory allocations */
+#ifdef CUDANODE
+
+      /* Initialize CUDA specific memory allocations
+       * and check for obvious errors
+       */
+      initGPU = -1;
       initGPU = trigg_init_cuda(bt.difficulty[0], bt.bnum);
-      if(initGPU<1 || initGPU>64) {
-         error("miner: unsupported number of GPUs detected -> %d",initGPU);
+      if(initGPU==-1) {
+         error("Cuda initialization failed. Check nvidia-smi");
+         trigg_free_cuda();
          break;
       }
+      if(initGPU<1 || initGPU>64) {
+         error("Unsupported number of GPUs detected -> %d",initGPU);
+         trigg_free_cuda();
+         break;
+      }
+
+#endif
 
       /* Traverse all TRIGG links to build the
        * solution chain with trigg_generate()...
        */
 
-      for(htime = time(NULL), hcount = 0; ; ) {
+      for(haiku = NULL, htime = time(NULL), hcount = 0; ; ) {
          if(!Running) break;
-         haiku = trigg_generate_cuda(bt.mroot, &hcount); 
          if(haiku != NULL) break;
+
+#ifdef CUDANODE
+
+         haiku = trigg_generate_cuda(bt.mroot, &hcount);
+         if(total_hcount == hcount) nanosleep(&chill, NULL);
+         else total_hcount = hcount;
+
+#endif
+#ifdef CPUNODE
+
+         haiku = trigg_generate(bt.mroot, bt.difficulty[0]);
+         hcount++;
+
+#endif
       }
+
+#ifdef CUDANODE
 
       /* Free CUDA specific memory allocations */
       trigg_free_cuda();
 
+#endif
+
+      /* Calculate and write Haiku/s to disk */
       htime = time(NULL) - htime;
       if(htime == 0) htime = 1;
       hps = hcount / htime;
       write_data(&hps, 8, "hps.dat");  /* unsigned long haiku per second */
       if(!Running) break;
 
+      /* Block validation check */
       if (!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
          printf("ERROR - Block is not valid\n");
          break;

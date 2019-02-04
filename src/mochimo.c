@@ -72,6 +72,7 @@ void usage(void)
           "         -S         Safe mode\n"
           "         -F         Filter private IP's\n"  /* v.28 */
           "         -P         Allow pushed mblocks\n"
+          "         -R         activate Relay mode\n"
    );
    exit(0);
 }
@@ -118,7 +119,7 @@ int main(int argc, char **argv)
          case 't':  Trace = atoi(&argv[j][2]); /* set trace level  */
                     break;
          case 'q':  Quorum = atoi(&argv[j][2]); /* peers in gang[Quorum] */
-                    if((unsigned) Quorum >= MAXQUORUM) usage();
+                    if((unsigned) Quorum > MAXQUORUM) usage();
                     break;
          case 'p':  Port = Dstport = atoi(&argv[j][2]); /* home/dst */
                     break;
@@ -136,6 +137,8 @@ int main(int argc, char **argv)
          case 'f':  Frisky = 1;
                     break;
          case 'S':  Safemode = 1;
+                    break;
+         case 'R':  Relaymode = 1;
                     break;
          case 'F':  Noprivate = 1;  /* v.28 */
                     break;

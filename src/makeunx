@@ -5,130 +5,192 @@
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
 # Date: 25 December 2017
-# Revised 17 May 2018
+# Revised 2 January 2019
 #
-# ****************       set the CC variable for your system:
-# Set compiler command
-# Edit config.h and edit next line if needed:
-CUDA_VERSION=$(pkg-config --list-all | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
-CUDART_VERSION=$(pkg-config --list-all | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
-if [ ! -z "${CUDA_VERSION}" ]; then
-	LIBCUDA="$(pkg-config ${CUDA_VERSION} --libs-only-l --silence-errors)"
-	LIBCUDA_DIR="$(pkg-config ${CUDA_VERSION} --libs-only-L --silence-errors)"
-	CUDAROOT="$(pkg-config ${CUDA_VERSION} --variable=cudaroot --silence-errors)"
-fi
-LIBCUDA="${LIBCUDA:--lcuda}"
-if [ ! -z "${CUDART_VERSION}" ]; then
-	LIBCUDART="$(pkg-config ${CUDART_VERSION} --libs-only-l --silence-errors)"
-fi
-LIBCUDART="${LIBCUDART:--lcudart}"
-NVCC_DIR=""
-if [ ! -z "$CUDAROOT" ]; then
-	NVCC_DIR="$CUDAROOT/bin/"
+###################
+# Preconfiguration
+
+# Detect miner type
+if test "$@" = "-DCPU"
+then
+   MINER="-DCPU"
 fi
 
-export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib ${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
+# Autodetect CUDA Installation
+CUDA_VERSION=$(pkg-config --list-all | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
+CUDART_VERSION=$(pkg-config --list-all | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
+if test ! -z "${CUDA_VERSION}"
+then
+   LIBCUDA="$(pkg-config ${CUDA_VERSION} --libs-only-l --silence-errors)"
+   LIBCUDA_DIR="$(pkg-config ${CUDA_VERSION} --libs-only-L --silence-errors)"
+   CUDAROOT="$(pkg-config ${CUDA_VERSION} --variable=cudaroot --silence-errors)"
+fi
+if test ! -z "${CUDART_VERSION}"
+then
+   LIBCUDART="$(pkg-config ${CUDART_VERSION} --libs-only-l --silence-errors)"
+fi
+if test ! -z "$CUDAROOT"
+then
+   NVCC_DIR="$CUDAROOT/bin/"
+fi
+
+# Set defaults
+LIBCUDA="${LIBCUDA:--lcuda}"
+LIBCUDART="${LIBCUDART:--lcudart}"
+LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
+NVCC_DIR="${NVCC_DIR:-/usr/local/cuda/bin/}"
+
+# Set compiler command
+#  - Edit config.h and edit CC variable to suit your system:
 export set LD_FLAGS="${LIBCUDA} ${LIBCUDART} -lstdc++"
+export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib ${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
 export set NVCC="${NVCC_DIR}nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
-# ****************
+
+################
+# Sanity checks
+
+echo
 if test ! -f mochimo.c
 then
    echo "You need to be in mochi/src"
+   echo
    exit 1
 fi
-if [ $1 ]
+if test "$1" = "uninstall"
 then
-echo
-else
-echo
-echo usage:
-echo "   makeunx bin       make all binary programs"
-echo "   makeunx install   copy binaries and run scripts to ../bin"
-echo "   makeunx clean     remove object files and log files"
-echo "   makeunx uninstall remove files from mochi/bin directory tree"
-echo
-exit 1
+   if test ! -d ../bin
+   then
+      echo "Cannot find installation directory mochimo/bin"
+      echo
+      exit 1
+   elif test ! -d ../bin/d
+   then
+      echo "Cannot find working directory mochimo/bin/d"
+      echo
+      exit 1
+   fi
 fi
-if [ $1 = 'uninstall' ]
-then
-echo Uninstalling The Mochimo System Software...
+
+##########
+# Command
+
+case "$1" in
+   "bin") # Compile binaries
+      rm -f ccerror.log
+      echo "Make dependencies..."
+      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
+      $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
+      $CC -c trigg/trigg.c       2>>ccerror.log # Make Trigg CPU
+      if test -z $MINER
+      then
+         $NVCC -c trigg/cuda_trigg.cu 2>>ccerror.log # Make Trigg CUDA
+      fi
+      echo "Building Mochimo server..."
+      if test -z $MINER
+      then
+         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda_trigg.o $LD_FLAGS 2>>ccerror.log
+      else
+         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o              2>>ccerror.log
+      fi
+      echo "Building helper programs..."
+      $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
+      $CC -o bcon    bcon.c    sha256.o                2>>ccerror.log
+      $CC -o bup     bup.c     sha256.o                2>>ccerror.log
+      $CC -o sortlt  sortlt.c  sha256.o                2>>ccerror.log
+      $CC -o neogen  neogen.c  sha256.o                2>>ccerror.log
+      $CC -o txclean txclean.c sha256.o                2>>ccerror.log
+      $CC -o wallet  wallet.c  sha256.o wots.o         2>>ccerror.log
+      # Show the errors:
+      echo
+      if test -s ccerror.log
+      then
+         echo "ccerror.log contains:"
+         if test -z $MINER
+         then
+            echo " $(grep -c cuda_trigg.o: ccerror.log) CUDA Errors"
+         fi
+         echo "  $(grep -c error: ccerror.log) Errors"
+         echo "  $(grep -c warning: ccerror.log) Warnings"
+         echo "  check the log for details - mochimo/src/ccerror.log"
+         ls -l ccerror.log
+      else
+         echo "Done. No errors."
+      fi
+      # Cleanup object files
+      rm sha256.o wots.o trigg.o
+      if test -z $MINER
+      then
+         rm cuda_trigg.o
+      fi
+      ;;
+   "wallet") # Compile only the wallet binary
+      rm -f ccerror.log
+      echo "Make dependencies..."
+      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
+      $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
+      echo "Building wallet binary..."
+      $CC -o wallet  wallet.c  sha256.o wots.o 2>>ccerror.log
+      # Show the errors:
+      echo
+      if test -s ccerror.log
+      then
+         echo "ccerror.log contains:"
+         echo "  $(grep -c error: ccerror.log) Errors"
+         echo "  $(grep -c warning: ccerror.log) Warnings"
+         echo "  check the log for details - mochimo/src/ccerror.log"
+         ls -l ccerror.log
+      else
+         echo "Done. No errors."
+      fi
+      # Cleanup object files
+      rm sha256.o wots.o
+      ;;
+   "clean") # Remove binaries and *.log files
+      echo "Remove executable modules..."
+      rm bcon bup bval mochimo sortlt
+      rm wallet neogen txclean
+      echo "Remove log files..."
+      rm *.log
+      echo
+      echo "Done."
+      ;;
+   "install") # Install binaries
+      echo "Preparing installation..."
+      chmod +x ./_init/gomochi
+      chmod +x ./_init/resume
+      mkdir -p ../bin
+      mkdir -p ../bin/d
+      mkdir -p ../bin/d/bc
+      mkdir -p ../bin/d/ng
+      echo "Moving binaries to ../bin"
+      cp _init/* ../bin
+      mv mochimo bval bcon bup sortlt neogen txclean wallet ../bin
+      echo
+      echo "Done."
+      ;;
+   "uninstall") # Uninstall Mochimo system software
+      echo "Uninstalling The Mochimo System Software..."
+      cd ../bin
+      rm genblock.bc tfile.dat maddr.dat maddr.mat coreip.lst startnodes.lst startnodes.bak
+      rm mochimo bval bcon bup sortlt neogen txclean wallet
+      rm gomochi resume
+      rm d/bc/* d/ng/* d/*
+      du -d 3
+      echo
+      echo "Done."
+      ;;
+   *) # Unsupported command - print usage
+      echo "Usage: makeunx <command> [-D<miner>] [options]"
+      echo
+      echo "   command: bin           make all binary programs (CUDA Miner)"
+      echo "            bin -DCPU     make all binary programs (CPU Miner)"
+      echo "            wallet        make only the wallet binary program"
+      echo "            clean         remove object files and log files"
+      echo "            install       copy binaries and run scripts to ../bin"
+      echo "            uninstall     remove files from mochi/bin directory tree"
+      echo
+      exit 1
+      ;;
+esac
 echo
-cd ../bin
-if test ! -d d/bc
-then
-   echo "Cannot find mochi/bin/ directory"
-   exit 1
-fi
-rm genblock.bc tfile.dat maddr.dat coreip.lst
-rm mochimo bval bcon bup sortlt neogen txclean wallet
-rm gomochi resume
-rm d/bc/* d/*
-du -d 3
-echo Uninstalled.
 exit
-fi
-if [ $1 = 'install' ]
-then
-cd _init
-chmod +x gomochi
-chmod +x resume
-cd ..
-cd ..
-mkdir bin
-cd bin
-mkdir d
-cd d
-mkdir bc
-cd ../../src
-echo moving binaries to ../bin
-cp _init/* ../bin
-mv mochimo bval bcon bup sortlt neogen txclean wallet ../bin
-echo
-exit
-fi
-if [ $1 = 'clean' ]
-then
-echo Remove executable modules . . .
-rm bcon bup bval mochimo sortlt
-rm genblock wallet neogen txclean
-echo Remove object files . . .
-rm crypto/sha256.o crypto/wots/wots.o trigg/trigg.o trigg/cuda_trigg.o
-echo Remove log files . . .
-rm *.log
-echo
-exit
-fi
-#
-# Compile binaries
-#
-rm -f ccerror.log
-cd crypto
-$CC -c sha256.c $LD_FLAGS                    2>>ccerror.log
-#
-# Make WOTS+
-#
-cd wots
-$CC -c wots.c  $LD_FLAGS  2>>../ccerror.log
-cd ../../trigg
-$CC -c trigg.c $LD_FLAGS  2>>ccerror.log
-$NVCC -c cuda_trigg.cu $LD_FLAGS 2>>ccerror.log
-cd ..
-echo Building Mochimo server...
-$CC -o mochimo mochimo.c trigg/trigg.o crypto/wots/wots.o crypto/sha256.o trigg/cuda_trigg.o $LD_FLAGS 2>>ccerror.log
-echo Building helper programs...
-$CC -o bval    bval.c    trigg/trigg.o crypto/wots/wots.o crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-$CC -o bcon    bcon.c    crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-$CC -o bup     bup.c     crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-$CC -o sortlt  sortlt.c  crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-$CC -o neogen  neogen.c  crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-$CC -o txclean txclean.c crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-$CC -o wallet wallet.c crypto/wots/wots.o crypto/sha256.o $LD_FLAGS 2>>ccerror.log
-# show the errors:
-if [ -s ccerror.log ]
-then
-   grep error: ccerror.log
-   echo Error messages are in ccerror.log
-   ls -l ccerror.log
-else
-   echo No errors.
-fi

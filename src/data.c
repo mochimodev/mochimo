@@ -44,6 +44,7 @@ time_t Stime;            /* status display update time */
 word16 Port;             /* Our listening port */
 word16 Dstport;          /* Our send destination port */
 char *Bcdir = BCDIR;     /* block chain directory */
+char *Ngdir = NGDIR;     /* block chain directory */
 
 #ifndef EXCLUDE_NODES
 NODE Nodes[MAXNODES];  /* data structure for connected NODE's     */
@@ -67,6 +68,7 @@ word32 Coreplist[CORELISTLEN] = {  /* ip's of the Core Network */
 int Quorum = 4;         /* Number of peers in get_eon() gang[MAXQUORUM] */
 byte Ininit;            /* non-zero when init() runs */
 byte Safemode;          /* Safe mode enable */
+byte Relaymode;         /* Safe mode enable */
 byte Betabait;          /* betabait() display */
 byte Cbits = CBITS;     /* 8 capability bits */
 time_t Pushtime;        /* time of last OP_MBLOCK */

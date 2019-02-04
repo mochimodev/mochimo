@@ -1,53 +1,95 @@
 #!/bin/sh
+# Resume Mochimo after a brief pause
 #
 # Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
-# Resume Mochimo after a brief pause
+# Revised: 1 January 2019
 #
+###################
+# Preconfiguration
+
 trap "" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
 trap ""  24 25 26 27 28 29 30 31
 trap "exit 0" term
-if test -z $1
+
+################
+# Sanity checks
+
+echo
+if test -z $1 -o ! -d $1 -o ! -d $1/bc
 then
-  echo 'usage: resume data_dir [parameter...]'
-  exit 1
+   if test ! -d $1
+   then
+      echo "No data directory $1/"
+   fi
+   if test ! -d $1/bc
+   then
+      echo "No blockchain directory $1/bc"
+   fi
+   echo
+   echo "Usage: gomochi <data_dir> [options]"
+   echo "   options:"
+   ./mochimo help | sed -n '1!p'
+   echo
+   exit 1
 fi
 if test ! -f mochimo
 then
    echo "Please cd to binary directory: no mochimo found."
+   echo
    exit 1
 fi
-if test ! -d $1/bc
+if test -f maddr.dat
 then
-   echo "no $1/bc directory!"
+   cp maddr.dat $1/
+else
+   echo "EXITING: Miner was unable to launch."
+   echo
+   echo "There is no maddr.dat file in your /bin directory."
+   echo "You must create a mining address before starting a mining node."
+   echo "Please see README.TXT for instructions on how to create a mining address."
+   echo "Alternatively, you may start the node in Relay mode as follows:"
+   echo "   ./gomochi <data_dir> -R [options]"
+   echo 
    exit 1
 fi
+
+########
+# Start
+
+# Enter working directory
 cd $1
-# We are in d/ now
-echo copy mining address
-cp ../maddr.dat .
+rm -f *.log *.lck *.lst
 cp ../coreip.lst .
+cp ../maddr.dat .
 while true
 do
-echo leave files in place
-#../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-../mochimo -x345678 -e  -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
-if test $? -eq 0
-then
-   echo Resume paused system with ./resume
-   exit 0
-fi
-rm -f cblock.dat mblock.dat miner.tmp
-echo remove some files...
-rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
-rm -f mq.dat mirror.dat
-echo copy some files...
-cp ../genblock.bc bc/b0000000000000000.bc
-cp ../tfile.dat .
-touch mq.lck
-echo wait...
-sleep 1
-rm -f cblock.dat mblock.dat miner.tmp
-# RESTART
+   #echo "backup blockchain..."
+   #mkdir -p ../bcbak
+   #cp bc/* ../bcbak/
+   echo "backup neo-genesis blocks..."
+   rm -f ng/b*.bc
+   mv $(ls -1 bc/b*00.bc >/dev/null 2>&1 | tail -n 2 | tr '\n' ' ') ng/ >/dev/null 2>&1
+   echo "leave files in place"
+   echo
+   #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
+   ../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+   if test $? -eq 0
+   then
+      echo "Resume paused system with ./resume"
+      exit 0
+   fi
+   rm -f cblock.dat mblock.dat miner.tmp
+   echo "remove some files..."
+   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
+   rm -f mq.dat mirror.dat
+   echo "copy some files..."
+   cp ../genblock.bc bc/b0000000000000000.bc
+   cp ../tfile.dat .
+   touch mq.lck
+   echo "wait..."
+   sleep 1
+   rm -f cblock.dat mblock.dat miner.tmp
+   # RESTART
 done
