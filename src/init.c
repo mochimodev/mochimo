@@ -636,7 +636,7 @@ int get_eon(NODE *np, word32 peerip)
    byte dlbnum[8], clbnum[8]; /* download/clear block number */
    byte highhash[HASHLEN], *tfweight;
    byte highweight[HASHLEN];
-   int i, j, k, result, result2;
+   int i, j, k, result;
    size_t cpbytes;            /* neo-gen transfer */
    char cpbuff[NGBUFFLEN];    /* neo-gen transfer */
    char fname[128], tofname[128];
@@ -674,10 +674,9 @@ top:
       if(search32(peerip, gang, Quorum) != NULL) continue;
       /* fetch her ip list and compare block height/weight/hash */
       if(get_ipl(np, peerip) != VEOK) continue;
-      result = cmp64(np->tx.cblock, highbnum);
-      result2 = cmp_weight(np->tx.weight, highweight);
-      if(result > 0 && result2 > 0) goto top;
-      if(result != 0 || result2 != 0) continue;
+      result = cmp_weight(np->tx.weight, highweight);
+      if(result > 0) goto top;
+      if(result != 0) continue;
       if(memcmp(highhash, np->tx.cblockhash, HASHLEN) != 0) continue;
       gang[j++] = peerip;
    }
@@ -778,6 +777,7 @@ top:
       result = check_ng(fname, bnum);
       if(result != 0) {
          plog("get_eon(): Bad NG block! ecode: %d", result); 
+         unlink(fname);
          goto try_again;
       }
    }
