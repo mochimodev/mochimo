@@ -99,7 +99,7 @@ int server(void)
             }
          }  /* end if OP_FOUND child */
          else if(np->opcode == OP_GETBLOCK || np->opcode == OP_GET_TFILE) {
-            if(status == 0) {
+            if(get16(np->tx.len) == 0 && status == 0) {
                addcurrent(np->src_ip);  /* v.28 */
                addrecent(np->src_ip);
             }
