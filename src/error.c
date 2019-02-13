@@ -61,7 +61,7 @@ int error(char *fmt, ...)
       va_end(argp);
       log_time(Logfp);
    }
-   if(errorfp != stdout) {
+   if(!Bgflag && errorfp != stdout) {
       fprintf(stdout, "error: ");
       va_start(argp, fmt);
       vfprintf(stdout, fmt, argp);
@@ -120,7 +120,7 @@ void fatal2(int exitcode, char *message)
 #ifndef EXCLUDE_NODES
    stop_mirror();
 #endif
-   if(message) {
+   if(!Bgflag && message) {
       error("%s", message);
       fprintf(stdout, "fatal: %s\n", message);
    }
