@@ -208,9 +208,10 @@ int update(char *fname, int mode)
       if(exists("../update.sh")) system("../update.sh");  /* synchronous */
    }
    plog("Block %s: 0x%s", mode ? "solved" : "updated", bnum2hex(Cblocknum));
-   if(!Ininit)
+   if(!Ininit && !Bgflag) {
       printf("Solved: %u  Haiku/second: %lu  Difficulty: %d\n",
-             Nsolved, Hps, Difficulty);
+             Nsolved, (unsigned long) Hps, Difficulty);
+   }
    return VEOK;
 err:
    restart("update error!");
