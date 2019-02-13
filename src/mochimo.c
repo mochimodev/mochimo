@@ -176,7 +176,7 @@ int main(int argc, char **argv)
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
 
    init();  /* Initialise -- does not fork() */
-   printf("\n");
+   if(!Bgflag) printf("\n");
 
    plog("\nMochimo Server (Build %d)  Built on %s %s\n"
         "Copyright (c) 2018 Adequate Systems, LLC.  All rights reserved.\n"
@@ -186,7 +186,7 @@ int main(int argc, char **argv)
    /* 
     * Show local host info
     */
-   phostinfo();
+   if(!Bgflag) phostinfo();
 
    server();                  /* start server */
 
