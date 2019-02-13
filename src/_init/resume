@@ -91,6 +91,9 @@ do
    touch mq.lck
    echo "wait..."
    sleep 1
+   if test -f ../restart.log
+      echo Restart at: `date` >>../restart.log
+   fi
    rm -f cblock.dat mblock.dat miner.tmp
    # RESTART
 done
