@@ -72,7 +72,8 @@ void usage(void)
           "         -S         Safe mode\n"
           "         -F         Filter private IP's\n"  /* v.28 */
           "         -P         Allow pushed mblocks\n"
-          "         -R         activate Relay mode\n"
+          "         -n         Do not solve blocks\n"
+          "         -w         enable watchdog timer\n"          
    );
    exit(0);
 }
@@ -138,8 +139,6 @@ int main(int argc, char **argv)
                     break;
          case 'S':  Safemode = 1;
                     break;
-         case 'R':  Relaymode = 1;
-                    break;
          case 'F':  Noprivate = 1;  /* v.28 */
                     break;
          case 'P':  Allowpush = 1;  Cbits |= C_PUSH;
@@ -158,6 +157,10 @@ int main(int argc, char **argv)
                     if(argv[j][2] == '2') {
                        Dstport = PORT1;  Port = PORT2;
                     }
+                    break;
+         case 'n':  Nominer = 1;
+                    break;
+         case 'w':  Watchdog = 1;
                     break;
          default:   usage();
       }  /* end switch */
