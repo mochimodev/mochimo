@@ -210,20 +210,22 @@ int server(void)
       }
 
       /* Collect bcon status when she is 'done'.  pid == 0 means she
-       * is still busy. Disregard in Relaymode
+       * is still busy.
        */
-      if(!Relaymode && Bcpid > 0) {
+      if(Bcpid > 0) {
          pid = waitpid(Bcpid, &status, WNOHANG);
          if(pid > 0) {
             Bcpid = 0;  /* pid not zero means she is done. */
-            printf("Solving...\n");
-            start_miner();  /* start or re-start miner */
+            if(!Nominer) {
+               if(!Bgflag) printf("Solving...\n");
+               start_miner();  /* start or re-start miner */
+            } 
          }
       }
       /* bcon sequence will wait on miner if Txcount > 0,
        * else...
        */
-      if(!Relaymode && Mpid && Ltime >= mwtime) {
+      if(Mpid && Ltime >= mwtime) {
          pid = waitpid(Mpid, &status, WNOHANG);
          if(pid > 0) Mpid = 0;  /* Miner exited. */
          mwtime = Ltime + 120;
