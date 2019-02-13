@@ -90,12 +90,19 @@ int send_op(NODE *np, int opcode)
 int bval2(char *fname, byte *bnum, byte diff)
 {
    BTRAILER bt;
+   word32 stemp, now;
 
    if(Trace) plog("bval2()");
 
    if(readtrailer(&bt, fname) != VEOK) return VERROR;
    if(cmp64(bnum, bt.bnum) != 0) return VERROR;
    if(get32(bt.difficulty) != diff) return VERROR;
+   /* Time Checks */
+   stemp = get32(bt.stime);
+   if(stemp <= Time0) return VERROR; /* Block Solve Time is Too Early! */
+   now = time(NULL);
+   if(stemp > now) return VERROR; /* Block Solve Time is in The FUTURE! */
+   /* Solution Check */
    if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
       return VERROR;;
    return VEOK;
