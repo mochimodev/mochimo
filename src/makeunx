@@ -5,15 +5,29 @@
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
 # Date: 25 December 2017
-# Revised 2 January 2019
+# Revised 13 February 2019
 #
 ###################
 # Preconfiguration
 
 # Detect miner type
-if test "$@" = "-DCPU"
+MINER=0
+# Default
+# MINER 0 = CPU
+# MINER 1 = CUDA
+# MINER 2 = AMD
+
+if test x$2 = x-DCPU
 then
-   MINER="-DCPU"
+   MINER=0
+fi
+if test x$2 = x-DCUDA
+then
+   MINER=1
+fi
+if test x$2 = x-DAMD
+then
+   MINER=2
 fi
 
 # Autodetect CUDA Installation
@@ -81,12 +95,12 @@ case "$1" in
       $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
       $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
       $CC -c trigg/trigg.c       2>>ccerror.log # Make Trigg CPU
-      if test -z $MINER
+      if test $MINER -eq 1
       then
          $NVCC -c trigg/cuda_trigg.cu 2>>ccerror.log # Make Trigg CUDA
       fi
       echo "Building Mochimo server..."
-      if test -z $MINER
+      if test $MINER -eq 1
       then
          $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda_trigg.o $LD_FLAGS 2>>ccerror.log
       else
@@ -105,7 +119,7 @@ case "$1" in
       if test -s ccerror.log
       then
          echo "ccerror.log contains:"
-         if test -z $MINER
+         if test $MINER -eq 1
          then
             echo " $(grep -c cuda_trigg.o: ccerror.log) CUDA Errors"
          fi
@@ -118,7 +132,7 @@ case "$1" in
       fi
       # Cleanup object files
       rm sha256.o wots.o trigg.o
-      if test -z $MINER
+      if test $MINER -eq 1
       then
          rm cuda_trigg.o
       fi
@@ -182,8 +196,8 @@ case "$1" in
    *) # Unsupported command - print usage
       echo "Usage: makeunx <command> [-D<miner>] [options]"
       echo
-      echo "   command: bin           make all binary programs (CUDA Miner)"
-      echo "            bin -DCPU     make all binary programs (CPU Miner)"
+      echo "   command: bin           make all binary programs (CPU Miner)"
+      echo "            bin -DCUDA    make all binary programs (CUDA Miner)"
       echo "            wallet        make only the wallet binary program"
       echo "            clean         remove object files and log files"
       echo "            install       copy binaries and run scripts to ../bin"
