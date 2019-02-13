@@ -127,7 +127,7 @@ do
    rm -f ng/b*.bc
    mv $(ls -1 bc/b*00.bc 2> /dev/null | tail -n 2 | tr '\n' ' ') ng/ 2> /dev/null
    echo "remove some files..."
-   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
+   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc rblock*
    rm -f mq.dat mirror.dat
    rm -f mseed.dat
    echo "copy some files..."
