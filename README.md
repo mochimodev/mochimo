@@ -8,6 +8,8 @@ Note: The license to operate versions of the code prior to v2.0 expires on Decem
 
 Join us on Discord for the latest news: https://discord.gg/EHFqS5s
 
+Please visit [mochiwiki.com](http://www.mochiwiki.com/w/index.php/Main_Page) for the official Mochimo Wiki page
+
 # mochimo
 Mochimo Project - Main Net Development Repository
 
