@@ -147,6 +147,7 @@ do
    sleep 1
    rm -f cblock.dat mblock.dat miner.tmp
    if test -f ../restart.log
+   then
       echo Restart at: `date` >>../restart.log
    fi
    # RESTART
