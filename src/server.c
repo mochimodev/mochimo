@@ -17,7 +17,7 @@
 int server(void)
 {
    static time_t nsd_time;  /* event timers */
-   static time_t bctime, mwtime, mqtime;
+   static time_t bctime, mwtime, mqtime, wdtime;
    static SOCKET lsd, nsd;
    static NODE *np, node;
    static struct sockaddr_in addr;
@@ -34,6 +34,7 @@ int server(void)
    bctime = Ltime + 30;     /* block constructor time */
    mwtime = Ltime + 6;
    mqtime = Ltime + 5;      /* mirror() time */
+   wdtime = Ltime + 600;    /* watchdog */
 
    if((lsd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
       fatal("Cannot open listening socket.");
@@ -265,6 +266,11 @@ int server(void)
        */
       if(Monitor && !Bgflag)
          monitor();
+
+      if(Watchdog && Ltime >= wdtime) {
+         if(iszero(Cblocknum, 8)) restart("watchdog");
+         wdtime = Ltime + 600;
+      }
 
       /* dynamic sleep function */
       if(Dynasleep != 0 && Nonline < 1) usleep(Dynasleep);
