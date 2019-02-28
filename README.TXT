@@ -75,7 +75,7 @@ Install:
 
 To compile: 
    cd ./src
-   ./makeunx bin
+   ./makeunx bin -DCUDA
    ./makeunx install
 
 Initial Wallet Instructions:
