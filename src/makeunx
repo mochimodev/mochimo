@@ -52,7 +52,7 @@ fi
 LIBCUDA="${LIBCUDA:--lcuda}"
 LIBCUDART="${LIBCUDART:--lcudart}"
 LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
-NVCC_DIR="${NVCC_DIR:-/usr/local/cuda/bin/}"
+NVCC_DIR="${NVCC_DIR:-/usr/bin/}"
 
 # Set compiler command
 #  - Edit config.h and edit CC variable to suit your system:
@@ -196,7 +196,7 @@ case "$1" in
    *) # Unsupported command - print usage
       echo "Usage: makeunx <command> [-D<miner>] [options]"
       echo
-      echo "   command: bin           make all binary programs (CPU Miner)"
+      echo "   command: bin -DCPU     make all binary programs (CPU Miner)"
       echo "            bin -DCUDA    make all binary programs (CUDA Miner)"
       echo "            wallet        make only the wallet binary program"
       echo "            clean         remove object files and log files"

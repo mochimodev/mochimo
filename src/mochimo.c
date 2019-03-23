@@ -10,8 +10,8 @@
 */
 
 /* build sequence */
-#define PATCHLEVEL 31
-#define VERSIONSTR  "31"   /*   as printable string */
+#define PATCHLEVEL 33
+#define VERSIONSTR  "33"   /*   as printable string */
 
 /* Include everything that we need */
 #include "config.h"
@@ -47,6 +47,10 @@
 #include "bupdata.c"    /* for block updates               */
 #include "str2ip.c"
 #include "miner.c"
+#include "pval.c"       /* pseudo-blocks                   */
+#include "optf.c"       /* for OP_HASH and OP_TF           */
+#include "proof.c"
+#include "renew.c"
 #include "update.c"
 #include "init.c"       /* read Coreplist[] and get_eon()  */
 #include "server.c"     /* tcp server                      */
@@ -73,7 +77,8 @@ void usage(void)
           "         -F         Filter private IP's\n"  /* v.28 */
           "         -P         Allow pushed mblocks\n"
           "         -n         Do not solve blocks\n"
-          "         -w         enable watchdog timer\n"          
+          "         -Mn        set transaction fee to n\n"
+          "         -Sanctuary=N,Lastday\n"
    );
    exit(0);
 }
@@ -98,6 +103,7 @@ int main(int argc, char **argv)
 {
    static int j;
    static byte endian[] = { 0x34, 0x12 };
+   static char *cp;
 
    /* sanity checks */
    if(sizeof(word32) != 4) fatal("word32 should be 4 bytes");
@@ -107,8 +113,10 @@ int main(int argc, char **argv)
    if(get16(endian) != 0x1234)
       fatal("little-endian machine required for this build.");
 
-   srand16(time(&Ltime));       /* seed ID token generator */
-   srand2(Ltime, 0, 0);
+   /* improve random generators w/additional entropy from maddr.dat */
+   read_data(Maddr, TXADDRLEN, "maddr.dat");
+   srand16(time(&Ltime) ^ get32(Maddr) ^ getpid());
+   srand2(Ltime ^ get32(Maddr+4), 0, 123456789 ^ get32(Maddr+8) ^ getpid());
 
    Port = Dstport = PORT1;    /* default receive port */
    /*
@@ -137,7 +145,21 @@ int main(int argc, char **argv)
                     break;
          case 'f':  Frisky = 1;
                     break;
-         case 'S':  Safemode = 1;
+         case 'S':  if(strncmp(argv[j], "-Sanctuary=", 11) == 0) {
+                       cp = strchr(argv[j], ',');
+                       if(cp == NULL) usage();
+                       Sanctuary = strtoul(&argv[j][11], NULL, 0);
+                       Lastday = (strtoul(cp + 1, NULL, 0) + 255) & 0xffffff00;
+                       Cbits |= C_SANCTUARY;
+                       printf("\nSanctuary=%u  Lastday 0x%0x...",
+                              Sanctuary, Lastday);  fflush(stdout); sleep(2);
+                       printf("\b\b\b accounted for.\n");  sleep(1);
+                       break;
+                    }
+                    if(argv[j][2]) usage();
+                    Safemode = 1;
+                    break;
+         case 'n':  Nominer = 1;
                     break;
          case 'F':  Noprivate = 1;  /* v.28 */
                     break;
@@ -150,6 +172,10 @@ int main(int argc, char **argv)
                     break;
          case 's':  Dynasleep = atoi(&argv[j][2]);  /* usleep time */
                     break;
+         case 'M':  Myfee[0] = atoi(&argv[j][2]);
+                    if(Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
+                    else Cbits |= C_MFEE;
+                    break;
          case 'V':  if(strcmp(&argv[j][1], "Veronica") == 0)
                        veronica();
                     usage();
@@ -157,10 +183,6 @@ int main(int argc, char **argv)
                     if(argv[j][2] == '2') {
                        Dstport = PORT1;  Port = PORT2;
                     }
-                    break;
-         case 'n':  Nominer = 1;
-                    break;
-         case 'w':  Watchdog = 1;
                     break;
          default:   usage();
       }  /* end switch */
@@ -175,13 +197,13 @@ int main(int argc, char **argv)
    fix_signals();
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
 
-   init();  /* Initialise -- does not fork() */
+   init();  /* fetch initial block chain */
    if(!Bgflag) printf("\n");
 
-   plog("\nMochimo Server (Build %d)  Built on %s %s\n"
+   plog("\nMochimo Server (Build %d)  PVERSION: %d  Built on %s %s\n"
         "Copyright (c) 2018 Adequate Systems, LLC.  All rights reserved.\n"
         "\nBooting",
-        PATCHLEVEL, __DATE__, __TIME__);
+        PATCHLEVEL, PVERSION, __DATE__, __TIME__);
 
    /* 
     * Show local host info

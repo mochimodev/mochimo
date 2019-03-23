@@ -177,7 +177,6 @@ void shuffle32(word32 *list, word32 len)
 
 #define recentip(ip) search32(ip, Rplist, RPLISTLEN)
 #define currentip(ip) search32(ip, Cplist, CPLISTLEN)
-#define recentcrc(crc) search32(crc, Crclist, CRCLISTLEN)
 
 byte Noprivate;  /* filter out private IP's when set v.28 */
 
@@ -211,14 +210,6 @@ void addcurrent(word32 ip)
    if(search32(ip, Cplist, CPLISTLEN) != NULL) return;
    if(Cplistidx >= CPLISTLEN) Cplistidx = 0;
    Cplist[Cplistidx++] = ip;
-}
-
-
-void addtxcrc(word32 crc)
-{
-   if(crc == 0) return;
-   if(Crclistidx >= CRCLISTLEN) Crclistidx = 0;
-   Crclist[Crclistidx++] = crc;
 }
 
 
@@ -461,7 +452,8 @@ int read_global(void)
    count += fread(&Mfee,        1,  8, fp);
    count += fread(&Difficulty,  1,  4, fp);
    count += fread(&Time0,       1,  4, fp);
-   if(count != (8+32+32+4+1+4+8+4+4)) {
+   count += fread(&Bgflag,      1,  1, fp);
+   if(count != (8+32+32+4+1+4+8+4+4+1)) {
       fclose(fp);
       error("I/O error on global.dat");
       return VERROR;
@@ -493,7 +485,8 @@ bad:
    count += fwrite(&Mfee,        1,  8, fp);
    count += fwrite(&Difficulty,  1,  4, fp);
    count += fwrite(&Time0,       1,  4, fp);
-   if(count != (8+32+32+4+1+4+8+4+4)) {
+   count += fwrite(&Bgflag,      1,  1, fp);
+   if(count != (8+32+32+4+1+4+8+4+4+1)) {
       fclose(fp);
       goto bad;
    }

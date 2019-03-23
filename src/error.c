@@ -137,6 +137,7 @@ void fatal2(int exitcode, char *message)
 
 void restart(char *mess)
 {
+   unlink("epink.lst");
    stop_miner();
    if(Trace && mess != NULL) plog("restart: %s", mess);
    fatal2(1, NULL);

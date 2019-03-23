@@ -66,7 +66,7 @@ void betabait(void)
 {
    unsigned long hps;
 
-   if(read_data(&hps, 8, "hps.dat") == 8)
+   if(read_data(&hps, sizeof(hps), "hps.dat") == sizeof(hps))
       Hps = hps;
 
    printf(     "Status:\n\n"
@@ -81,7 +81,8 @@ void betabait(void)
                "\n",
 
                 Eon, Ngen,
-                Nonline,  Nrec, Nsent, Nsolved, Nupdated, Hps
+                Nonline,  Nrec, Nsent, Nsolved, Nupdated,
+                (unsigned long) Hps
    );
 
    printf("Current block: 0x%s\n"
@@ -92,12 +93,19 @@ void betabait(void)
 
 void displaycp(void)
 {
-   int j;
+   int j, k;
 
-   printf("\nCurrent peer list:\n\n");
-   for(j = 0; j < CPLISTLEN && Cplist[j]; j++)
-      printf("   %s\n", ntoa((byte *) &Cplist[j]));
-   printf("\n");
+   printf("\nCurrent peer list:\n");
+   for(j = k = 0; j < CPLISTLEN && Cplist[j]; j++) {
+      if(++k > 4) { printf("\n");  k = 0; }
+      printf("   %-15.15s", ntoa((byte *) &Cplist[j]));
+   }
+   printf("\n\nRecent peer list:\n");
+   for(j = k = 0; j < RPLISTLEN && Rplist[j]; j++) {
+      if(++k > 4) { printf("\n");  k = 0; }
+      printf("   %-15.15s", ntoa((byte *) &Rplist[j]));
+   }
+   printf("\n\n");
 }
 
 
@@ -148,6 +156,18 @@ void monitor(void)
             if(Trace == 0) Betabait = 0;
             if(Trace == 3) { Trace = 0; Betabait = 1; }
             write_global();
+         }
+         continue;
+      }
+      if(cmd == 'm') {        /* mining mode */
+setmining:
+         printf("Do you want to mine (yes/no) [%s]? ",
+                Nominer ? "no" : "yes");
+         tgets(buff, 80);
+         if(*buff) {
+            if(*buff == 'y') { Nominer = 0; continue; }
+            if(*buff != 'n') goto setmining;
+            Nominer = 1;
          }
          continue;
       }
@@ -202,7 +222,8 @@ void monitor(void)
              "t       set debug trace level\n"
              "l       toggle log file\n"
              "e       toggle error log\n"
-             "p       display current peer list\n"
+             "p       display peer lists\n"
+             "m       set mining mode\n"
              "si      toggle single step mode\n"
              "st      display system status\n"
              "?       this message\n\n" );

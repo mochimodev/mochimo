@@ -86,6 +86,8 @@ int send_file(NODE *np, char *fname)
          return status;  /* VEOK or VERROR -- server does freeslot() */
       }
       if(status != VEOK) break;
+      /* Make upload bandwidth dynamic. */
+      if(Nonline > 1) usleep((Nonline - 1) * UBANDWIDTH);
    }  /* end for(; Running; ) */
    alarm(0);
    fclose(fp);
@@ -103,6 +105,16 @@ int send_ipl(NODE *np)
    memcpy(TRANBUFF(&np->tx), Rplist, IPCOPYLEN);
    put16(np->tx.len, IPCOPYLEN);
    return send_op(np, OP_SEND_IP);  /* send ip list */
+}
+
+
+int identify(NODE *np)
+{
+   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   /* copy recent peer list to TX */
+   sprintf(TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
+           Sanctuary, Lastday, Myfee[0]);
+   return send_op(np, OP_IDENTIFY);
 }
 
 
@@ -236,6 +248,11 @@ int execute(NODE *np)
       case OP_MBLOCK:
          signal(SIGTERM, sendalrm);
          get_mblock(np);
+         closesocket(np->sd);
+         return 0;
+      case OP_TF:
+         /* send tfile.dat section to peer */
+         send_tf(np);
          closesocket(np->sd);
          return 0;
 

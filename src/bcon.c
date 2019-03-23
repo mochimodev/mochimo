@@ -133,6 +133,7 @@ badwrite:
 
    /* begin hash of entire block */
    sha256_update(&bctx, (byte *) &bh, sizeof(BHEADER));
+   if(NEWYEAR(bt.bnum)) memcpy(&mctx, &bctx, sizeof(mctx));
 
    /* write header to disk */
    count = fwrite(&bh, 1, sizeof(BHEADER), fpout);
@@ -163,14 +164,18 @@ badwrite:
       if(count != sizeof(TXQENTRY)) goto badwrite;
    }  /* end for Tnum */
 
-   sha256_final(&mctx, bt.mroot);  /* put the Merkel root in trailer */
-
    /* Put tran count in trailer */
    if(ntx == 0) {
       if(Trace) plog("bcon: no good transactions");
       bail(NULL);
    }
    put32(bt.tcount, ntx);
+
+   if(NEWYEAR(bt.bnum))
+      sha256_update(&mctx, (byte *) &bt, (HASHLEN+8+8+4+4+4));
+
+   sha256_final(&mctx, bt.mroot);  /* put the Merkel root in trailer */
+
 
    /* Hash in the trailer leaving out:
     * nonce[32], stime[4], and bhash[32].

@@ -8,7 +8,7 @@
 */
 
 
-#ifdef FIONBIO
+#ifdef WIN32
 /* Set socket sd to non-blocking I/O on Win32 */
 int nonblock(SOCKET sd)
 {
@@ -52,7 +52,7 @@ word32 getsocketip(SOCKET sd)
 
    addrlen = sizeof(addr);
    if(getpeername(sd, (struct sockaddr *) &addr, &addrlen) == 0) {
-#if DEBUG
+#ifdef DEBUG
       if(Trace > 1)
          plog("[%s]  0x%08x", ntoa((byte *) &addr.sin_addr),
               addr.sin_addr.s_addr);
