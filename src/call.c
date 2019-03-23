@@ -76,7 +76,7 @@ bad:
    np->id2 = get16(np->tx.id2);
    np->opcode = get16(np->tx.opcode);
    if(np->opcode != OP_HELLO_ACK || get16(np->tx.id1) != np->id1) {
-      printf("   *** HELLO_ACK is wrong: %d", np->opcode);
+      if(Trace) plog("   *** HELLO_ACK is wrong: %d", np->opcode);
       pinklist(ip);   /* protocol violator! */
       epinklist(ip);
       goto bad;

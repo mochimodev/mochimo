@@ -17,14 +17,16 @@
 int server(void)
 {
    static time_t nsd_time;  /* event timers */
-   static time_t bctime, mwtime, mqtime, wdtime;
+   static time_t bctime, mwtime, mqtime;
+   static time_t ipltime;
    static SOCKET lsd, nsd;
    static NODE *np, node;
    static struct sockaddr_in addr;
    static int status;   /* child return status */
    static pid_t pid;    /* child pid */
    static int lfd;      /* for lock() */
-   static unsigned long hps;
+   static unsigned long hps;  /* same as Hps in monitor.c */
+   static word32 bigwait;
 
    Running = 1;          /* globals are in data.c */
 
@@ -34,7 +36,11 @@ int server(void)
    bctime = Ltime + 30;     /* block constructor time */
    mwtime = Ltime + 6;
    mqtime = Ltime + 5;      /* mirror() time */
-   wdtime = Ltime + 600;    /* watchdog */
+   Utime = Ltime;           /* for watchdog timer */
+   Watchdog = WATCHTIME + (rand2() % 600);
+   Bridgetime = Time0 + BRIDGE;  /* pseudo-block timer */
+   bigwait = (60*60*24) + (rand2() % 10800);  /* 1 day + ~ 3 hours */
+   ipltime = Ltime + (rand2() % 600) + 10;  /* ip list fetch time */
 
    if((lsd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
       fatal("Cannot open listening socket.");
@@ -220,7 +226,7 @@ int server(void)
             if(!Nominer) {
                if(!Bgflag) printf("Solving...\n");
                start_miner();  /* start or re-start miner */
-            } 
+            }
          }
       }
       /* bcon sequence will wait on miner if Txcount > 0,
@@ -252,11 +258,17 @@ int server(void)
          }
       }
 
+      if(TIMES_OF_TROUBLE()) {
+         if(bridge() != VEOK || update("pblock.dat", 2) != VEOK) {
+            restart("Cannot make pseudo-block");
+         }
+      }
+
       /*
        * Display system statistics
        */
       if(Ltime >= Stime) {
-         if(read_data(&hps, 8, "hps.dat") == 8)
+         if(read_data(&hps, sizeof(hps), "hps.dat") == sizeof(hps))
             Hps = hps;
          if(Betabait && Bgflag == 0) betabait();
          Stime = Ltime + STATUSFREQ;
@@ -264,12 +276,17 @@ int server(void)
       /*
        * Monitor interrupt on Ctrl-C if not in background
        */
-      if(Monitor && !Bgflag)
-         monitor();
+      if(Monitor && !Bgflag) monitor();
 
-      if(Watchdog && Ltime >= wdtime) {
-         if(iszero(Cblocknum, 8)) restart("watchdog");
-         wdtime = Ltime + 600;
+      if(Watchdog && (Ltime - Utime) >= Watchdog) {
+         if(Cblocknum[0] != 0xfe || (Ltime - Utime) >= bigwait) {
+            restart("watchdog");
+         }
+      }
+
+      if(Ltime >= ipltime) {
+         refresh_ipl();
+         ipltime = Ltime + (rand2() % 600) + 10;
       }
 
       /* dynamic sleep function */

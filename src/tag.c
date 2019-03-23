@@ -112,13 +112,14 @@ int tag_find(byte *addr, byte *foundaddr, byte *balance)
 int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, int checkq, byte *bnum)
 {
    LENTRY le;
+   word32 tagval_trigger[2];
 
-   unsigned long tagval_trigger = 0;
+   tagval_trigger[0] = tagval_trigger[1] = 0;
    if(checkq == 0 && bnum != NULL) {
-      tagval_trigger = RTRIGGER31; /* For v2.0 */
+      tagval_trigger[0] = RTRIGGER31; /* For v2.0 */
    }
-   if(*((unsigned long *) bnum) >= tagval_trigger){
-   /* Ignore the below check prior to block 0x4000...
+   if(cmp64(bnum, tagval_trigger) >= 0) {
+   /* Ignore the below check prior to block 17185...
     * src_addr was already found in ledger.dat and dup checked
     * by txval or bval.
     *

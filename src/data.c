@@ -6,8 +6,6 @@
  * Date: 1 January 2018
 */
 
-/* build sequence */
-#define PATCHLEVEL  31
 
 /*
  * Globals
@@ -34,6 +32,9 @@ word32 Nupdated;     /* number of blocks updated                  */
 word32 Eon;          /* Eons since boot                           */
 word32 Txcount;      /* transactions in txq1.dat                  */
 word32 Time0;        /* for set_difficulty()                      */
+word32 Bridgetime;   /* for Pseudoblock Trigger                   */
+word32 Sanctuary;
+word32 Lastday;
 
 /*
  * real time of current server loop - set by server()
@@ -54,8 +55,6 @@ word32 Rplist[RPLISTLEN];  /* recent peer list */
 word32 Rplistidx;
 word32 Cplist[CPLISTLEN];  /* current peer list */
 word32 Cplistidx;
-word32 Crclist[CRCLISTLEN];  /* crc's of recent TX's */
-word32 Crclistidx;
 
 #define CORELISTLEN 16
 #if CORELISTLEN > RPLISTLEN
@@ -68,8 +67,9 @@ word32 Coreplist[CORELISTLEN] = {  /* ip's of the Core Network */
 int Quorum = 4;         /* Number of peers in get_eon() gang[MAXQUORUM] */
 byte Ininit;            /* non-zero when init() runs */
 byte Safemode;          /* Safe mode enable */
-byte Nominer;           /* set true to stop mining in server data.c @ */
-byte Watchdog;          /* restart if stuck on block 0x0 for long */
+byte Nominer;           /* Do not start miner if true -n */
+word32 Watchdog;        /* enable watchdog timeout -wN */
+time_t Utime;           /* update time for watchdog */
 byte Betabait;          /* betabait() display */
 byte Cbits = CBITS;     /* 8 capability bits */
 time_t Pushtime;        /* time of last OP_MBLOCK */
@@ -77,8 +77,9 @@ byte Allowpush;         /* set by -P flag in mochimo.c */
 
 #endif  /* !EXCLUDE_NODES Nodes[] and ip data */
 
-word32 Mfee[2] = { 500, 0 };  /* mining fee */
-byte Maddr[TXADDRLEN];        /* mining address read by bcon and bval */
+word32 Mfee[2] = { MFEE, 0 };  /* minimum transaction fee */
+word32 Myfee[2] = { MFEE, 0 };
+byte Maddr[TXADDRLEN];         /* mining address read by bcon and bval */
 word32 Difficulty;
 byte One[8] = { 1 };          /* for 64-bit maths */
 
@@ -90,9 +91,6 @@ byte Weight[HASHLEN];
 /* lock files    writes   reads     deletes
  * mq.lck        gomochi            gomochi
  * neofail.lck   neogen   bupdata   bupdata
- * ufail.lck     bup                gomochi
- * vbad.lck      bval               bval
- * ubad.lck      bup                bup
 */
 
 /* Global semaphores */

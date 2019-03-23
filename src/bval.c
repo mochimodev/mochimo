@@ -51,9 +51,7 @@ void cleanup(int ecode)
    if(Q2 != NULL) free(Q2);
    unlink("ltran.tmp");
    if(Bvaldelfname) unlink(Bvaldelfname);
-   if(ecode > 1)
-      write_data("pink", 4, "vbad.lck");
-   exit(ecode);
+   exit(1);  /* no pink-list */
 }
 
 void drop(char *message)
@@ -115,6 +113,7 @@ int main(int argc, char **argv)
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;
+   static word32 tottrigger[2] = { V23TRIGGER, 0 };
 
    ticks = clock();
    fix_signals();
@@ -126,9 +125,6 @@ int main(int argc, char **argv)
              "This program is spawned from server.c\n\n");
       exit(1);
    }
-
-   /* created on exit() to pinklist() Peerip in update() */
-   unlink("vbad.lck");
 
    if(argc > 2 && argv[2][0] == '-') {
       if(argv[2][1] == 'n') do_rename = 0;
@@ -174,26 +170,30 @@ badread:
    if(fseek(fp, -(sizeof(BTRAILER)), SEEK_END)) goto badread;
    if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER))
       drop("bad trailer read");
-   if(memcmp(Mfee, bt.mfee, 8) != 0)
+   if(cmp64(bt.mfee, Mfee) < 0)
       drop("bad mining fee");
    if(get32(bt.difficulty) != Difficulty)
       drop("difficulty mismatch");
+
+   /* Check block times and block number. */
    stemp = get32(bt.stime);
    /* check for early block time */
-   if(stemp <= Time0)   /* unsigned time here */
-      drop("E");
+   if(stemp <= Time0) drop("E");  /* unsigned time here */
    now = time(NULL);
-   if(stemp > now) drop("F");
+   if(stemp > (now + BCONFREQ)) drop("F");
    add64(Cblocknum, One, bnum);
-   if(memcmp(bnum, bt.bnum, 8) != 0)
-      drop("bad block number");
+   if(memcmp(bnum, bt.bnum, 8) != 0) drop("bad block number");
+   if(cmp64(bnum, tottrigger) >= 0 && Cblocknum[0] != 0xfe) {
+      if((word32) (stemp - get32(bt.time0)) > BRIDGE) drop("TOT");
+   }
+
    if(memcmp(Cblockhash, bt.phash, HASHLEN) != 0)
       drop("previous hash mismatch");
 
    /* check enforced delay */
    if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL)
       drop("trigg_check() failed!");
-   printf("\n%s\n\n", haiku);
+   if(!Bgflag) printf("\n%s\n\n", haiku);
 
    /* Read block header */
    if(fseek(fp, 0, SEEK_SET)) goto badread;
@@ -210,6 +210,8 @@ badread:
    sha256_init(&bctx);   /* begin entire block hash */
    sha256_update(&bctx, (byte *) &bh, hdrlen);  /* ... with the header */
 
+   if(NEWYEAR(bt.bnum)) memcpy(&mctx, &bctx, sizeof(mctx));
+
    /*
     * Copy transaction count from block trailer and check.
     */
@@ -224,7 +226,7 @@ badread:
    if(Q2 == NULL) bail("no memory!");
 
    /* Now ready to read transactions */
-   sha256_init(&mctx);   /* begin Merkel Array hash */
+   if(!NEWYEAR(bt.bnum)) sha256_init(&mctx);   /* begin Merkel Array hash */
 
    /* Validate each transaction */
    for(Tnum = 0; Tnum < tcount; Tnum++) {
@@ -236,8 +238,7 @@ badread:
          || memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0)
                drop("src_addr matched dst or chg");
 
-      if(memcmp(Mfee, tx.tx_fee, 8) != 0)
-         drop("tx_fee is bad");   /* fixed fee */
+      if(cmp64(tx.tx_fee, Mfee) < 0) drop("tx_fee is bad");
 
       /* running block hash */
       sha256_update(&bctx, (byte *) &tx, sizeof(TXQENTRY));
@@ -282,11 +283,15 @@ badread:
 
       memcpy(&Q2[Tnum], &tx, sizeof(TXQENTRY));  /* copy TX to tag queue */
 
-      if(add64(mfees, Mfee, mfees)) {
+      if(add64(mfees, tx.tx_fee, mfees)) {
 fee_overflow:
          bail("mfees overflow");
       }
    }  /* end for Tnum */
+   if(NEWYEAR(bt.bnum))
+      /* phash, bnum, mfee, tcount, time0, difficulty */
+      sha256_update(&mctx, (byte *) &bt, (HASHLEN+8+8+4+4+4));
+
    sha256_final(&mctx, mroot);  /* compute Merkel Root */
    if(memcmp(bt.mroot, mroot, HASHLEN) != 0)
       drop("bad Merkle root");
@@ -304,11 +309,13 @@ fee_overflow:
                    ADDR_TAG_LEN) != 0) continue;
       /* Step 2: Start another big-O n squared, nested loop here... */
       for(qp2 = Q2; qp2 < qlimit; qp2++) {
-         /* if src1 == dst2, then copy chg1 to dst2 */
+         /* if src1 == dst2, then copy chg1 to dst2 -- 32-bit for DSL -trg */
          if(   *((word32 *) ADDR_TAG_PTR(qp1->src_addr))
             == *((word32 *) ADDR_TAG_PTR(qp2->dst_addr))
-            && *((word64 *) (ADDR_TAG_PTR(qp1->src_addr) + 4))
-            == *((word64 *) (ADDR_TAG_PTR(qp2->dst_addr) + 4)))
+            && *((word32 *) (ADDR_TAG_PTR(qp1->src_addr) + 4))
+            == *((word32 *) (ADDR_TAG_PTR(qp2->dst_addr) + 4))
+            && *((word32 *) (ADDR_TAG_PTR(qp1->src_addr) + 8))
+            == *((word32 *) (ADDR_TAG_PTR(qp2->dst_addr) + 8)))
                    memcpy(qp2->dst_addr, qp1->chg_addr, TXADDRLEN);
       }  /* end for qp2 */
    }  /* end for qp1 */
@@ -344,7 +351,7 @@ fee_overflow:
    }  /* end for Tnum -- scan 3 */
    if(Tnum != tcount) bail("scan 3");
 
-   /* Create a transaction amount = mreward + (mfees = Mfee * ntx);
+   /* Create a transaction amount = mreward + mfees
     * address = bh.maddr
     */
    if(add64(mfees, mreward, mfees)) goto fee_overflow;

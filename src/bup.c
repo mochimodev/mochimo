@@ -39,13 +39,10 @@ word32 Tnum = -1;  /* transaction sequence number */
 
 void cleanup(int ecode)
 {
-   write_data("fail", 4, "ufail.lck");
    unlink("ledger.tmp");
    unlink("txq.tmp");
    unlink("ltran.dat");
-   if(ecode >= 2)
-      write_data("pink", 4, "ubad.lck");
-   exit(ecode);
+   exit(1);
 }
 
 
@@ -98,9 +95,6 @@ int main(int argc, char **argv)
              "This program is spawned from server.c\n\n");
       exit(1);
    }
-
-   /* created on exit() to pinklist() Peerip in update() */
-   unlink("ubad.lck");
 
    /* get global block number, peer ip, etc. */
    if(read_global() != VEOK)

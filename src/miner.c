@@ -7,6 +7,8 @@
  *
  * Date: 13 January 2018
  *
+ * Expect this file to be if-def'd up for various miners.
+ *
  */
 
 #include <inttypes.h>
@@ -26,7 +28,15 @@ int miner(char *blockin, char *blockout)
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
    char *haiku;
    time_t htime;
+
+#ifdef CUDANODE
    unsigned long long hcount, hps, total_hcount;
+#endif
+
+#ifdef CPUNODE
+   word32 hcount, hps;
+#endif
+
    word32 temp[3];
    int initGPU;
    struct timespec chill = {0,Dynasleep*1000L};
@@ -174,7 +184,7 @@ int miner(char *blockin, char *blockout)
          plog("miner: solved block 0x%s is now: %s",
               bnum2hex(bt.bnum), blockout);
 
-      printf("\n%s\n\n", haiku);
+      if(!Bgflag) printf("\n%s\n\n", haiku);
 
       break;
    }  /* end for  */

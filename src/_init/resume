@@ -13,6 +13,9 @@ trap "" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
 trap ""  24 25 26 27 28 29 30 31
 trap "exit 0" term
 
+# File security
+umask 077
+
 ################
 # Sanity checks
 
@@ -49,8 +52,8 @@ else
    echo "There is no maddr.dat file in your /bin directory."
    echo "You must create a mining address before starting a mining node."
    echo "Please see README.TXT for instructions on how to create a mining address."
-   echo "Alternatively, you may start the node in Relay mode as follows:"
-   echo "   ./gomochi <data_dir> -R [options]"
+   echo "Alternatively, you may start the node without mining as follows:"
+   echo "   ./gomochi <data_dir> -n [options]"
    echo 
    exit 1
 fi
@@ -69,13 +72,13 @@ do
    #mkdir -p ../bcbak
    #cp bc/* ../bcbak/
    echo "backup neo-genesis blocks..."
-   rm -f ng/b*.bc
+   rm -f ng/b*.bc rblock* dblock*
    mv $(ls -1 bc/b*00.bc >/dev/null 2>&1 | tail -n 2 | tr '\n' ' ') ng/ >/dev/null 2>&1
    echo "leave files in place"
    echo
    touch mq.lck
    #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-   ../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+   ../mochimo -x345678 -p2095 -cstartnodes.lst -l -t3 -e -f -F -P -s1000 $2 $3 $4 $5 $6 $7 $8 $9
    if test $? -eq 0
    then
       echo "Resume paused system with ./resume"
@@ -83,7 +86,7 @@ do
    fi
    rm -f cblock.dat mblock.dat miner.tmp
    echo "remove some files..."
-   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc rblock*
+   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc
    rm -f mq.dat mirror.dat
    echo "copy some files..."
    cp ../genblock.bc bc/b0000000000000000.bc
@@ -91,10 +94,10 @@ do
    touch mq.lck
    echo "wait..."
    sleep 1
+   rm -f cblock.dat mblock.dat miner.tmp
    if test -f ../restart.log
    then
       echo Restart at: `date` >>../restart.log
    fi
-   rm -f cblock.dat mblock.dat miner.tmp
    # RESTART
 done

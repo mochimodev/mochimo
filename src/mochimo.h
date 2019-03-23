@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <sys/wait.h>  /* for waitpid() */
 #include <sys/file.h>  /* for flock() */
+#include <fcntl.h>
 
 #ifndef NSIG
 #define NSIG 23
@@ -33,7 +34,7 @@
 #include "crypto/sha256.h"
 
 #ifdef DEBUG
-#define debug(_x) plog(_x)
+#define debug(_x) if(Trace > 1) plog(_x)
 #define ifdebug(x) x
 #else
 #define debug(_x)
