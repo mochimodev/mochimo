@@ -112,7 +112,7 @@ int identify(NODE *np)
 {
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy recent peer list to TX */
-   sprintf(TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
+   sprintf((char *) TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
            Sanctuary, Lastday, Myfee[0]);
    return send_op(np, OP_IDENTIFY);
 }
