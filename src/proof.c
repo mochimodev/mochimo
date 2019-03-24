@@ -1,5 +1,6 @@
 /* proof.c  Get proof for OP_FOUND from tfile.dat
  * Date: 12 March 2019
+ * See LICENSE.PDF
  */
 
 /* Count of trailers that fit in a TX: */
@@ -43,7 +44,7 @@ int checkproof(TX *tx)
    int j, count, match, message = 0;
    BTRAILER *bt, bts;
    word32 diff = 200;  /* big number */
-   word32 stime, time0, difficulty, highblock, prevnum = 0;
+   word32 stime, time0, now, difficulty, highblock, prevnum = 0;
    static word32 tnum[2];
 
    if(get32(Cblocknum) < V23TRIGGER) return VERROR;
@@ -52,11 +53,12 @@ int checkproof(TX *tx)
 
    /* Check preconditions */
    match = 0;
-   if(get32(Cblocknum+4)) goto contend;  /* if more than 4G blocks */
-   if(get32(Cblocknum) <= NTFTX) goto contend;
+   if(get32(Cblocknum+4)) goto allow;  /* if more than 4G blocks */
+   if(get32(Cblocknum) <= NTFTX) goto allow;
    highblock = get32(tx->cblock);
-   if(highblock <= NTFTX) goto contend;
+   if(highblock <= NTFTX) goto allow;
    highblock = highblock - NTFTX + 1;
+   now = time(NULL);
 
    /* Scan through trailer array in OP_FOUND TX. */
    prevnum = highblock - 1;
@@ -79,22 +81,23 @@ int checkproof(TX *tx)
       if(j == 0) BAIL(2);  /* first trailer did not match */
       /* trailers did not match so check proof trailer */
       if(stime <= time0) BAIL(3);
-      if(difficulty != diff) BAIL(4);
+      if(stime > (now + BCONFREQ)) BAIL(4);
+      if(difficulty != diff) BAIL(5);
       if(bt->bnum[0] == 0) continue;  /* skip NG block */
       if(get32(bt->tcount)  /* not p-block */
-         && trigg_check(bt->mroot, diff, bt->bnum) == NULL) BAIL(5);
+         && trigg_check(bt->mroot, diff, bt->bnum) == NULL) BAIL(6);
 setdiff:
       /* update difficulty from proof and get next trailer */
       diff = set_difficulty(difficulty, stime - time0, stime,
                             (byte *) tnum);
-      if(!Running) BAIL(6);
+      if(!Running) BAIL(7);
    }  /* end for j, bt */
    /* We were on the same chain, but not now... */
-contend:
+allow:
    /* If match == 0, preconditions were not met. */
    if(Trace) plog("checkproof() %u matches -- contention!", match);
    return VERROR;  /* contention */
 bail:
-   if(Trace) plog("checkproof() ingnore peer (%d)", message);
+   if(Trace) plog("checkproof() ignore peer (%d)", message);
    return VEOK;  /* ignore */
 }  /* end checkproof() */
