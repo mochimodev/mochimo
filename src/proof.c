@@ -84,8 +84,10 @@ int checkproof(TX *tx)
       if(stime > (now + BCONFREQ)) BAIL(4);
       if(difficulty != diff) BAIL(5);
       if(bt->bnum[0] == 0) continue;  /* skip NG block */
+      /* stime must increase */
+      if(stime <= get32((bt - 1)->stime)) BAIL(6);
       if(get32(bt->tcount)  /* not p-block */
-         && trigg_check(bt->mroot, diff, bt->bnum) == NULL) BAIL(6);
+         && trigg_check(bt->mroot, diff, bt->bnum) == NULL) BAIL(7);
 setdiff:
       /* update difficulty from proof and get next trailer */
       diff = set_difficulty(difficulty, stime - time0, stime,
