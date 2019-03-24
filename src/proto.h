@@ -35,6 +35,7 @@ int get_tx2(NODE *np, word32 ip, word16 opcode);
 int get_block2(word32 ip, byte *bnum, char *fname, word16 opcode);
 
 /* Source file: init.c */
+int get_ipl(NODE *np, word32 ip);
 int read_coreipl(char *fname);
 word32 init_coreipl(NODE *np, char *fname);
 void add_weight(byte *weight, int difficulty, byte *bnum);
