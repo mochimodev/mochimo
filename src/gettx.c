@@ -91,14 +91,17 @@ int send_op(NODE *np, int opcode)
 int bval2(char *fname, byte *bnum, byte diff)
 {
    BTRAILER bt;
+   word32 now;
 
    if(Trace) plog("bval2()");
 
    if(readtrailer(&bt, fname) != VEOK) return VERROR;
    if(cmp64(bnum, bt.bnum) != 0) return VEBAD;
    if(get32(bt.difficulty) != diff) return VERROR;
-   /* Time Check */
+   /* Time Checks */
    if(get32(bt.stime) <= Time0) return VERROR; /* bad time sequence */
+   now = time(NULL);
+   if(get32(bt.stime) > (now + BCONFREQ)) return VERROR;  /* future */
    /* Solution Check */
    if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
       return VEBAD;
