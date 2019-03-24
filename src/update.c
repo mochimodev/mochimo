@@ -210,7 +210,10 @@ after_bup:
          plog("Cblockhash: %s for block: 0x%s", hash2str(Cblockhash),
               bnum2hex(Cblocknum));
       }
-      if(CAROUSEL(Cblocknum)) renew();
+      if(CAROUSEL(Cblocknum)) {
+         if(renew()) goto err;
+         if(le_open("ledger.dat", "rb") != VEOK) goto err;  /* reopen */
+      }
    }
    if(mode == 1) {
       if(exists("cblock.lck")) {
