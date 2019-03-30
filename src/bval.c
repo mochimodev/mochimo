@@ -183,7 +183,7 @@ badread:
    if(stemp > (now + BCONFREQ)) drop("F");
    add64(Cblocknum, One, bnum);
    if(memcmp(bnum, bt.bnum, 8) != 0) drop("bad block number");
-   if(cmp64(bnum, tottrigger) >= 0 && Cblocknum[0] != 0xfe) {
+   if(cmp64(bnum, tottrigger) > 0 && Cblocknum[0] != 0xfe) {
       if((word32) (stemp - get32(bt.time0)) > BRIDGE) drop("TOT");
    }
 
