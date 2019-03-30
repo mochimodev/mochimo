@@ -429,7 +429,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
             break;
       }
       ecode = 10;
-      if(cmp64(highblock, tottrigger) >= 0 &&
+      if(cmp64(highblock, tottrigger) > 0 &&
         (highblock[0] != 0xfe && highblock[0] != 0xff && highblock[0] != 0)) {
          if((word32) (stime - get32(bt.time0)) > BRIDGE) break;
       }
