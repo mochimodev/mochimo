@@ -119,6 +119,39 @@ word32 gethdrlen(char *fname)
    return len;
 }
 
+/* Re-Validate any TX's left in TXCLEAN after update. */
+int reval(void)
+{
+   TXQENTRY tx;        /* Holds one transaction */
+   FILE *fp;           /* txclean.dat */
+   FILE *fpout;        /* txq.tmp */
+   int count;
+
+   fp = fopen("txclean.dat", "rb");
+   if(!fp) {
+      plog("update() no 'txclean.dat' to revalidate");
+	   return VEOK;
+   }
+   fpout = fopen("txq.tmp", "wb");
+   if(!fpout) {
+      plog("update() txq.tmp write failed, I/O error or disk full");
+      fclose(fp);
+	   return VERROR;
+   }
+   for(;;) {
+      count = fread(&tx, 1, sizeof(TXQENTRY), fp);
+      if(count != sizeof(TXQENTRY)) break;
+	   if (tx_val(&tx) != VEOK) continue;
+      count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout); 
+      if(count != sizeof(TXQENTRY)) {	  
+         plog("Cannot write txq.tmp");
+		   return VERROR;
+      }
+   } /* end for(;;) */
+   fclose(fp);
+   fclose(fpout);
+   return VEOK;
+} /* end reval() */	
 
 /* validate and update from fname = rblock.dat or vblock.dat
  * mode: 0 = their block
@@ -238,6 +271,16 @@ after_bup:
          Nupdated++;
          Utime = time(NULL);  /* update time for watchdog */
       }
+   }
+   if(reval() == VEOK) {
+      unlink("txclean.dat");
+      if(rename("txq.tmp", "txclean.dat")) {
+         plog("cannot rename txq.tmp");
+	      unlink("txq.tmp");
+      }
+   }
+   else {
+      unlink("txclean.dat");
    }
    Bridgetime = Time0 + BRIDGE;
    return VEOK;
