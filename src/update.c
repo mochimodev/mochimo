@@ -130,7 +130,7 @@ int reval(void)
    fp = fopen("txclean.dat", "rb");
    if(!fp) {
       plog("update() no 'txclean.dat' to revalidate");
-	   return VEOK;
+	   return VERROR;
    }
    fpout = fopen("txq.tmp", "wb");
    if(!fpout) {
