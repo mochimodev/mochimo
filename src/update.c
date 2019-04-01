@@ -143,7 +143,7 @@ int reval(void)
       count = fread(&tqentry, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) break;
       memset(&tx, 0, sizeof(TX));
-      memcpy(&tx, &tqentry, sizeof(TXQENTRY) - 32);
+      memcpy(&tx.src_addr, &tqentry, sizeof(TXQENTRY) - 32);
       if (tx_val(&tx) != VEOK) continue;
       count = fwrite(&tqentry, 1, sizeof(TXQENTRY), fpout); 
       if(count != sizeof(TXQENTRY)) {	  
