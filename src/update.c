@@ -122,7 +122,8 @@ word32 gethdrlen(char *fname)
 /* Re-Validate any TX's left in TXCLEAN after update. */
 int reval(void)
 {
-   TXQENTRY tx;        /* Holds one transaction */
+   TX tx;              /* Struct to feed to tx_val() */
+   TXQENTRY tqentry;   /* Holds one transaction */
    FILE *fp;           /* txclean.dat */
    FILE *fpout;        /* txq.tmp */
    int count;
@@ -139,10 +140,12 @@ int reval(void)
 	   return VERROR;
    }
    for(;;) {
-      count = fread(&tx, 1, sizeof(TXQENTRY), fp);
+      count = fread(&tqentry, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) break;
-	   if (tx_val(&tx) != VEOK) continue;
-      count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout); 
+      memset(&tx, 0, sizeof(TX));
+      memcpy(&tx, &tqentry, TXQENTRY-32);
+      if (tx_val(&tx) != VEOK) continue;
+      count = fwrite(&tqentry, 1, sizeof(TXQENTRY), fpout); 
       if(count != sizeof(TXQENTRY)) {	  
          plog("Cannot write txq.tmp");
 		   return VERROR;
