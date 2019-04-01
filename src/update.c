@@ -143,7 +143,7 @@ int reval(void)
       count = fread(&tqentry, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) break;
       memset(&tx, 0, sizeof(TX));
-      memcpy(&tx, &tqentry, TXQENTRY-32);
+      memcpy(&tx, &tqentry, sizeof(TXQENTRY) - 32);
       if (tx_val(&tx) != VEOK) continue;
       count = fwrite(&tqentry, 1, sizeof(TXQENTRY), fpout); 
       if(count != sizeof(TXQENTRY)) {	  
@@ -275,16 +275,18 @@ after_bup:
          Utime = time(NULL);  /* update time for watchdog */
       }
    }
-   if(reval() == VEOK) {
-      unlink("txclean.dat");
-      if(rename("txq.tmp", "txclean.dat")) {
-         plog("cannot rename txq.tmp");
-	      unlink("txq.tmp");
+   if(!Ininit) {
+      if(reval() == VEOK) {
+         unlink("txclean.dat");
+         if(rename("txq.tmp", "txclean.dat")) {
+            plog("cannot rename txq.tmp");
+	    unlink("txq.tmp");
+         }
       }
-   }
-   else {
-      unlink("txclean.dat");
-   }
+      else {
+         unlink("txclean.dat");
+      }
+   } /* end if(!Ininit) */
    Bridgetime = Time0 + BRIDGE;
    return VEOK;
 err:
