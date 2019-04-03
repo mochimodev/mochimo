@@ -1,4 +1,4 @@
-Update: Code version 2.3 is live and contains additions and updates to multiple Mochimo subsystems.
+Update: Code version 2.3 will be released shortly and contains additions and updates to multiple Mochimo subsystems.
 
 See CHANGES.TXT for an overview of the changes.
 
