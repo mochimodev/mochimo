@@ -267,7 +267,7 @@ badread:
          baddrop("WOTS signature failed!");
 
       /* look up source address in ledger */
-      if(le_find(tx.src_addr, &src_le, NULL) == FALSE)
+      if(le_find(tx.src_addr, &src_le, NULL, 0) == FALSE)
          drop("src_addr not in ledger");
 
       total[0] = total[1] = 0;
