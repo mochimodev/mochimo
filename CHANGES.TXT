@@ -1,10 +1,40 @@
 /*
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  */
+Patch Level 33 (Mochimo Version 2.3)
 
-Patch Level 31-B (Mochimo Version 2.2)
+added Pseudoblocks for mid-block difficulty adjustment
+  -Impossible for blocks to exceed 15m49s after v2.3
+added security fixes to MROOT creation
+  -Removes certain spoofing attack vectors
+added support for ZERO-tag OP_BAL Requests
+  -Allows address lookup and balance query without TAG
+  -Allows wallet recovery from seed phrase
+added TXCLEAN Queue Re-validation following block updates
+  -Prevents known cornercase block validation failures
+  -Prevents all attack vectors involving poisoned TXs in the TXCLEAN queue
+added low-balance pruning consensus mechanism (CAROUSEL)
+  -Allows the community to clean low balances our of the ledger by consensus
+  -Keeps the blockchain free of bloat, and recovers from spam attacks
+added optional mining fee adjustment per miner
+  -Allows future miners to create a mining fee market after mining rewards are gone
+added TFILE PoPOW Chain in OP_FOUND
+  -Allows nodes to definitively confirm an advertising node really solved a block
+added Watchdog timer to restart and resync if no blocks solved or updated in 30 minutes +/- 10 minutes
+  -Prevents Block of Death, Stuck at 0x0 events caused by temporary internet outage for nodes
+  -Allows nodes to dynamically recover from any number of possible failure cases
+added Upload Bandwidth limit (default = 5MB/s Upload, user configurable)
+  -Prevents certain kinds of spam attacks against nodes
+added NOMINER feature, initialized with -n at runtime
+  -Allows a node to run in relay mode only without mining blocks
+added command line compile options for CPU or GPU, merging both development branches
+  -Involed with ./makeunx bin -DCPU  -or-  ./makeunx bin -DCUDA
+replaced inbound TX uniqueness test (CRC) with address-based validation
+  -Allows the system to scale past 65,536 TXs per block at some indeterminate future date
+
+Patch Level 32 (Mochimo Version 2.2)
 
 added support for diverse nVidia GPU Models
 CUDA Code optimizations for average HP/s +10-20%

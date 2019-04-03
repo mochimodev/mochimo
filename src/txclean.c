@@ -101,7 +101,7 @@ badtemp:
       count = fread(&tx, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) break;  /* EOF */
       /* if src not in ledger continue; */
-      if(le_find(tx.src_addr, &src_le, NULL) == FALSE) continue;
+      if(le_find(tx.src_addr, &src_le, NULL, 0) == FALSE) continue;
       count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout); 
       if(count != sizeof(TXQENTRY)) goto badtemp;
       nout++;

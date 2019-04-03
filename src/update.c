@@ -14,6 +14,7 @@ int send_found(void)
    BTRAILER bt;
    char fname[128];
    int ecode;
+   TX tx;
 
    if(Sendfound_pid)
       return error("send_found() already running!");
@@ -50,11 +51,13 @@ bad:
    if(Trace)
       plog("send_found(0x%s)", bnum2hex(Cblocknum));
 
+   loadproof(&tx);  /* get proof from tfile.dat */
    /* Send found message to recent peers */
    shuffle32(Rplist, RPLISTLEN);
    for(ipp = Rplist; ipp < &Rplist[RPLISTLEN] && Running; ipp++) {
       if(*ipp == 0) continue;
       if(callserver(&node, *ipp) != VEOK) continue;
+      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
       send_op(&node, OP_FOUND);
       closesocket(node.sd);
    }
@@ -103,9 +106,60 @@ void reaper2(void)
 }  /* end reaper2() */
 
 
+/* Return block header length, or 0 if not found. */
+word32 gethdrlen(char *fname)
+{
+   FILE *fp;
+   word32 len;
+
+   fp = fopen(fname, "rb");
+   if(fp == NULL) return 0;
+   if(fread(&len, 1, 4, fp) !=  4) { fclose(fp); return 0; }
+   fclose(fp);
+   return len;
+}
+
+/* Re-Validate any TX's left in TXCLEAN after update. */
+int reval(void)
+{
+   TX tx;              /* Struct to feed to tx_val() */
+   TXQENTRY tqentry;   /* Holds one transaction */
+   FILE *fp;           /* txclean.dat */
+   FILE *fpout;        /* txq.tmp */
+   int count;
+
+   fp = fopen("txclean.dat", "rb");
+   if(!fp) {
+      plog("update() no 'txclean.dat' to revalidate");
+	   return VERROR;
+   }
+   fpout = fopen("txq.tmp", "wb");
+   if(!fpout) {
+      plog("update() txq.tmp write failed, I/O error or disk full");
+      fclose(fp);
+	   return VERROR;
+   }
+   for(;;) {
+      count = fread(&tqentry, 1, sizeof(TXQENTRY), fp);
+      if(count != sizeof(TXQENTRY)) break;
+      memset(&tx, 0, sizeof(TX));
+      memcpy(&tx.src_addr, &tqentry, sizeof(TXQENTRY) - 32);
+      if (tx_val(&tx) != VEOK) continue;
+      count = fwrite(&tqentry, 1, sizeof(TXQENTRY), fpout); 
+      if(count != sizeof(TXQENTRY)) {	  
+         plog("Cannot write txq.tmp");
+		   return VERROR;
+      }
+   } /* end for(;;) */
+   fclose(fp);
+   fclose(fpout);
+   return VEOK;
+} /* end reval() */	
+
 /* validate and update from fname = rblock.dat or vblock.dat
  * mode: 0 = their block
  *       1 = our block
+ *       2 = pseudo-block
  */
 int update(char *fname, int mode)
 {
@@ -138,6 +192,14 @@ int update(char *fname, int mode)
    if(!Ininit && Allowpush) reaper2();
 
    write_global();  /* gift bval with Peerip and other globals */
+
+   /* Check for pseudo-block */
+   if(mode == 2 || gethdrlen(fname) == 4) {
+      mode = 2;
+      if(pval(fname) != VEOK) return VERROR;  /* renames to ublock.dat */
+      goto after_bup;
+   }
+
    le_close();      /* close server ledger reference */
 
    if(Trace) plog("   About to call bval and bup...");
@@ -145,10 +207,6 @@ int update(char *fname, int mode)
    sprintf(cmd, "../bval %s", fname);  /* call validator on fname */
    system(cmd);
    if(!exists("vblock.dat")) {      /* validation failed */
-      if(mode == 0) {   /* their block -- bad validation */
-         pinklist(Peerip);             /* she was naughty */
-         epinklist(Peerip);            /* she was a bad girl! */
-      }
       system("../txclean txclean.dat");  /* prune missing src_addr's */
       le_open("ledger.dat", "rb");  /* re-open ledger */
       return VERROR;
@@ -159,12 +217,11 @@ int update(char *fname, int mode)
    system("../txclean txclean.dat");  /* prune missing src_addr's */
    le_open("ledger.dat", "rb");  /* re-open new ledger.dat */
    if(!exists("ublock.dat")) {
-      if(mode == 0) {
-         pinklist(Peerip);   /* peer was bad */
-         epinklist(Peerip);  /* peer was evil */
-      } else unlink("mblock.dat");
+      if(mode != 0) unlink("mblock.dat");
       return VERROR;
    }
+
+after_bup:
 
    /* Everything below this line has to succeed, or else
     * we restart() with an update error.
@@ -189,6 +246,10 @@ int update(char *fname, int mode)
          plog("Cblockhash: %s for block: 0x%s", hash2str(Cblockhash),
               bnum2hex(Cblocknum));
       }
+      if(CAROUSEL(Cblocknum)) {
+         if(renew()) goto err;
+         if(le_open("ledger.dat", "rb") != VEOK) goto err;  /* reopen */
+      }
    }
    if(mode == 1) {
       if(exists("cblock.lck")) {
@@ -200,18 +261,33 @@ int update(char *fname, int mode)
          write_data(&Nsolved, 4, "solved.dat");
       }
    }
-   Nupdated++;
-   memset(Crclist, 0, CRCLISTLEN*4);  /* clear recent crc list */
-   Crclistidx = 0;
    Stime = Ltime + 20;  /* hold status display */
    if(!Ininit) {
       if(exists("../update.sh")) system("../update.sh");  /* synchronous */
    }
-   plog("Block %s: 0x%s", mode ? "solved" : "updated", bnum2hex(Cblocknum));
-   if(!Ininit && !Bgflag) {
-      printf("Solved: %u  Haiku/second: %lu  Difficulty: %d\n",
-             Nsolved, (unsigned long) Hps, Difficulty);
+   if(mode != 2) {
+      if(!Ininit) {
+         plog("Block %s: 0x%s", mode ? "solved" : "updated",
+              bnum2hex(Cblocknum));
+         if(!Bgflag) printf("Solved: %u  Haiku/second: %lu  Difficulty: %d\n",
+                            Nsolved, (unsigned long) Hps, Difficulty);
+         Nupdated++;
+         Utime = time(NULL);  /* update time for watchdog */
+      }
    }
+   if(!Ininit) {
+      if(reval() == VEOK) {
+         unlink("txclean.dat");
+         if(rename("txq.tmp", "txclean.dat")) {
+            plog("cannot rename txq.tmp");
+	    unlink("txq.tmp");
+         }
+      }
+      else {
+         unlink("txclean.dat");
+      }
+   } /* end if(!Ininit) */
+   Bridgetime = Time0 + BRIDGE;
    return VEOK;
 err:
    restart("update error!");

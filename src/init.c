@@ -82,6 +82,7 @@ int reset_difficulty(char *lastfname, char *bcdir)
                                time1, bt.bnum);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
    memcpy(Prevhash, bt.phash, HASHLEN);
+   Time0 = time1;
    return VEOK;
 }  /* end reset_difficulty() */
 
@@ -315,13 +316,21 @@ int cmp_weight(byte *w1, byte *w2)
 }
 
 
+void resign(char *mess)
+{
+   if(Trace && mess)
+      plog("resigning in %s (sigterm)", mess);
+   fatal2(0, NULL);
+}
+
+
 /* Validate a tfile
  * Returns: a pointer to static weight.
  *          *result is set to 0 on success with the block number
  *          of last good tfile record is left in highblock,
  *          otherwise *result is set to non-zero error code.
  *
- * Error codes 1-9 are validation errors; codes >= 100 are I/O, 
+ * Error codes 1-10 are validation errors; codes >= 100 are I/O, 
  * codes >= 200 are (errno + 200).
  */
 byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
@@ -330,13 +339,15 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    BTRAILER bt;
    word32 difficulty = 0;
    word32 time1 = 0;
-   word32 stemp;
+   word32 stime;
    byte prevhash[HASHLEN];
    static byte weight[HASHLEN];   /* return value */
    long filelen;
    int ecode, gblock;
    char genfile[100];
    word32 now;
+   word32 tcount;
+   static word32 tottrigger[2] = { V23TRIGGER, 0 };
 
    *result = 100;                 /* I/O high error code */
    memset(highblock, 0, 8);       /* start from genesis block */
@@ -369,14 +380,19 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    now = time(NULL);
    /* Validate every block trailer in tfile and compute weight. */
    for(gblock = 1; ; gblock = 0) {
+      if(Monitor && Bgflag == 0) resign("tfile user break");  /* DSL */
       ecode = 0;
       if(fread(&bt, 1, sizeof(BTRAILER), fp)
-            != sizeof(BTRAILER)) break;  ecode++;
+            != sizeof(BTRAILER)) break;  /* EOF */
 
+      tcount = get32(bt.tcount);
+
+      ecode++;
       /* The Genesis Block is very special. 1 */
       if(gblock) {
-         if(!iszero(&bt, (sizeof(BTRAILER) - HASHLEN))) break;  ecode++;
-         if(memcmp(prevhash, bt.bhash, HASHLEN) != 0) break;  /* 2 */
+         if(!iszero(&bt, (sizeof(BTRAILER) - HASHLEN))) break;
+         ecode++;  /* 2 */
+         if(memcmp(prevhash, bt.bhash, HASHLEN) != 0) break;
          difficulty = 1;  /* difficulty of block one. */
          goto next;
       }
@@ -384,37 +400,42 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
 
       ecode = 3;
       /* validate block trailer -- Mfee: 3 */
-      if(highblock[0]) {
-         if(memcmp(Mfee, bt.mfee, 8) != 0) break;
-      } else if(!iszero(bt.mfee, 8)) break;  /* for NG block */
+      if(highblock[0] && tcount) {
+         if(cmp64(bt.mfee, Mfee) < 0) break;
+      } else if(!iszero(bt.mfee, 8)) break;  /* for NG block or P-block */
 
       ecode++;  /* difficulty ecode = 4 */
-      if(get32(bt.difficulty) != difficulty) break;  ecode++;
+      if(get32(bt.difficulty) != difficulty) break;
 
-      /* check for early or future block time 5 */
-      stemp = get32(bt.stime);
-      if(highblock[0]) {
-         if(stemp <= time1 || stemp > now)  /* unsigned time here */
-            break;
-      }
-      else if(stemp != time1) break;  /* for NG block */
       ecode++;
-      /* bad block number 6 */
-      if(cmp64(highblock, bt.bnum) != 0) break;     ecode++;
-      /* bad previous hash 7 */
-      if(memcmp(prevhash, bt.phash, HASHLEN) != 0) break;  ecode++;
-      /* check enforced delay 8 */
+      /* check for early block time 5 */
+      stime = get32(bt.stime);
       if(highblock[0]) {
+         if(stime <= time1) break;  /* unsigned time here */
+         ecode++;  /* future block time 6 */
+         if(stime > now && (stime - now) > BCONFREQ) break;
+      }
+      else if(stime != time1) break;  /* bad time for NG block */
+      ecode = 7;
+      /* bad block number 7 */
+      if(cmp64(highblock, bt.bnum) != 0) break;
+      ecode++;
+      /* bad previous hash 8 */
+      if(memcmp(prevhash, bt.phash, HASHLEN) != 0) break;
+      ecode++;
+      /* check enforced delay 9 */
+      if(highblock[0] && tcount) {
          if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
             break;
-         ecode++;
-         /* empty block 9 */
-         if(get32(bt.tcount) == 0) break;
       }
       ecode = 10;
+      if(cmp64(highblock, tottrigger) > 0 &&
+        (highblock[0] != 0xfe && highblock[0] != 0xff && highblock[0] != 0)) {
+         if((word32) (stime - get32(bt.time0)) > BRIDGE) break;
+      }
 
 skipval:
-      /* update for next loop 10 */
+      /* update for next loop 11 */
       time1 = get32(bt.stime);
       if(Trace) plog("block: 0x%s difficulty: %d  seconds: %d",
            bnum2hex(bt.bnum), difficulty, time1 - get32(bt.time0));
@@ -452,6 +473,7 @@ int delete_blocks(byte *matchblock)
    byte bnum[8];
 
    put64(bnum, matchblock);
+   if(iszero(bnum,8)) add64(bnum, One, bnum);
    for(j = 0; ; j++) {
       sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
       if(unlink(fname) != 0) break;
@@ -502,14 +524,6 @@ int extract_gen(char *lfile)
 }
 
 
-void resign(char *mess)
-{
-   if(Trace && mess)
-      plog("resigning in %s (sigterm)", mess);
-   fatal2(0, NULL);
-}
-
-
 /* Integrate reward function from block 0 to block bnum.
  * Return result in sum.
  */
@@ -536,7 +550,7 @@ byte *get_treward(void *sum, void *bnum)
 
 /* Check NG block:
  * 1. check hash is good and == Cblockhash
- * 2. not to much in amounts
+ * 2. not too much in amounts
  * 3. block hash is in tfile.dat
  *
  * Return 0 if NG is good, else error code.
@@ -601,8 +615,8 @@ err:
    fseek(fp, 4, SEEK_SET);
    for(memset(sum2, 0, 8); ; ) {
       if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY)) break;
-      add64(sum2, le.balance, sum2);
-      if(cmp64(sum2, sum) > 0) NGERROR(10);
+      /* add64(sum2, le.balance, sum2);
+      if(cmp64(sum2, sum) > 0) NGERROR(10); */
    }
    if(Trace > 1) {
       plog("sum2: %lu  0x%lx\n", *((long *) sum2), *((long *) sum2));
@@ -629,14 +643,14 @@ err:
 /* Get blocks that we need up to network Cblocknum */
 int get_eon(NODE *np, word32 peerip)
 {
-   FILE *fp, *tofp;          /* to "lock" and copy files */
-   pid_t Gpid[MAXQUORUM];     /* Gang children */
+   FILE *fp, *tofp;           /* to "lock" and copy files */
+   pid_t gpid[MAXQUORUM];     /* Gang children */
    word32 gang[MAXQUORUM];
    byte bnum[8], ngnum[8], highbnum[8];
-   byte dlbnum[8], clbnum[8]; /* download/clear block number */
+   byte dlbnum[8], clbnum[8];  /* download/clear block number */
    byte highhash[HASHLEN], *tfweight;
    byte highweight[HASHLEN];
-   int i, j, k, result;
+   int i, j, k, n, result;
    size_t cpbytes;            /* neo-gen transfer */
    char cpbuff[NGBUFFLEN];    /* neo-gen transfer */
    char fname[128], tofname[128];
@@ -649,7 +663,7 @@ int get_eon(NODE *np, word32 peerip)
    timeout = time(NULL) + 300;
 
 top:
-   memset(Gpid, 0, sizeof(pid_t)*MAXQUORUM);
+   memset(gpid, 0, sizeof(pid_t)*MAXQUORUM);
    memset(gang, 0, sizeof(gang));
    k = 0;
    tfweight = NULL;
@@ -666,9 +680,10 @@ top:
    show("quorum");
    plog("Acquiring quorum");
    for(j = 1; j < Quorum && Running; ) {
+      if(Monitor && Bgflag == 0) resign("user break 1");  /* DSL */
       if(time(NULL) >= timeout) goto try_again;
       /* select random peer from Rplist */
-      for(peerip = 0; peerip == 0 && Running; )
+      for(peerip = n = 0; peerip == 0 && Running && n < 1000; n++)
          peerip = Rplist[rand16() % RPLISTLEN];
       /* no duplicate gang[] members */
       if(search32(peerip, gang, Quorum) != NULL) continue;
@@ -691,6 +706,7 @@ top:
    unlink("tfile.dat");
    if(Trace) plog("   fetching tfile.dat from %s", ntoa((byte *) &gang[0]));
    for(k = 0; k < Quorum && Running; k++) {
+      if(Monitor && Bgflag == 0) resign("user break 2");  /* DSL */
       peerip = gang[k];
       if(get_block2(peerip, NULL, "tfile.dat", OP_GET_TFILE) != VEOK)
          continue;  /* try to get block again from next peer in gang[] */
@@ -753,6 +769,7 @@ top:
       plog("Downloading neo-genesis 0x%s", bnum2hex(bnum));
       sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
       for( ; Running; ) {
+         if(Monitor && Bgflag == 0) resign("user break 3");  /* DSL */
          if(get_block2(peerip, bnum, fname, OP_GETBLOCK) == VEOK) break;
          if(k >= Quorum) goto try_again;
          peerip = gang[k++];
@@ -797,10 +814,11 @@ top:
        * k -> gang index
        */
       for(i=0, j=0, k=0, result=0; Running && k<Quorum; result=0) {
+         if(Monitor && Bgflag == 0) resign("user break 4");  /* DSL */
          /* poll children */
-         if(Gpid[k] > 0 && waitpid(Gpid[k], &result, WNOHANG) > 0) {
+         if(gpid[k] > 0 && waitpid(gpid[k], &result, WNOHANG) > 0) {
             if(result) gang[k] = 0;
-            Gpid[k] = 0;
+            gpid[k] = 0;
             i++;
          }
          /* check peer ok */
@@ -821,11 +839,11 @@ top:
             continue;
          }
          /* spawn child to download block */
-         if(!Gpid[k]) {
-            Gpid[k] = fork();
-            if(Gpid[k] > 0) add64(dlbnum, One, dlbnum); /* parent */
-            if(Gpid[k] < 0) gang[k] = 0; /* parent */
-            if(Gpid[k] == 0) { /* child */
+         if(!gpid[k]) {
+            gpid[k] = fork();
+            if(gpid[k] > 0) add64(dlbnum, One, dlbnum); /* parent */
+            if(gpid[k] < 0) gang[k] = 0; /* parent */
+            if(gpid[k] == 0) { /* child */
                fp = fopen(fname, "ab+"); /* get first dibs */
                if(!fp) {
                   error("init: cannot secure block file %s", fname);
@@ -834,7 +852,7 @@ top:
                result = get_block2(peerip, dlbnum, fname, OP_GETBLOCK);
                if(result != VEOK) unlink(fname);
                else if(rename(fname, tofname) != 0) {
-                  error("init: cannot rename %s",fname);
+                  if(Trace) plog("init: cannot rename %s",fname);
                   unlink(fname);
                   exit(VERROR);
                }
@@ -844,7 +862,7 @@ top:
          k++;
       }  /* end for thread handling */
       /* sleep cpu during no activity */
-      if(!i) usleep(Dynasleep);
+      if(!i && Dynasleep) usleep(Dynasleep);
       /* update downloaded blocks (also constructs NG on 0xff blocks) */
       sprintf(fname, "rblock%02X%02X.dat", bnum[1], bnum[0]);
       while (exists(fname)) {
@@ -880,7 +898,7 @@ top:
    return VEOK;
 
 try_again:
-   plog(":) (k: %d  Will restart in : %d seconds.)", k,
+   plog(":) (k: %d  Will restart in %d seconds.)", k,
         (int) (timeout - time(NULL)));
    if(Trace) {
       if(tfweight)
@@ -891,8 +909,9 @@ try_again:
       plog("highbnum = 0x%s", bnum2hex(highbnum));
    }
    if(time(NULL) >= timeout) restart(":) timeout");  /* v.28 */
+   if(Monitor && Bgflag == 0) resign("user break 5");  /* DSL */
 
-   for(peerip = 0; peerip == 0 && Running; )
+   for(peerip = n = 0; peerip == 0 && Running && n < 1000; n++)
       peerip = Rplist[rand16() % RPLISTLEN];
    if(get_ipl(np, peerip) != VEOK && Running) goto try_again;
    if(Running) goto top;  /* v.28 */
@@ -938,12 +957,15 @@ int init(void)
 
    /* Read and validate our own tfile.dat to compute Weight */
    wp = tfval("tfile.dat", highblock, 0, &result);
-   if(result || cmp64(Cblocknum, highblock) != 0)
+   if(result || cmp64(Cblocknum, highblock) != 0) {
+      plog("init(): %d %d", Cblocknum[0], highblock[0]);
       fatal("init(): bad tfile.dat -- gomochi!");
+   }
    memcpy(Weight, wp, HASHLEN);
 
    /* read into Coreplist[], shuffle, and get IPL */
-   printf("   %s is the bootstrap nodes file list.\n", Corefname);
+   if(*Corefname)
+      plog("   %s is the bootstrap nodes file list.", Corefname);
    Peerip = init_coreipl(&node, Corefname);
    if(Peerip) {
       result = cmp64(Cblocknum, node.tx.cblock);

@@ -37,13 +37,14 @@
 
 /* Version checking */
 #ifndef PVERSION
-#define PVERSION      2      /* protocol version number (short) */
+#define PVERSION      3      /* protocol version number (short) */
 #endif
 
 /* Node type */
 #ifdef CPU
 #define CPUNODE
-#else
+#endif
+#ifdef CUDA
 #define CUDANODE
 #endif
 
@@ -67,11 +68,27 @@
 #define CRCLISTLEN    1024     /* recent tx crc's */
 #define MAXQUORUM     8        /* for get_eon() gang[] */
 
-#define BCONFREQ 10    /* Run con at least */
-#define CBITS         0        /* 8 capability bits for TX */
+#define BCONFREQ   10     /* Run con at least */
+#define CBITS      0      /* 8 capability bits for TX */
+/* Historic Compatibility Break Point Triggers */
 #define DTRIGGER31 17185  /* for v2.0 new set_difficulty() */
 #define WTRIGGER31 17185  /* for v2.0 new add_weight() */
 #define RTRIGGER31 17185  /* for v2.0 new get_mreward() */
+#define FIXTRIGGER 17697  /* for v2.0 difficulty patch */
+#define V23TRIGGER 54321 /* for v2.3 pseudoblocks */
+#define MFEE 500
+
+/* NEWYEAR trigger */
+#define NEWYEAR(bnum) (get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0)
+
+#define WATCHTIME  (BRIDGE*2+1)  /* Default minimum watchdog time for -w switch */
+#define BRIDGE     949           /* Trouble time -- Edit for testing */
+#define TIMES_OF_TROUBLE() (Ltime >= Bridgetime                \
+                            && Cblocknum[0] != 0xfe            \
+                            && (get32(Cblocknum) >= V23TRIGGER \
+                            || get32(Cblocknum+4) != 0))
+
+#define UBANDWIDTH 14300   /* Dynamic upload bandwidth -- not zero */
 
 /* ------ end Dev Section  -----*/
 

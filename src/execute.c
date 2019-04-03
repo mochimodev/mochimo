@@ -6,7 +6,6 @@
  * Date: 2 January 2018
 */
 
-
 /* Send a ledger.dat balance query to np.
  * Called from gettx() OP_BALANCE
  * layout:
@@ -24,8 +23,16 @@ int send_balance(NODE *np)
 
    put64(np->tx.send_total, zeros);
    /* look up source address in ledger */
-   if(le_find(np->tx.src_addr, &le, NULL) == TRUE)
-      put64(np->tx.send_total, le.balance);
+   if(((byte *) (np->tx.src_addr))[2196] == 0x00) {
+      /* OP_BALANCE Request Passed ZEROED Tag */
+      /* Finding an address in ledger without matching the tag */
+      if(le_find(np->tx.src_addr, &le, NULL, 1) == TRUE) {
+         put64(np->tx.send_total, le.balance);
+         memcpy(np->tx.src_addr, le.addr, TXADDRLEN);
+   } else {
+      if(le_find(np->tx.src_addr, &le, NULL, 0) == TRUE) {
+         put64(np->tx.send_total, le.balance);
+   }
    send_op(np, OP_SEND_BAL);
    return 0;  /* success */
 }  /* end send_balance() */
@@ -86,6 +93,8 @@ int send_file(NODE *np, char *fname)
          return status;  /* VEOK or VERROR -- server does freeslot() */
       }
       if(status != VEOK) break;
+      /* Make upload bandwidth dynamic. */
+      if(Nonline > 1) usleep((Nonline - 1) * UBANDWIDTH);
    }  /* end for(; Running; ) */
    alarm(0);
    fclose(fp);
@@ -103,6 +112,16 @@ int send_ipl(NODE *np)
    memcpy(TRANBUFF(&np->tx), Rplist, IPCOPYLEN);
    put16(np->tx.len, IPCOPYLEN);
    return send_op(np, OP_SEND_IP);  /* send ip list */
+}
+
+
+int identify(NODE *np)
+{
+   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   /* copy recent peer list to TX */
+   sprintf((char *) TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
+           Sanctuary, Lastday, Myfee[0]);
+   return send_op(np, OP_IDENTIFY);
 }
 
 
@@ -236,6 +255,11 @@ int execute(NODE *np)
       case OP_MBLOCK:
          signal(SIGTERM, sendalrm);
          get_mblock(np);
+         closesocket(np->sd);
+         return 0;
+      case OP_TF:
+         /* send tfile.dat section to peer */
+         send_tf(np);
          closesocket(np->sd);
          return 0;
 

@@ -26,7 +26,10 @@
 #define OP_RESOLVE        14
 #define OP_GET_CBLOCK     15
 #define OP_MBLOCK         16
-#define LAST_OP           16  /* edit when adding  OP's */
+#define OP_HASH           17
+#define OP_TF             18
+#define OP_IDENTIFY       19
+#define LAST_OP           19  /* edit when adding  OP's */
 
 #define TXNETWORK 0x0539
 #define TXEOT     0xabcd
@@ -56,7 +59,10 @@
 #endif
 
 /* Capability bits */
-#define C_PUSH    1
+#define C_PUSH      1
+#define C_WALLET    2
+#define C_SANCTUARY 4
+#define C_MFEE      8
 
 /* Multi-byte numbers are little-endian.
  * Structure is checked on start-up for byte-alignment.
@@ -130,7 +136,7 @@ typedef struct {
 typedef struct {
    byte phash[HASHLEN];    /* previous block hash (32) */
    byte bnum[8];           /* this block number */
-   byte mfee[8];           /* transaction fee */
+   byte mfee[8];           /* minimum transaction fee */
    byte tcount[4];         /* transaction count */
    byte time0[4];          /* to compute next difficulty */
    byte difficulty[4];

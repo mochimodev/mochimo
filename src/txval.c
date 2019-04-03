@@ -40,14 +40,19 @@ int tx_val(TX *tx)
    /* check address dups */
    if(memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0
       || memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
-            plog("tx_val(): src_addr dup");
+            if(Trace) plog("tx_val(): src_addr dup");
             return 2;
    }
 
-   /* validate mining fixed fee */
-   if(memcmp(tx->tx_fee, Mfee, 8) != 0) {
-      plog("tx_val(): bad mining fee");
+   /* validate transaction fixed fee */
+   if(cmp64(tx->tx_fee, Mfee) < 0) {
+      if(Trace) plog("tx_val(): bad mining fee");
       return 2;
+   }
+   /* validate my fee */
+   if(cmp64(tx->tx_fee, Myfee) < 0) {
+      if(Trace) plog("tx_val(): fee < %u", Myfee[0]);
+      return 1;
    }
 
    /* check WTOS signature */
@@ -61,7 +66,7 @@ int tx_val(TX *tx)
    }
 
    /* look up source address in ledger */
-   if(le_find(tx->src_addr, &src_le, NULL) == FALSE) {
+   if(le_find(tx->src_addr, &src_le, NULL, 0) == FALSE) {
       if(Trace) plog("tx_val(): src_addr not in ledger");
       return 1;
    }
@@ -74,7 +79,7 @@ int tx_val(TX *tx)
       return 2;
    }
    if(cmp64(src_le.balance, total) != 0) {
-      plog("tx_val(): bad transaction total != src_le.balance");
+      if(Trace) plog("tx_val(): bad transaction total != src_le.balance");
       return 1;
    }
    if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr, 1, &bnum[0]) != VEOK)

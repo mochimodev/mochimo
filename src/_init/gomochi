@@ -1,10 +1,10 @@
 #!/bin/sh
 # Bring Mochimo online -- cold start
 #
-# Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+# Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
-# Revised: 2 January 2019
+# Revised: 22 March 2019
 #
 ###################
 # Preconfiguration
@@ -12,6 +12,9 @@
 trap "" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
 trap ""  24 25 26 27 28 29 30 31
 trap "exit 0" term
+
+# File security
+umask 077
 
 ################
 # Sanity checks
@@ -50,8 +53,9 @@ else
    echo "You must create a mining address before starting a mining node."
    echo "Please see README.TXT for instructions on how to create a mining address."
    echo
-   echo "If you are trying to run the node in Relay mode, trying copying the"
-   echo "default mining address to maddr.dat before starting:"
+   echo "If you are trying to run the node in no mining mode (-n switch), 
+   echo "trying copying the default mining address to maddr.dat
+   echo " before starting:"
    echo "   cp maddr.mat maddr.dat"
    echo 
    exit 1
@@ -63,14 +67,16 @@ fi
 # Splash screen
 clear
 echo
-echo "Mochimo Cryptocurrency Engine v2.2, Original Release: October 27, 2018"
+echo "Mochimo Cryptocurrency Engine v2.3 BUILD 007"
+echo "Original v2 Release: October 27, 2018"
 sleep 1
-echo "Copyright Adequate Systems 2018"
+echo "Copyright Adequate Systems 2019"
 echo "All Rights Reserved"
 sleep 3
 echo
 echo "This software is subject to the terms and conditions of the Mochimo End"
 echo "User License Agreement v2.0, available at https://www.mochimo.org/license"
+echo "and included with this distribution.  Read LICENSE.PDF."
 sleep 2
 
 # Enter working directory
@@ -127,7 +133,7 @@ do
    rm -f ng/b*.bc
    mv $(ls -1 bc/b*00.bc 2> /dev/null | tail -n 2 | tr '\n' ' ') ng/ 2> /dev/null
    echo "remove some files..."
-   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc rblock*
+   rm -f ledger.dat txclean.dat txq1.dat *.tmp bc/b*.bc rblock* dblock*
    rm -f mq.dat mirror.dat
    rm -f mseed.dat
    echo "copy some files..."
@@ -136,7 +142,7 @@ do
    touch mq.lck
    echo
    #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-   ../mochimo -x345678 -e -p2095 -q4 -l -t3 -F -f -P -cstartnodes.lst $2 $3 $4 $5 $6 $7 $8 $9
+   ../mochimo -x345678 -p2095 -cstartnodes.lst -l -t3 -e -f -F -P -s1000 $2 $3 $4 $5 $6 $7 $8 $9
    if test $? -eq 0
    then
       echo "Resume paused system with ./resume"

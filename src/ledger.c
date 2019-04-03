@@ -52,7 +52,7 @@ void le_close(void)
  * If position is non-NULL put the index of found LENTRY struct there,
  * else the index of where to insert addr in ledger.dat.
  */
-int le_find(byte *addr, LENTRY *le, long *position)
+int le_find(byte *addr, LENTRY *le, long *position, int mode)
 {
    long cond, mid, hi, low;
 
@@ -70,7 +70,11 @@ int le_find(byte *addr, LENTRY *le, long *position)
          { Lerror = error("le_find(): fseek");  break; }
       if(fread(le, 1, sizeof(LENTRY), Lefp) != sizeof(LENTRY))
          { Lerror = error("le_find(): fread");  break; }
-      cond = memcmp(addr, le->addr, TXADDRLEN);
+      if(mode == 1) {
+         cond = memcmp(addr, le->addr, TXADDRLEN-12);
+      } else {
+         cond = memcmp(addr, le->addr, TXADDRLEN);
+      }
       if(cond == 0) {
          if(position) *position = mid;
          return 1;  /* found target addr */

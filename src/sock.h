@@ -15,7 +15,9 @@
 #define EINPROGRESS  WSAEINPROGRESS 
 #define EALREADY     WSAEALREADY 
 #define EWOULDBLOCK  WSAEWOULDBLOCK
+#define getsockerr() WSAGetLastError()
 #else
+#include <fcntl.h>
 #include <sys/socket.h>           /* for Unix sockets */
 #include <netdb.h>
 #include <sys/time.h>
@@ -32,6 +34,7 @@
 #define INVALID_SOCKET (-1)
 #define FAR
 /* was (h_errno) */
+#define getsockerr() (errno)
 #define WSAGetLastError() (errno)
 #define closesocket(_sd) close(_sd)
 #define ioctlsocket(_fd, _cmd, _arg) ioctl(_fd, _cmd, _arg)

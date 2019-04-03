@@ -84,27 +84,27 @@ int send_op(NODE *np, int opcode)
 
 
 /* A Basic block validator for catchup().
- * All non-NG blocks should pass this test.
- * Returns: VEOK if valid, else VERROR if bad.
+ * Every non-NG block should pass this test.
+ * If it does not, the error is intentional (pink-list).
+ * Returns: VEOK if valid, VERROR on errors, or VEBAD if bad.
  */
 int bval2(char *fname, byte *bnum, byte diff)
 {
    BTRAILER bt;
-   word32 stemp, now;
+   word32 now;
 
    if(Trace) plog("bval2()");
 
    if(readtrailer(&bt, fname) != VEOK) return VERROR;
-   if(cmp64(bnum, bt.bnum) != 0) return VERROR;
+   if(cmp64(bnum, bt.bnum) != 0) return VEBAD;
    if(get32(bt.difficulty) != diff) return VERROR;
    /* Time Checks */
-   stemp = get32(bt.stime);
-   if(stemp <= Time0) return VERROR; /* Block Solve Time is Too Early! */
+   if(get32(bt.stime) <= Time0) return VERROR; /* bad time sequence */
    now = time(NULL);
-   if(stemp > now) return VERROR; /* Block Solve Time is in The FUTURE! */
+   if(get32(bt.stime) > (now + BCONFREQ)) return VERROR;  /* future */
    /* Solution Check */
    if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
-      return VERROR;;
+      return VEBAD;
    return VEOK;
 }  /* end bval2() */
 
@@ -115,7 +115,7 @@ int bval2(char *fname, byte *bnum, byte diff)
 int catchup(word32 peerip)
 {
    byte bnum[8];
-   int count;
+   int count, status;
 
    if(Trace) plog("catchup(%s)", ntoa((byte *) &peerip));
 
@@ -124,11 +124,17 @@ int catchup(word32 peerip)
       add64(bnum, One, bnum);
       if(bnum[0] == 0) continue;  /* do not fetch NG blocks */
       if(get_block2(peerip, bnum, "rblock.dat", OP_GETBLOCK) != VEOK) break;
-      if(count == 0 && bval2("rblock.dat", bnum, Difficulty) != VEOK) break;
-      if(update("rblock.dat", 0) != VEOK) return VERROR;  /* contention */
+      status = bval2("rblock.dat", bnum, Difficulty);
+      if(status != VEOK) {
+         if(status == VEBAD) epinklist(peerip);
+         break;
+      }
+      if(update("rblock.dat", 0) != VEOK) {
+         if(count == 0) return VERROR;  /* contention */
+         break;  /* ignore */
+      }
       count++;
    }  /* end for count */
-   if(Running && count < 1) epinklist(peerip);
    return VEOK;
 }  /* end catchup() */
 
@@ -153,8 +159,7 @@ int contention(NODE *np)
    if(cmp_weight(tx->weight, Weight) <= 0) return 0;
 
    if(tx->cblock[0] == 0) {
-      /* NG block v.23 */
-      epinklist(np->src_ip);
+      epinklist(np->src_ip);  /* protocol error */
       return 0;  /* ignore block */
    }
 
@@ -168,8 +173,7 @@ int contention(NODE *np)
    }  /* end if result == 0 -- one block ahead */
 
    /* more than one block ahead or bad hash */
-   if(catchup(np->src_ip) != VEOK) {
-      unlink("epink.lst");
+   if(catchup(np->src_ip) != VEOK && checkproof(tx) != VEOK) {
       write_data(&np->src_ip, 4, "rplist.lst");
       restart("contend");  /* Contention - RESTART */
    }
@@ -241,6 +245,7 @@ int gettx(NODE *np, SOCKET sd)
    TX *tx;
    word32 ip;
    time_t timeout;
+   static word32 v23_trigger[2] = { V23TRIGGER, 0 };
 
    tx = &np->tx;
    memset(np, 0, sizeof(NODE));  /* clear structure */
@@ -280,6 +285,16 @@ int gettx(NODE *np, SOCKET sd)
             if(Trace) plog("gettx(): bad packet");
             return 1;  /* BAD packet */
    }
+/*
+Warning: This test breaks backward compatibility.
+All code revisions should be backward compatible,
+so enable this only in the event of an existential
+threat / community initiated hard fork.
+   if(tx->version[0] != PVERSION) {
+      if(Trace) plog("gettx(): bad version");
+      return 1;
+   }
+*/
 
    if(Trace) plog("gettx(): crc16 good");
    if(opcode != OP_HELLO) goto bad1;
@@ -352,6 +367,12 @@ int gettx(NODE *np, SOCKET sd)
    } else if(opcode == OP_MBLOCK) {
       if(!Allowpush || (time(NULL) - Pushtime) < 150) return 1;
       Pushtime = time(NULL);
+   } else if(opcode == OP_HASH) {
+      send_hash(np);
+      return 1;
+   } else if(opcode == OP_IDENTIFY) {
+      identify(np);
+      return 1;
    }
 
    if(opcode == OP_BUSY || opcode == OP_NACK || opcode == OP_HELLO_ACK)

@@ -27,14 +27,15 @@ int sendnack(NODE *np);
 int send_file(NODE *np, char *fname);
 int send_ipl(NODE *np);
 int execute(NODE *np);
+int identify(NODE *np);
 
-/* Source file: contend.c */
 int rx2(NODE *np, int checkids, int seconds);
 int callserver(NODE *np, word32 ip);
 int get_tx2(NODE *np, word32 ip, word16 opcode);
 int get_block2(word32 ip, byte *bnum, char *fname, word16 opcode);
 
 /* Source file: init.c */
+int get_ipl(NODE *np, word32 ip);
 int read_coreipl(char *fname);
 word32 init_coreipl(NODE *np, char *fname);
 void add_weight(byte *weight, int difficulty, byte *bnum);
@@ -46,6 +47,20 @@ int init(void);
 void trigg_solve(byte *link, int diff, byte *bnum);
 char *trigg_generate(byte *in, int diff);
 char *trigg_check(byte *in, byte d, byte *bnum);
+int get_ipl(NODE *np, word32 ip);
 
 void stop_mirror(void);
 int send_balance(NODE *np);
+
+/* Source file: optf.c */
+int send_tf(NODE *np);
+int send_hash(NODE *np);
+
+/* Source file: proof.c */
+int readtf(void *buff, word32 bnum, word32 count);
+int loadproof(TX *tx);
+int checkproof(TX *tx);
+
+/* Source file: renew.c */
+int renew(void);
+int refresh_ipl(void);

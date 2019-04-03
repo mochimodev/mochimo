@@ -251,7 +251,7 @@ WHEADER Whdr;        /* wallet header */
 WINDEX *Windex;      /* wallet index */
 word32 Nindex;       /* number of addresses in wallet */
 byte Needcleanup;    /* for Winsock */
-word32 Mfee[2] = { 500, 0 };
+word32 Mfee[2] = { MFEE, 0 };
 byte Zeros[8];
 word32 Port = 2095;  /* default server port */
 char *Peeraddr;  /* peer address string optional, set on command line */
