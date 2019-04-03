@@ -75,7 +75,7 @@
 #define WTRIGGER31 17185  /* for v2.0 new add_weight() */
 #define RTRIGGER31 17185  /* for v2.0 new get_mreward() */
 #define FIXTRIGGER 17697  /* for v2.0 difficulty patch */
-#define V23TRIGGER 0xc59c /* for v2.3 pseudoblocks */
+#define V23TRIGGER 54321 /* for v2.3 pseudoblocks */
 #define MFEE 500
 
 /* NEWYEAR trigger */
