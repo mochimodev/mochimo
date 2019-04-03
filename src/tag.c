@@ -129,7 +129,7 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, int checkq, byte *
          /* If there is a dst_tag, and its full address is not
           * already in ledger.dat, tx is not valid.
           */
-         if(le_find(dst_addr, &le, NULL) == FALSE) {
+         if(le_find(dst_addr, &le, NULL, 0) == FALSE) {
             plog("DST_ADDR Tagged, but Tag is not in ledger!");
             goto bad;
          }
