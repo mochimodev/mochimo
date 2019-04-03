@@ -6,7 +6,6 @@
  * Date: 2 January 2018
 */
 
-
 /* Send a ledger.dat balance query to np.
  * Called from gettx() OP_BALANCE
  * layout:
@@ -24,8 +23,16 @@ int send_balance(NODE *np)
 
    put64(np->tx.send_total, zeros);
    /* look up source address in ledger */
-   if(le_find(np->tx.src_addr, &le, NULL, 0) == TRUE)
-      put64(np->tx.send_total, le.balance);
+   if(((byte *) (np->tx.src_addr))[2196] == 0x00) {
+      /* OP_BALANCE Request Passed ZEROED Tag */
+      /* Finding an address in ledger without matching the tag */
+      if(le_find(np->tx.src_addr, &le, NULL, 1) == TRUE) {
+         put64(np->tx.send_total, le.balance);
+         memcpy(np->tx.src_addr, le.addr, TXADDRLEN);
+   } else {
+      if(le_find(np->tx.src_addr, &le, NULL, 0) == TRUE) {
+         put64(np->tx.send_total, le.balance);
+   }
    send_op(np, OP_SEND_BAL);
    return 0;  /* success */
 }  /* end send_balance() */
