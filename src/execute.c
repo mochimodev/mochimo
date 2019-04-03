@@ -29,14 +29,15 @@ int send_balance(NODE *np)
       if(le_find(np->tx.src_addr, &le, NULL, 1) == TRUE) {
          put64(np->tx.send_total, le.balance);
          memcpy(np->tx.src_addr, le.addr, TXADDRLEN);
+      }
    } else {
       if(le_find(np->tx.src_addr, &le, NULL, 0) == TRUE) {
          put64(np->tx.send_total, le.balance);
+     }
    }
    send_op(np, OP_SEND_BAL);
    return 0;  /* success */
-}  /* end send_balance() */
-
+} /* end send_balance() */
 
 int sendnack(NODE *np)
 {
