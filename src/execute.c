@@ -24,7 +24,7 @@ int send_balance(NODE *np)
 
    put64(np->tx.send_total, zeros);
    /* look up source address in ledger */
-   if(le_find(np->tx.src_addr, &le, NULL) == TRUE)
+   if(le_find(np->tx.src_addr, &le, NULL, 0) == TRUE)
       put64(np->tx.send_total, le.balance);
    send_op(np, OP_SEND_BAL);
    return 0;  /* success */
