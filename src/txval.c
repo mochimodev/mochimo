@@ -66,7 +66,7 @@ int tx_val(TX *tx)
    }
 
    /* look up source address in ledger */
-   if(le_find(tx->src_addr, &src_le, NULL) == FALSE) {
+   if(le_find(tx->src_addr, &src_le, NULL, 0) == FALSE) {
       if(Trace) plog("tx_val(): src_addr not in ledger");
       return 1;
    }
