@@ -1,10 +1,10 @@
-Update: Code version 2.2 is live and contains updates to multiple Mochimo subsystems.
+Update: Code version 2.3 is live and contains additions and updates to multiple Mochimo subsystems.
 
 See CHANGES.TXT for an overview of the changes.
 
-As of v2.0, our code is released under the new MPL2.0 derivative Open Source license.  The community is now free to develop and change the code with the caveat that any changes must be for the benefit of the Mochimo cryptocurrency network, and with a number of exclusions.  Please read LICENSE.PDF for more details on limitations and restrictions.
+Reminder: our code is released under an MPL2.0 derivative Open Source license.  The community is free to develop and change the code with the caveat that any changes must be for the benefit of the Mochimo cryptocurrency network, and with a number of exclusions.  Please read LICENSE.PDF for more details on limitations and restrictions.
 
-Note: The license to operate versions of the code prior to v2.0 expires on December 31st, 2018.  Use of the old code after 12/31/18 is strictly prohibited.
+Note: The license to operate versions of the code prior to v2.0 expired on December 31st, 2018.  Use of the old code after 12/31/18 is strictly prohibited.
 
 Join us on Discord for the latest news: https://discord.gg/EHFqS5s
 
@@ -27,7 +27,7 @@ Please follow the below link to join in the discussion of mochimo with the rest 
 
 https://discord.gg/EHFqS5s
 
-The Mochimo Main Net Package is copyright 2018 Adequate Systems, LLC.  
+The Mochimo Main Net Package is copyright 2019 Adequate Systems, LLC.  
 Please read the license file in the package for additional restrictions.
 
 Contact: support@mochimo.org
