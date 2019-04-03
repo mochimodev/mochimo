@@ -78,7 +78,7 @@ do
    echo
    touch mq.lck
    #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-   ../mochimo -x345678 -p2093 -cstartnodes.lst -l -t3 -e -f -F -P -s1000 $2 $3 $4 $5 $6 $7 $8 $9
+   ../mochimo -x345678 -p2095 -cstartnodes.lst -l -t3 -e -f -F -P -s1000 $2 $3 $4 $5 $6 $7 $8 $9
    if test $? -eq 0
    then
       echo "Resume paused system with ./resume"
