@@ -31,6 +31,8 @@ added NOMINER feature, initialized with -n at runtime
   -Allows a node to run in relay mode only without mining blocks
 added command line compile options for CPU or GPU, merging both development branches
   -Involed with ./makeunx bin -DCPU  -or-  ./makeunx bin -DCUDA
+replaced inbound TX uniqueness test (CRC) with address-based validation
+  -Allows the system to scale past 65,536 TXs per block at some indeterminate future date
 
 Patch Level 32 (Mochimo Version 2.2)
 
