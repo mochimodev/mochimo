@@ -285,6 +285,12 @@ int gettx(NODE *np, SOCKET sd)
             if(Trace) plog("gettx(): bad packet");
             return 1;  /* BAD packet */
    }
+   if(Cblocknum >= (V23TRIGGER - 1) && Cblocknum <= (V23TRIGGER + 55)) {
+       if(tx->version[0] != PVERSION) {
+          if(Trace) plog("gettx(): bad version");
+          return 1;
+       }
+   }
 /*
 Warning: This test breaks backward compatibility.
 All code revisions should be backward compatible,
