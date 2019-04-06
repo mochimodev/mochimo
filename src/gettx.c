@@ -291,7 +291,7 @@ int gettx(NODE *np, SOCKET sd)
    tempv23b[1] = 0; 
    tempv23a[0] = V23TRIGGER - 1;
    tempv23b[0] = V23TRIGGER + 55; 
-   if(cmp64(Cblocknum, tempv23a) >= 0) && cmp64(Cblocknum, tempv23b) <= 55)){
+   if(cmp64(Cblocknum, tempv23a) >= 0 && cmp64(Cblocknum, tempv23b) <= 55)){
       if(tx->version[0] != PVERSION) {
          if(Trace) plog("gettx(): bad version");
          return 1;
