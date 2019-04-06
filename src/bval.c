@@ -294,7 +294,7 @@ fee_overflow:
 
    sha256_final(&mctx, mroot);  /* compute Merkel Root */
    if(memcmp(bt.mroot, mroot, HASHLEN) != 0)
-      drop("bad Merkle root");
+      baddrop("bad Merkle root");
 
    sha256_update(&bctx, (byte *) &bt, sizeof(BTRAILER) - HASHLEN);
    sha256_final(&bctx, bhash);
