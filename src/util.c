@@ -161,11 +161,11 @@ word32 remove32(word32 bad, word32 *list, unsigned maxlen, word32 *idx)
 /* shuffle a list of < 64k word32's using Durstenfeld's algorithm */
 void shuffle32(word32 *list, word32 len)
 {
-   word32 *ptr, *p2, temp;
+   word32 *ptr, *p2, temp, listlen = len;
 
    if(len < 2) return;
    for(ptr = &list[len - 1]; len > 1; len--, ptr--) {
-      p2 = &list[rand16() % len];
+      p2 = &list[rand16() % listlen];
       temp = *ptr;
       *ptr = *p2;
       *p2 = temp;
