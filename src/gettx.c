@@ -285,6 +285,18 @@ int gettx(NODE *np, SOCKET sd)
             if(Trace) plog("gettx(): bad packet");
             return 1;  /* BAD packet */
    }
+   /* Remove below code after v2.3 migration */
+   word32 tempv23a[2], tempv23b[2];
+   tempv23a[1] = 0;
+   tempv23b[1] = 0; 
+   tempv23a[0] = V23TRIGGER - 1;
+   tempv23b[0] = V23TRIGGER + 55; 
+   if(cmp64(Cblocknum, tempv23a) >= 0 && cmp64(Cblocknum, tempv23b) <= 55){
+      if(tx->version[0] != PVERSION) {
+         if(Trace) plog("gettx(): bad version");
+         return 1;
+      }
+   }
 /*
 Warning: This test breaks backward compatibility.
 All code revisions should be backward compatible,
