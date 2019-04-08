@@ -16,7 +16,7 @@ added TXCLEAN Queue Re-validation following block updates
   -Prevents known cornercase block validation failures
   -Prevents all attack vectors involving poisoned TXs in the TXCLEAN queue
 added low-balance pruning consensus mechanism (CAROUSEL)
-  -Allows the community to clean low balances our of the ledger by consensus
+  -Allows the community to clean low balances out of the ledger by consensus
   -Keeps the blockchain free of bloat, and recovers from spam attacks
 added optional mining fee adjustment per miner
   -Allows future miners to create a mining fee market after mining rewards are gone
