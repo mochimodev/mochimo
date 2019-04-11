@@ -50,12 +50,15 @@
 #define VEBAD2      3      /* client was naughty          */
 #define VETIMEOUT   (-1)   /* socket timeout              */
 
-#define TRUE     1
-#define FALSE    0
+#ifndef TRUE
+	#define TRUE     1
+#endif
+#ifndef FALSE
+	#define FALSE    0
+#endif
 
 #ifndef SOCKET
          #define SOCKET unsigned int   /* Borland 32-bit */
-         #define INVALID_SOCKET  (SOCKET)(~0)
 #endif
 
 #ifndef SOCKET_ERROR
