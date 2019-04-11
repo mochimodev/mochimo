@@ -877,6 +877,13 @@ top:
          goto try_again;
       }
    }  /* end for block download-update */
+#ifdef BX_MYSQL
+   // Post-sync hook for database export
+   if (Exportflag) {
+     printf("Exporting to database.\n");
+     system("../bx -e");
+   }
+#endif
    if(!Running) resign("quorum update");
 
    /* ****************

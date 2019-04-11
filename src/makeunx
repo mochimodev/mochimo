@@ -17,6 +17,9 @@ MINER=0
 # MINER 1 = CUDA
 # MINER 2 = AMD
 
+# Optional: Block Explorer MySQL Export Feature
+BX_MYSQL=0
+
 if test x$2 = x-DCPU
 then
    MINER=0
@@ -28,6 +31,11 @@ fi
 if test x$2 = x-DAMD
 then
    MINER=2
+fi
+
+if test x$3 = x-DBX_MYSQL
+then
+   BX_MYSQL=1
 fi
 
 # Autodetect CUDA Installation
@@ -114,6 +122,11 @@ case "$1" in
       $CC -o neogen  neogen.c  sha256.o                2>>ccerror.log
       $CC -o txclean txclean.c sha256.o                2>>ccerror.log
       $CC -o wallet  wallet.c  sha256.o wots.o         2>>ccerror.log
+      if test $BX_MYSQL -eq 1
+      then
+          $CC -o bx bx.c trigg.o sha256.o -I/usr/include/mysql -lmysqlclient 2>>ccerror.log
+	  echo "Including block explorer MySQL export feature"
+      fi
       # Show the errors:
       echo
       if test -s ccerror.log
@@ -163,6 +176,9 @@ case "$1" in
       echo "Remove executable modules..."
       rm bcon bup bval mochimo sortlt
       rm wallet neogen txclean
+      if [ -f bx ]; then
+        rm bx
+      fi
       echo "Remove log files..."
       rm *.log
       echo
@@ -179,6 +195,9 @@ case "$1" in
       echo "Moving binaries to ../bin"
       cp _init/* ../bin
       mv mochimo bval bcon bup sortlt neogen txclean wallet ../bin
+      if [ -f bx ]; then
+        mv bx ../bin
+      fi
       echo
       echo "Done."
       ;;
@@ -202,6 +221,7 @@ case "$1" in
       echo "            clean         remove object files and log files"
       echo "            install       copy binaries and run scripts to ../bin"
       echo "            uninstall     remove files from mochi/bin directory tree"
+      echo "   options: -DBX_MYSQL    include block explorer MySQL export feature"
       echo
       exit 1
       ;;

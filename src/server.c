@@ -101,6 +101,13 @@ int server(void)
                   send_found();  /* start send_found() child */
                   addcurrent(np->src_ip);  /* v.28 */
                   addrecent(np->src_ip);   /* v.28 */
+#ifdef BX_MYSQL
+                  // If we've received a new block from peers update the database
+                  if (Exportflag) {
+                    printf("Exporting to database.\n");
+                    system("../bx -e");
+                  }
+#endif
                }
                Blockfound = 0;
             }
