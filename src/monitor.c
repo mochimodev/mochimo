@@ -56,7 +56,7 @@ int stats(int showflag)
    printf("Current block: 0x%s\n", bnum2hex(Cblocknum));
    printf("Weight:        0x...%s\n"
           "Difficulty:    %d  %s\n", bnum2hex(Weight),
-          Difficulty, Mpid ? "solving..." : "");
+          Difficulty, Mpid ? "solving..." : "waiting for tx...");
    return 0;
 } /* end stats() */
 
@@ -77,17 +77,17 @@ void betabait(void)
                "   Balances sent:   %u\n"
                "   Blocks solved:   %u\n"
                "   Blocks updated:  %u\n"
-               "   Haiku/second:    %lu\n"
+               "   Haiku/second:    %lu %s\n"
                "\n",
 
                 Eon, Ngen,
                 Nonline,  Nrec, Nsent, Nsolved, Nupdated,
-                (unsigned long) Hps
+                (unsigned long) Hps, Hps ? "" : "(caluclated after 2 TXs/updates)"
    );
 
    printf("Current block: 0x%s\n"
           "Difficulty:    %d  %s\n\n", bnum2hex(Cblocknum),
-          Difficulty, Mpid ? "solving..." : "");
+          Difficulty, Mpid ? "solving..." : "waiting for TX...");
 } /* end betabait() */
 
 

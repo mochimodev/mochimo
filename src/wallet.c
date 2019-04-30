@@ -1641,7 +1641,7 @@ noent:
 }  /* end display_wallet() */
 
 
-int delete_addr(void)
+int archive_addr(void)
 {
    char lbuff[80];
    unsigned idx;
@@ -1649,10 +1649,10 @@ int delete_addr(void)
    WENTRY entry;
 
    if(Nindex == 0) {
-      printf("\nNo addresses to delete.\n");
+      printf("\nNo addresses to archive.\n");
       return VERROR;
    }
-   printf("Delete address index (1-%d): ", Nindex);
+   printf("Archive address index (1-%d): ", Nindex);
    tgets(lbuff, 80);
    idx = atoi(lbuff);
    if(badidx(idx)) return VERROR;
@@ -1660,14 +1660,14 @@ int delete_addr(void)
    if(ecode != VEOK) return ecode;
    if(cmp64(entry.balance, Zeros) != 0)
       printf("Balance is not zero.\n");
-   printf("Delete '%-1.25s' (y/n)? ", entry.name);
+   printf("Archive '%-1.25s' (y/n)? ", entry.name);
    tgets(lbuff, 80);
    if(lbuff[0] != 'y' && lbuff[0] != 'Y') return VEOK;
    put64(entry.balance, Zeros);
    entry.flags[0] |= W_DEL;
    ecode = write_wentry(&entry, idx-1);
    return ecode;
-}  /* end delete_addr() */
+}  /* end archive_addr() */
 
 
 /* Return 1 if tag unusable, else 0. */
@@ -2200,7 +2200,7 @@ void mainmenu(void)
       printf("\n          Main Menu\n\n"
          "  1. Network status   2. Display          3. Import address\n"
          "  4. Create address   5. Spend address    6. Check balances\n"
-         "  7. Export address   8. Delete address   9. Menu 2\n"
+         "  7. Export address   8. Archive address  9. Menu 2\n"
          "  0. Exit\n\n"
          "  Select: "
       );
@@ -2220,7 +2220,7 @@ void mainmenu(void)
                    printf("\n");
                    display_wallet(0, 0);   break;
          case '7': ext_addr(0);            break;
-         case '8': delete_addr();          break;
+         case '8': archive_addr();          break;
          case '9': if(menu2() == 0) return;
                    break;
          case '0': return;
