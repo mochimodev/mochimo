@@ -80,6 +80,9 @@ void usage(void)
           "         -Mn        set transaction fee to n\n"
           "         -Sanctuary=N,Lastday\n"
    );
+#ifdef BX_MYSQL
+   printf("         -X         Export to MySQL database on block update\n");
+#endif
    exit(0);
 }
 
@@ -184,6 +187,10 @@ int main(int argc, char **argv)
                        Dstport = PORT1;  Port = PORT2;
                     }
                     break;
+#ifdef BX_MYSQL
+         case 'X':  Exportflag = 1;
+                    break;
+#endif
          default:   usage();
       }  /* end switch */
    }  /* end for j */
