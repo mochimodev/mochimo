@@ -48,6 +48,10 @@
 #define CUDANODE
 #endif
 
+#if !defined(CUDA) && !defined(CPU) /* default to CPU node if compile option unspecified */
+#define CPUNODE
+#endif
+
 /* Adjustable Parameters */
 #define MAXNODES      37       /* maximum number of connected nodes  */
 #define LQLEN         100      /* listen() queue length              */
