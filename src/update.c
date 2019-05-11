@@ -1,9 +1,10 @@
 /* update.c  Block Update
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 25 April 2018
+ * Updated: 10 May 2019
 */
 
 /* Creates child to send OP_FOUND to all recent peers */
@@ -119,42 +120,8 @@ word32 gethdrlen(char *fname)
    return len;
 }
 
-/* Re-Validate any TX's left in TXCLEAN after update. */
-int reval(void)
-{
-   TX tx;              /* Struct to feed to tx_val() */
-   TXQENTRY tqentry;   /* Holds one transaction */
-   FILE *fp;           /* txclean.dat */
-   FILE *fpout;        /* txq.tmp */
-   int count;
 
-   fp = fopen("txclean.dat", "rb");
-   if(!fp) {
-      plog("update() no 'txclean.dat' to revalidate");
-	   return VERROR;
-   }
-   fpout = fopen("txq.tmp", "wb");
-   if(!fpout) {
-      plog("update() txq.tmp write failed, I/O error or disk full");
-      fclose(fp);
-	   return VERROR;
-   }
-   for(;;) {
-      count = fread(&tqentry, 1, sizeof(TXQENTRY), fp);
-      if(count != sizeof(TXQENTRY)) break;
-      memset(&tx, 0, sizeof(TX));
-      memcpy(&tx.src_addr, &tqentry, sizeof(TXQENTRY) - 32);
-      if (tx_val(&tx) != VEOK) continue;
-      count = fwrite(&tqentry, 1, sizeof(TXQENTRY), fpout); 
-      if(count != sizeof(TXQENTRY)) {	  
-         plog("Cannot write txq.tmp");
-		   return VERROR;
-      }
-   } /* end for(;;) */
-   fclose(fp);
-   fclose(fpout);
-   return VEOK;
-} /* end reval() */	
+#include "txclean.c"  /* internal txclean() function */
 
 /* validate and update from fname = rblock.dat or vblock.dat
  * mode: 0 = their block
@@ -207,14 +174,14 @@ int update(char *fname, int mode)
    sprintf(cmd, "../bval %s", fname);  /* call validator on fname */
    system(cmd);
    if(!exists("vblock.dat")) {      /* validation failed */
-      system("../txclean txclean.dat");  /* prune missing src_addr's */
+      txclean();  /* clean the queue */
       le_open("ledger.dat", "rb");  /* re-open ledger */
       return VERROR;
    }
    /* update vblock.dat */
    system("../bup vblock.dat ublock.dat");
 
-   system("../txclean txclean.dat");  /* prune missing src_addr's */
+   txclean();  /* clean the queue */
    le_open("ledger.dat", "rb");  /* re-open new ledger.dat */
    if(!exists("ublock.dat")) {
       if(mode != 0) unlink("mblock.dat");
@@ -275,18 +242,6 @@ after_bup:
          Utime = time(NULL);  /* update time for watchdog */
       }
    }
-   if(!Ininit) {
-      if(reval() == VEOK) {
-         unlink("txclean.dat");
-         if(rename("txq.tmp", "txclean.dat")) {
-            plog("cannot rename txq.tmp");
-	    unlink("txq.tmp");
-         }
-      }
-      else {
-         unlink("txclean.dat");
-      }
-   } /* end if(!Ininit) */
    Bridgetime = Time0 + BRIDGE;
    return VEOK;
 err:
