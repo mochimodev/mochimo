@@ -82,7 +82,7 @@ void betabait(void)
 
                 Eon, Ngen,
                 Nonline,  Nrec, Nsent, Nsolved, Nupdated,
-                (unsigned long) Hps, Hps ? "" : "(caluclated after 2 TXs/updates)"
+                (unsigned long) Hps, Hps ? "" : "(calculated after 2 TXs/updates)"
    );
 
    printf("Current block: 0x%s\n"
