@@ -3,6 +3,15 @@
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  */
+Patch Level 34
+added FPGA-Resistant Algorithm
+  -Extensible High-Memory Algo v24()
+added Multi-Destination Transactions
+  -Scales up high volume third-party payment systems.
+added security fixes and networking tweaks
+ 
+ 
+ 
 Patch Level 33 (Mochimo Version 2.3)
 
 added Pseudoblocks for mid-block difficulty adjustment
