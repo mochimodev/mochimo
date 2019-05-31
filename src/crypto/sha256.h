@@ -1,6 +1,6 @@
 /* sha256.h  Application header for SHA2-256 algorithm
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * sha256.h is based on public domain code by Brad Conte

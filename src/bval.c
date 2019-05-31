@@ -1,6 +1,6 @@
 /* bval.c  Block Validator
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -40,6 +40,7 @@ char *trigg_check(byte *in, byte d, byte *bnum);
 
 #define EXCLUDE_RESOLVE
 #include "tag.c"
+#include "algo/v24/v24.c"
 
 word32 Tnum = -1;    /* transaction sequence number */
 char *Bvaldelfname;  /* set == argv[1] to delete input file on failure */
@@ -110,10 +111,12 @@ int main(int argc, char **argv)
    static byte do_rename = 1;
    static byte pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
    static char *haiku;
+   byte v24haiku[256];
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    ticks = clock();
    fix_signals();
@@ -190,10 +193,19 @@ badread:
    if(memcmp(Cblockhash, bt.phash, HASHLEN) != 0)
       drop("previous hash mismatch");
 
-   /* check enforced delay */
-   if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL)
+   /* check enforced delay, collect haiku from block */
+   if(cmp64(bnum, v24trigger) > 0) {
+      if(v24(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+         drop("v24 validation failed!");
+      }
+      if(!Bgflag) printf("\n%s\n\n", v24haiku);
+   }
+   if(cmp64(bnum, v24trigger) <= 0) {
+      if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL) {
       drop("trigg_check() failed!");
-   if(!Bgflag) printf("\n%s\n\n", haiku);
+      }
+      if(!Bgflag) printf("\n%s\n\n", haiku);
+   }
 
    /* Read block header */
    if(fseek(fp, 0, SEEK_SET)) goto badread;

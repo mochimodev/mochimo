@@ -1,6 +1,6 @@
 /* proto.h  Mochimo function prototypes
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 28 February 2018
@@ -64,3 +64,7 @@ int checkproof(TX *tx);
 /* Source file: renew.c */
 int renew(void);
 int refresh_ipl(void);
+
+/* Source file: algo/v24/v24.c */
+int v24(BTRAILER *trailer, word32 difficulty, byte *haiku, word32 *hps, int mode);
+

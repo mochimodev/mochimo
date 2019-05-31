@@ -1,6 +1,6 @@
 /* error.c  Error logging, trace, and fatal()
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018

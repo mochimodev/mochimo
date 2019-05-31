@@ -1,6 +1,6 @@
 /* add64.c  64-bit integer assist for little-endian 32-bit machines
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 3 January 2018

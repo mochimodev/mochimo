@@ -67,8 +67,9 @@ fi
 # Splash screen
 clear
 echo
-echo "Mochimo Cryptocurrency Engine v2.3 PATCHLEVEL 33"
+echo "Mochimo Cryptocurrency Engine v2.4 PATCHLEVEL 34"
 echo "Original v2 Release: October 27, 2018"
+echo "PRE-RELEASE TESTING VERSION - DO NOT DISTRIBUTE!!!"
 sleep 1
 echo "Copyright Adequate Systems 2019"
 echo "All Rights Reserved"

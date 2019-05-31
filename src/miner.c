@@ -1,6 +1,6 @@
 /* miner.c  The Block Miner  -- Child Process
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -12,11 +12,13 @@
  */
 
 #include <inttypes.h>
+#include "algo/v24/v24.c"
 
 #ifdef CUDANODE
-extern int trigg_init_cuda(byte difficulty, byte *blockNumber);
-extern void trigg_free_cuda();
-extern char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku);
+int cuda_v24_mine(BTRAILER *pBtrailer, uint32_t difficulty, byte *pHaiku,
+                  uint32_t *pHashrate, unsigned char *pExitSignal);
+void cuda_v24_free();
+int cuda_v24_init(BTRAILER *pBtrailer, uint32_t blocknum);
 #endif
 
 /* miner blockin blockout -- child process */
@@ -27,19 +29,12 @@ int miner(char *blockin, char *blockout)
    byte *ptr;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
    char *haiku;
+   byte v24haiku[256] = "";
    time_t htime;
-
-#ifdef CUDANODE
-   unsigned long long hcount, hps, total_hcount;
-#endif
-
-#ifdef CPUNODE
-   word32 hcount, hps;
-#endif
-
-   word32 temp[3];
+   word32 temp[3], hcount, hps;
    int initGPU;
    struct timespec chill = {0,Dynasleep*1000L};
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    /* Keep a separate rand2() sequence for miner child */
    if(read_data(&temp, 12, "mseed.dat") == 12)
@@ -79,81 +74,74 @@ int miner(char *blockin, char *blockout)
       if(Trace)
          plog("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
-
-      /* Create the solution state-space beginning with 
-       * the first plausible link on the TRIGG chain.
-       */
-      trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
-
 #ifdef CUDANODE
-
-      /* Initialize CUDA specific memory allocations
-       * and check for obvious errors
-       */
-      initGPU = -1;
-      initGPU = trigg_init_cuda(bt.difficulty[0], bt.bnum);
-      if(initGPU==-1) {
-         error("Cuda initialization failed. Check nvidia-smi");
-         trigg_free_cuda();
-         break;
+      if (cuda_v24_init(&bt, get32(bt.bnum)) == 0)
+      {
+          plog("Failed to initilize GPU devices\n");
       }
-      if(initGPU<1 || initGPU>64) {
-         error("Unsupported number of GPUs detected -> %d",initGPU);
-         trigg_free_cuda();
-         break;
-      }
-
 #endif
 
-      /* Traverse all TRIGG links to build the
-       * solution chain with trigg_generate()...
-       */
 
-      for(haiku = NULL, htime = time(NULL), hcount = 0; ; ) {
-         if(!Running) break;
-         if(haiku != NULL) break;
+      if(cmp64(bt.bnum, v24trigger) > 0)
+      { /* v2.4 and later */
+         htime = time(NULL); /* Mining Start Time */
+         hcount = 0; /* Reset Number of Operations */
 
 #ifdef CUDANODE
-
-         haiku = trigg_generate_cuda(bt.mroot, &hcount);
-         if(total_hcount == hcount) nanosleep(&chill, NULL);
-         else total_hcount = hcount;
-
+         if(!cuda_v24_mine(&bt, Difficulty, &v24haiku[0], &hps, &Running)) break;
 #endif
 #ifdef CPUNODE
-
-         haiku = trigg_generate(bt.mroot, bt.difficulty[0]);
-         hcount++;
-
-#endif
-      }
-
-#ifdef CUDANODE
-
-      /* Free CUDA specific memory allocations */
-      trigg_free_cuda();
-
+         if(v24(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
 #endif
 
-      /* Calculate and write Haiku/s to disk */
-      htime = time(NULL) - htime;
-      if(htime == 0) htime = 1;
-      hps = hcount / htime;
-      write_data(&hps, 8, "hps.dat");  /* unsigned long haiku per second */
-      if(!Running) break;
-
-      /* Block validation check */
-      if (!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
-         printf("ERROR - Block is not valid\n");
-         break;
+         htime = time(NULL) - htime; /* How long were we mining ? */
+         if(htime == 0) htime = 1;
+         hcount = hps / htime;
+         write_data(&hcount, sizeof(hcount), "hps.dat");  /* unsigned int haiku per second */
+         haiku = &v24haiku[0];
       }
+
+/* Legacy handler is CPU Only for all v2.3 and earlier blocks */
+
+      if(cmp64(bt.bnum, v24trigger) <= 0)
+      {
+         /* Create the solution state-space beginning with
+          * the first plausible link on the TRIGG chain.
+          */
+         trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
+
+         /* Traverse all TRIGG links to build the
+          * solution chain with trigg_generate()...
+          */
+
+         for(haiku = NULL, htime = time(NULL), hcount = 0; ; ) {
+            if(!Running) break;
+            if(haiku != NULL) break;
+            haiku = trigg_generate(bt.mroot, bt.difficulty[0]);
+            hcount++;
+         }
+         /* Calculate and write Haiku/s to disk */
+         htime = time(NULL) - htime;
+         if(htime == 0) htime = 1;
+         hps = hcount / htime;
+         write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second */
+         if(!Running) break;
+
+         /* Block validation check */
+         if (!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
+            printf("ERROR - Block is not valid\n");
+            break;
+         }
+      } /* end legacy handler */
+
+/* Everything below this line is shared code.  */
 
       show("solved");
 
       /* solved block! */
-      sleep(2);  /* make sure that stime is not to early */
+      sleep(1);  /* make sure that stime is not to early */
       put32(bt.stime, time(NULL));  /* put solve time in trailer */
-      /* hash-in nonce and solved time to hash 
+      /* hash-in nonce and solved time to hash
        * context begun by bcon.
        */
       sha256_update(&bctx, bt.nonce, HASHLEN + 4);
@@ -187,8 +175,12 @@ int miner(char *blockin, char *blockout)
       if(!Bgflag) printf("\n%s\n\n", haiku);
 
       break;
-   }  /* end for  */
+   }  /* end for(;;) exit miner  */
+
 done:
+#ifdef CUDANODE
+   cuda_v24_free();
+#endif
    getrand2(temp, &temp[1], &temp[2]);
    write_data(&temp, 12, "mseed.dat");   /* maintain rand2() sequence */
    if(Trace) plog("Miner exiting...");

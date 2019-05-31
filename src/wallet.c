@@ -1,6 +1,6 @@
 /* wallet.c  Prototype wallet
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 15 March 2018
@@ -2176,7 +2176,7 @@ void mainmenu(void)
 
    CLEARSCR();
    printf("\nMochimo Wallet (Build 31)\n"
-          "Copyright (c) 2018 by Adequate Systems, LLC."
+          "Copyright (c) 2019 by Adequate Systems, LLC."
           "  All Rights Reserved.\n\n");
    read_widx();
 

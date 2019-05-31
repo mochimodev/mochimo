@@ -1,7 +1,7 @@
 /*
  * tdict.c  Trigg's Algorithm  -- Dictionary for the semantic grammar
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 9 April 2018

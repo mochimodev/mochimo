@@ -1,6 +1,6 @@
 /* mochimo.c
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -208,7 +208,7 @@ int main(int argc, char **argv)
    if(!Bgflag) printf("\n");
 
    plog("\nMochimo Server (Build %d)  PVERSION: %d  Built on %s %s\n"
-        "Copyright (c) 2018 Adequate Systems, LLC.  All rights reserved.\n"
+        "Copyright (c) 2019 Adequate Systems, LLC.  All rights reserved.\n"
         "\nBooting",
         PATCHLEVEL, PVERSION, __DATE__, __TIME__);
 

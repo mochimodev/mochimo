@@ -1,6 +1,6 @@
 /* bx.c  Block Explorer
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.TXT   **** NO WARRANTY ****
  *
  * Date: May 18 2018

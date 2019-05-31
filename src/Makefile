@@ -1,5 +1,6 @@
 ###############################################
 ###### TO BE USED FOR DEBUG PURPOSE ONLY ######
+######   NEEDS UPDATE FOR V2.4 SUPPORT!  ######
 ###############################################
 
 SHELL := /bin/bash

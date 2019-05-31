@@ -1,11 +1,10 @@
 /* gettx.c  Get validated transaction packet (TX) and helpers.
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 2 January 2018
 */
-
 
 /* forward reference */
 int rx2(NODE *np, int checkids, int seconds);
@@ -92,6 +91,8 @@ int bval2(char *fname, byte *bnum, byte diff)
 {
    BTRAILER bt;
    word32 now;
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
+   byte v24haiku[256]; /* for v2.4 Compatibility */
 
    if(Trace) plog("bval2()");
 
@@ -102,9 +103,20 @@ int bval2(char *fname, byte *bnum, byte diff)
    if(get32(bt.stime) <= Time0) return VERROR; /* bad time sequence */
    now = time(NULL);
    if(get32(bt.stime) > (now + BCONFREQ)) return VERROR;  /* future */
+
    /* Solution Check */
-   if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
-      return VEBAD;
+
+   if(cmp64(bnum, v24trigger) > 0) { /* v2.4 Algo */
+      if(v24(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+         return VEBAD; /* block didn't validate */
+      }
+   }
+   if(cmp64(bnum, v24trigger) <= 0) { /* v2.3 and prior */
+      if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL) {
+         return VEBAD;
+      }
+   }
+
    return VEOK;
 }  /* end bval2() */
 
@@ -285,28 +297,10 @@ int gettx(NODE *np, SOCKET sd)
             if(Trace) plog("gettx(): bad packet");
             return 1;  /* BAD packet */
    }
-   /* Remove below code after v2.3 migration */
-   word32 tempv23a[2], tempv23b[2];
-   tempv23a[1] = 0;
-   tempv23b[1] = 0; 
-   tempv23a[0] = V23TRIGGER - 1;
-   tempv23b[0] = V23TRIGGER + 55; 
-   if(cmp64(Cblocknum, tempv23a) >= 0 && cmp64(Cblocknum, tempv23b) <= 55){
-      if(tx->version[0] != PVERSION) {
-         if(Trace) plog("gettx(): bad version");
-         return 1;
-      }
-   }
-/*
-Warning: This test breaks backward compatibility.
-All code revisions should be backward compatible,
-so enable this only in the event of an existential
-threat / community initiated hard fork.
    if(tx->version[0] != PVERSION) {
       if(Trace) plog("gettx(): bad version");
       return 1;
    }
-*/
 
    if(Trace) plog("gettx(): crc16 good");
    if(opcode != OP_HELLO) goto bad1;

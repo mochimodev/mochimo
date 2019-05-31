@@ -1,7 +1,7 @@
 #!/bin/sh
 # Master makefile for Mochimo
 #
-# Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+# Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
 # Date: 25 December 2017
@@ -41,15 +41,20 @@ fi
 # Autodetect CUDA Installation
 CUDA_VERSION=$(pkg-config --list-all | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
 CUDART_VERSION=$(pkg-config --list-all | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
+#CUDA_VERSION=10
+#CUDART_VERSION=10
 if test ! -z "${CUDA_VERSION}"
 then
    LIBCUDA="$(pkg-config ${CUDA_VERSION} --libs-only-l --silence-errors)"
    LIBCUDA_DIR="$(pkg-config ${CUDA_VERSION} --libs-only-L --silence-errors)"
    CUDAROOT="$(pkg-config ${CUDA_VERSION} --variable=cudaroot --silence-errors)"
+   #LIBCUDA="/usr/local/cuda/lib64/stubs/libcuda.so"
+   #LIBCUDA_DIR="/usr/local/cuda/lib64/"
+   #CUDAROOT="/usr/bin/"
 fi
 if test ! -z "${CUDART_VERSION}"
 then
-   LIBCUDART="$(pkg-config ${CUDART_VERSION} --libs-only-l --silence-errors)"
+   LIBCUDART="/usr/local/cuda/lib64/libcudart.so"
 fi
 if test ! -z "$CUDAROOT"
 then
@@ -65,8 +70,8 @@ NVCC_DIR="${NVCC_DIR:-/usr/bin/}"
 # Set compiler command
 #  - Edit config.h and edit CC variable to suit your system:
 export set LD_FLAGS="${LIBCUDA} ${LIBCUDART} -lstdc++"
-export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib ${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
-export set NVCC="${NVCC_DIR}nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
+export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib:${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
+export set NVCC="${NVCC_DIR}nvcc -DLONG64 --generate-code arch=compute_61,code=sm_61"
 
 ################
 # Sanity checks
@@ -100,22 +105,26 @@ case "$1" in
    "bin") # Compile binaries
       rm -f ccerror.log
       echo "Make dependencies..."
-      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
-      $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
-      $CC -c trigg/trigg.c       2>>ccerror.log # Make Trigg CPU
+      $CC -c crypto/sha256.c      2>>ccerror.log # SHA256
+      $CC -c crypto/wots/wots.c   2>>ccerror.log # WOTS+
+      $CC -c algo/trigg/trigg.c   2>>ccerror.log # Trigg CPU
       if test $MINER -eq 1
       then
-         $NVCC -c trigg/cuda_trigg.cu 2>>ccerror.log # Make Trigg CUDA
+         echo "Make cuda objects..."
+         echo $NVCC
+         $NVCC -c algo/v24/cuda-v24.cu $LD_FLAGS 2>>ccerror.log # v24 CUDA Code
       fi
       echo "Building Mochimo server..."
       if test $MINER -eq 1
       then
-         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda_trigg.o $LD_FLAGS 2>>ccerror.log
+         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda-v24.o $LD_FLAGS 2>>ccerror.log
+
+         $CC -o bval    bval.c    sha256.o wots.o trigg.o cuda-v24.o $LD_FLAGS 2>>ccerror.log
       else
-         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o              2>>ccerror.log
+         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o 2>>ccerror.log
+         $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
       fi
       echo "Building helper programs..."
-      $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
       $CC -o bcon    bcon.c    sha256.o                2>>ccerror.log
       $CC -o bup     bup.c     sha256.o                2>>ccerror.log
       $CC -o sortlt  sortlt.c  sha256.o                2>>ccerror.log
@@ -133,7 +142,7 @@ case "$1" in
          echo "ccerror.log contains:"
          if test $MINER -eq 1
          then
-            echo " $(grep -c cuda_trigg.o: ccerror.log) CUDA Errors"
+            echo " $(grep -c cuda-v24.o: ccerror.log) CUDA Errors"
          fi
          echo "  $(grep -c error: ccerror.log) Errors"
          echo "  $(grep -c warning: ccerror.log) Warnings"
@@ -146,7 +155,7 @@ case "$1" in
       rm sha256.o wots.o trigg.o
       if test $MINER -eq 1
       then
-         rm cuda_trigg.o
+         rm cuda-v24.o
       fi
       ;;
    "wallet") # Compile only the wallet binary

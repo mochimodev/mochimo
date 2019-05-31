@@ -1,12 +1,11 @@
 /* init.c  High-level Initialisation functions (included from mochimo.c)
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 11 February 2018
  *
 */
-
 
 int hex2bnum(byte *bnum, char *hex)
 {
@@ -345,9 +344,11 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    long filelen;
    int ecode, gblock;
    char genfile[100];
+   byte v24haiku[256]; /* For v2.4 Syntax Compatibility */
    word32 now;
    word32 tcount;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    *result = 100;                 /* I/O high error code */
    memset(highblock, 0, 8);       /* start from genesis block */
@@ -425,8 +426,16 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       ecode++;
       /* check enforced delay 9 */
       if(highblock[0] && tcount) {
-         if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
+         if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
+            if(v24(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
             break;
+            }
+         }
+         if(cmp64(bt.bnum, v24trigger) <= 0) { /* v2.3 and prior */ 
+            if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL) {
+            break;
+            }
+         }
       }
       ecode = 10;
       if(cmp64(highblock, tottrigger) > 0 &&

@@ -1,6 +1,6 @@
 /* config.h  Mochimo configuration and types.
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018
@@ -79,7 +79,8 @@
 #define WTRIGGER31 17185  /* for v2.0 new add_weight() */
 #define RTRIGGER31 17185  /* for v2.0 new get_mreward() */
 #define FIXTRIGGER 17697  /* for v2.0 difficulty patch */
-#define V23TRIGGER 54321 /* for v2.3 pseudoblocks */
+#define V23TRIGGER 54321  /* for v2.3 pseudoblocks */
+#define V24TRIGGER 0x10400 /* for v2.4 new FPGA Resistant algo */
 #define MFEE 500
 
 /* NEWYEAR trigger */
