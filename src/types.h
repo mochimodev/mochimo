@@ -161,3 +161,31 @@ typedef struct {
    byte trancode[1];        /* '-' = debit, 'A' = credit (sorts last!) */
    byte amount[TXAMOUNT];   /* 8 */
 } LTRAN;
+
+
+/* for mtx */
+/* takes TX * or TXQENTRY pointer */
+#define ismtx(tx) ((tx)->dst_addr[2096] == 0 \
+                    && (tx)->dst_addr[2097] == 0)
+
+typedef struct {
+   byte tag[12];    /* Tag value for MTX multi-destination. */
+   byte amount[8];  /* MTX Send Amount, to this tag. */
+} MDST;
+
+/* Structure for multi-tx is same size as TXQENTRY. */
+typedef struct {
+   /* start transaction buffer (These fields are order dependent) */
+   byte src_addr[TXADDRLEN];     /*  2208 */
+
+   /* dst[] plus zeros[] is same size as TX dst_addr[]. */
+   MDST dst[100];
+   byte zeros[208];  /* reserved - must follow dst[] */
+
+   byte chg_addr[TXADDRLEN];
+   byte send_total[TXAMOUNT];    /* 8 */
+   byte change_total[TXAMOUNT];
+   byte tx_fee[TXAMOUNT];
+   byte tx_sig[TXSIGLEN];        /* 2144 */
+   byte tx_id[HASHLEN];          /* 32 */
+} MTX;
