@@ -14,5 +14,8 @@
 /src/bx
 
 #eclipse cpp
+/.cproject
+/.project
 /src/.cproject
 /src/.project
+
