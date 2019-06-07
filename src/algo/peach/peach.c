@@ -227,6 +227,7 @@ int is_solution(byte diff, byte* tile, byte* nonce)
  */
 int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 {
+   //printf("Peach mode %i\n", mode);
    SHA256_CTX ictx, mctx; /* Index & Mining Contexts */
 
    uint64_t map_length, sm, sm2;
@@ -325,6 +326,7 @@ out:
 
 	map = cache = NULL;
 
-	if(!Running) return 1; /* SIGTERM RECEIVED */
+	if(mode != 1/*not validating*/ && !Running)
+		return 1; /* SIGTERM RECEIVED */
 	return solved ? 0 : 1;  /* Return 0 if valid, 1 if not valid */
 } /* End v24() */
