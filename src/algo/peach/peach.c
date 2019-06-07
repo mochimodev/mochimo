@@ -58,7 +58,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
 	byte hash[HASHLEN];
 
 	sha256_init(&ictx);
-	sha256_update(&ictx, nonce, HASHLEN);//hash nonce first because we dont want to allow caching of index computation
+	sha256_update(&ictx, nonce, HASHLEN);//hash nonce first because we dont want to allow caching of index's hash
 	sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
 	sha256_update(&ictx, current_tile, TILE_LENGTH);
 
@@ -159,7 +159,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
       /* perform TILE_TRANSFORMS bit manipulations per row */
       for(t = 0; t < TILE_TRANSFORMS; t++) {
         /* determine tile byte offset and operation to use */
-        op += (uint32_t)mapp[i + (t * 4)];
+        op += (uint32_t)mapp[i + (t % HASHLEN)];
 
         /* Original op selection by Ortis:
           	  for(int z = (h ^ i ^ t) % (HASHLEN >> 1);z<HASHLEN;z++)
@@ -250,13 +250,13 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
 	*(out) = map + (index * TILE_LENGTH);
 }
 
-int is_solution(byte diff, byte* tile, byte* bt)
+int is_solution(byte diff, byte* tile, byte* bt_hash)
 {
 	SHA256_CTX ictx;
 	byte hash[HASHLEN];
 
 	sha256_init(&ictx);
-	sha256_update(&ictx, bt, 124);//hash nonce first because we dont want to allow caching of index computation
+	sha256_update(&ictx, bt_hash, HASHLEN);//hash bt_hash first because we don't want to allow caching of tile's hash
 	sha256_update(&ictx, tile, TILE_LENGTH);
 	sha256_final(&ictx, hash);
 
@@ -271,7 +271,7 @@ int is_solution(byte diff, byte* tile, byte* bt)
 int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 {
    printf("Peach mode %i\n", mode);
-   SHA256_CTX ictx, mctx; /* Index & Mining Contexts */
+   SHA256_CTX ictx;
 
    uint32_t sm;
 
@@ -299,6 +299,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
    }
 
    memset(cache, 0, MAP);
+
    long start = time(NULL);
    int solved = 0;
 
@@ -319,7 +320,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   }
 
 	   sha256_init(&ictx);
-	   sha256_update(&ictx, (byte *) bt, BTSIZE - 4 - HASHLEN);
+	   sha256_update(&ictx, (byte *) bt, 124 /*BTSIZE - 4 - HASHLEN*/);
 	   sha256_final(&ictx, bt_hash);
 
 	   for(int i=0;i<HASHLEN;i++)
@@ -339,7 +340,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 		   get_tile(&tile, sm, bt->phash, map, cache);
 	   }
 
-	   solved = is_solution(diff, tile, (byte *) bt);//include the mining address and transactions as part of the solution
+	   solved = is_solution(diff, tile, bt_hash);//include the mining address and transactions as part of the solution
 
 	   if(mode == 1) { /* Just Validating, not Mining, check once and return */
 		  trigg_expand2(bt->nonce, &haiku[0]);
