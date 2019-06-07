@@ -327,7 +327,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 		   get_tile(&tile, sm, bt->phash, map, cache);
 	   }
 
-	   solved = is_solution(diff, tile, bt->nonce);
+	   solved = is_solution(diff, tile, bt_hash);//include the mining address and transactions as part of the solution
 
 	   if(mode == 1) { /* Just Validating, not Mining, check once and return */
 		  trigg_expand2(bt->nonce, &haiku[0]);
