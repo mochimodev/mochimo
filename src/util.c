@@ -603,3 +603,31 @@ err:
    fclose(fp);
    return VEOK;
 }
+
+/*
+* V2.4: scramble data, making sure it's iterative, deterministic, 
+* pseudorandom workfield that cannot be predicted, or speed up
+*/
+int occult(word32 *workfield)
+{
+  /* Iterative, deterministic workfield enfuckeration. */
+
+   word32 *p, *p2, *limit;
+   word32 s1, s2, s3;
+   
+   /* Limit is WORKFIELD Size */
+   limit = &workfield[WORKFIELD];
+
+   /* First store the existing system random state.  We won't need it. */
+   getrand2(&s1, &s2, &s3);
+   
+   /* Now set the system 96-bit Random seed to something repeatable.
+      A deterministic sequence will then ensue with each call to rand2()
+   */
+   srand2(1, 0, 0);
+   
+   for(p = workfield, p2 = workfield + 40; p2 < limit; p++, p2++) {
+      *p2 = *p ^ *p2 ^ rand2();
+   }
+   srand2(s1, s2, s3);         /* Restore System Random State */
+}

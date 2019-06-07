@@ -108,3 +108,13 @@ pid_t Sendfound_pid;
 pid_t Mpid;               /* miner */
 pid_t Mqpid;              /* mirror() */
 int Mqcount;              /* count of mq.dat records */
+
+/*
+ * v2.4
+ */
+
+#define WORKFIELD      1073725440
+#define TRLSIZE               160
+#define HASHLEN                32
+byte* gWorkfield = NULL;
+word64 gWorkfieldBlock = 0; // for workfield version

@@ -65,7 +65,7 @@ fi
 LIBCUDA="${LIBCUDA:--lcuda}"
 LIBCUDART="${LIBCUDART:--lcudart}"
 LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
-NVCC_DIR="${NVCC_DIR:-/usr/bin/}"
+NVCC_DIR="${NVCC_DIR:-/usr/local/cuda/bin/}"
 
 # Set compiler command
 #  - Edit config.h and edit CC variable to suit your system:

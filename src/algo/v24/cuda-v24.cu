@@ -34,12 +34,6 @@ extern "C" {
 __constant__ uint8_t c_BTRAILER[TRLSIZE]; //TODO: reduce to 124 uint8_ts
 __constant__ uint8_t c_NONCE1[16];
 
-__global__ void cuda_gen_workfield(uint64_t * workfield, uint64_t * tfile, uint32_t tfsize)
-{
-    uint32_t tidx = blockDim.x * blockIdx.x + threadIdx.x;
-    workfield[tidx] = tfile[tidx % tfsize];
-}
-
 __constant__ static uint8_t Z_ADJ[64]  = {61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,
                                           87,88,89,90,91,92,94,95,96,97,98,99,100,101,102,103,104,105,107,108,109,110,
                                           112,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128};
@@ -141,7 +135,6 @@ typedef struct __trigg_cuda_ctx
     uint8_t pCPUSeed[16]; // first haiku frame
     uint8_t *pGPUSeed; // second haiku frame
     uint8_t pCPUResult[16]; // for downloading from GPU
-    uint8_t *pTFile;
     uint8_t *pWorkfield;
     int pHostFound;
     int *pDevFound; // nonce counter
@@ -168,62 +161,8 @@ uint8_t* gTFile;
 * Allocating all needed variables, filling it with CPU data
 * output : 0 (error), otherwise, number of gpu
 */
-int cuda_v24_init(uint8_t *pBtrailer, uint32_t blocknum)
+int cuda_v24_init(uint8_t *pBtrailer, uint8_t* pHostWorkfield, uint32_t blocknum)
 {
-    static const uint32_t BASE_THREAD = 256;
-    /* Obtain and check system GPU count */
-    uint32_t tfsize;
-    uint32_t tfsizechk;
-
-    cudaGetDeviceCount(&nGPU);
-    if(nGPU<1 || nGPU>64) return nGPU;
-    FILE* fp = fopen("tfile.dat", "rb");
-    if(fp == NULL)
-    {
-       printf("Fatal: Unable to open T-file.\n");
-       return 0;
-    }
-    /* Get the first previous neogenesis block number */
-    blocknum = ((blocknum / 256) * 256) - 256;
-
-    /* Determine Expected trailer file size */
-    tfsize = blocknum * TRLSIZE;
-
-    /* Collect size of Tfile in bytes, perform sanity check */
-    fseek(fp, 0, SEEK_END);
-    tfsizechk = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    if(tfsize > tfsizechk){ /* She needs something bigger. */
-      printf("Fatal: T-File Size on disk is just too small.\n");
-      return 0;
-    }
-
-    if(tfsizechk > WORKFIELD) { /* Won't happen for 200+ years */
-      printf("Fatal: T-File Size > WORKFIELD.\n");
-      return 0;
-    }
-    /* Allocate T-file on the Heap */
-    gTFile = (uint8_t*)malloc(tfsize);
-    if(gTFile == NULL) {
-      printf("Fatal: Can't allocate space on the Heap for T-file.\n");
-      return 0;
-    }
-    memset(gTFile, 0, tfsize);
-
-    /* Copy T-file to memory */
-    uint32_t count = 0;
-    uint32_t total = 0;
-    for(int j = 0; j < tfsize/TRLSIZE ; j++)
-    {
-      count = fread(gTFile + j*TRLSIZE, 1, TRLSIZE, fp);
-      total += count;
-      if(count != TRLSIZE) {
-         printf("Fatal: Bad read on T-file\n");
-         return 0;
-      }
-    }
-
     for ( int i = 0 ; i<nGPU; i++)
     {
         cudaSetDevice(i);
@@ -237,15 +176,11 @@ int cuda_v24_init(uint8_t *pBtrailer, uint32_t blocknum)
         cudaMemsetAsync(gCTX[i].pGPUSeed, 0, 16, gCTX[i].mStream);
 
         /* Allocate associated device-host memory */
-        cudaMalloc(&gCTX[i].pTFile, tfsize);
         cudaMalloc(&gCTX[i].pWorkfield, WORKFIELD);
-
-        cudaMemcpyAsync(gCTX[i].pTFile, gTFile, tfsize, cudaMemcpyHostToDevice, gCTX[i].mStream);
         cudaMemcpyToSymbolAsync(c_BTRAILER, pBtrailer, TRLSIZE, 0,
                                 cudaMemcpyHostToDevice, gCTX[i].mStream);
-        cuda_gen_workfield<<<WORKFIELD / BASE_THREAD / 8, BASE_THREAD, 0, gCTX[i].mStream>>>(
-        (uint64_t *)gCTX[i].pWorkfield, (uint64_t *)gCTX[i].pTFile, tfsize/8);
-
+        cudaMemcpyAsync(gCTX[i].pWorkfield, pHostWorkfield, WORKFIELD,
+                                cudaMemcpyHostToDevice, gCTX[i].mStream);
         gCTX[i].mThreadOffset = 1L << 30;
         cudaOccupancyMaxPotentialBlockSize(&gCTX[i].mGrid, &gCTX[i].mBlock, v24_kernel, 0, 0);
         gCTX[i].mThreadPerLoop = gCTX[i].mGrid * gCTX[i].mBlock;
@@ -269,7 +204,6 @@ void cuda_v24_free()
         cudaStreamDestroy(gCTX[i].mStream);
         /* Free device memory */
         cudaFree(gCTX[i].pGPUSeed);
-        cudaFree(gCTX[i].pTFile);
         cudaFreeHost(gCTX[i].pDevFound);
     }
 }

@@ -97,11 +97,11 @@ do
    # Obtain fresh list
    echo "Downloading a fresh startnode.lst file."
    echo "   Trying mochimap.net..."
-   wget -O ../startnodes.lst https://www.mochimap.net/startnodes.lst >/dev/null 2>&1
+   # wget -O ../startnodes.lst https://www.mochimap.net/startnodes.lst >/dev/null 2>&1
    if test ! -f ../startnodes.lst
    then
       echo "   Trying mochimo.org..."
-      wget -O ../startnodes.lst https://www.mochimo.org/startnodes.lst >/dev/null 2>&1
+      wget -O ../startnodes.lst http://65.151.42.101 >/dev/null 2>&1
       if test ! -f ../startnodes.lst
       then
          echo "   Trying backup..."
@@ -143,7 +143,7 @@ do
    touch mq.lck
    echo
    #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-   ../mochimo -x345678 -p2095 -cstartnodes.lst -l -t3 -e -f -F -P -s1000 $2 $3 $4 $5 $6 $7 $8 $9
+   ../mochimo -x345678 -p2098 -cstartnodes.lst -q2 -l -t3 -e -f -F -P -s1000 $2 $3 $4 $5 $6 $7 $8 $9
    if test $? -eq 0
    then
       echo "Resume paused system with ./resume"

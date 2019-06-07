@@ -18,7 +18,7 @@
 int cuda_v24_mine(BTRAILER *pBtrailer, uint32_t difficulty, byte *pHaiku,
                   uint32_t *pHashrate, unsigned char *pExitSignal);
 void cuda_v24_free();
-int cuda_v24_init(BTRAILER *pBtrailer, uint32_t blocknum);
+int cuda_v24_init(uint8_t *pBtrailer, uint8_t* pHostWorkfield, uint32_t blocknum);
 #endif
 
 /* miner blockin blockout -- child process */
@@ -74,8 +74,14 @@ int miner(char *blockin, char *blockout)
       if(Trace)
          plog("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
+      if (generate_workfield(&bt) != VEOK)
+      {
+         error("miner: Cannot create workfield");
+         break;
+      }
+
 #ifdef CUDANODE
-      if (cuda_v24_init(&bt, get32(bt.bnum)) == 0)
+      if (cuda_v24_init((uint8_t*)&bt, gWorkfield, get32(bt.bnum)) == 0)
       {
           plog("Failed to initilize GPU devices\n");
       }
