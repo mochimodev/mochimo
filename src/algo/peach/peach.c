@@ -14,12 +14,13 @@
 #include "peach.h"
 #include <assert.h>
 #include <inttypes.h>
+#include <math.h>
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
 void trigg_expand2(byte *in, byte *out);
 
-void generate_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * cache);
+void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * cache);
 
 /*
  * Return 0 if solved, else 1.
@@ -50,10 +51,10 @@ int peach_eval(byte *bp, byte d)
    return 1;
 }
 
-uint64_t next_index(uint64_t current_index, byte* current_tile, byte* nonce)
+uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
 {
 	SHA256_CTX ictx;
-	uint64_t index;
+	uint32_t index;
 	byte hash[HASHLEN];
 
 	sha256_init(&ictx);
@@ -63,13 +64,13 @@ uint64_t next_index(uint64_t current_index, byte* current_tile, byte* nonce)
 
 	sha256_final(&ictx, hash);
 
-	index = *((word32 *) hash);//read first 4 bytes as unsigned int
-	index += ((word32 *) hash)[1];//read last 4 bytes as unsigned int
+	index =  *(uint32_t*)&hash[0]; //read first 4 bytes as unsigned int
+	index += *(uint32_t*)&hash[4]; //read next 4 bytes as unsigned int
 
 	return index % MAP;
 }
 
-void get_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * cache)
+void get_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * cache)
 {
 	if(cache[index])
 	{
@@ -82,149 +83,152 @@ void get_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * cache)
 	cache[index] = 1;
 }
 
-void generate_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * cache)
+void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * cache)
 {
-	SHA256_CTX ictx;
-	byte hash[HASHLEN], *b, *b1, *b2, *b3, *b4, _104, _72;
-	uint64_t op, tile_start, tile_offset, i1, i2, i3, i4;
+  /**
+   * Declarations */
+  SHA256_CTX ictx;
+  uint32_t op, i1, i2, i3, i4;
+  byte bits, _104, _72, *b, *mapp;
+  int i, j, k, t, z, exp, offset;
+  float *floatp;
 
-	sha256_init(&ictx);
-	sha256_update(&ictx, seed, HASHLEN);//hash seed first because we don't want to allow caching of index computation
-	sha256_update(&ictx, (byte*) &index, 8);
-	sha256_final(&ictx, hash);
+  /* set map pointer */
+  mapp = &map[index * TILE];
+  
+  /* begin tile data */
+  sha256_init(&ictx);
+  sha256_update(&ictx, seed, HASHLEN); //hash seed first because we don't want to allow caching of index computation
+  sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
+  sha256_final(&ictx, mapp);
+  
+  /* set operation variables */
+  i1 = *(word32*)&mapp[0] % HASHLEN;
+  i2 = *(word32*)&mapp[4] % HASHLEN;
+  i3 = *(word32*)&mapp[8] % HASHLEN;
+  i4 = *(word32*)&mapp[12] % HASHLEN;
+  _104 = 104;
+  _72 = 72;
 
+    for(i = j = k = 0; i < TILE; i+=HASHLEN) {
+      for(op = 0; j < i+HASHLEN; j+=4) {
+        /* set float pointer */
+        floatp = (float*)&mapp[j];
+        
+        /**
+         * Order of operations dependant on initial 8 bits
+         * Operations:
+         *   1) right shift by 4 to obtain the exponent value
+         *   2) 50% chance of exponent being negative
+         *   3) 50% chance of changing sign of float */
+        if(mapp[k] & 1) {
+          k++;
+          exp = mapp[k++] >> 4;
+          if(mapp[k++] & 1) exp ^= 0x80000000;
+          if(mapp[k++] & 1) *floatp = -(*floatp);
+        } else
+        if(mapp[k] & 2) {
+          k++;
+          exp = mapp[k++] >> 4;
+          if(mapp[k++] & 1) *floatp = -(*floatp);
+          if(mapp[k++] & 1) exp ^= 0x80000000;
+        } else {
+          k++;
+          if(mapp[k++] & 1) *floatp = -(*floatp);
+          exp = mapp[k++] >> 4;
+          if(mapp[k++] & 1) exp ^= 0x80000000;
+        }
 
-	int h = *((byte*)hash);// is this right ?
-	i1 = *((word32 *) hash);//read first 4 bytes as unsigned int
-	i2 = ((word32 *) hash)[1];//read last 4 bytes as unsigned int
-	i3 = i1 ^ i2;
-	i4 = i1 + i2;
+        /* replace NaN's with tileNum */
+        if(isnan(*floatp))
+          *floatp = (float) index;
 
-	i1 = i1 % HASHLEN;
-	i2 = i2 % HASHLEN;
-	i3 = i3 % HASHLEN;
-	i4 = i4 % HASHLEN;
+        /* perform floating point operation */
+        *floatp = ldexpf(*floatp, exp);
+        
+        /* pre-scramble op */
+        op ^= (uint32_t)mapp[j];
+      }
+      
+      /* hash the result of the previous tile's row to the next */
+      if(j < TILE) {
+        sha256_init(&ictx);
+        sha256_update(&ictx, &mapp[i], HASHLEN);
+        sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
+        sha256_final(&ictx, &mapp[j]);
+      }
+      
+      /* perform 8x bit manipulations per row */
+      for(t = 0; t < 8; t++) {
+        /* determine tile byte offset and operation to use */
+        offset = i;
+        op += (uint32_t)mapp[i + (t * 4)];
+        switch(op & 7) {
+		  case 0: /* Swap the first and last bit of a byte. */
+		  {
+            b = mapp + offset + ( (i1 % 2 == 0) ? i1 : i2 );
 
-	word32 w = 0x6D617474;
-	_104 = 104;
-	_72 = 72;
+            *b ^= 0x81;
+          }
+            break;
+          case 1: /* Swap the first and last byte. */
+          {
+            bits = mapp[offset];
+            mapp[offset] = mapp[offset + 31];
+            mapp[offset + 31] = bits;
+          }
+            break;
+          case 2: /* XOR two bytes */
+          {
+            mapp[offset + i4] = mapp[offset + i4] ^ mapp[offset + i3];
+          }
+            break;
+          case 3: /* Alternate +1 and -1 on all bytes */
+          {
+            for(z = 0; z < 32; z++)
+              mapp[offset + z] += (z & 1 == 0) ? -1 : 1;
+          }
+            break;
+          case 4: /* Alternate +t and -t on all bytes */
+          {
+            for(z = 0; z < 32; z++)
+              mapp[offset + z] += (z & 1 == 0) ? -t : t;
+          }
+            break;
+          case 5: /* Replace every occurence of h with H */
+          {
+            if(mapp[offset + i1] == _104)
+              mapp[offset + i1] = _72;
 
-	tile_start = index * TILE;
+            if(mapp[offset + i2] == _104)
+              mapp[offset + i2] = _72;
 
-	byte ops[4];
-	ops[0] = 6;
-	ops[1] = 6;
-	ops[2] = 6;
-	ops[3] = 6;
-	op = 0;
+            if(mapp[offset + i3] == _104)
+              mapp[offset + i3] = _72;
 
-	for(int i=0;i<TILE_FACTOR;i++)
-	{
-		//printf("######\n");
-
-		tile_offset = tile_start + i * HASHLEN;
-
-		memcpy(map + tile_offset, hash, HASHLEN);
-		//printf("%li\n", tile_offset);
-
-
-		for(int t=0;t<TILE_TRANSFORM;t++)
-		{
-			//Use some floating point calculation to compute op ?
-
-			//printf("OP value on new iteration: %lu \n", op);
-			for(int z = (h ^ i ^ t) % (HASHLEN >> 1);z<HASHLEN;z++)
-				op += hash[z];
-
-			//op = hash[0] ;
-
-
-			op %= 8;
-			//printf("OP value on mid iteration: %lu \n", op);
-			//op = ops[op];
-
-			//printf("%li\n", op);
-
-			switch(op)
-			{
-			  case 0: /* Swap the first and last bit of a byte. */
-			  {
-				  if(i1 % 2 == 0){
-					  b = map + tile_offset + i1;
-				  }
-				  else{
-					  b = map + tile_offset + i2;
-				  }
-
-				  *b ^= (1 << 0);
-				  *b ^= (1 << 7);
-			  }
-				  break;
-			  case 1: /* Swap the first and last byte. */
-			  {
-				  byte tmp = map[tile_offset];
-				  map[tile_offset] = map[tile_offset + HASHLEN -1];
-				  map[tile_offset + HASHLEN -1] = tmp;
-			  }
-				  break;
-			  case 2: /* XOR two bytes */
-			  {
-				  map[tile_offset + i4] = map[tile_offset + i4] ^ map[tile_offset + i3];
-			  }
-				  break;
-			  case 3: /* Alternate +1 and -1 on all bytes */
-			  {
-				  for(int j=0;j<HASHLEN;j++)
-					  map[tile_offset + j] += j % 2 ==0 ? 1 : -1;
-			  }
-				  break;
-			  case 4: /* Alternate +t and -t on all bytes */
-			  {
-				  for(int j=0;j<HASHLEN;j++)
-					  map[tile_offset + j] += j % 2 == 0 ? t : -t;
-			  }
-				  break;
-			  case 5: /* Replace every occurence of h with H */
-			  {
-				  if(map[tile_offset + i1] == _104)
-					  map[tile_offset + i1] = _72;
-
-				  if(map[tile_offset + i2] == _104)
-					  map[tile_offset + i2] = _72;
-
-				  if(map[tile_offset + i3] == _104)
-					  map[tile_offset + i3] = _72;
-
-				  if(map[tile_offset + i4] == _104)
-					  map[tile_offset + i4] = _72;
-			  }
-				  break;
-			  case 6: /* If byte a is > byte b, swap them. */
-			  {
-				  byte x;
-				  if(map[tile_offset + i1] > map[tile_offset + i3])
-				  {
-					  x = map[tile_offset + i1];
-					  map[tile_offset + i1] = map[tile_offset + i3];
-					  map[tile_offset + i3] = x;
-				  }
-			  }
-			  	  break;
-			  case 7: /* XOR all bytes */
-			  {
-				  for(int j=1;j<HASHLEN;j++)
-					  map[tile_offset + j] ^= map[tile_offset + j - 1];
-			  }
-			  	  break;
-			  default:
-				printf("Outside operation range\n");
-				break;
-			}
-			//printf("OP value on end iteration: %lu \n", op);
+            if(mapp[offset + i4] == _104)
+              mapp[offset + i4] = _72;
+          }
+            break;
+          case 6: /* If byte a is > byte b, swap them. */
+          {
+            if(mapp[offset + i1] > mapp[offset + i3]) {
+              bits = mapp[offset + i1];
+              mapp[offset + i1] = mapp[offset + i3];
+              mapp[offset + i3] = bits;
+            }
+          }
+            break;
+          default: /* XOR all bytes */
+          {
+            for(z = 1; z < 32; z++)
+              mapp[offset + z] ^= mapp[offset + z - 1];
+          }
 		}
-	}
+      }
+    }
 
-	*(out) = map + tile_start;
+	*(out) = map + (index * TILE);
 }
 
 int is_solution(byte diff, byte* tile, byte* nonce)
@@ -251,8 +255,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
    printf("Peach mode %i\n", mode);
    SHA256_CTX ictx, mctx; /* Index & Mining Contexts */
 
-   uint64_t map_length, sm, sm2;
-   map_length = MAP_LENGTH;
+   uint32_t sm;
 
    byte * map, *cache, *tile, *tile2, diff, bt_hash[HASHLEN];
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
@@ -311,19 +314,10 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   sm %= MAP;
 
 	   get_tile(&tile, sm, bt->phash, map, cache);
-	   sm = next_index(sm, tile, bt->nonce);
-
+     
 	   for(j = 0; j < JUMP; j++)
 	   {
-		  // sm2 = next_index(sm, tile, bt->nonce);
 		   sm = next_index(sm, tile, bt->nonce);
-		   //assert(sm == sm2);
-
-		   /*
-			 generate_tile(&tile2, sm, bt->phash, map, cache);
-		   generate_tile(&tile, sm, bt->phash, map, cache);
-		   assert(memcmp(tile, tile2, TILE) == 0);
-		    */
 		   get_tile(&tile, sm, bt->phash, map, cache);
 	   }
 
