@@ -59,7 +59,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
 
 	sha256_init(&ictx);
 	sha256_update(&ictx, nonce, HASHLEN);//hash nonce first because we dont want to allow caching of index computation
-	sha256_update(&ictx, (byte*) &current_index, 8);
+	sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
 	sha256_update(&ictx, current_tile, TILE_LENGTH);
 
 	sha256_final(&ictx, hash);
@@ -164,7 +164,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
         sha256_final(&ictx, &mapp[j]);
       }
       
-      /* perform  bit manipulations per row */
+      /* perform TILE_TRANSFORMS bit manipulations per row */
       for(t = 0; t < TILE_TRANSFORMS; t++) {
         /* determine tile byte offset and operation to use */
         op += (uint32_t)mapp[i + (t * 4)];
@@ -204,7 +204,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
           case 3: /* Alternate +1 and -1 on all bytes */
           {
             for(z = 0; z < HASHLEN; z++)
-              mapp[i + z] += (z & 1 == 0) ? -1 : 1;
+              mapp[i + z] += (z & 1 == 0) ? 1 : -1;
           }
             break;
           case 4: /* Alternate +t and -t on all bytes */
@@ -213,7 +213,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
               mapp[i + z] += (z & 1 == 0) ? -t : t;
           }
             break;
-          case 5: /* Replace every occurence of h with H */
+          case 5: /* Replace every occurrence of h with H */
           {
         	  for(z = 0;z<HASHLEN;z++)
         		  if(mapp[i + z] == _104)
@@ -222,7 +222,6 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
             break;
           case 6: /* If byte a is > byte b, swap them. */
           {
-
         	for(z = 0;z<hashlenmid;z++)
         	{
         		if(mapp[i + z] > mapp[i + hashlenmid + z])
@@ -232,7 +231,6 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
 					mapp[i + hashlenmid + z] = bits;
 				 }
         	}
-
           }
             break;
           case 7 : /* XOR all bytes */
@@ -255,7 +253,6 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
 int is_solution(byte diff, byte* tile, byte* nonce)
 {
 	SHA256_CTX ictx;
-	uint64_t index;
 	byte hash[HASHLEN];
 
 	sha256_init(&ictx);

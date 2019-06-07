@@ -47,10 +47,7 @@
 
 int main(int argc, char **argv)
 {
-
 	   Running = 1;
 	   Difficulty=16;
 	   miner("cblock.dat", "mblock.dat");
-
-
 }
