@@ -89,14 +89,14 @@ void generate_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * c
 	uint64_t op, tile_start, tile_offset, i1, i2, i3, i4;
 
 	sha256_init(&ictx);
-	sha256_update(&ictx, seed, HASHLEN);//hash seed first because we don't want to allow caching of index computation
+	sha256_update(&ictx, seed, HASHLEN);//hash seed first because we don't want to allow caching of index's hash
 	sha256_update(&ictx, (byte*) &index, 8);
 	sha256_final(&ictx, hash);
 
 
 	int h = *((byte*)hash);// is this right ?
 	i1 = *((word32 *) hash);//read first 4 bytes as unsigned int
-	i2 = ((word32 *) hash)[1];//read last 4 bytes as unsigned int
+	i2 = ((word32 *) hash)[1];//read second 4 bytes as unsigned int
 	i3 = i1 ^ i2;
 	i4 = i1 + i2;
 
@@ -340,8 +340,11 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   { /* We're Mining & We Solved! */
 
 		  byte v24haiku[256];
-		  if(peach(bt, difficulty, &v24haiku[0], NULL, 1))
-			  printf("????Validation failed IN THE CONTEXT??????\n");
+		  if(peach(bt, difficulty, &v24haiku[0], NULL, 1)){
+			  printf("########################################################\n");
+			  printf("############Validation failed IN THE CONTEXT############\n");
+			  printf("########################################################\n");
+		  }
 		  long end = time(NULL);
 		  long elapsed = end - start;
 		  int cached = 0;
@@ -355,6 +358,8 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 
 		  goto out;
 	   }
+
+	   /* Our princess is in another castle !*/
 	}
 
 
