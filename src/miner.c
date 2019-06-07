@@ -93,7 +93,9 @@ int miner(char *blockin, char *blockout)
 #endif
 #ifdef CPUNODE
          //if(v24(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
-         if(peach(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
+         if(peach(&bt, Difficulty, &v24haiku[0], &hps, 0)){
+        	 break;
+         }
 #endif
 
          htime = time(NULL) - htime; /* How long were we mining ? */

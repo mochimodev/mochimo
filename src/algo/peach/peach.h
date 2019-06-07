@@ -11,7 +11,9 @@
  *
  */
 
-#define HASHLEN                   32
+//#include "../../config.h"
+
+#define HASHLEN 	              32
 #define TILE_FACTOR               32
 #define TILE (TILE_FACTOR * HASHLEN)
 #define TILE_TRANSFORM             8

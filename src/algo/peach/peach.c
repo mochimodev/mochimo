@@ -73,7 +73,7 @@ void get_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * cache)
 {
 	if(cache[index])
 	{
-		*out = map + index;
+		*out = map + index * TILE;
 		return;
 	}
 
@@ -86,7 +86,7 @@ void generate_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * c
 {
 	SHA256_CTX ictx;
 	byte hash[HASHLEN], *b, *b1, *b2, *b3, *b4, _104, _72;
-	uint64_t op, offset, i1, i2, i3, i4;
+	uint64_t op, tile_start, tile_offset, i1, i2, i3, i4;
 
 	sha256_init(&ictx);
 	sha256_update(&ictx, seed, HASHLEN);//hash seed first because we don't want to allow caching of index computation
@@ -109,31 +109,51 @@ void generate_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * c
 	_104 = 104;
 	_72 = 72;
 
+	tile_start = index * TILE;
+
+	byte ops[4];
+	ops[0] = 6;
+	ops[1] = 6;
+	ops[2] = 6;
+	ops[3] = 6;
+	op = 0;
+
 	for(int i=0;i<TILE_FACTOR;i++)
 	{
 		//printf("######\n");
-		offset = index + i * HASHLEN;
 
-		memcpy(map + offset, hash, HASHLEN);
+		tile_offset = tile_start + i * HASHLEN;
+
+		memcpy(map + tile_offset, hash, HASHLEN);
+		//printf("%li\n", tile_offset);
+
 
 		for(int t=0;t<TILE_TRANSFORM;t++)
 		{
 			//Use some floating point calculation to compute op ?
 
+			//printf("OP value on new iteration: %lu \n", op);
 			for(int z = (h ^ i ^ t) % (HASHLEN >> 1);z<HASHLEN;z++)
 				op += hash[z];
 
+			//op = hash[0] ;
+
+
 			op %= 8;
+			//printf("OP value on mid iteration: %lu \n", op);
+			//op = ops[op];
+
 			//printf("%li\n", op);
+
 			switch(op)
 			{
 			  case 0: /* Swap the first and last bit of a byte. */
 			  {
 				  if(i1 % 2 == 0){
-					  b = map + offset + i1;
+					  b = map + tile_offset + i1;
 				  }
 				  else{
-					  b = map + offset + i2;
+					  b = map + tile_offset + i2;
 				  }
 
 				  *b ^= (1 << 0);
@@ -142,68 +162,69 @@ void generate_tile(byte** out, uint64_t index, byte* seed, byte * map,  byte * c
 				  break;
 			  case 1: /* Swap the first and last byte. */
 			  {
-				  byte tmp = map[offset];
-				  map[offset] = map[HASHLEN-1];
-				  map[HASHLEN-1] = tmp;
+				  byte tmp = map[tile_offset];
+				  map[tile_offset] = map[tile_offset + HASHLEN -1];
+				  map[tile_offset + HASHLEN -1] = tmp;
 			  }
 				  break;
 			  case 2: /* XOR two bytes */
 			  {
-				  map[offset + i4] = map[offset + i4] ^ map[offset + i3];
+				  map[tile_offset + i4] = map[tile_offset + i4] ^ map[tile_offset + i3];
 			  }
 				  break;
 			  case 3: /* Alternate +1 and -1 on all bytes */
 			  {
 				  for(int j=0;j<HASHLEN;j++)
-					  map[offset + j] += j % 2 ==0 ? 1 : -1;
+					  map[tile_offset + j] += j % 2 ==0 ? 1 : -1;
 			  }
 				  break;
 			  case 4: /* Alternate +t and -t on all bytes */
 			  {
 				  for(int j=0;j<HASHLEN;j++)
-					  map[offset + j] += j % 2 == 0 ? t : -t;
+					  map[tile_offset + j] += j % 2 == 0 ? t : -t;
 			  }
 				  break;
 			  case 5: /* Replace every occurence of h with H */
 			  {
-				  if(map[offset + i1] == _104)
-					  map[offset + i1] = _72;
+				  if(map[tile_offset + i1] == _104)
+					  map[tile_offset + i1] = _72;
 
-				  if(map[offset + i2] == _104)
-					  map[offset + i2] = _72;
+				  if(map[tile_offset + i2] == _104)
+					  map[tile_offset + i2] = _72;
 
-				  if(map[offset + i3] == _104)
-					  map[offset + i3] = _72;
+				  if(map[tile_offset + i3] == _104)
+					  map[tile_offset + i3] = _72;
 
-				  if(map[offset + i4] == _104)
-					  map[offset + i4] = _72;
+				  if(map[tile_offset + i4] == _104)
+					  map[tile_offset + i4] = _72;
 			  }
 				  break;
 			  case 6: /* If byte a is > byte b, swap them. */
 			  {
 				  byte x;
-				  if(map[offset + i1] > map[offset + i3])
+				  if(map[tile_offset + i1] > map[tile_offset + i3])
 				  {
-					  x = map[offset + i1];
-					  map[offset + i1] = map[offset + i3];
-					  map[offset + i3] = x;
+					  x = map[tile_offset + i1];
+					  map[tile_offset + i1] = map[tile_offset + i3];
+					  map[tile_offset + i3] = x;
 				  }
 			  }
 			  	  break;
 			  case 7: /* XOR all bytes */
 			  {
 				  for(int j=1;j<HASHLEN;j++)
-					  map[offset + j] ^= map[offset + j - 1];
+					  map[tile_offset + j] ^= map[tile_offset + j - 1];
 			  }
 			  	  break;
 			  default:
 				printf("Outside operation range\n");
 				break;
 			}
+			//printf("OP value on end iteration: %lu \n", op);
 		}
 	}
 
-	*(out) = map + index;
+	*(out) = map + tile_start;
 }
 
 int is_solution(byte diff, byte* tile, byte* nonce)
@@ -227,14 +248,15 @@ int is_solution(byte diff, byte* tile, byte* nonce)
  */
 int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 {
-   //printf("Peach mode %i\n", mode);
+   printf("Peach mode %i\n", mode);
    SHA256_CTX ictx, mctx; /* Index & Mining Contexts */
 
    uint64_t map_length, sm, sm2;
    map_length = MAP_LENGTH;
 
-   byte * map, *cache, *tile, *tile2, diff;
+   byte * map, *cache, *tile, *tile2, diff, bt_hash[HASHLEN];
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
+   printf("diff %i\n", diff);
 
    uint64_t j, h;
    h = 0;
@@ -261,7 +283,6 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 
    for(;;)
    {
-
 	   if(!Running && mode == 0) goto out; /* SIGTERM Received */
 
 	   h += 1;
@@ -276,6 +297,19 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 		  trigg_gen(&bt->nonce[16]);
 	   }
 
+	   sha256_init(&ictx);
+	   sha256_update(&ictx, (byte *) bt, BTSIZE - 4 - HASHLEN);
+	   sha256_final(&ictx, bt_hash);
+
+	   for(int i=0;i<HASHLEN;i++)
+		   if(i == 0){
+			   sm = bt_hash[i];
+		   }else{
+			   sm *= bt_hash[i];
+		   }
+
+	   sm %= MAP;
+
 	   get_tile(&tile, sm, bt->phash, map, cache);
 	   sm = next_index(sm, tile, bt->nonce);
 
@@ -286,7 +320,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 		   //assert(sm == sm2);
 
 		   /*
-		   generate_tile(&tile2, sm, bt->phash, map, cache);
+			 generate_tile(&tile2, sm, bt->phash, map, cache);
 		   generate_tile(&tile, sm, bt->phash, map, cache);
 		   assert(memcmp(tile, tile2, TILE) == 0);
 		    */
@@ -304,6 +338,10 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 
 	   if(solved)
 	   { /* We're Mining & We Solved! */
+
+		  byte v24haiku[256];
+		  if(peach(bt, difficulty, &v24haiku[0], NULL, 1))
+			  printf("????Validation failed IN THE CONTEXT??????\n");
 		  long end = time(NULL);
 		  long elapsed = end - start;
 		  int cached = 0;
@@ -325,6 +363,9 @@ out:
 	if(cache != NULL) free(cache);
 
 	map = cache = NULL;
+
+	if(mode == 1 && solved == 0)
+		printf("####Validation failed#####\n");
 
 	if(mode != 1/*not validating*/ && !Running)
 		return 1; /* SIGTERM RECEIVED */
