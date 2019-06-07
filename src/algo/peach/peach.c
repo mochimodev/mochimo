@@ -156,14 +156,6 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
         op ^= (uint32_t)mapp[j];
       }
       
-      /* hash the result of the current tile's row to the next */
-      if(j < TILE_LENGTH) {
-        sha256_init(&ictx);
-        sha256_update(&ictx, &mapp[i], HASHLEN);
-        sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
-        sha256_final(&ictx, &mapp[j]);
-      }
-      
       /* perform TILE_TRANSFORMS bit manipulations per row */
       for(t = 0; t < TILE_TRANSFORMS; t++) {
         /* determine tile byte offset and operation to use */
@@ -245,18 +237,26 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
         	  break;
 		}
       }
+      
+      /* hash the result of the current tile's row to the next */
+      if(j < TILE_LENGTH) {
+        sha256_init(&ictx);
+        sha256_update(&ictx, &mapp[i], HASHLEN);
+        sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
+        sha256_final(&ictx, &mapp[j]);
+      }
     }
 
 	*(out) = map + (index * TILE_LENGTH);
 }
 
-int is_solution(byte diff, byte* tile, byte* nonce)
+int is_solution(byte diff, byte* tile, byte* bt)
 {
 	SHA256_CTX ictx;
 	byte hash[HASHLEN];
 
 	sha256_init(&ictx);
-	sha256_update(&ictx, nonce, HASHLEN);//hash nonce first because we dont want to allow caching of index computation
+	sha256_update(&ictx, bt, 124);//hash nonce first because we dont want to allow caching of index computation
 	sha256_update(&ictx, tile, TILE_LENGTH);
 	sha256_final(&ictx, hash);
 
@@ -339,7 +339,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 		   get_tile(&tile, sm, bt->phash, map, cache);
 	   }
 
-	   solved = is_solution(diff, tile, bt_hash);//include the mining address and transactions as part of the solution
+	   solved = is_solution(diff, tile, (byte *) bt);//include the mining address and transactions as part of the solution
 
 	   if(mode == 1) { /* Just Validating, not Mining, check once and return */
 		  trigg_expand2(bt->nonce, &haiku[0]);
