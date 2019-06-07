@@ -40,7 +40,7 @@ char *trigg_check(byte *in, byte d, byte *bnum);
 
 #define EXCLUDE_RESOLVE
 #include "tag.c"
-#include "algo/v24/v24.c"
+#include "algo/peach/peach.c"
 #include "mtxval.c"  /* for mtx */
 
 word32 Tnum = -1;    /* transaction sequence number */
@@ -203,7 +203,7 @@ badread:
 
    /* check enforced delay, collect haiku from block */
    if(cmp64(bnum, v24trigger) > 0) {
-      if(v24(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+      if(peach(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
          drop("v24 validation failed!");
       }
       if(!Bgflag) printf("\n%s\n\n", v24haiku);

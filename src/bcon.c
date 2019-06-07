@@ -41,7 +41,6 @@ void bail(char *message)
    exit(1);
 }
 
-
 /*
  * Clean-up on SIGTERM
  */

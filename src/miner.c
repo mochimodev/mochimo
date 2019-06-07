@@ -13,6 +13,7 @@
 
 #include <inttypes.h>
 #include "algo/v24/v24.c"
+#include "algo/peach/peach.c"
 
 #ifdef CUDANODE
 int cuda_v24_mine(BTRAILER *pBtrailer, uint32_t difficulty, byte *pHaiku,
@@ -91,7 +92,8 @@ int miner(char *blockin, char *blockout)
          if(!cuda_v24_mine(&bt, Difficulty, &v24haiku[0], &hps, &Running)) break;
 #endif
 #ifdef CPUNODE
-         if(v24(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
+         //if(v24(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
+         if(peach(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
 #endif
 
          htime = time(NULL) - htime; /* How long were we mining ? */

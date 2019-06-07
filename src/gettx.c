@@ -107,7 +107,7 @@ int bval2(char *fname, byte *bnum, byte diff)
    /* Solution Check */
 
    if(cmp64(bnum, v24trigger) > 0) { /* v2.4 Algo */
-      if(v24(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+      if(peach(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
          return VEBAD; /* block didn't validate */
       }
    }

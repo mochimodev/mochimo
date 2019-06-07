@@ -427,7 +427,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       /* check enforced delay 9 */
       if(highblock[0] && tcount) {
          if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
-            if(v24(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+            if(peach(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
             break;
             }
          }
