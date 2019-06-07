@@ -953,13 +953,6 @@ int init(void)
    plog("Entering init()");
    show("init");
 
-   // releasing mem if any
-   if (gWorkfield != NULL)
-   {
-      free(gWorkfield);
-      gWorkfield = NULL;
-   }
-
    /* open ledger read-only */
    if(!exists("ledger.dat") || le_open("ledger.dat", "rb") != VEOK) {
       /* extract the ledger from our Genesis Block */

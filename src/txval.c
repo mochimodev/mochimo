@@ -16,9 +16,11 @@
  *
  * Inputs:  tx parameter points to the TX struct to validate.
  *
- * Requires legder.c
+ * Requires legder.c, mtxval.c
  *
 */
+
+#include "mtxval.c"  /* multi-dst validator */
 
 
 /* Validate a transaction against ledger
@@ -36,12 +38,18 @@ int tx_val(TX *tx)
    static byte pk2[TXSIGLEN];       /* more WOTS */
    static byte rnd2[32];            /* for WOTS addr[] */
    byte bnum[8] = {0}; 
+   MTX *mtx;
 
-   /* check address dups */
-   if(memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0
-      || memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
-            if(Trace) plog("tx_val(): src_addr dup");
-            return 2;
+
+   if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
+
+      if(Trace) plog("tx_val(): src == chg");  /* also mtx */
+      return 2;
+   }
+
+   if(!ismtx(tx) && memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0) {
+      if(Trace) plog("tx_val(): src == dst");
+      return 2;
    }
 
    /* validate transaction fixed fee */
@@ -82,8 +90,14 @@ int tx_val(TX *tx)
       if(Trace) plog("tx_val(): bad transaction total != src_le.balance");
       return 1;
    }
-   if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr, 1, &bnum[0]) != VEOK)
-      return 1;  /* bad tag */
+   if(ismtx(tx)) {
+      mtx = (MTX *) TRANBUFF(tx);  /* poor man's union */
+      if(mtx_val(mtx, Myfee)) return 1;  /* bad mtx */
+   } else {
+      if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr,
+                   1, &bnum[0]) != VEOK) return 1;  /* bad tag */
 
+   }
    return 0;  /* tx valid */
 }  /* end tx_val() */
+
