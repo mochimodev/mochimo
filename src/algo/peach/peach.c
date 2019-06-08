@@ -58,7 +58,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
 	byte hash[HASHLEN];
 
 	sha256_init(&ictx);
-	sha256_update(&ictx, nonce, HASHLEN);//hash nonce first because we dont want to allow caching of index's hash
+	sha256_update(&ictx, nonce, HASHLEN);//hash nonce first because we don't want to allow caching of index's hash
 	sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
 	sha256_update(&ictx, current_tile, TILE_LENGTH);
 

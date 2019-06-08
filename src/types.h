@@ -165,7 +165,7 @@ typedef struct {
 
 /* for mtx */
 /* takes TX * or TXQENTRY pointer */
-#define ismtx(tx) ((tx)->dst_addr[2096] == 0 \
+#define ismtx(tx) (0 && (tx)->dst_addr[2096] == 0 \
                     && (tx)->dst_addr[2097] == 0)
 
 typedef struct {
