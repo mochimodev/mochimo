@@ -112,14 +112,14 @@ case "$1" in
       then
          echo "Make cuda objects..."
          echo $NVCC
-         $NVCC -c algo/v24/cuda-v24.cu $LD_FLAGS 2>>ccerror.log # v24 CUDA Code
+         $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log # v24 CUDA Code
       fi
       echo "Building Mochimo server..."
       if test $MINER -eq 1
       then
-         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda-v24.o $LD_FLAGS 2>>ccerror.log
+         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
 
-         $CC -o bval    bval.c    sha256.o wots.o trigg.o cuda-v24.o $LD_FLAGS 2>>ccerror.log
+         $CC -o bval    bval.c    sha256.o wots.o trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
       else
          $CC -o mochimo mochimo.c trigg.o wots.o sha256.o 2>>ccerror.log
          $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
@@ -142,7 +142,7 @@ case "$1" in
          echo "ccerror.log contains:"
          if test $MINER -eq 1
          then
-            echo " $(grep -c cuda-v24.o: ccerror.log) CUDA Errors"
+            echo " $(grep -c cuda_peach.o: ccerror.log) CUDA Errors"
          fi
          echo "  $(grep -c error: ccerror.log) Errors"
          echo "  $(grep -c warning: ccerror.log) Warnings"
@@ -155,7 +155,7 @@ case "$1" in
       rm sha256.o wots.o trigg.o
       if test $MINER -eq 1
       then
-         rm cuda-v24.o
+         rm cuda_peach.o
       fi
       ;;
    "wallet") # Compile only the wallet binary

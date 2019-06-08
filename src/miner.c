@@ -12,14 +12,12 @@
  */
 
 #include <inttypes.h>
-#include "algo/v24/v24.c"
 #include "algo/peach/peach.c"
 
 #ifdef CUDANODE
-int cuda_v24_mine(BTRAILER *pBtrailer, uint32_t difficulty, byte *pHaiku,
-                  uint32_t *pHashrate, unsigned char *pExitSignal);
-void cuda_v24_free();
-int cuda_v24_init(BTRAILER *pBtrailer, uint32_t blocknum);
+char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag);
+int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber);
+void free_cuda_peach();
 #endif
 
 /* miner blockin blockout -- child process */
@@ -76,34 +74,30 @@ int miner(char *blockin, char *blockout)
          plog("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
 #ifdef CUDANODE
-      if (cuda_v24_init(&bt, get32(bt.bnum)) == 0)
+      if (!(init_cuda_peach(Difficulty, bt.phash, bt.bnum) & 0x3f))
       {
-          plog("Failed to initilize GPU devices\n");
+          error("Miner failed to initilize CUDA devices\n");
+          break;
       }
 #endif
-
 
       if(cmp64(bt.bnum, v24trigger) > 0)
       { /* v2.4 and later */
-         htime = time(NULL); /* Mining Start Time */
-         hcount = 0; /* Reset Number of Operations */
 
 #ifdef CUDANODE
-         if(!cuda_v24_mine(&bt, Difficulty, &v24haiku[0], &hps, &Running)) break;
+         cuda_peach((byte*)&bt, v24haiku, &hps, &Running);
 #endif
 #ifdef CPUNODE
-         //if(v24(&bt, Difficulty, &v24haiku[0], &hps, 0)) break;
-         if(peach(&bt, Difficulty, &v24haiku[0], &hps, 0)){
-        	 break;
-         }
+         if(peach(&bt, Difficulty, v24haiku, &hps, 0)) break;
 #endif
 
-         htime = time(NULL) - htime; /* How long were we mining ? */
-         if(htime == 0) htime = 1;
-         hcount = hps / htime;
-         write_data(&hcount, sizeof(hcount), "hps.dat");  /* unsigned int haiku per second */
-         haiku = &v24haiku[0];
+         write_data(&hps, sizeof(word32), "hps.dat");
+         if(Running && peach(&bt, Difficulty, v24haiku, NULL, 1)) {
+            printf("ERROR - Solved block is not valid\n");
+            break;
+         }
       }
+
 
 /* Legacy handler is CPU Only for all v2.3 and earlier blocks */
 
@@ -183,7 +177,7 @@ int miner(char *blockin, char *blockout)
 
 done:
 #ifdef CUDANODE
-   cuda_v24_free();
+   free_cuda_peach();
 #endif
    getrand2(temp, &temp[1], &temp[2]);
    write_data(&temp, 12, "mseed.dat");   /* maintain rand2() sequence */
