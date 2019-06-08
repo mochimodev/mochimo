@@ -15,6 +15,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <math.h>
+#include <sys/time.h>
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
@@ -72,7 +73,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
 
 void get_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * cache)
 {
-	if(cache[index])
+	if(cache != NULL && cache[index])
 	{
 		*out = map + index * TILE_LENGTH;
 		return;
@@ -80,7 +81,8 @@ void get_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * cache)
 
 	generate_tile(out, index, seed, map, cache);
 
-	cache[index] = 1;
+	if(cache != NULL)
+		cache[index] = 1;
 }
 
 void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * cache)
@@ -95,7 +97,11 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
   float *floatp;
 
   /* set map pointer */
-  mapp = &map[index * TILE_LENGTH];
+  if(map == NULL)
+  {
+	  mapp = *out;
+  }else
+	  mapp = &map[index * TILE_LENGTH];
   
   /* begin tile data */
   sha256_init(&ictx);
@@ -247,7 +253,8 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
       }
     }
 
-	*(out) = map + (index * TILE_LENGTH);
+    if(map != NULL)
+    	*(out) = map + (index * TILE_LENGTH);
 }
 
 int is_solution(byte diff, byte* tile, byte* bt_hash)
@@ -275,6 +282,11 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 
    uint32_t sm;
 
+   struct timeval tstart, tend, telapsed;
+
+   gettimeofday(&tstart, NULL);
+   long start = time(NULL);
+
    byte * map, *cache, *tile, *tile2, diff, bt_hash[HASHLEN];
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    printf("diff %i\n", diff);
@@ -282,25 +294,39 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
    uint64_t j, h;
    h = 0;
 
+   map = NULL;
+   cache = NULL;
+   tile = NULL;
 
-/* Allocate MAP on the Heap */
-   map = malloc(MAP_LENGTH);
-   if(map == NULL) {
-      if(Trace) plog("Fatal: Unable to allocate memory for map.\n");
-      goto out;
+   if(mode == 0)
+   {
+	   /* Allocate MAP on the Heap */
+	   map = malloc(MAP_LENGTH);
+	   if(map == NULL) {
+		  if(Trace) plog("Fatal: Unable to allocate memory for map.\n");
+		  goto out;
+	   }
+	   memset(map, 0, MAP_LENGTH);
+
+	/* Allocate MAP cache on the Heap */
+	   cache = malloc(MAP);
+	   if(cache == NULL) {
+		   if(Trace) plog("Fatal: Unable to allocate memory for cache.\n");
+			   goto out;
+	   }
+
+	   memset(cache, 0, MAP);
+
+   }else
+   {
+	   tile = malloc(TILE_LENGTH);
+	   if(tile == NULL) {
+		   if(Trace) plog("Fatal: Unable to allocate memory for tile.\n");
+		   	   goto out;
+	   }
    }
-   memset(map, 0, MAP_LENGTH);
 
-/* Allocate MAP cache on the Heap */
-   cache = malloc(MAP);
-   if(cache == NULL) {
-	   if(Trace) plog("Fatal: Unable to allocate memory for cache.\n");
-       	   goto out;
-   }
 
-   memset(cache, 0, MAP);
-
-   long start = time(NULL);
    int solved = 0;
 
    for(;;)
@@ -310,7 +336,7 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   h += 1;
 
 	   sm = 0;
-	   tile = NULL;
+
 
 	   if(mode == 0) {
 		   /* In mode 0, add random haiku to the passed-in candidate block trailer */
@@ -343,6 +369,12 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   solved = is_solution(diff, tile, bt_hash);//include the mining address and transactions as part of the solution
 
 	   if(mode == 1) { /* Just Validating, not Mining, check once and return */
+		  gettimeofday(&tend, NULL);
+		  long end = time(NULL);
+		  timersub(&tend, &tstart, &telapsed);
+		  long elapsed = end - start;
+
+		  printf("Validated in %ld.%06ld seconds\n", (long int)telapsed.tv_sec, (long int)telapsed.tv_usec);
 		  trigg_expand2(bt->nonce, &haiku[0]);
 		  if(Trace) plog("\nV:%s\n\n", haiku);
 
@@ -351,6 +383,10 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 
 	   if(solved)
 	   { /* We're Mining & We Solved! */
+		  gettimeofday(&tend, NULL);
+		  long end = time(NULL);
+		  timersub(&tend, &tstart, &telapsed);
+		  long elapsed = end - start;
 
 		  byte v24haiku[256];
 		  if(peach(bt, difficulty, &v24haiku[0], NULL, 1)){
@@ -358,13 +394,12 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 			  printf("############Validation failed IN THE CONTEXT############\n");
 			  printf("########################################################\n");
 		  }
-		  long end = time(NULL);
-		  long elapsed = end - start;
+
 		  int cached = 0;
 		  for (int i =0;i<MAP;i++)
 			  if(cache[i])
 				  cached++;
-		  printf("Solved in %li seconds, %li iterations, %i cached\n", elapsed, h, cached);
+		  printf("Solved in %ld.%06ld seconds, %li iterations, %i cached\n", (long int)telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
 		  *hps = h;
 		  trigg_expand2(bt->nonce, &haiku[0]);
 		  if(Trace) plog("\nS:%s\n\n", haiku);
@@ -380,7 +415,9 @@ out:
 	if(map != NULL) free(map);
 	if(cache != NULL) free(cache);
 
-	map = cache = NULL;
+	if(mode == 1/*Validating*/ && tile != NULL) free(tile);
+
+	tile = map = cache = NULL;
 
 	if(mode == 1 && solved == 0)
 		printf("####Validation failed#####\n");
