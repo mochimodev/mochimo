@@ -92,29 +92,29 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
    * Declarations */
   SHA256_CTX ictx;
   uint32_t op, i1, i2, i3, i4, hashlenm1 = HASHLEN - 1, hashlenmid = HASHLEN >> 1;
-  byte bits, _104, _72, *b, *mapp;
+  byte bits, _104, _72, *b, *tilep;
   int i, j, k, t, z, exp;
   float *floatp;
 
   /* set map pointer */
   if(map == NULL)
   {
-	  mapp = *out;
+	  tilep = *out;
   }else
-	  mapp = &map[index * TILE_LENGTH];
+	  tilep = &map[index * TILE_LENGTH];
   
   /* begin tile data */
   sha256_init(&ictx);
   sha256_update(&ictx, seed, HASHLEN); //hash seed first because we don't want to allow caching of index's hash
   sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
-  sha256_final(&ictx, mapp);
+  sha256_final(&ictx, tilep);
   
   /* set operation variables */
  /*
-  i1 = *(word32*)&mapp[0] % HASHLEN; // -> (  *((word32*) (&(mapp[0])) )  ) % HASHLEN
-  i2 = *(word32*)&mapp[4] % HASHLEN;
-  i3 = *(word32*)&mapp[8] % HASHLEN;
-  i4 = *(word32*)&mapp[12] % HASHLEN;
+  i1 = *(word32*)&tilep[0] % HASHLEN; // -> (  *((word32*) (&(tilep[0])) )  ) % HASHLEN
+  i2 = *(word32*)&tilep[4] % HASHLEN;
+  i3 = *(word32*)&tilep[8] % HASHLEN;
+  i4 = *(word32*)&tilep[12] % HASHLEN;
   */
   _104 = 104;
   _72 = 72;
@@ -125,7 +125,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
       {
 
         /* set float pointer */
-        floatp = (float*)&mapp[j];
+        floatp = (float*)&tilep[j];
         
         /**
          * Order of operations dependent on initial 8 bits
@@ -133,22 +133,22 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
          *   1) right shift by 4 to obtain the exponent value
          *   2) 50% chance of exponent being negative
          *   3) 50% chance of changing sign of float */
-        if(mapp[k] & 1) {
+        if(tilep[k] & 1) {
           k++;
-          exp = mapp[k++] >> 4;
-          if(mapp[k++] & 1) exp ^= 0x80000000;
-          if(mapp[k++] & 1) *floatp = -(*floatp);
+          exp = tilep[k++] >> 4;
+          if(tilep[k++] & 1) exp ^= 0x80000000;
+          if(tilep[k++] & 1) *floatp = -(*floatp);
         } else
-        if(mapp[k] & 2) {
+        if(tilep[k] & 2) {
           k++;
-          exp = mapp[k++] >> 4;
-          if(mapp[k++] & 1) *floatp = -(*floatp);
-          if(mapp[k++] & 1) exp ^= 0x80000000;
+          exp = tilep[k++] >> 4;
+          if(tilep[k++] & 1) *floatp = -(*floatp);
+          if(tilep[k++] & 1) exp ^= 0x80000000;
         } else {
           k++;
-          if(mapp[k++] & 1) *floatp = -(*floatp);
-          exp = mapp[k++] >> 4;
-          if(mapp[k++] & 1) exp ^= 0x80000000;
+          if(tilep[k++] & 1) *floatp = -(*floatp);
+          exp = tilep[k++] >> 4;
+          if(tilep[k++] & 1) exp ^= 0x80000000;
         }
 
         /* replace NaN's with tileNum */
@@ -159,13 +159,13 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
         *floatp = ldexpf(*floatp, exp);
         
         /* pre-scramble op */
-        op ^= (uint32_t)mapp[j];
+        op ^= (uint32_t)tilep[j];
       }
       
       /* perform TILE_TRANSFORMS bit manipulations per row */
       for(t = 0; t < TILE_TRANSFORMS; t++) {
         /* determine tile byte offset and operation to use */
-        op += (uint32_t)mapp[i + (t % HASHLEN)];
+        op += (uint32_t)tilep[i + (t % HASHLEN)];
 
         /* Original op selection by Ortis:
           	  for(int z = (h ^ i ^ t) % (HASHLEN >> 1);z<HASHLEN;z++)
@@ -178,7 +178,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
 		  case 0: /* Swap the first and last bit in each byte. */
 		  {
 			  for(z = 0;z<HASHLEN;z++){
-				  b = mapp + i + z;
+				  b = tilep + i + z;
 			  	  *b ^= 0x81;
 			  }
           }
@@ -187,46 +187,46 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
           {
         	  for(z = 0;z<hashlenmid;z++)
         	  {
-        		 bits = mapp[i + z];
-				 mapp[i + z] = mapp[i + hashlenmid + z];
-				 mapp[i + hashlenmid + z] = bits;
+        		 bits = tilep[i + z];
+				 tilep[i + z] = tilep[i + hashlenmid + z];
+				 tilep[i + hashlenmid + z] = bits;
         	  }
           }
             break;
           case 2: /* Complement One all bytes */
           {
         	  for(z = 1; z < HASHLEN; z++)
-        		  mapp[i + z] = ~mapp[i + z];
+        		  tilep[i + z] = ~tilep[i + z];
           }
             break;
           case 3: /* Alternate +1 and -1 on all bytes */
           {
             for(z = 0; z < HASHLEN; z++)
-              mapp[i + z] += (z & 1 == 0) ? 1 : -1;
+              tilep[i + z] += (z & 1 == 0) ? 1 : -1;
           }
             break;
           case 4: /* Alternate +t and -t on all bytes */
           {
             for(z = 0; z < HASHLEN; z++)
-              mapp[i + z] += (z & 1 == 0) ? -t : t;
+              tilep[i + z] += (z & 1 == 0) ? -t : t;
           }
             break;
           case 5: /* Replace every occurrence of h with H */
           {
         	  for(z = 0;z<HASHLEN;z++)
-        		  if(mapp[i + z] == _104)
-        			  mapp[i + z] = _72;
+        		  if(tilep[i + z] == _104)
+        			  tilep[i + z] = _72;
           }
             break;
           case 6: /* If byte a is > byte b, swap them. */
           {
         	for(z = 0;z<hashlenmid;z++)
         	{
-        		if(mapp[i + z] > mapp[i + hashlenmid + z])
+        		if(tilep[i + z] > tilep[i + hashlenmid + z])
         		{
-        			bits = mapp[i + z];
-					mapp[i + z] = mapp[i + hashlenmid + z];
-					mapp[i + hashlenmid + z] = bits;
+        			bits = tilep[i + z];
+					tilep[i + z] = tilep[i + hashlenmid + z];
+					tilep[i + hashlenmid + z] = bits;
 				 }
         	}
           }
@@ -234,7 +234,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
           case 7 : /* XOR all bytes */
           {
             for(z = 1; z < HASHLEN; z++)
-              mapp[i + z] ^= mapp[i + z - 1];
+              tilep[i + z] ^= tilep[i + z - 1];
           }
           	  break;
           default:
@@ -247,9 +247,9 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
       /* hash the result of the current tile's row to the next */
       if(j < TILE_LENGTH) {
         sha256_init(&ictx);
-        sha256_update(&ictx, &mapp[i], HASHLEN);
+        sha256_update(&ictx, &tilep[i], HASHLEN);
         sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
-        sha256_final(&ictx, &mapp[j]);
+        sha256_final(&ictx, &tilep[j]);
       }
     }
 
@@ -348,6 +348,10 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   sha256_init(&ictx);
 	   sha256_update(&ictx, (byte *) bt, 124 /*BTSIZE - 4 - HASHLEN*/);
 	   sha256_final(&ictx, bt_hash);
+
+for(int i = 0; i < 32; i++) 
+  printf(" %02X", bt_hash[i]);
+printf("\n");
 
 	   for(int i=0;i<HASHLEN;i++)
 		   if(i == 0){

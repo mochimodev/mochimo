@@ -13,10 +13,10 @@
 
 //#include "../../config.h"
 
+#define HASHLENMID 	               16
 #define HASHLEN 	               32
 #define TILE_ROWS                      32
 #define TILE_LENGTH                  1024 // (TILE_ROWS * HASHLEN)
-#define TILE_LENGTH_32BIT             256 // (TILE_ROWS * HASHLEN) / 4
 #define TILE_TRANSFORMS                 8
 #define MAP                       1000000
 #define MAP_LENGTH    (TILE_LENGTH * MAP)
