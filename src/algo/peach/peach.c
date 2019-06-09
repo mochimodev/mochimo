@@ -238,7 +238,7 @@ void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,  byte * c
           }
           	  break;
           default:
-        	  printf("OP is outside the expected range");
+        	  error("Peach OP is outside the expected range (%i)\n", op);
         	  assert(0);
         	  break;
 		}
@@ -277,23 +277,20 @@ int is_solution(byte diff, byte* tile, byte* bt_hash)
  */
 int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 {
-   printf("Peach mode %i\n", mode);
    SHA256_CTX ictx;
 
    uint32_t sm;
+   uint64_t j, h;
 
    struct timeval tstart, tend, telapsed;
-
    gettimeofday(&tstart, NULL);
    long start = time(NULL);
 
    byte * map, *cache, *tile, *tile2, diff, bt_hash[HASHLEN];
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
-   printf("diff %i\n", diff);
+   plog("Peach mode %i, diff %i", mode, diff);
 
-   uint64_t j, h;
    h = 0;
-
    map = NULL;
    cache = NULL;
    tile = NULL;
@@ -326,7 +323,6 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   }
    }
 
-
    int solved = 0;
 
    for(;;)
@@ -336,7 +332,6 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   h += 1;
 
 	   sm = 0;
-
 
 	   if(mode == 0) {
 		   /* In mode 0, add random haiku to the passed-in candidate block trailer */
@@ -349,9 +344,11 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 	   sha256_update(&ictx, (byte *) bt, 124 /*BTSIZE - 4 - HASHLEN*/);
 	   sha256_final(&ictx, bt_hash);
 
-for(int i = 0; i < 32; i++) 
-  printf(" %02X", bt_hash[i]);
-printf("\n");
+	   if(PEACH_DEBUG){
+		   for(int i = 0; i < 32; i++)
+			   printf(" %02X", bt_hash[i]);
+		   printf("\n");
+	   }
 
 	   for(int i=0;i<HASHLEN;i++)
 		   if(i == 0){
@@ -378,7 +375,7 @@ printf("\n");
 		  timersub(&tend, &tstart, &telapsed);
 		  long elapsed = end - start;
 
-		  printf("Validated in %ld.%06ld seconds\n", (long int)telapsed.tv_sec, (long int)telapsed.tv_usec);
+		  plog("Peach validated in %ld.%06ld seconds", (long int)telapsed.tv_sec, (long int)telapsed.tv_usec);
 		  trigg_expand2(bt->nonce, &haiku[0]);
 		  if(Trace) plog("\nV:%s\n\n", haiku);
 
@@ -394,16 +391,16 @@ printf("\n");
 
 		  byte v24haiku[256];
 		  if(peach(bt, difficulty, &v24haiku[0], NULL, 1)){
-			  printf("########################################################\n");
-			  printf("############Validation failed IN THE CONTEXT############\n");
-			  printf("########################################################\n");
+			  error("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
+			  plog("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
 		  }
 
 		  int cached = 0;
 		  for (int i =0;i<MAP;i++)
 			  if(cache[i])
 				  cached++;
-		  printf("Solved in %ld.%06ld seconds, %li iterations, %i cached\n", (long int)telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
+
+		  plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", (long int)telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
 		  *hps = h;
 		  trigg_expand2(bt->nonce, &haiku[0]);
 		  if(Trace) plog("\nS:%s\n\n", haiku);
@@ -424,7 +421,7 @@ out:
 	tile = map = cache = NULL;
 
 	if(mode == 1 && solved == 0)
-		printf("####Validation failed#####\n");
+		plog("?????Peach Validation failed?????");
 
 	if(mode != 1/*not validating*/ && !Running)
 		return 1; /* SIGTERM RECEIVED */

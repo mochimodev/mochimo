@@ -94,6 +94,7 @@ int miner(char *blockin, char *blockout)
          write_data(&hps, sizeof(word32), "hps.dat");
          if(Running && peach(&bt, Difficulty, v24haiku, NULL, 1)) {
             printf("ERROR - Solved block is not valid\n");
+            error("!!!!!Peach solved block is not valid!!!!!");
             break;
          }
       }
