@@ -59,7 +59,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
    uint32_t index;
    byte hash[HASHLEN];
    int i;
-
+   
    sha256_init(&ictx);
 
    /* Hash nonce in first to prevent caching of index's hash. */
@@ -70,7 +70,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
    sha256_final(&ictx, hash);
 
    /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
-   for(i = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
+   for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
 
    return index % MAP;
 }
@@ -154,6 +154,8 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
          /* NEW floating point operations - NEEDS FIELD TEST TO VALIDATE DETERMINISM */
          /* set float pointers */
          floatp = (float *) &tilep[j];
+         
+         if(PEACH_DEBUG && j == 992) printf("CPU floatp: %a\n", *floatp);
          
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
@@ -346,6 +348,13 @@ int is_solution(byte diff, byte* tile, byte* bt_hash)
    sha256_update(&ictx, bt_hash, HASHLEN);
    sha256_update(&ictx, tile, TILE_LENGTH);
    sha256_final(&ictx, hash);
+   
+
+      if(PEACH_DEBUG){
+         printf("CPU FINAL HASH output: ");
+         for(int i = 0; i < 32; i++) printf(" %02X", hash[i]);
+         printf("\n");
+      }
 
    return peach_eval(hash, diff) == 0;
 }
@@ -411,15 +420,10 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
          trigg_gen(&bt->nonce[0]);
          trigg_gen(&bt->nonce[16]);
       }
-  
+       
       sha256_init(&ictx);
       sha256_update(&ictx, (byte *) bt, 124 /*BTSIZE - 4 - HASHLEN*/);
       sha256_final(&ictx, bt_hash);
-
-      if(PEACH_DEBUG){
-         for(int i = 0; i < 32; i++) printf(" %02X", bt_hash[i]);
-         printf("\n");
-      }
 
       for(int i = 0; i < HASHLEN; i++){
          if(i == 0) {
@@ -430,14 +434,15 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
       }
 
       sm %= MAP;
-
+      
       get_tile(&tile, sm, bt->phash, map, cache);
      
       for(j = 0; j < JUMP; j++) {
          sm = next_index(sm, tile, bt->nonce);
+         
          get_tile(&tile, sm, bt->phash, map, cache);
       }
-
+      
       solved = is_solution(diff, tile, bt_hash);
       /* include the mining address and transactions as part of the solution */
 

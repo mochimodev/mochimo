@@ -120,11 +120,12 @@ __device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *tilep, uint8_t *n
   /**
    * Assume tile[1024] pointer and nonce[16] pointer
    * Plus an additional unsigned - 0x20A0 bits */
-   
+   int i;
   uint32_t index;
   byte hash[HASHLEN];
   cuda_SHA256_CTX ictx;
-
+   
+   
   cuda_sha256_init(&ictx);
   cuda_sha256_update(&ictx, nonce, HASHLEN);
   cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
@@ -132,8 +133,8 @@ __device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *tilep, uint8_t *n
 
   cuda_sha256_final(&ictx, hash);
 
-  index =  *(uint32_t*)&hash[0]; //read first 4 bytes as unsigned int
-  index += *(uint32_t*)&hash[4]; //read next 4 bytes as unsigned int
+   /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
+   for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
 
   return index % MAP;
 }
@@ -252,6 +253,7 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
                   *floatp /= floatv;
                   break;
          }
+         
          
       } /* end for(op = 0... */
       
@@ -760,7 +762,7 @@ End 64-bit Frames */
      /* store full nonce */
      #pragma unroll
      for (i = 0; i < 16; i++)
-       nonce[i] = c_input32[i + 7];
+       nonce[i] = c_input32[i + 92];
      
      #pragma unroll
      for (i = 0; i < 16; i++)
@@ -769,13 +771,6 @@ End 64-bit Frames */
      /*********************************************************/
      /* Hash 124 bytes of Block Trailer, including both seeds */
      /* Get the wizard to draw you a map to the princess!     */
-     
-       printf("GPU HASH input: ");
-       for(i = 0; i < 108; i++) 
-          printf(" %02X", c_input32[i]);
-       for(i = 0; i < 16; i++) 
-          printf(" %02X", seed[i]);
-        printf("\nRESULT: ");
        
        
      cuda_sha256_init(&ictx);
@@ -789,9 +784,6 @@ End 64-bit Frames */
      /* finalise sha256 hash */
      cuda_sha256_final(&ictx, bt_hash);
      
-for(i = 0; i < 32; i++) 
-  printf(" %02X", bt_hash[i]);
-printf("\n");
      
      /*****************************************************/
      /* Determine the final tile based on selected nonce  */
@@ -826,11 +818,18 @@ printf("\n");
      /****************************************************************/
      /* Check the hash of the final tile produces the desired result */
      /* Search the castle for the princess!                          */
-     
+      
      cuda_sha256_init(&ictx);
      cuda_sha256_update(&ictx, bt_hash, HASHLEN);
      cuda_sha256_update(&ictx, tilep, TILE_LENGTH);
      cuda_sha256_final(&ictx, fhash);
+      
+      if(PEACH_DEBUG) {
+printf("GPU FINAL HASH output: \n");
+for(i = 0; i < 32; i++) 
+  printf(" %02X", fhash[i]);
+printf("\n");
+      }
      
      for (bp = fhash, n = c_difficulty >> 5; n; n--)
        if (*bp++ != 0) return; /* Our princess is in another castle ! */
