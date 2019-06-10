@@ -19,7 +19,7 @@
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
-void trigg_expand2(byte *in, byte *out);
+void trigg_expand2(byte *in, char *out);
 
 void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,
                    byte * cache);
@@ -92,9 +92,9 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
                    byte *cache)
 {
    SHA256_CTX ictx;
-   uint32_t op, i1, i2, i3, i4;
+   uint32_t op;
    byte bits, _104, _72, selector, *tilep;
-   int i, j, k, t, z, exp;
+   int i, j, k, t, z;
    float floatv, *floatp;
 
    _104 = 104;
@@ -117,11 +117,11 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
       for(op = 0; j < i + HASHLEN; j += 4) {
          /* Bel suggested simple exponent COULD potentially be sped up with bit
           * manipulation of the exponent, even WITH the edge cases of Infinity
-          * and Denormals. Therefor, the commented code has been changed. */
-         /* set float pointer
+          * and Denormals. Therefor, the commented code has been changed.
+          * set float pointer 
          floatp = (float *) &tilep[j];
         
-         /* Order of operations dependent on initial 8 bits:
+          * Order of operations dependent on initial 8 bits:
           *   1) right shift by 4 to obtain the exponent value
           *   2) 50% chance of exponent being negative
           *   3) 50% chance of changing sign of float
@@ -143,10 +143,10 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
             if(tilep[k++] & 1) exp ^= 0x80000000;
          }
 
-         /* Replace NaN's with tileNum.
+         * Replace NaN's with tileNum.
          if(isnan(*floatp)) *floatp = (float) index;
 
-         /* Perform floating point operation.
+         * Perform floating point operation.
          *floatp = ldexpf(*floatp, exp);
          
          */
@@ -155,7 +155,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
          /* set float pointers */
          floatp = (float *) &tilep[j];
          
-         if(PEACH_DEBUG && j == 992) printf("CPU floatp: %a\n", *floatp);
+/*         if(PEACH_DEBUG && j == 992) printf("CPU floatp: %a\n", *floatp); */
          
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
@@ -295,12 +295,12 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
                break;
             case 3: /* Alternate +1 and -1 on all bytes */
                for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += (z & 1 == 0) ? 1 : -1;
+                  tilep[i + z] += ((z & 1) == 0) ? 1 : -1;
                }
                break;
             case 4: /* Alternate +t and -t on all bytes */
                for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += (z & 1 == 0) ? -t : t;
+                  tilep[i + z] += ((z & 1) == 0) ? -t : t;
                }
                break;
             case 5: /* Replace every occurrence of h with H */ 
@@ -364,18 +364,16 @@ int is_solution(byte diff, byte* tile, byte* bt_hash)
  * Mode 1: Validating
  *
  */
-int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
+int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
 {
    SHA256_CTX ictx;
 
    uint32_t sm;
    uint64_t j, h;
    struct timeval tstart, tend, telapsed;
-   long start, end, elapsed ;
-   byte *map, *cache, *tile, *tile2, diff, bt_hash[HASHLEN], v24haiku[256];
+   byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
 
-   start = time(NULL);
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    h = 0;
    map = NULL;
@@ -448,23 +446,19 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
 
       if(mode == 1) { /* Just Validating, not Mining, check once and return */
          gettimeofday(&tend, NULL);
-         end = time(NULL);
          timersub(&tend, &tstart, &telapsed);
-         elapsed = end - start;
          plog("Peach validated in %ld.%06ld seconds", 
              (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
-         trigg_expand2(bt->nonce, &haiku[0]);
-         if(Trace) plog("\nV:%s\n\n", haiku);
+         trigg_expand2(bt->nonce, haiku);
+         printf("\nV:%s\n\n", haiku);
          goto out;
       }
 
       if(solved) { /* We're Mining & We Solved! */
          gettimeofday(&tend, NULL);
-         end = time(NULL);
          timersub(&tend, &tstart, &telapsed);
-         elapsed = end - start;
  
-         if(peach(bt, difficulty, &v24haiku[0], NULL, 1)) {
+         if(peach(bt, difficulty, haiku, NULL, 1)) {
             error("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
             plog("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
          }
@@ -475,8 +469,8 @@ int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode)
          plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", 
              (long int) telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
          *hps = h;
-         trigg_expand2(bt->nonce, &haiku[0]);
-         if(Trace) plog("\nS:%s\n\n", haiku);
+         trigg_expand2(bt->nonce, haiku);
+         printf("\nS:%s\n\n", haiku);
  
          goto out;
       } /* end if(solved)... */

@@ -298,7 +298,7 @@ char *trigg_expand(byte *in, int diff)
  * Expand a haiku.
  * It must have the correct syntax and vibe.
  */
-void trigg_expand2(byte *in, byte *out)
+void trigg_expand2(byte *in, char *out)
 {
    int j;
    byte *w;

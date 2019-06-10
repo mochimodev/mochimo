@@ -92,7 +92,7 @@ int bval2(char *fname, byte *bnum, byte diff)
    BTRAILER bt;
    word32 now;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   byte v24haiku[256]; /* for v2.4 Compatibility */
+   char *haiku = ""; /* for v2.4 Compatibility */
 
    if(Trace) plog("bval2()");
 
@@ -107,7 +107,7 @@ int bval2(char *fname, byte *bnum, byte diff)
    /* Solution Check */
 
    if(cmp64(bnum, v24trigger) > 0) { /* v2.4 Algo */
-      if(peach(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+      if(peach(&bt, get32(bt.difficulty), haiku, NULL, 1)){
          return VEBAD; /* block didn't validate */
       }
    }
@@ -257,7 +257,6 @@ int gettx(NODE *np, SOCKET sd)
    TX *tx;
    word32 ip;
    time_t timeout;
-   static word32 v23_trigger[2] = { V23TRIGGER, 0 };
 
    tx = &np->tx;
    memset(np, 0, sizeof(NODE));  /* clear structure */

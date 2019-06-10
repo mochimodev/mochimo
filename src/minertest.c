@@ -45,9 +45,10 @@
 #include "server.c"     /* tcp server */
 
 
-int main(int argc, char **argv)
+int main(void)
 {
-	   Running = 1;
-	   Difficulty=16;
-	   miner("cblock.dat", "mblock.dat");
+   Running = 1;
+   Difficulty=8;
+   miner("cblock.dat", "mblock.dat");
+   return 0;
 }

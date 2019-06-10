@@ -97,7 +97,7 @@ int read_coreipl(char *fname)
    char buff[128];
    int j;
    char *addrstr;
-   word32 ip, *ipp;
+   word32 ip;
 
    if(Trace) plog("Entering read_coreipl()");
    if(fname == NULL || *fname == '\0') return VERROR;
@@ -157,7 +157,6 @@ word32 init_coreipl(NODE *np, char *fname)
 {
    word32 *ipp, ip, return_ip;
    int j;
-   int len;
    word32 rplistidx, rplist[RPLISTLEN];
 
    show("coreipl");
@@ -344,7 +343,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    long filelen;
    int ecode, gblock;
    char genfile[100];
-   byte v24haiku[256]; /* For v2.4 Syntax Compatibility */
+   char *haiku = ""; /* For v2.4 Syntax Compatibility */
    word32 now;
    word32 tcount;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
@@ -427,7 +426,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       /* check enforced delay 9 */
       if(highblock[0] && tcount) {
          if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
-            if(peach(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+            if(peach(&bt, get32(bt.difficulty), haiku, NULL, 1)){
             break;
             }
          }
@@ -664,7 +663,6 @@ int get_eon(NODE *np, word32 peerip)
    char cpbuff[NGBUFFLEN];    /* neo-gen transfer */
    char fname[128], tofname[128];
    time_t timeout;
-   BTRAILER bt;
    static byte val256[8] = { 0x0, 0x1 };
 
    plog("Entering get_eon()");
@@ -942,7 +940,6 @@ try_again:
 int init(void)
 {
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
-   char fname[128];
    int result;
    byte diff[8], highblock[8], *wp;
    word32 solved;

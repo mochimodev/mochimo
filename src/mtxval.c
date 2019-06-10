@@ -17,7 +17,6 @@
  */
 int mtx_val(MTX *mtx, word32 *fee)
 {
-   byte addr[TXADDRLEN];
    int j, message;
    byte total[8], mfees[8], *bp, *limit;
 

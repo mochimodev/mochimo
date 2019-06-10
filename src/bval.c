@@ -111,8 +111,7 @@ int main(int argc, char **argv)
    int count;
    static byte do_rename = 1;
    static byte pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
-   static char *haiku;
-   byte v24haiku[256];
+   static char *haiku = "";
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;
@@ -203,10 +202,10 @@ badread:
 
    /* check enforced delay, collect haiku from block */
    if(cmp64(bnum, v24trigger) > 0) {
-      if(peach(&bt, get32(bt.difficulty), &v24haiku[0], NULL, 1)){
+      if(peach(&bt, get32(bt.difficulty), haiku, NULL, 1)){
          drop("peach validation failed!");
       }
-      if(!Bgflag) printf("\n%s\n\n", v24haiku);
+      if(!Bgflag) printf("\n%s\n\n", haiku);
    }
    if(cmp64(bnum, v24trigger) <= 0) {
       if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL) {

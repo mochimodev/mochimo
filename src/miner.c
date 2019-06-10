@@ -25,14 +25,10 @@ int miner(char *blockin, char *blockout)
 {
    BTRAILER bt;
    FILE *fp;
-   byte *ptr;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
-   char *haiku;
-   byte v24haiku[256] = "";
+   char *haiku = "";
    time_t htime;
    word32 temp[3], hcount, hps;
-   int initGPU;
-   struct timespec chill = {0,Dynasleep*1000L};
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    /* Keep a separate rand2() sequence for miner child */
@@ -85,14 +81,14 @@ int miner(char *blockin, char *blockout)
       { /* v2.4 and later */
 
 #ifdef CUDANODE
-         cuda_peach((byte*)&bt, v24haiku, &hps, &Running);
+         cuda_peach((byte*)&bt, haiku, &hps, &Running);
 #endif
 #ifdef CPUNODE
-         if(peach(&bt, Difficulty, v24haiku, &hps, 0)) break;
+         if(peach(&bt, Difficulty, haiku, &hps, 0)) break;
 #endif
 
          write_data(&hps, sizeof(word32), "hps.dat");
-         if(Running && peach(&bt, Difficulty, v24haiku, NULL, 1)) {
+         if(Running && peach(&bt, Difficulty, haiku, NULL, 1)) {
             printf("ERROR - Solved block is not valid\n");
             error("!!!!!Peach solved block is not valid!!!!!");
             break;
@@ -171,18 +167,17 @@ int miner(char *blockin, char *blockout)
          plog("miner: solved block 0x%s is now: %s",
               bnum2hex(bt.bnum), blockout);
 
-      if(!Bgflag) printf("\n%s\n\n", haiku);
+      if(!Bgflag) printf("\nM:%s\n\n", haiku);
 
       break;
    }  /* end for(;;) exit miner  */
 
-done:
 #ifdef CUDANODE
    free_cuda_peach();
 #endif
    getrand2(temp, &temp[1], &temp[2]);
-   write_data(&temp, 12, "mseed.dat");   /* maintain rand2() sequence */
-   if(Trace) plog("Miner exiting...");
+   write_data(&temp, 12, "mseed.dat");    /* maintain rand2() sequence */
+   printf("Miner exiting...\n");
    return 0;
 }  /* end miner() */
 

@@ -18,6 +18,7 @@
  */
 void ctrlc(int sig)
 {
+   if(Trace) plog("Got signal %i\n", sig);
    signal(SIGINT, ctrlc);
    Monitor = 1;
 }
@@ -28,6 +29,7 @@ void ctrlc(int sig)
  */
 void sigterm(int sig)
 {
+   if(Trace) plog("Got signal %i\n", sig);
    signal(SIGTERM, sigterm);
    Running = 0;
 }

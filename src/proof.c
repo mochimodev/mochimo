@@ -41,13 +41,14 @@ int loadproof(TX *tx)
  */
 int checkproof(TX *tx)
 {
-   int j, count, match, message = 0;
+   unsigned int j; 
+   int count, match, message = 0;
    BTRAILER *bt, bts;
    word32 diff = 200;  /* big number */
    word32 stime, time0, now, difficulty, highblock, prevnum = 0;
    static word32 tnum[2];
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   byte v24haiku[256]; /* For v2.4 Compatibility */
+   char *haiku =""; /* For v2.4 Compatibility */
 
    if(get32(Cblocknum) < V23TRIGGER) return VERROR;
    /* Un-comment next line to disable function. */
@@ -90,7 +91,7 @@ int checkproof(TX *tx)
       if(stime <= get32((bt - 1)->stime)) BAIL(6);
       if(!get32(bt->tcount)) continue;  /* skip p-block */
       if(cmp64(bt->bnum, v24trigger) > 0) { /* v2.4 */
-         if(peach(bt, diff, &v24haiku[0], NULL, 1)){
+         if(peach(bt, diff, haiku, NULL, 1)){
             BAIL(7);
          }
       }

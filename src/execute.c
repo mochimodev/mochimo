@@ -51,6 +51,7 @@ int sendnack(NODE *np)
  */
 void sendalrm(int sig)
 {
+   if(Trace) plog("sendalrm() existing with signal %i\n", sig);
    exit(1);  /* fail */
 }
 
