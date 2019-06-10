@@ -13,8 +13,8 @@
 
 //#include "../../config.h"
 
-#define HASHLENMID 	               16
-#define HASHLEN 	               32
+#define HASHLENMID 	                   16
+#define HASHLEN                        32
 #define TILE_ROWS                      32
 #define TILE_LENGTH                  1024 // (TILE_ROWS * HASHLEN)
 #define TILE_TRANSFORMS                 8

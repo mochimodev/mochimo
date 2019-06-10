@@ -92,12 +92,11 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
                    byte *cache)
 {
    SHA256_CTX ictx;
-   uint32_t op, i1, i2, i3, i4, hashlenmid;
-   byte bits, _104, _72, *b, *tilep;
+   uint32_t op, i1, i2, i3, i4;
+   byte bits, _104, _72, selector, *tilep;
    int i, j, k, t, z, exp;
-   float *floatp;
+   float floatv, *floatp;
 
-   hashlenmid = HASHLEN >> 1;
    _104 = 104;
    _72 = 72;
   
@@ -116,13 +115,16 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
   
    for(i = j = k = 0; i < TILE_LENGTH; i += HASHLEN) { /* For each tile row */
       for(op = 0; j < i + HASHLEN; j += 4) {
-         /* set float pointer */
+         /* Bel suggested simple exponent COULD potentially be sped up with bit
+          * manipulation of the exponent, even WITH the edge cases of Infinity
+          * and Denormals. Therefor, the commented code has been changed. */
+         /* set float pointer
          floatp = (float *) &tilep[j];
         
          /* Order of operations dependent on initial 8 bits:
           *   1) right shift by 4 to obtain the exponent value
           *   2) 50% chance of exponent being negative
-          *   3) 50% chance of changing sign of float */
+          *   3) 50% chance of changing sign of float
          if(tilep[k] & 1) {
             k++;
             exp = tilep[k++] >> 4;
@@ -141,14 +143,132 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
             if(tilep[k++] & 1) exp ^= 0x80000000;
          }
 
-         /* Replace NaN's with tileNum. */
+         /* Replace NaN's with tileNum.
          if(isnan(*floatp)) *floatp = (float) index;
 
-         /* Perform floating point operation. */
+         /* Perform floating point operation.
          *floatp = ldexpf(*floatp, exp);
-        
-         /* Pre-scramble Operation */
-         op ^= (uint32_t) tilep[j];
+         
+         */
+         
+         /* NEW floating point operations - NEEDS FIELD TEST TO VALIDATE DETERMINISM */
+         /* set float pointers */
+         floatp = (float *) &tilep[j];
+         
+         /* Byte selections depend on initial 8 bits
+          * Note: Trying not to perform "floatv =" first */
+         switch(tilep[k] & 7) {
+            case 0:
+            {
+               // skip a byte
+               k++;
+               // determine floating point operation type
+               op = tilep[k++];
+               // determine which byte to select on the current 32 byte series
+               selector = tilep[k++] & (HASHLEN - 1); // & (HASHLEN - 1), returns 0-31
+               floatv = (float) tilep[i + selector]; // i + selector, index in 32 byte series
+               // determine if floating point operation is performed on a negative number
+               floatv *= 0 - (tilep[k++] & 1);
+            }
+               break;
+            case 1:
+            {
+               k++;
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               op = tilep[k++];
+            }
+               break;
+            case 2:
+            {
+               op = tilep[k++];
+               k++;
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+            }
+               break;
+            case 3:
+            {
+               op = tilep[k++];
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               k++;
+            }
+               break;
+            case 4:
+            {
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               k++;
+               op = tilep[k++];
+            }
+               break;
+            case 5:
+            {
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               op = tilep[k++];
+               k++;
+            }
+               break;
+            case 6:
+            {
+               op = tilep[k++];
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               k++;
+               floatv *= 0 - (tilep[k++] & 1);
+            }
+               break;
+            case 7:
+            {
+               k++;
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               op = tilep[k++];
+               floatv *= 0 - (tilep[k++] & 1);
+            }
+               break;
+            default:
+               error("Peach OP is outside the expected range (%i)\n", op);
+               assert(0);
+               break;
+         }
+
+         /* Replace NaN's with tileNum. */
+         if(isnan(*floatp)) *floatp = (float) index;
+         if(isnan(floatv)) floatv = (float) index;
+
+         /* Float operation depends on final 8 bits.
+          * Perform floating point operation. */
+         switch(op & 3) {
+            case 0:
+               {
+                  *floatp += floatv;
+               }
+                  break;
+            case 1:
+               {
+                  *floatp -= floatv;
+               }
+                  break;
+            case 2:
+               {
+                  *floatp *= floatv;
+               }
+                  break;
+            case 3:
+               {
+                  *floatp /= floatv;
+               }
+                  break;
+         }
+         
       } /* end for(op = 0... */
       
       /* Execute bit manipulations per tile row. */
@@ -158,16 +278,14 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
 
          switch(op & 7) {
             case 0: /* Swap the first and last bit in each byte. */
-               for(z = 0; z < HASHLEN; z++){
-                  b = tilep + i + z;
-                  *b ^= 0x81;
-               }
+               for(z = 0; z < HASHLEN; z++)
+                  tilep[i + z] ^= 0x81;
                break;
             case 1: /* Swap bytes */
-               for(z = 0;z<hashlenmid;z++) {
+               for(z = 0;z<HASHLENMID;z++) {
                   bits = tilep[i + z];
-                  tilep[i + z] = tilep[i + hashlenmid + z];
-                  tilep[i + hashlenmid + z] = bits;
+                  tilep[i + z] = tilep[i + HASHLENMID + z];
+                  tilep[i + HASHLENMID + z] = bits;
                }
                break;
             case 2: /* Complement One, all bytes */
@@ -189,11 +307,11 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
                }
                break;
             case 6: /* If byte a is > byte b, swap them. */
-               for(z = 0; z < hashlenmid; z++) {
-                  if(tilep[i + z] > tilep[i + hashlenmid + z]) {
+               for(z = 0; z < HASHLENMID; z++) {
+                  if(tilep[i + z] > tilep[i + HASHLENMID + z]) {
                      bits = tilep[i + z];
-                     tilep[i + z] = tilep[i + hashlenmid + z];
-                     tilep[i + hashlenmid + z] = bits;
+                     tilep[i + z] = tilep[i + HASHLENMID + z];
+                     tilep[i + HASHLENMID + z] = bits;
                   }
                }
                break;
@@ -202,8 +320,8 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map,
                break;
             default:
                error("Peach OP is outside the expected range (%i)\n", op);
-           assert(0);
-           break;
+               assert(0);
+               break;
          } /* end switch(... */
       } /* end for(t = 0... */ 
       
