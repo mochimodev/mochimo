@@ -65,9 +65,6 @@ int checkproof(TX *tx);
 int renew(void);
 int refresh_ipl(void);
 
-/* Source file: algo/v24/v24.c */
-int v24(BTRAILER *trailer, word32 difficulty, byte *haiku, word32 *hps, int mode);
-
 /* Source file: algo/peach/peach.c */
 int peach(BTRAILER *bt, word32 difficulty, byte *haiku, word32 *hps, int mode);
 
