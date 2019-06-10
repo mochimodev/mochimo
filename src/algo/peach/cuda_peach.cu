@@ -143,10 +143,13 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
   /**
    * Declarations */
   cuda_SHA256_CTX ictx;
-  int i, j, k, t, z, exp;
-  uint8_t bits, _104, _72, *tilep;
+  int i, j, k, t, z;
+  uint8_t bits, _104, _72, selector, *tilep;
   uint32_t op;
-  float *floatp;
+  float floatv, *floatp;
+  
+  _104 = 104;
+  _72 = 72;
 
   /* set map pointer */
   tilep = &g_map[tilenum * TILE_LENGTH];
@@ -156,127 +159,150 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
   cuda_sha256_update(&ictx, phash, HASHLEN);
   cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
   cuda_sha256_final(&ictx, tilep);
-  
-  /* set operation variables */
-  _104 = 104;
-  _72 = 72;
 
     for(i = j = k = 0; i < TILE_LENGTH; i+=HASHLEN) //for each row of the tile
     {
-      for(op = 0; j < i+HASHLEN; j+=4)
+      for(op = 0; j < i + HASHLEN; j += 4)
       {
+         /* set float pointer */
+         floatp = (float *) &tilep[j];
+         
+         /* Byte selections depend on initial 8 bits
+          * Note: Trying not to perform "floatv =" first */
+         switch(tilep[k] & 7) {
+            case 0:
+               // skip a byte
+               k++;
+               // determine floating point operation type
+               op = tilep[k++];
+               // determine which byte to select on the current 32 byte series
+               selector = tilep[k++] & (HASHLEN - 1); // & (HASHLEN - 1), returns 0-31
+               floatv = (float) tilep[i + selector]; // i + selector, index in 32 byte series
+               // determine if floating point operation is performed on a negative number
+               floatv *= 0 - (tilep[k++] & 1);
+               break;
+            case 1:
+               k++;
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               op = tilep[k++];
+               break;
+            case 2:
+               op = tilep[k++];
+               k++;
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               break;
+            case 3:
+               op = tilep[k++];
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               k++;
+               break;
+            case 4:
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               k++;
+               op = tilep[k++];
+               break;
+            case 5:
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               floatv *= 0 - (tilep[k++] & 1);
+               op = tilep[k++];
+               k++;
+               break;
+            case 6:
+               op = tilep[k++];
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               k++;
+               floatv *= 0 - (tilep[k++] & 1);
+               break;
+            case 7:
+               k++;
+               selector = tilep[k++] & (HASHLEN - 1);
+               floatv = (float) tilep[i + selector];
+               op = tilep[k++];
+               floatv *= 0 - (tilep[k++] & 1);
+               break;
+         }
 
-        /* set float pointer */
-        floatp = (float*)&tilep[j];
-        
-        /**
-         * Order of operations dependent on initial 8 bits
-         * Operations:
-         *   1) right shift by 4 to obtain the exponent value
-         *   2) 50% chance of exponent being negative
-         *   3) 50% chance of changing sign of float */
-        if(tilep[k] & 1) {
-          k++;
-          exp = tilep[k++] >> 4;
-          if(tilep[k++] & 1) exp ^= 0x80000000;
-          if(tilep[k++] & 1) *floatp = -(*floatp);
-        } else
-        if(tilep[k] & 2) {
-          k++;
-          exp = tilep[k++] >> 4;
-          if(tilep[k++] & 1) *floatp = -(*floatp);
-          if(tilep[k++] & 1) exp ^= 0x80000000;
-        } else {
-          k++;
-          if(tilep[k++] & 1) *floatp = -(*floatp);
-          exp = tilep[k++] >> 4;
-          if(tilep[k++] & 1) exp ^= 0x80000000;
-        }
+         /* Replace NaN's with tileNum. */
+         if(isnan(*floatp)) *floatp = (float) tilenum;
+         if(isnan(floatv)) floatv = (float) tilenum;
 
-        /* replace NaN's with tileNum */
-        if(isnan(*floatp))
-          *floatp = (float) tilenum;
-
-        /* perform floating point operation */
-        *floatp = ldexpf(*floatp, exp);
-        
-        /* pre-scramble op */
-        op ^= (uint32_t)tilep[j];
-      }
+         /* Float operation depends on final 8 bits.
+          * Perform floating point operation. */
+         switch(op & 3) {
+            case 0:
+                  *floatp += floatv;
+                  break;
+            case 1:
+                  *floatp -= floatv;
+                  break;
+            case 2:
+                  *floatp *= floatv;
+                  break;
+            case 3:
+                  *floatp /= floatv;
+                  break;
+         }
+         
+      } /* end for(op = 0... */
       
-      /* perform TILE_TRANSFORMS bit manipulations per row */
+      /* Execute bit manipulations per tile row. */
       for(t = 0; t < TILE_TRANSFORMS; t++) {
-        /* determine tile byte offset and operation to use */
-        op += (uint32_t)tilep[i + (t & 0x1f)];
+         /* Determine tile byte offset and operation to use. */
+         op += (uint32_t) tilep[i + (t % HASHLEN)];
 
-        /* Original op selection by Ortis:
-          	  for(int z = (h ^ i ^ t) % (HASHLEN >> 1);z<HASHLEN;z++)
-        		op += hash[z];
-
-        	Chris though it was too easy so he went for floating point arithmetic
-        */
-
-        switch(op & 7) {
-          case 0: /* Swap the first and last bit in each byte. */
-          {
-            for(z = 0;z<HASHLEN;z++)
-              tilep[i + z] ^= 0x81;
-          }
-            break;
-          case 1: /* Swap bytes */
-          {
-            for(z = 0;z<HASHLENMID;z++)
-            {
-              bits = tilep[i + z];
-              tilep[i + z] = tilep[i + HASHLENMID + z];
-              tilep[i + HASHLENMID + z] = bits;
-            }
-          }
-            break;
-          case 2: /* Complement One all bytes */
-          {
-            for(z = 1; z < HASHLEN; z++)
-              tilep[i + z] = ~tilep[i + z];
-          }
-            break;
-          case 3: /* Alternate +1 and -1 on all bytes */
-          {
-            for(z = 0; z < HASHLEN; z++)
-              tilep[i + z] += (z & 1 == 0) ? 1 : -1;
-          }
-            break;
-          case 4: /* Alternate +t and -t on all bytes */
-          {
-            for(z = 0; z < HASHLEN; z++)
-              tilep[i + z] += (z & 1 == 0) ? -t : t;
-          }
-            break;
-          case 5: /* Replace every occurrence of h with H */
-          {
-            for(z = 0;z<HASHLEN;z++)
-              if(tilep[i + z] == _104)
-                tilep[i + z] = _72;
-          }
-            break;
-          case 6: /* If byte a is > byte b, swap them. */
-          {
-            for(z = 0;z<HASHLENMID;z++)
-              if(tilep[i + z] > tilep[i + HASHLENMID + z])
-              {
-                bits = tilep[i + z];
-                tilep[i + z] = tilep[i + HASHLENMID + z];
-                tilep[i + HASHLENMID + z] = bits;
-              }
-          }
-            break;
-          case 7 : /* XOR all bytes */
-          {
-            for(z = 1; z < HASHLEN; z++)
-              tilep[i + z] ^= tilep[i + z - 1];
-          }
-            break;
-        }
-      }
+         switch(op & 7) {
+            case 0: /* Swap the first and last bit in each byte. */
+               for(z = 0; z < HASHLEN; z++) tilep[i + z] ^= 0x81;
+               break;
+            case 1: /* Swap bytes */
+               for(z = 0;z<HASHLENMID;z++) {
+                  bits = tilep[i + z];
+                  tilep[i + z] = tilep[i + HASHLENMID + z];
+                  tilep[i + HASHLENMID + z] = bits;
+               }
+               break;
+            case 2: /* Complement One, all bytes */
+               for(z = 1; z < HASHLEN; z++) tilep[i + z] = ~tilep[i + z];
+               break;
+            case 3: /* Alternate +1 and -1 on all bytes */
+               for(z = 0; z < HASHLEN; z++) {
+                  tilep[i + z] += (z & 1 == 0) ? 1 : -1;
+               }
+               break;
+            case 4: /* Alternate +t and -t on all bytes */
+               for(z = 0; z < HASHLEN; z++) {
+                  tilep[i + z] += (z & 1 == 0) ? -t : t;
+               }
+               break;
+            case 5: /* Replace every occurrence of h with H */ 
+               for(z = 0; z < HASHLEN; z++) {
+                  if(tilep[i + z] == _104) tilep[i + z] = _72;
+               }
+               break;
+            case 6: /* If byte a is > byte b, swap them. */
+               for(z = 0; z < HASHLENMID; z++) {
+                  if(tilep[i + z] > tilep[i + HASHLENMID + z]) {
+                     bits = tilep[i + z];
+                     tilep[i + z] = tilep[i + HASHLENMID + z];
+                     tilep[i + HASHLENMID + z] = bits;
+                  }
+               }
+               break;
+            case 7: /* XOR all bytes */
+               for(z = 1; z < HASHLEN; z++) tilep[i + z] ^= tilep[i + z - 1];
+               break;
+         } /* end switch(... */
+      } /* end for(t = 0... */ 
       
       /* hash the result of the current tile's row to the next */
       if(j < TILE_LENGTH) {
@@ -744,6 +770,14 @@ End 64-bit Frames */
      /* Hash 124 bytes of Block Trailer, including both seeds */
      /* Get the wizard to draw you a map to the princess!     */
      
+       printf("GPU HASH input: ");
+       for(i = 0; i < 108; i++) 
+          printf(" %02X", c_input32[i]);
+       for(i = 0; i < 16; i++) 
+          printf(" %02X", seed[i]);
+        printf("\nRESULT: ");
+       
+       
      cuda_sha256_init(&ictx);
 
      /* update sha with the available block trailer data */
@@ -920,7 +954,8 @@ __host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
                 trigg_expand2(ctx[i].next_seed, (byte*)ctx[i].next_cp);
 
                 /* ... and prepare round data */
-                memcpy(ctx[i].input, bt, 108);
+                memcpy(ctx[i].input, bt, 92);
+                memcpy(ctx[i].input+92, ctx[i].next_seed, 16);
             }
             /* Check if GPU has finished */
             CudaCheckError();
