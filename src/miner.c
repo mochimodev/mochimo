@@ -26,7 +26,14 @@ int miner(char *blockin, char *blockout)
    BTRAILER bt;
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
-   char *haiku;
+
+   /*TODO: Must be fixed by Matt.
+    * Using char* crashes because trigg_expand2 expect a char* of length 256
+    * Using the char[256] type clashes with the legacy 2.3 CPU handler
+    */
+   char stack_haiku[256];
+   char *haiku = stack_haiku;
+
    time_t htime;
    word32 temp[3], hcount, hps;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
@@ -99,18 +106,18 @@ int miner(char *blockin, char *blockout)
       }
 
 
-/* Legacy handler is CPU Only for all v2.3 and earlier blocks *
+/* Legacy handler is CPU Only for all v2.3 and earlier blocks */
 
       if(cmp64(bt.bnum, v24trigger) <= 0)
       {
          /* Create the solution state-space beginning with
           * the first plausible link on the TRIGG chain.
-          *
+          */
          trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
 
          /* Traverse all TRIGG links to build the
           * solution chain with trigg_generate()...
-          *
+          */
 
          for(haiku = NULL, htime = time(NULL), hcount = 0; ; ) {
             if(!Running) break;
@@ -118,14 +125,14 @@ int miner(char *blockin, char *blockout)
             haiku = trigg_generate(bt.mroot, bt.difficulty[0]);
             hcount++;
          }
-         /* Calculate and write Haiku/s to disk *
+         /* Calculate and write Haiku/s to disk */
          htime = time(NULL) - htime;
          if(htime == 0) htime = 1;
          hps = hcount / htime;
          write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second *
          if(!Running) break;
 
-         /* Block validation check *
+         /* Block validation check */
          if (!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
             printf("ERROR - Block is not valid\n");
             break;

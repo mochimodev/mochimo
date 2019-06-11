@@ -22,4 +22,4 @@
 #define MAP_LENGTH    (TILE_LENGTH * MAP)
 #define JUMP                            8
 
-#define PEACH_DEBUG                     1
+#define PEACH_DEBUG                     0

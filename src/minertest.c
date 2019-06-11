@@ -43,7 +43,8 @@
 #include "update.c"
 #include "init.c"       /* read Coreplist[] and get_eon()  */
 #include "server.c"     /* tcp server */
-
+#include "crypto/md5/md5.c"
+#include "crypto/sha1/sha1.c"
 
 int main(void)
 {
