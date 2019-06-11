@@ -155,8 +155,6 @@ __device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) 
       {
          /* set float pointer */
          floatp = (float *) &tilep[j];
-        if(PEACH_DEBUG && j==0)
-           printf("GPU tile[%u] output: %a ", tilenum, *floatp);
          
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
@@ -244,10 +242,6 @@ __device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) 
                   break;
          }
          
-        if(PEACH_DEBUG && j==992)
-           printf("%a | ", *floatp);
-         
-         
       } /* end for(op = 0... */
       
       /* Execute bit manipulations per tile row. */
@@ -318,6 +312,9 @@ __global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map, uint8_t *g_cac
   uint8_t bt_hash[32], fhash[32];
   uint8_t seed[16] = {0}, nonce[32] = {0};
   int i, j, n, x;
+   
+   /* DEBUG vars */
+   uint32_t sma[9] = {0};
 
   
    if (thread <= threads) {
@@ -786,7 +783,9 @@ End 64-bit Frames */
        sm *= bt_hash[i];
      
      sm %= MAP;
-
+   
+      if(PEACH_DEBUG) sma[0] = sm;
+      
      /* get cached tile, or generate one if it doesn't exist */
      //if(!g_cache[sm]) {
           cuda_gen_tile(sm, c_phash, g_map);
@@ -797,6 +796,8 @@ End 64-bit Frames */
      for(j = 0; j < JUMP; j++) {
        /* determine next tile index */
        sm = cuda_next_index(sm, g_map, nonce);
+        
+      if(PEACH_DEBUG) sma[j+1] = sm;
        
        /* get cached tile, or generate one if it doesn't exist */
       // if(!g_cache[sm]) {
@@ -838,9 +839,19 @@ End 64-bit Frames */
          g_seed[i] = seed[i];
         
       if(PEACH_DEBUG) {
+         printf("GPU BT HASH input: ");
+         for(i = 0; i < 108; i++) 
+           printf(" %02X", c_input32[i]);
+         for(i = 0; i < 16; i++) 
+           printf(" %02X", seed[i]);
+         printf("\n");
          printf("GPU BT HASH output: ");
          for(i = 0; i < 32; i++) 
            printf(" %02X", bt_hash[i]);
+         printf("\n");
+         printf("GPU TILE numbers: ");
+         for(i = 0; i < 9; i++) 
+           printf(" %u", sma[i]);
          printf("\n");
          printf("GPU FINAL HASH output: ");
          for(i = 0; i < 32; i++) 

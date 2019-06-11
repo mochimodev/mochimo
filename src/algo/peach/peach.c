@@ -207,12 +207,9 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
          /* set float pointers */
          floatp = (float *) &tilep[j];
          
-        if(PEACH_DEBUG && j==0)
-           printf("CPU tile[%u] output: %a ", index, *floatp);
-         
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
-        switch(tilep[k] & 7) {
+         switch(tilep[k] & 7) {
             case 0:
             {
                // skip a byte
@@ -324,9 +321,6 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                   break;
          }
          
-        if(PEACH_DEBUG && j==992)
-           printf("%a | ", *floatp);
-         
       } /* end for(op = 0... */
       
       /* Execute bit manipulations per tile row. */
@@ -383,15 +377,13 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
          } /* end switch(... */
       } /* end for(t = 0... */ 
       
-
-
       /* Hash the result of the current tile's row to the next. */
       if(j < TILE_LENGTH) {
          sha256_init(&ictx);
          sha256_update(&ictx, &tilep[i], HASHLEN);
          sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
          sha256_final(&ictx, &tilep[j]);
-
+         
          night_hash(&tilep[j], &tilep[j], HASHLEN);
       }
    } /* end for(i = j = k = 0... */
@@ -433,7 +425,9 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
-   char *haiku;
+   
+   /* DEBUG vars */
+   uint32_t sma[9];
 
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    h = 0;
@@ -494,15 +488,27 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 
       sm %= MAP;
       
+      if(PEACH_DEBUG) sma[0] = sm;
+      
       get_tile(&tile, sm, bt->phash, map, cache);
      
       for(j = 0; j < JUMP; j++) {
          sm = next_index(sm, tile, bt->nonce);
          
+         if(PEACH_DEBUG) sma[j+1] = sm;
+         
          get_tile(&tile, sm, bt->phash, map, cache);
       }
       
-    if(PEACH_DEBUG) {  
+    if(PEACH_DEBUG) {
+         printf("CPU BT HASH input: ");
+         for(int i = 0; i < 124; i++) 
+           printf(" %02X", ((byte *) bt)[i]);
+         printf("\n");
+         printf("CPU TILE numbers: ");
+         for(int i = 0; i < 9; i++) 
+           printf(" %u", sma[i]);
+         printf("\n");
          printf("CPU BT HASH output: ");
          for(int i = 0; i < 32; i++) 
            printf(" %02X", bt_hash[i]);

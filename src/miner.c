@@ -72,6 +72,7 @@ int miner(char *blockin, char *blockout)
       if(Trace)
          plog("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
+      
 #ifdef CUDANODE
       if (!(init_cuda_peach(Difficulty, bt.phash, bt.bnum) & 0x3f)) {
          error("Miner failed to initilize CUDA devices\n");
@@ -83,13 +84,15 @@ int miner(char *blockin, char *blockout)
 
 #ifdef CUDANODE
          cuda_peach((byte *) &bt, haiku, &hps, &Running);
+         if(!Running) break;
           /* ... better double check */
           if(peach(&bt, Difficulty, NULL, 1)) {
              printf("ERROR - Solved block is not valid\n");
              error("!!!!!Peach solved block is not valid!!!!!");
              sleep(5);
-             break;;
+             break;
           }
+          /* K all g... */
 #endif
 #ifdef CPUNODE
          if(peach(&bt, Difficulty, &hps, 0)) break;
