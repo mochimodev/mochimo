@@ -27,13 +27,9 @@ int miner(char *blockin, char *blockout)
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
 
-   /*TODO: Must be fixed by Matt.
-    * Using char* crashes because trigg_expand2 expect a char* of length 256
-    * Using the char[256] type clashes with the legacy 2.3 CPU handler
-    */
-   char stack_haiku[256];
-   char *haiku = stack_haiku;
-
+   char *haiku;
+   char phaiku[256];
+   
    time_t htime;
    word32 temp[3], hcount, hps;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
@@ -77,33 +73,29 @@ int miner(char *blockin, char *blockout)
          plog("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
 #ifdef CUDANODE
-      if (!(init_cuda_peach(Difficulty, bt.phash, bt.bnum) & 0x3f))
-      {
-          error("Miner failed to initilize CUDA devices\n");
-          break;
+      if (!(init_cuda_peach(Difficulty, bt.phash, bt.bnum) & 0x3f)) {
+         error("Miner failed to initilize CUDA devices\n");
+         break;
       }
 #endif
 
-      if(cmp64(bt.bnum, v24trigger) > 0)
-      { /* v2.4 and later */
+      if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 and later */
 
 #ifdef CUDANODE
          cuda_peach((byte *) &bt, haiku, &hps, &Running);
           /* ... better double check */
           if(peach(&bt, Difficulty, haiku, NULL, 1)) {
-              printf("ERROR - Solved block is not valid\n");
-              error("!!!!!Peach solved block is not valid!!!!!");
+             printf("ERROR - Solved block is not valid\n");
+             error("!!!!!Peach solved block is not valid!!!!!");
              sleep(5);
-              break;;
+             break;;
           }
-          /* K all g... */
 #endif
 #ifdef CPUNODE
          if(peach(&bt, Difficulty, haiku, &hps, 0)) break;
 #endif
-
          write_data(&hps, sizeof(word32), "hps.dat");
-      }
+      } /* end if(cmp64(bt.bnum... */
 
 
 /* Legacy handler is CPU Only for all v2.3 and earlier blocks */
@@ -139,8 +131,14 @@ int miner(char *blockin, char *blockout)
          }
       } /* end legacy handler */
 
-/* Everything below this line is shared code.  */
+      if(cmp64(bt.bnum, v24trigger) > 0) { /* Print peach() Haiku */
+         trigg_expand2(bt.nonce, phaiku);
+         if(!Bgflag) printf("\n%s\n\n", phaiku);
+      } else { /* Print Legacy Haiku */
+         if(!Bgflag) printf("\n%s\n\n", haiku);
+      }
 
+      /* Everything below this line is shared code.  */
       show("solved");
 
       /* solved block! */
@@ -176,9 +174,6 @@ int miner(char *blockin, char *blockout)
       if(Trace)
          plog("miner: solved block 0x%s is now: %s",
               bnum2hex(bt.bnum), blockout);
-
-      if(!Bgflag) printf("\nM:%s\n\n", haiku);
-
       break;
    }  /* end for(;;) exit miner  */
 
