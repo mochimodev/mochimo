@@ -84,7 +84,7 @@ int miner(char *blockin, char *blockout)
 #ifdef CUDANODE
          cuda_peach((byte *) &bt, haiku, &hps, &Running);
           /* ... better double check */
-          if(peach(&bt, Difficulty, haiku, NULL, 1)) {
+          if(peach(&bt, Difficulty, NULL, 1)) {
              printf("ERROR - Solved block is not valid\n");
              error("!!!!!Peach solved block is not valid!!!!!");
              sleep(5);
@@ -92,7 +92,7 @@ int miner(char *blockin, char *blockout)
           }
 #endif
 #ifdef CPUNODE
-         if(peach(&bt, Difficulty, haiku, &hps, 0)) break;
+         if(peach(&bt, Difficulty, &hps, 0)) break;
 #endif
          write_data(&hps, sizeof(word32), "hps.dat");
       } /* end if(cmp64(bt.bnum... */

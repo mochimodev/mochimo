@@ -202,7 +202,7 @@ badread:
 
    /* check enforced delay, collect haiku from block */
    if(cmp64(bnum, v24trigger) > 0) {
-      if(peach(&bt, get32(bt.difficulty), haiku, NULL, 1)){
+      if(peach(&bt, get32(bt.difficulty), NULL, 1)){
          drop("peach validation failed!");
       }
       if(!Bgflag) printf("\n%s\n\n", haiku);

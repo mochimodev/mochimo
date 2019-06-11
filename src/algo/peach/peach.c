@@ -424,7 +424,7 @@ int is_solution(byte diff, byte* tile, byte* bt_hash)
  * Mode 1: Validating
  *
  */
-int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
+int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 {
    SHA256_CTX ictx;
 
@@ -433,6 +433,7 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
+   char *haiku;
 
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    h = 0;
@@ -526,7 +527,7 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
          gettimeofday(&tend, NULL);
          timersub(&tend, &tstart, &telapsed);
 
-         if(peach(bt, difficulty, haiku, NULL, 1)) {
+         if(peach(bt, difficulty, NULL, 1)) {
             byte* bt_bytes = (byte*) bt;
             char hex[124 * 4];
             for(int i = 0; i < 124; i++){

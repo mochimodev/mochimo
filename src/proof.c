@@ -91,7 +91,7 @@ int checkproof(TX *tx)
       if(stime <= get32((bt - 1)->stime)) BAIL(6);
       if(!get32(bt->tcount)) continue;  /* skip p-block */
       if(cmp64(bt->bnum, v24trigger) > 0) { /* v2.4 */
-         if(peach(bt, diff, haiku, NULL, 1)){
+         if(peach(bt, diff, NULL, 1)){
             BAIL(7);
          }
       }

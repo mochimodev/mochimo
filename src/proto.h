@@ -66,5 +66,5 @@ int renew(void);
 int refresh_ipl(void);
 
 /* Source file: algo/peach/peach.c */
-int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode);
+int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode);
 
