@@ -43,13 +43,11 @@
 #include "update.c"
 #include "init.c"       /* read Coreplist[] and get_eon()  */
 #include "server.c"     /* tcp server */
-#include "crypto/md5/md5.c"
-#include "crypto/sha1/sha1.c"
 
 int main(void)
 {
    Running = 1;
-   Difficulty=8;
+   Difficulty=14;
    miner("cblock.dat", "mblock.dat");
    return 0;
 }

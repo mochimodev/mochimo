@@ -16,6 +16,11 @@
 #include <inttypes.h>
 #include <math.h>
 #include <sys/time.h>
+#include "../../crypto/blake2/blake2b-ref.c"
+#include "../../crypto/blake2/blake2s-ref.c"
+#include "../../crypto/sha3/sha3.c"
+#include "../../crypto/sha1/sha1.c"
+#include "../../crypto/md5/md5.c"
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
@@ -87,6 +92,91 @@ void get_tile(byte **out, uint32_t index, byte *seed, byte *map, byte *cache)
    if(cache != NULL) cache[index] = 1;
 }
 
+void night_hash(byte *out, byte *in, uint32_t inlen)
+{
+   uint32_t op;
+   op = 0;
+
+   /* TODO: Replace with floating point arithmetic */
+   for(int i = 0; i < inlen; i++)
+      op += in[i];
+
+   switch(op % 6)
+   {
+      case 0:
+      {
+         /* Blake2s
+         * CUDA impl:
+         *          https://github.com/vertcoin-project/vertminer-nvidia/blob/master/Algo256/blake2s.cu
+         */
+         byte key[HASHLEN];
+         memset(key, in[inlen - 1], HASHLEN);
+         blake2s(out, HASHLEN, in, inlen, key, HASHLEN);
+      }
+         break;
+      case 1:
+      {
+         /* Blake2b
+         * CUDA impl:
+         *          https://github.com/tromp/equihash/blob/master/blake2b.cu
+         *          https://github.com/nicehash/nheqminer/blob/master/cuda_tromp/blake2b.cu
+         */
+         byte key[HASHLEN];
+         memset(key, in[inlen - 1], HASHLEN);
+         blake2b(out, HASHLEN, in, inlen, key, HASHLEN);
+      }
+         break;
+      case 2:
+      {
+         /* SHA3
+         * CUDA impl:
+         *    https://github.com/skapix/sha3/blob/master/lib/sha3_gpu.cu
+         */
+         sha3_HashBuffer(256, SHA3_FLAGS_NONE, in, inlen, out, HASHLEN);
+      }
+         break;
+      case 3:
+      {
+         /* Keccak
+         * CUDA impl:
+         *       https://github.com/cbuchner1/CudaMiner/blob/master/keccak.cu
+         *    http://www.cayrel.net/?Keccak-implementation-on-GPU
+         *    https://sites.google.com/site/keccaktreegpu/
+         */
+         sha3_HashBuffer(256, SHA3_FLAGS_KECCAK, in, inlen, out, HASHLEN);
+      }
+         break;
+      case 4:
+      {
+         /* SHA1
+         * CUDA impl:
+         *        https://github.com/smoes/SHA1-CUDA-bruteforce
+         */
+         SHA1_CTX ctx;
+         sha1_init(&ctx);
+         sha1_update(&ctx, in, inlen);
+         sha1_final(&ctx, out);
+      }
+         break;
+      case 5:
+      {
+         /* MD5
+         * CUDA impl:
+         *        https://github.com/xpn/CUDA-MD5-Crack
+         */
+         MD5_CTX ctx;
+         md5_init(&ctx);
+         md5_update(&ctx, in, inlen);
+         md5_final(&ctx, out);
+      }
+         break;
+      default:
+         error("Peach night hash OP is outside the expected range (%i)\n", op);
+         assert(0);
+         break;
+   }
+}
+
 void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
 {
    SHA256_CTX ictx;
@@ -122,7 +212,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
          
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
-         switch(tilep[k] & 7) {
+        switch(tilep[k] & 7) {
             case 0:
             {
                // skip a byte
@@ -200,7 +290,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
             }
                break;
             default:
-               error("Peach OP is outside the expected range (%i)\n", op);
+               error("Peach float OP is outside the expected range (%i)\n", op);
                assert(0);
                break;
          }
@@ -287,18 +377,22 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                for(z = 1; z < HASHLEN; z++) tilep[i + z] ^= tilep[i + z - 1];
                break;
             default:
-               error("Peach OP is outside the expected range (%i)\n", op);
+               error("Peach transform OP is outside the expected range (%i)\n", op);
                assert(0);
                break;
          } /* end switch(... */
       } /* end for(t = 0... */ 
       
+
+
       /* Hash the result of the current tile's row to the next. */
       if(j < TILE_LENGTH) {
          sha256_init(&ictx);
          sha256_update(&ictx, &tilep[i], HASHLEN);
          sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
          sha256_final(&ictx, &tilep[j]);
+
+         night_hash(&tilep[j], &tilep[j], HASHLEN);
       }
    } /* end for(i = j = k = 0... */
 
