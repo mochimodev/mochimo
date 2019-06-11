@@ -111,7 +111,7 @@ int main(int argc, char **argv)
    int count;
    static byte do_rename = 1;
    static byte pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
-   static char *haiku = "";
+   static char *haiku;
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;

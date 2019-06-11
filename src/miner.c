@@ -26,7 +26,8 @@ int miner(char *blockin, char *blockout)
    BTRAILER bt;
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
-   char *haiku = "";
+   char *haiku;
+   char phaiku[256];
    time_t htime;
    word32 temp[3], hcount, hps;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
@@ -167,7 +168,12 @@ int miner(char *blockin, char *blockout)
          plog("miner: solved block 0x%s is now: %s",
               bnum2hex(bt.bnum), blockout);
 
-      if(!Bgflag) printf("\nM:%s\n\n", haiku);
+      if(cmp64(bt.bnum, v24trigger) > 0) {
+         trigg_expand2(bt.nonce, phaiku);
+         if(!Bgflag) printf("\nM:%s\n\n", phaiku);
+      } else {
+         if(!Bgflag) printf("\nM:%s\n\n", haiku);
+      }
 
       break;
    }  /* end for(;;) exit miner  */

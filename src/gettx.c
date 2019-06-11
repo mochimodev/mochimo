@@ -92,7 +92,7 @@ int bval2(char *fname, byte *bnum, byte diff)
    BTRAILER bt;
    word32 now;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   char *haiku = ""; /* for v2.4 Compatibility */
+   char *haiku; /* for v2.4 Compatibility */
 
    if(Trace) plog("bval2()");
 

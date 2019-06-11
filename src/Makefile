@@ -5,7 +5,7 @@
 
 SHELL := /bin/bash
 CC=gcc -DUNIXLIKE -DLONG64 -I/usr/lib -L/usr/local/cuda/lib64
-#CFLAGS=-W -Wall -ansi -pedantic -g
+CFLAGS=-W -Wall -ansi -pedantic -g
 NVCC=/usr/local/cuda/bin/nvcc -DLONG64 --generate-code arch="compute_37,code=\"sm_37,compute_37\""
 LDFLAGS=-lcudart -lcuda -lstdc++
 EXEC=mochimo bval bcon bup sortlt neogen wallet minertest
@@ -55,8 +55,8 @@ sortlt: sha256.o
 neogen: sha256.o
 	$(CC) -g -o $(BIN_FOLDER)neogen $(SOURCE_FOLDER)neogen.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 
-#txclean: sha256.o
-#	$(CC) -g -o $(BIN_FOLDER)txclean $(SOURCE_FOLDER)txclean.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
+txclean: sha256.o
+	$(CC) -g -o $(BIN_FOLDER)txclean $(SOURCE_FOLDER)txclean.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 
 
 minertest: wots.o trigg.o sha256.o

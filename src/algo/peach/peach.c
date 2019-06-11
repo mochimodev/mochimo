@@ -371,6 +371,7 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
+   char phaiku[256] = {0};
 
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    h = 0;
@@ -447,8 +448,8 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
          timersub(&tend, &tstart, &telapsed);
          plog("Peach validated in %ld.%06ld seconds", 
              (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
-         trigg_expand2(bt->nonce, haiku);
-         printf("\nV:%s\n\n", haiku);
+         trigg_expand2(bt->nonce, phaiku);
+         printf("\nV:%s\n\n", phaiku);
          goto out;
       }
 
@@ -467,8 +468,8 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
          plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", 
              (long int) telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
          *hps = h;
-         trigg_expand2(bt->nonce, haiku);
-         printf("\nS:%s\n\n", haiku);
+         trigg_expand2(bt->nonce, phaiku);
+         printf("\nS:%s\n\n", phaiku);
  
          goto out;
       } /* end if(solved)... */
