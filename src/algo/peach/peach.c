@@ -525,11 +525,20 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
       if(solved) { /* We're Mining & We Solved! */
          gettimeofday(&tend, NULL);
          timersub(&tend, &tstart, &telapsed);
- 
+
          if(peach(bt, difficulty, haiku, NULL, 1)) {
+            byte* bt_bytes = (byte*) bt;
+            char hex[124 * 4];
+            for(int i = 0; i < 124; i++){
+               sprintf(hex + i * 4, "%03i ", bt_bytes[i]);
+            }
+
             error("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
+            error("BT -> %s", hex);
             plog("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
+            plog("BT -> %s", hex);
          }
+
          cached = 0;
          for(int i = 0; i < MAP; i++) {
             if(cache[i]) cached++;

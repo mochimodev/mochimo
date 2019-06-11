@@ -47,7 +47,7 @@
 int main(void)
 {
    Running = 1;
-   Difficulty=14;
+   Difficulty=10;
    miner("cblock.dat", "mblock.dat");
    return 0;
 }
