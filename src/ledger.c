@@ -15,7 +15,7 @@ byte Lerror;  /* set if any errors on ledger -- sticky bit */
 /* Open ledger "ledger.dat" */
 int le_open(char *ledger, char *fopenmode)
 {
-   long offset;
+   unsigned long offset;
 
    /* Already open? */
    if(Lefp) return VEOK;

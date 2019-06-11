@@ -4,11 +4,10 @@
 ###############################################
 
 SHELL := /bin/bash
-CC=cc -DUNIXLIKE -DLONG64 -I/usr/lib -Wall -Wextra -g
-# -L/usr/local/cuda/lib64
+CC=cc -DUNIXLIKE -DLONG64 -I/usr/lib -L/usr/local/cuda/lib64
 #CFLAGS=-W -Wall -ansi -pedantic -g
-#NVCC=/usr/local/cuda/bin/nvcc -DLONG64 --generate-code arch="compute_37,code=\"sm_37,compute_37\""
-#LDFLAGS=-lcudart -lcuda -lstdc++
+NVCC=/usr/local/cuda/bin/nvcc -DLONG64 --generate-code arch="compute_37,code=\"sm_37,compute_37\""
+LDFLAGS=-lcudart -lcuda -lstdc++
 EXEC=mochimo bval bcon bup sortlt neogen wallet minertest
 SOURCE_FOLDER=./
 BIN_FOLDER=../bin/
@@ -26,8 +25,8 @@ wotshash.o: $(SOURCE_FOLDER)wots/wotshash.c
 wots.o: $(SOURCE_FOLDER)crypto/wots/wots.c
 	$(CC) -g -c $(SOURCE_FOLDER)crypto/wots/wots.c -o $(SOURCE_FOLDER)crypto/wots/wots.o $(LDFLAGS)
 
-#cuda_trigg.o:
-#	$(NVCC) -g -c $(SOURCE_FOLDER)algo/trigg/cuda_trigg.cu -o $(SOURCE_FOLDER)algo/trigg/cuda_trigg.o $(LDFLAGS)
+cuda_trigg.o:
+	$(NVCC) -g -c $(SOURCE_FOLDER)algo/trigg/cuda_trigg.cu -o $(SOURCE_FOLDER)algo/trigg/cuda_trigg.o $(LDFLAGS)
 
 trigg.o: $(SOURCE_FOLDER)algo/trigg/trigg.c
 	$(CC) -g -c $(SOURCE_FOLDER)algo/trigg/trigg.c -o $(SOURCE_FOLDER)algo/trigg/trigg.o $(LDFLAGS)
@@ -35,8 +34,8 @@ trigg.o: $(SOURCE_FOLDER)algo/trigg/trigg.c
 mochimo: wots.o trigg.o sha256.o
 	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 	
-#cuda_mochimo: wots.o cuda_trigg.o trigg.o sha256.o
-#	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)algo/trigg/cuda_trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
+cuda_mochimo: wots.o cuda_trigg.o trigg.o sha256.o
+	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)algo/trigg/cuda_trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 	
 wallet: wots.o sha256.o
 	$(CC) -g -o $(BIN_FOLDER)wallet $(SOURCE_FOLDER)wallet.c $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
@@ -56,8 +55,8 @@ sortlt: sha256.o
 neogen: sha256.o
 	$(CC) -g -o $(BIN_FOLDER)neogen $(SOURCE_FOLDER)neogen.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 
-#txclean: sha256.o
-#	$(CC) -g -o $(BIN_FOLDER)txclean $(SOURCE_FOLDER)txclean.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
+txclean: sha256.o
+	$(CC) -g -o $(BIN_FOLDER)txclean $(SOURCE_FOLDER)txclean.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 
 
 minertest: wots.o trigg.o sha256.o

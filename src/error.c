@@ -145,8 +145,6 @@ void restart(char *mess)
 
 char *show(char *state)
 {
-   char *cp, *sp;
-
    if(state == NULL) state = "(null)";
    if(Statusarg) strncpy(Statusarg, state, 8);
    return state;

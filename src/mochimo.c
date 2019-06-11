@@ -219,10 +219,9 @@ int main(int argc, char **argv)
 
    server();                  /* start server */
 
-done:
-    plog("Server exiting . . .");
-    save_rplist();
-    savepink();
-    pause_server();
-    return 0;              /* never gets here */
+   plog("Server exiting . . .");
+   save_rplist();
+   savepink();
+   pause_server();
+   return 0;              /* never gets here */
 } /* end main() */

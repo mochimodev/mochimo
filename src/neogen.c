@@ -42,7 +42,7 @@ int main(int argc, char **argv)
    FILE *nfp, *lfp;
    word32 neobnum[2];
    static byte buff[IOBUFFLEN];
-   int count;
+   unsigned int count;
    word32 total;
 
    fix_signals();

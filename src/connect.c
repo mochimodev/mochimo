@@ -14,7 +14,6 @@ SOCKET connectip(word32 ip)
    time_t timeout;
 
    if((sd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
-bad:
       error("connectip(): cannot open socket.");
       return INVALID_SOCKET;
    }

@@ -204,9 +204,6 @@ static FE Frame[][MAXH] = {
 #define REMQ(fe, set) ((~(fe)) & (set))
 #define FQ(fe, set) ((fe) | (set))
 
-static char Trigg_check[] = "Trigg!";
-#define TRIGG_CHECK Trigg_check;
-
 void put16(void *buff, word16 val);
 word32 rand16(void);
 word32 rand2(void);
@@ -278,7 +275,7 @@ int trigg_step(byte *in, int n)
  * Expand a haiku inside the TRIGG chain.
  * It must have the correct syntax and vibe.
  */
-char *trigg_expand(byte *in, int diff)
+char *trigg_expand(byte *in)
 {
    int j;
    byte *bp, *w;
@@ -361,7 +358,7 @@ char *trigg_generate(byte *in, int diff)
    /*
     * Expand tokenised haiku in to the TRIGG chain!
     */
-   cp = trigg_expand(in+32, diff);
+   cp = trigg_expand(in+32);
    sha256(Tchain, (32+256+16+8), h);
    if(trigg_eval(h, diff) == NIL) {
       /* Entropy test failed, so backtrack... */
@@ -420,7 +417,7 @@ char *trigg_check(byte *in, byte d, byte *bnum)
    char *cp;
 
    /* Re-linearise the haiku first. */
-   cp = trigg_expand(in+32, d);
+   cp = trigg_expand(in+32);
    /* check syntax, semantics, and vibe... */
    if(trigg_syntax(in+32) == NIL) return NULL;
    if(trigg_syntax(in+(32+16)) == NIL) return NULL;

@@ -815,7 +815,7 @@ __host__ void trigg_free_cuda() {
 
 extern byte Tchain[32 + 256 + 16 + 8];
 extern byte *trigg_gen(byte *in);
-extern char *trigg_expand(byte *in, int diff);
+extern char *trigg_expand(byte *in);
 extern char *trigg_check(byte *in, byte d, byte *bnum);
 
 __host__ char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku)
@@ -826,7 +826,7 @@ __host__ char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku)
         if(ctx[i].next_cp[0] == nullcp) {
             /* ... generate first GPU seed (and expand as Haiku) */
             trigg_gen(ctx[i].next_seed);
-            strcpy(ctx[i].next_cp, trigg_expand(ctx[i].next_seed, *diff));
+            strcpy(ctx[i].next_cp, trigg_expand(ctx[i].next_seed));
 
             /* ... copy mroot to Tchain */
             memcpy(Tchain, mroot, 32);

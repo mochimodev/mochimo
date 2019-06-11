@@ -119,7 +119,6 @@ void sha256_init(SHA256_CTX *ctx)
 void sha256_update(SHA256_CTX *ctx, const byte data[], unsigned len)
 {
    unsigned i;
-   word32 old;
 
 	for(i = 0; i < len; ++i) {
 		ctx->data[ctx->datalen] = data[i];
@@ -129,6 +128,8 @@ void sha256_update(SHA256_CTX *ctx, const byte data[], unsigned len)
 #ifdef LONG64
 			ctx->bitlen += 512;
 #else
+   word32 old;
+
             old = ctx->bitlen;
             ctx->bitlen += 512;
             if(ctx->bitlen < old) ctx->bitlen2++;  /* add in carry */
@@ -142,8 +143,6 @@ void sha256_update(SHA256_CTX *ctx, const byte data[], unsigned len)
 void sha256_final(SHA256_CTX *ctx, byte hash[])
 {
    unsigned i, j;
-   word32 old;
-
 	i = ctx->datalen;
 
 	/* Pad whatever data is left in the buffer. */
@@ -163,6 +162,7 @@ void sha256_final(SHA256_CTX *ctx, byte hash[])
 #ifdef LONG64
 	ctx->bitlen += ctx->datalen * 8;
 #else
+    word32 old;
     old = ctx->bitlen;
     ctx->bitlen += ctx->datalen * 8;
     if(ctx->bitlen < old) ctx->bitlen2++;  /* add in carry */

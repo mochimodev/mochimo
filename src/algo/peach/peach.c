@@ -21,8 +21,7 @@
 byte *trigg_gen(byte *in);
 void trigg_expand2(byte *in, char *out);
 
-void generate_tile(byte** out, uint32_t index, byte* seed, byte * map,
-                   byte * cache);
+void generate_tile(byte** out, uint32_t index, byte* seed, byte * map);
 
 /*
  * Return 0 if solved, else 1.
@@ -84,12 +83,11 @@ void get_tile(byte **out, uint32_t index, byte *seed, byte *map, byte *cache)
    }
 
    /* Tile not yet generated, generate it, and flag the cache accordingly. */   
-   generate_tile(out, index, seed, map, cache);
+   generate_tile(out, index, seed, map);
    if(cache != NULL) cache[index] = 1;
 }
 
-void generate_tile(byte **out, uint32_t index, byte *seed, byte *map, 
-                   byte *cache)
+void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
 {
    SHA256_CTX ictx;
    uint32_t op;

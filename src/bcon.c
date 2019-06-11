@@ -49,6 +49,7 @@ void sigterm2(int sig)
    unlink("cblock.tmp");
    unlink("cblock.dat");
    unlink("bctx.dat");
+   if(Trace) plog("sigterm() received signal %i", sig);
    exit(1);
 }
 

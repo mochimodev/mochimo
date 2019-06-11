@@ -42,6 +42,7 @@ void cleanup(int ecode)
    unlink("ledger.tmp");
    unlink("txq.tmp");
    unlink("ltran.dat");
+   if(Trace) plog("cleanup() exiting with ecode %i", ecode);
    exit(1);
 }
 
@@ -70,7 +71,7 @@ int main(int argc, char **argv)
    FILE *bfp;              /* to read the new block */
    FILE *lfp;              /* ledger.dat */
    word32 hdrlen;          /* for block header length */
-   int count;
+   unsigned int count;
    word32 *idx;
    int cond;
    LENTRY oldle;     /* input ledger entry  */

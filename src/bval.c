@@ -53,6 +53,7 @@ void cleanup(int ecode)
    if(Q2 != NULL) free(Q2);
    unlink("ltran.tmp");
    if(Bvaldelfname) unlink(Bvaldelfname);
+   if(Trace) plog("cleanup() with ecode %i", ecode);
    exit(1);  /* no pink-list */
 }
 
@@ -96,8 +97,7 @@ int main(int argc, char **argv)
    FILE *ltfp;             /* ledger transaction output file ltran.tmp */
    word32 hdrlen, tcount;  /* header length and transaction count */
    int cond;
-   static LENTRY src_le, chg_le;    /* source and change ledger entries */
-   static LENTRY dst_le;            /* destination ledger entry */
+   static LENTRY src_le;            /* source and change ledger entries */
    word32 total[2];                 /* for 64-bit maths */
    static byte mroot[HASHLEN];      /* computed Merkel root */
    static byte bhash[HASHLEN];      /* computed block hash */
