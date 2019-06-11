@@ -1,21 +1,11 @@
 /*
  * cuda_trigg.cu  Multi-GPU CUDA Mining
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 10 August 2018
  * Revision: 31
- *
- * Attribution:  The portions of this code on lines 20 through 233 are work
- * made for hire by a Mochimo Discord user, and are not subject to to Mochimo
- * Cryptocurrency Engine License Agreement.  The remainder of this file below
- * line 233 is subject to the license as found in LICENSE.PDF
- * 
- * Anon Discord User: Let Stack know if you want attribution, and we'll give
- * you a proper credit here.  As of our last conversation you just wanted to
- * be paid with no attribution, which frankly feels a little weird to everyone.
- *
  */
 
 #include <stdio.h>
