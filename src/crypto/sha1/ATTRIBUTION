@@ -10,3 +10,8 @@ Original attribution notice, provided by the author, no copyright claimed:
 				  Algorithm specification can be found here:
 				   * http://tools.ietf.org/html/rfc1321
 				  This implementation uses little endian byte order.
+
+For more information on Brad Conte's release of the referenced into the public
+domain, please see his notice at:
+
+https://github.com/B-Con/crypto-algorithms/blob/master/README.md
