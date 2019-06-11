@@ -67,7 +67,7 @@ uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
    sha256_update(&ictx, current_tile, TILE_LENGTH);
 
    sha256_final(&ictx, hash);
-
+   
    /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
    for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
 
@@ -113,47 +113,12 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
   
    for(i = j = k = 0; i < TILE_LENGTH; i += HASHLEN) { /* For each tile row */
       for(op = 0; j < i + HASHLEN; j += 4) {
-         /* Bel suggested simple exponent COULD potentially be sped up with bit
-          * manipulation of the exponent, even WITH the edge cases of Infinity
-          * and Denormals. Therefor, the commented code has been changed.
-          * set float pointer 
-         floatp = (float *) &tilep[j];
-        
-          * Order of operations dependent on initial 8 bits:
-          *   1) right shift by 4 to obtain the exponent value
-          *   2) 50% chance of exponent being negative
-          *   3) 50% chance of changing sign of float
-         if(tilep[k] & 1) {
-            k++;
-            exp = tilep[k++] >> 4;
-            if(tilep[k++] & 1) exp ^= 0x80000000;
-            if(tilep[k++] & 1) *floatp = -(*floatp);
-         } else
-         if(tilep[k] & 2) {
-            k++;
-            exp = tilep[k++] >> 4;
-            if(tilep[k++] & 1) *floatp = -(*floatp);
-            if(tilep[k++] & 1) exp ^= 0x80000000;
-         } else {
-            k++;
-            if(tilep[k++] & 1) *floatp = -(*floatp);
-            exp = tilep[k++] >> 4;
-            if(tilep[k++] & 1) exp ^= 0x80000000;
-         }
-
-         * Replace NaN's with tileNum.
-         if(isnan(*floatp)) *floatp = (float) index;
-
-         * Perform floating point operation.
-         *floatp = ldexpf(*floatp, exp);
          
-         */
-         
-         /* NEW floating point operations - NEEDS FIELD TEST TO VALIDATE DETERMINISM */
          /* set float pointers */
          floatp = (float *) &tilep[j];
          
-/*         if(PEACH_DEBUG && j == 992) printf("CPU floatp: %a\n", *floatp); */
+        if(PEACH_DEBUG && j==0)
+           printf("CPU tile[%u] output: %a ", index, *floatp);
          
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
@@ -168,7 +133,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                selector = tilep[k++] & (HASHLEN - 1); // & (HASHLEN - 1), returns 0-31
                floatv = (float) tilep[i + selector]; // i + selector, index in 32 byte series
                // determine if floating point operation is performed on a negative number
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
             }
                break;
             case 1:
@@ -176,7 +141,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                k++;
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                op = tilep[k++];
             }
                break;
@@ -186,7 +151,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                k++;
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
             }
                break;
             case 3:
@@ -194,7 +159,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                op = tilep[k++];
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                k++;
             }
                break;
@@ -202,7 +167,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
             {
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                k++;
                op = tilep[k++];
             }
@@ -211,7 +176,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
             {
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                op = tilep[k++];
                k++;
             }
@@ -222,7 +187,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
                k++;
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
             }
                break;
             case 7:
@@ -231,7 +196,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
                op = tilep[k++];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
             }
                break;
             default:
@@ -268,6 +233,9 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                }
                   break;
          }
+         
+        if(PEACH_DEBUG && j==992)
+           printf("%a | ", *floatp);
          
       } /* end for(op = 0... */
       
@@ -371,7 +339,6 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
-   char phaiku[256] = {0};
 
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    h = 0;
@@ -440,6 +407,12 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
          get_tile(&tile, sm, bt->phash, map, cache);
       }
       
+    if(PEACH_DEBUG) {  
+         printf("CPU BT HASH output: ");
+         for(int i = 0; i < 32; i++) 
+           printf(" %02X", bt_hash[i]);
+         printf("\n");
+   }
       solved = is_solution(diff, tile, bt_hash);
       /* include the mining address and transactions as part of the solution */
 
@@ -448,8 +421,10 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
          timersub(&tend, &tstart, &telapsed);
          plog("Peach validated in %ld.%06ld seconds", 
              (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
-         trigg_expand2(bt->nonce, phaiku);
-         printf("\nV:%s\n\n", phaiku);
+         /*
+         trigg_expand2(bt->nonce, haiku);
+         printf("\nV:%s\n\n", haiku);
+         */
          goto out;
       }
 
@@ -468,8 +443,8 @@ int peach(BTRAILER *bt, word32 difficulty, char *haiku, word32 *hps, int mode)
          plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", 
              (long int) telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
          *hps = h;
-         trigg_expand2(bt->nonce, phaiku);
-         printf("\nS:%s\n\n", phaiku);
+         trigg_expand2(bt->nonce, haiku);
+         printf("\nS:%s\n\n", haiku);
  
          goto out;
       } /* end if(solved)... */

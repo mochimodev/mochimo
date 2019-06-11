@@ -116,7 +116,7 @@ __constant__ static int Z_INGADJ[64] = {18,19,20,21,22,23,24,25,26,27,28,29,30,3
 
 
 
-__device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *tilep, uint8_t *nonce) {
+__device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *g_map, uint8_t *nonce) {
   /**
    * Assume tile[1024] pointer and nonce[16] pointer
    * Plus an additional unsigned - 0x20A0 bits */
@@ -125,22 +125,20 @@ __device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *tilep, uint8_t *n
   byte hash[HASHLEN];
   cuda_SHA256_CTX ictx;
    
-   
   cuda_sha256_init(&ictx);
   cuda_sha256_update(&ictx, nonce, HASHLEN);
-  cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
-  cuda_sha256_update(&ictx, tilep, TILE_LENGTH);
+  cuda_sha256_update(&ictx, (byte *) &tilenum, sizeof(uint32_t));
+  cuda_sha256_update(&ictx, &g_map[tilenum * TILE_LENGTH], TILE_LENGTH);
 
   cuda_sha256_final(&ictx, hash);
-
+   
    /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
    for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
 
   return index % MAP;
 }
 
-__device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
-                                   uint8_t *g_map, uint8_t *g_cache) {
+__device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) {
   /**
    * Declarations */
   cuda_SHA256_CTX ictx;
@@ -167,6 +165,8 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
       {
          /* set float pointer */
          floatp = (float *) &tilep[j];
+        if(PEACH_DEBUG && j==0)
+           printf("GPU tile[%u] output: %a ", tilenum, *floatp);
          
          /* Byte selections depend on initial 8 bits
           * Note: Trying not to perform "floatv =" first */
@@ -180,13 +180,13 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
                selector = tilep[k++] & (HASHLEN - 1); // & (HASHLEN - 1), returns 0-31
                floatv = (float) tilep[i + selector]; // i + selector, index in 32 byte series
                // determine if floating point operation is performed on a negative number
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                break;
             case 1:
                k++;
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                op = tilep[k++];
                break;
             case 2:
@@ -194,26 +194,26 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
                k++;
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                break;
             case 3:
                op = tilep[k++];
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                k++;
                break;
             case 4:
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                k++;
                op = tilep[k++];
                break;
             case 5:
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                op = tilep[k++];
                k++;
                break;
@@ -222,14 +222,14 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
                k++;
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                break;
             case 7:
                k++;
                selector = tilep[k++] & (HASHLEN - 1);
                floatv = (float) tilep[i + selector];
                op = tilep[k++];
-               floatv *= 0 - (tilep[k++] & 1);
+               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
                break;
          }
 
@@ -253,6 +253,9 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
                   *floatp /= floatv;
                   break;
          }
+         
+        if(PEACH_DEBUG && j==992)
+           printf("%a | ", *floatp);
          
          
       } /* end for(op = 0... */
@@ -278,12 +281,12 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
                break;
             case 3: /* Alternate +1 and -1 on all bytes */
                for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += (z & 1 == 0) ? 1 : -1;
+                  tilep[i + z] += ((z & 1) == 0) ? 1 : -1;
                }
                break;
             case 4: /* Alternate +t and -t on all bytes */
                for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += (z & 1 == 0) ? -t : t;
+                  tilep[i + z] += ((z & 1) == 0) ? -t : t;
                }
                break;
             case 5: /* Replace every occurrence of h with H */ 
@@ -314,8 +317,6 @@ __device__ uint8_t * cuda_gen_tile(uint32_t tilenum, uint8_t *phash,
         cuda_sha256_final(&ictx, &tilep[j]);
       }
     }
-
- return tilep;
 }
 
 __global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map, uint8_t *g_cache, 
@@ -324,9 +325,9 @@ __global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map, uint8_t *g_cac
   const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
   cuda_SHA256_CTX ictx;
   uint32_t sm;
-  uint8_t bt_hash[32], fhash[32], *tilep, *bp, n;
+  uint8_t bt_hash[32], fhash[32];
   uint8_t seed[16] = {0}, nonce[32] = {0};
-  int i, j;
+  int i, j, n, x;
 
   
    if (thread <= threads) {
@@ -797,23 +798,22 @@ End 64-bit Frames */
      sm %= MAP;
 
      /* get cached tile, or generate one if it doesn't exist */
-     if(g_cache[sm])
-       tilep = &g_map[sm * TILE_LENGTH];
-     else
-       tilep = cuda_gen_tile(sm, c_phash, g_map, g_cache);
+     //if(!g_cache[sm]) {
+          cuda_gen_tile(sm, c_phash, g_map);
+          g_cache[sm] = 1;
+      // }
      
      /* make <JUMP> tile jumps to find the final tile */
      for(j = 0; j < JUMP; j++) {
        /* determine next tile index */
-       sm = cuda_next_index(sm, tilep, nonce);
+       sm = cuda_next_index(sm, g_map, nonce);
        
        /* get cached tile, or generate one if it doesn't exist */
-       if(g_cache[sm])
-         tilep = &g_map[sm * TILE_LENGTH];
-       else
-         tilep = cuda_gen_tile(sm, c_phash, g_map, g_cache);
+      // if(!g_cache[sm]) {
+          cuda_gen_tile(sm, c_phash, g_map);
+          g_cache[sm] = 1;
+      // }
      }
-
 
      /****************************************************************/
      /* Check the hash of the final tile produces the desired result */
@@ -821,25 +821,46 @@ End 64-bit Frames */
       
      cuda_sha256_init(&ictx);
      cuda_sha256_update(&ictx, bt_hash, HASHLEN);
-     cuda_sha256_update(&ictx, tilep, TILE_LENGTH);
+     cuda_sha256_update(&ictx, &g_map[sm * TILE_LENGTH], TILE_LENGTH);
      cuda_sha256_final(&ictx, fhash);
-      
-      if(PEACH_DEBUG) {
-printf("GPU FINAL HASH output: \n");
-for(i = 0; i < 32; i++) 
-  printf(" %02X", fhash[i]);
-printf("\n");
-      }
      
-     for (bp = fhash, n = c_difficulty >> 5; n; n--)
-       if (*bp++ != 0) return; /* Our princess is in another castle ! */
-     if (__clz(*bp) >= (c_difficulty & 31)) {
+     
+     /* evaluate hash */
+     for (x = i = j = n = 0; i < HASHLEN; i++) {
+       x = fhash[i];
+       if (x != 0) {
+         for(j = 7; j > 0; j--) {
+           x >>= 1;
+           if(x == 0) {
+             n += j;
+             break;
+           }
+         }
+         break;
+       }
+       n += 8;
+     }
+     if(n >= c_difficulty) {
        /* PRINCESS FOUND! */
        *g_found = 1;
        #pragma unroll
        for (i = 0; i < 16; i++)
          g_seed[i] = seed[i];
+        
+      if(PEACH_DEBUG) {
+         printf("GPU BT HASH output: ");
+         for(i = 0; i < 32; i++) 
+           printf(" %02X", bt_hash[i]);
+         printf("\n");
+         printf("GPU FINAL HASH output: ");
+         for(i = 0; i < 32; i++) 
+           printf(" %02X", fhash[i]);
+         printf("\n");
+      }
      }
+     
+      /* Our princess is in another castle ! */
+     
    }
 }
 
@@ -849,8 +870,7 @@ extern "C" {
 
 typedef struct __peach_cuda_ctx {
     byte curr_seed[16], next_seed[16];
-    char cp[256], next_cp[256];
-    int *found, *d_found;
+    int *d_found;
     uint8_t *seed, *d_seed, *d_cache;
     uint8_t *input, *d_map;
     cudaStream_t stream;
@@ -860,7 +880,8 @@ PeachCudaCTX ctx[63];    /* Max 63 GPUs Supported */
 uint32_t threads = 1;
 dim3 grid(1);
 dim3 block(1);
-char nullcp = '\0';
+char haikuGPU[256];
+int *found;
 byte *diff;
 byte *phash;
 byte bnum[8] = {0};
@@ -873,9 +894,12 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
     if(nGPU<1 || nGPU>63) return nGPU;
     /* Allocate pinned host memory */
     cudaMallocHost(&diff, 1);
+    cudaMallocHost(&found, 4);
     cudaMallocHost(&phash, 32);
+    cudaMallocHost(&found, 4);
     /* Copy immediate block data to pinned memory */
     memcpy(diff, &difficulty, 1);
+    memset(found, 0, 4);
     memcpy(phash, prevhash, 32);
 
     int i = 0;
@@ -887,7 +911,6 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
         cudaMalloc(&ctx[i].d_found, 4);
         cudaMalloc(&ctx[i].d_seed, 16);
         /* Allocate associated device-host memory */
-        cudaMallocHost(&ctx[i].found, 4);
         cudaMallocHost(&ctx[i].seed, 16);
         cudaMallocHost(&ctx[i].input, 108);
         /* Copy immediate block data to device memory */
@@ -899,7 +922,7 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
         cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
         cudaMemsetAsync(ctx[i].d_seed, 0, 16, ctx[i].stream);
         /* Set initial round variables */
-        ctx[i].next_cp[0] = nullcp;
+        ctx[i].next_seed[0] = 0;
         /* If first init, setup map and cache */
         if(initGPU == 0) {
             cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
@@ -907,10 +930,7 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
             initGPU = 1;
         }
         /* Wipe cache if new block */
-        if(initGPU && memcmp(blocknumber, bnum, 8) != 0) {
-            cudaMemsetAsync(ctx[i].d_cache, 0, MAP, ctx[i].stream);
-            memcpy(bnum, blocknumber, 8);
-        }
+        cudaMemsetAsync(ctx[i].d_cache, 0, MAP, ctx[i].stream);
     }
 
     return nGPU;
@@ -919,6 +939,7 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
 void free_cuda_peach() {
     /* Free pinned host memory */
     cudaFreeHost(diff);
+    cudaFreeHost(found);
     cudaFreeHost(phash);
 
     int i = 0;
@@ -930,7 +951,6 @@ void free_cuda_peach() {
         cudaFree(ctx[i].d_found);
         cudaFree(ctx[i].d_seed);
         /* Free associated device-host memory */
-        cudaFreeHost(ctx[i].found);
         cudaFreeHost(ctx[i].seed);
         cudaFreeHost(ctx[i].input);
     }
@@ -943,14 +963,13 @@ __host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
 {
     int i;
     uint64_t nHaiku;
-    time_t start = time(NULL);
-    for(haiku = NULL; *runflag && haiku == NULL; ) {
+    time_t seconds = time(NULL);
+    for( ; *runflag && *found == 0; ) {
         for (i=0; i<nGPU; i++) {
             /* Prepare next seed for GPU... */
-            if(ctx[i].next_cp[0] == nullcp) {
+            if(ctx[i].next_seed[0] == 0) {
                 /* ... generate first GPU seed (and expand as Haiku) */
                 trigg_gen(ctx[i].next_seed);
-                trigg_expand2(ctx[i].next_seed, (byte*)ctx[i].next_cp);
 
                 /* ... and prepare round data */
                 memcpy(ctx[i].input, bt, 92);
@@ -960,12 +979,12 @@ __host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
             CudaCheckError();
             cudaSetDevice(i);
             if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
-                cudaMemcpy(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
-                if(*ctx[i].found==1) { /* SOLVED A BLOCK! */
+                cudaMemcpy(found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+                if(*found==1) { /* SOLVED A BLOCK! */
                     cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
                     memcpy(bt + 92, ctx[i].curr_seed, 16);
                     memcpy(bt + 92 + 16, ctx[i].seed, 16);
-                    haiku = ctx[i].cp;
+                    haiku = haikuGPU;
                     break;
                 }
                 /* Send new GPU round Data */
@@ -980,15 +999,15 @@ __host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
 
                 /* Store round vars aside for checks next loop */
                 memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
-                strcpy(ctx[i].cp,ctx[i].next_cp);
-                ctx[i].next_cp[0] = nullcp;
+                ctx[i].next_seed[0] = 0;
             } else continue;  /* Waiting on GPU ... */
         }
     }
     
-    start = time(NULL) - start;
-    if(start == 0) start = 1;
-    *hps = (uint32_t)(nHaiku / (uint64_t)start);
+    seconds = time(NULL) - seconds;
+    if(seconds == 0) seconds = 1;
+    nHaiku /= seconds;
+    *hps = (uint32_t) nHaiku;
          
     return haiku;
 }

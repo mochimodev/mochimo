@@ -27,7 +27,6 @@ int miner(char *blockin, char *blockout)
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
    char *haiku;
-   char phaiku[256];
    time_t htime;
    word32 temp[3], hcount, hps;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
@@ -82,33 +81,36 @@ int miner(char *blockin, char *blockout)
       { /* v2.4 and later */
 
 #ifdef CUDANODE
-         cuda_peach((byte*)&bt, haiku, &hps, &Running);
+         cuda_peach((byte *) &bt, haiku, &hps, &Running);
+          /* ... better double check */
+          if(peach(&bt, Difficulty, haiku, NULL, 1)) {
+              printf("ERROR - Solved block is not valid\n");
+              error("!!!!!Peach solved block is not valid!!!!!");
+             sleep(5);
+              break;;
+          }
+          /* K all g... */
 #endif
 #ifdef CPUNODE
          if(peach(&bt, Difficulty, haiku, &hps, 0)) break;
 #endif
 
          write_data(&hps, sizeof(word32), "hps.dat");
-         if(Running && peach(&bt, Difficulty, haiku, NULL, 1)) {
-            printf("ERROR - Solved block is not valid\n");
-            error("!!!!!Peach solved block is not valid!!!!!");
-            break;
-         }
       }
 
 
-/* Legacy handler is CPU Only for all v2.3 and earlier blocks */
+/* Legacy handler is CPU Only for all v2.3 and earlier blocks *
 
       if(cmp64(bt.bnum, v24trigger) <= 0)
       {
          /* Create the solution state-space beginning with
           * the first plausible link on the TRIGG chain.
-          */
+          *
          trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
 
          /* Traverse all TRIGG links to build the
           * solution chain with trigg_generate()...
-          */
+          *
 
          for(haiku = NULL, htime = time(NULL), hcount = 0; ; ) {
             if(!Running) break;
@@ -116,14 +118,14 @@ int miner(char *blockin, char *blockout)
             haiku = trigg_generate(bt.mroot, bt.difficulty[0]);
             hcount++;
          }
-         /* Calculate and write Haiku/s to disk */
+         /* Calculate and write Haiku/s to disk *
          htime = time(NULL) - htime;
          if(htime == 0) htime = 1;
          hps = hcount / htime;
-         write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second */
+         write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second *
          if(!Running) break;
 
-         /* Block validation check */
+         /* Block validation check *
          if (!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
             printf("ERROR - Block is not valid\n");
             break;
@@ -168,12 +170,7 @@ int miner(char *blockin, char *blockout)
          plog("miner: solved block 0x%s is now: %s",
               bnum2hex(bt.bnum), blockout);
 
-      if(cmp64(bt.bnum, v24trigger) > 0) {
-         trigg_expand2(bt.nonce, phaiku);
-         if(!Bgflag) printf("\nM:%s\n\n", phaiku);
-      } else {
-         if(!Bgflag) printf("\nM:%s\n\n", haiku);
-      }
+      if(!Bgflag) printf("\nM:%s\n\n", haiku);
 
       break;
    }  /* end for(;;) exit miner  */
