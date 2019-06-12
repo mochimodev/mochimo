@@ -15,8 +15,8 @@
 #include "algo/peach/peach.c"
 
 #ifdef CUDANODE
-char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag);
 int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber);
+void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
 void free_cuda_peach();
 #endif
 
@@ -83,7 +83,7 @@ int miner(char *blockin, char *blockout)
       if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 and later */
 
 #ifdef CUDANODE
-         cuda_peach((byte *) &bt, haiku, &hps, &Running);
+         cuda_peach((byte *) &bt, &hps, &Running);
          if(!Running) break;
           /* ... better double check */
           if(peach(&bt, Difficulty, NULL, 1)) {

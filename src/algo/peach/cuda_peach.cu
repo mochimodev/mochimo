@@ -303,7 +303,23 @@ __device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) 
     }
 }
 
-__global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map, uint8_t *g_cache, 
+__global__ void cuda_build_map(uint32_t g_cache, uint8_t *g_map) {
+
+    const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
+    
+    if (thread < g_cache && thread <= MAP) {
+     
+     /*****************************************************/
+     /* Determine the final tile based on selected nonce. */
+     /* Toadstool, get possible locations of the princess */
+        
+        cuda_gen_tile(thread, c_phash, g_map);
+       
+   }
+}
+
+
+__global__ void cuda_find_peach(uint32_t threads, int g_cache, uint8_t *g_map, 
                            int *g_found, uint8_t *g_seed) {
 
   const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
@@ -312,9 +328,6 @@ __global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map, uint8_t *g_cac
   uint8_t bt_hash[32], fhash[32];
   uint8_t seed[16] = {0}, nonce[32] = {0};
   int i, j, n, x;
-   
-   /* DEBUG vars */
-   uint32_t sma[9] = {0};
 
   
    if (thread <= threads) {
@@ -756,26 +769,26 @@ End 64-bit Frames */
      for (i = 0; i < 16; i++)
        nonce[i+16] = seed[i];
      
+       
      /*********************************************************/
      /* Hash 124 bytes of Block Trailer, including both seeds */
      /* Get the wizard to draw you a map to the princess!     */
-       
-       
+
      cuda_sha256_init(&ictx);
 
      /* update sha with the available block trailer data */
      cuda_sha256_update(&ictx, c_input32, 108);
-     
+
      /* update sha with the second seed (16 bytes) */
      cuda_sha256_update(&ictx, seed, 16);
-     
+
      /* finalise sha256 hash */
      cuda_sha256_final(&ictx, bt_hash);
-     
-     
+
+
      /*****************************************************/
      /* Determine the final tile based on selected nonce  */
-     /* Follow the wizard's map to find the princess!     */
+     /* Time to find the princess!                        */
      
      /* determine first tile index */
      sm = bt_hash[0];
@@ -783,28 +796,11 @@ End 64-bit Frames */
        sm *= bt_hash[i];
      
      sm %= MAP;
-   
-      if(PEACH_DEBUG) sma[0] = sm;
-      
-     /* get cached tile, or generate one if it doesn't exist */
-     //if(!g_cache[sm]) {
-          cuda_gen_tile(sm, c_phash, g_map);
-          g_cache[sm] = 1;
-      // }
-     
-     /* make <JUMP> tile jumps to find the final tile */
-     for(j = 0; j < JUMP; j++) {
-       /* determine next tile index */
-       sm = cuda_next_index(sm, g_map, nonce);
-        
-      if(PEACH_DEBUG) sma[j+1] = sm;
        
-       /* get cached tile, or generate one if it doesn't exist */
-      // if(!g_cache[sm]) {
-          cuda_gen_tile(sm, c_phash, g_map);
-          g_cache[sm] = 1;
-      // }
-     }
+     /* make <JUMP> tile jumps to find the final tile */
+     for(j = 0; j < JUMP; j++)
+        sm = cuda_next_index(sm, g_map, nonce);
+
 
      /****************************************************************/
      /* Check the hash of the final tile produces the desired result */
@@ -814,7 +810,6 @@ End 64-bit Frames */
      cuda_sha256_update(&ictx, bt_hash, HASHLEN);
      cuda_sha256_update(&ictx, &g_map[sm * TILE_LENGTH], TILE_LENGTH);
      cuda_sha256_final(&ictx, fhash);
-     
      
      /* evaluate hash */
      for (x = i = j = n = 0; i < HASHLEN; i++) {
@@ -831,33 +826,12 @@ End 64-bit Frames */
        }
        n += 8;
      }
-     if(n >= c_difficulty) {
+       
+     if(n >= c_difficulty && !atomicExch(g_found, 1)) {
        /* PRINCESS FOUND! */
-       *g_found = 1;
        #pragma unroll
        for (i = 0; i < 16; i++)
          g_seed[i] = seed[i];
-        
-      if(PEACH_DEBUG) {
-         printf("GPU BT HASH input: ");
-         for(i = 0; i < 108; i++) 
-           printf(" %02X", c_input32[i]);
-         for(i = 0; i < 16; i++) 
-           printf(" %02X", seed[i]);
-         printf("\n");
-         printf("GPU BT HASH output: ");
-         for(i = 0; i < 32; i++) 
-           printf(" %02X", bt_hash[i]);
-         printf("\n");
-         printf("GPU TILE numbers: ");
-         for(i = 0; i < 9; i++) 
-           printf(" %u", sma[i]);
-         printf("\n");
-         printf("GPU FINAL HASH output: ");
-         for(i = 0; i < 32; i++) 
-           printf(" %02X", fhash[i]);
-         printf("\n");
-      }
      }
      
       /* Our princess is in another castle ! */
@@ -872,15 +846,15 @@ extern "C" {
 typedef struct __peach_cuda_ctx {
     byte curr_seed[16], next_seed[16];
     int *d_found;
-    uint8_t *seed, *d_seed, *d_cache;
+    uint8_t *seed, *d_seed;
     uint8_t *input, *d_map;
     cudaStream_t stream;
 } PeachCudaCTX;
 
 PeachCudaCTX ctx[63];    /* Max 63 GPUs Supported */
-uint32_t threads = 1;
-dim3 grid(1);
-dim3 block(1);
+uint32_t threads = 1048576;
+dim3 grid(4096);
+dim3 block(256);
 char haikuGPU[256];
 int *found;
 byte *diff;
@@ -926,13 +900,22 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
         ctx[i].next_seed[0] = 0;
         /* If first init, setup map and cache */
         if(initGPU == 0) {
-            cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
-            cudaMalloc(&ctx[i].d_cache, MAP);
             initGPU = 1;
+            cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
+            /**
+             * NOTE: The device MAP that holds the data of a map DOES NOT
+             * explicitly get free()'d. The reason behind this is because
+             * we reuse the map variable between blocks, and just rebuild
+             * the map once every block. The GPU free's the MAP when the
+             * program ends by default */
         }
-        /* Wipe cache if new block */
-        cudaMemsetAsync(ctx[i].d_cache, 0, MAP, ctx[i].stream);
+        /* (re)Build map if new block */
+        if(memcmp(bnum, blocknumber, 8) != 0) {
+            cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>(MAP,ctx[i].d_map);
+        }
     }
+    
+    memcpy(bnum, blocknumber, 8);
 
     return nGPU;
 }
@@ -960,10 +943,10 @@ void free_cuda_peach() {
 extern byte *trigg_gen(byte *in);
 extern char *trigg_expand2(byte *in, byte *out);
 
-__host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
+__host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
 {
     int i;
-    uint64_t nHaiku;
+    uint64_t nHaiku = 0;
     time_t seconds = time(NULL);
     for( ; *runflag && *found == 0; ) {
         for (i=0; i<nGPU; i++) {
@@ -985,15 +968,14 @@ __host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
                     cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
                     memcpy(bt + 92, ctx[i].curr_seed, 16);
                     memcpy(bt + 92 + 16, ctx[i].seed, 16);
-                    haiku = haikuGPU;
                     break;
                 }
                 /* Send new GPU round Data */
                 cudaMemcpyToSymbolAsync(c_input32, ctx[i].input, 108, 0,
                                         cudaMemcpyHostToDevice, ctx[i].stream);
                 /* Start GPU round */
-                cuda_find_peach<<<grid, block, 0, ctx[i].stream>>>(threads,
-                ctx[i].d_map, ctx[i].d_cache, ctx[i].d_found, ctx[i].d_seed);
+                cuda_find_peach<<<grid, block, 0, ctx[i].stream>>>(threads, MAP,
+                                    ctx[i].d_map, ctx[i].d_found, ctx[i].d_seed);
 
                 /* Add to haiku count */
                 nHaiku += threads;
@@ -1009,8 +991,6 @@ __host__ char *cuda_peach(byte *bt, char *haiku, uint32_t *hps, byte *runflag)
     if(seconds == 0) seconds = 1;
     nHaiku /= seconds;
     *hps = (uint32_t) nHaiku;
-         
-    return haiku;
 }
 
 

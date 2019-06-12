@@ -384,7 +384,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
          sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
          sha256_final(&ictx, &tilep[j]);
          
-         night_hash(&tilep[j], &tilep[j], HASHLEN);
+         // night_hash(&tilep[j], &tilep[j], HASHLEN);
       }
    } /* end for(i = j = k = 0... */
 
@@ -400,13 +400,6 @@ int is_solution(byte diff, byte* tile, byte* bt_hash)
    sha256_update(&ictx, bt_hash, HASHLEN);
    sha256_update(&ictx, tile, TILE_LENGTH);
    sha256_final(&ictx, hash);
-   
-
-      if(PEACH_DEBUG){
-         printf("CPU FINAL HASH output: ");
-         for(int i = 0; i < 32; i++) printf(" %02X", hash[i]);
-         printf("\n");
-      }
 
    return peach_eval(hash, diff) == 0;
 }
@@ -425,9 +418,6 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
-   
-   /* DEBUG vars */
-   uint32_t sma[9];
 
    diff = difficulty; /* down-convert passed-in 32-bit difficulty to 8-bit */
    h = 0;
@@ -488,32 +478,14 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 
       sm %= MAP;
       
-      if(PEACH_DEBUG) sma[0] = sm;
-      
       get_tile(&tile, sm, bt->phash, map, cache);
      
       for(j = 0; j < JUMP; j++) {
          sm = next_index(sm, tile, bt->nonce);
-         
-         if(PEACH_DEBUG) sma[j+1] = sm;
-         
+
          get_tile(&tile, sm, bt->phash, map, cache);
       }
-      
-    if(PEACH_DEBUG) {
-         printf("CPU BT HASH input: ");
-         for(int i = 0; i < 124; i++) 
-           printf(" %02X", ((byte *) bt)[i]);
-         printf("\n");
-         printf("CPU TILE numbers: ");
-         for(int i = 0; i < 9; i++) 
-           printf(" %u", sma[i]);
-         printf("\n");
-         printf("CPU BT HASH output: ");
-         for(int i = 0; i < 32; i++) 
-           printf(" %02X", bt_hash[i]);
-         printf("\n");
-   }
+       
       solved = is_solution(diff, tile, bt_hash);
       /* include the mining address and transactions as part of the solution */
 
@@ -553,6 +525,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
          plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", 
              (long int) telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
          *hps = h;
+         char haiku[256];
          trigg_expand2(bt->nonce, haiku);
          printf("\nS:%s\n\n", haiku);
  
