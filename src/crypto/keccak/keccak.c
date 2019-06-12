@@ -1,52 +1,60 @@
+/*
+ * keccak.c  Implementation of Keccak/SHA3 digest
+ *
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
+ * See LICENSE.PDF   **** NO WARRANTY ****
+ *
+ * Date: 12 June 2019
+ * Revision: 1
+ *
+ * This file is subject to the license as found in LICENSE.PDF
+ *
+ */
 #include "keccak.h"
 
 /*
-*Digestbitlen must be 128 224 256 288 384 512
-*/
+ * Digestbitlen must be 128 224 256 288 384 512
+ */
 void keccak_init(keccak_ctx_t *ctx, uint32_t digestbitlen) 
 {
 	memset(ctx, 0, sizeof(keccak_ctx_t));
-
+	ctx->sha3_flag = 0;
 	ctx->digestbitlen = digestbitlen;
-	
 	ctx->rate_bits = 1600 - ((ctx->digestbitlen) << 1);
 	ctx->rate_bytes = ctx->rate_bits >> 3;
-	
 	ctx->absorb_round = ctx->rate_bits >> 6;
-
 	ctx->bits_in_queue = 0;
 }
 
 /*
-*Digestbitlen must be 224 256 384 512
-*/
+ * Digestbitlen must be 224 256 384 512
+ */
 void keccak_sha3_init(keccak_ctx_t *ctx, uint32_t digestbitlen)
 {
 	keccak_init(ctx, digestbitlen);
 	ctx->sha3_flag = 1;
 }
 
-
 void keccak_update(keccak_ctx_t *ctx, byte *in, uint64_t inlen) 
 {
 	int64_t bytes = ctx->bits_in_queue >> 3;
 	int64_t count = 0;
 	while (count < inlen) {
-		if (bytes == 0 && count <= (int64_t)(inlen - ctx->rate_bytes)) {
+		if (bytes == 0 && count <= ((int64_t)(inlen - ctx->rate_bytes))) {
 			do {
-				keccak_aborb(ctx, in + count);
+				keccak_absorb(ctx, in + count);
 				count += ctx->rate_bytes;
-			} while (count <= (inlen - ctx->rate_bytes));
+			} while (count <= ((int64_t)(inlen - ctx->rate_bytes)));
 		}
 		else {
-			int64_t partial = MIN(ctx->rate_bytes - bytes, inlen - count);
+			int64_t partial = keccak_MIN(ctx->rate_bytes - bytes, inlen - count);
 			memcpy(ctx->q + bytes, in + count, partial);
 			
 			bytes += partial;
 			count += partial;
 
 			if (bytes == ctx->rate_bytes) {
-				keccak_aborb(ctx, ctx->q);
+				keccak_absorb(ctx, ctx->q);
 				bytes = 0;
 			}
 		}
@@ -54,7 +62,6 @@ void keccak_update(keccak_ctx_t *ctx, byte *in, uint64_t inlen)
 
 	ctx->bits_in_queue = bytes << 3;
 }
-
 
 void keccak_final(keccak_ctx_t *ctx, byte *out)
 {
@@ -75,89 +82,71 @@ void keccak_final(keccak_ctx_t *ctx, byte *out)
 			ctx->bits_in_queue = ctx->rate_bits;
 		}
 
-		uint64_t partialBlock = UMIN(ctx->bits_in_queue, ctx->digestbitlen - i);
-		memcpy(out + (i >> 3), ctx->q + (ctx->rate_bytes - (ctx->bits_in_queue >> 3)), partialBlock >> 3);
-		ctx->bits_in_queue -= partialBlock;
-		i += partialBlock;
+		uint64_t partial_block = keccak_UMIN(ctx->bits_in_queue, ctx->digestbitlen - i);
+		memcpy(out + (i >> 3), ctx->q + (ctx->rate_bytes - (ctx->bits_in_queue >> 3)), partial_block >> 3);
+		ctx->bits_in_queue -= partial_block;
+		i += partial_block;
 	}
 }
-
-
 
 void keccak_pad(keccak_ctx_t *ctx)
 {
 	ctx->q[ctx->bits_in_queue >> 3] |= (1L << (ctx->bits_in_queue & 7));
 
 	if (++ctx->bits_in_queue == ctx->rate_bits) {
-		keccak_aborb(ctx, ctx->q);
+		keccak_absorb(ctx, ctx->q);
 		ctx->bits_in_queue = 0;
-		
 	}
 	
 	uint64_t full = ctx->bits_in_queue >> 6;
 	uint64_t partial = ctx->bits_in_queue & 63;
 
-		uint64_t offset = 0;
-		for (int i = 0; i < full; ++i) {
-			ctx->state[i] ^= leuint64(ctx->q + offset);
-			offset += 8;
-		}
+   uint64_t offset = 0;
+   for (int i = 0; i < full; ++i) {
+      ctx->state[i] ^= keccak_leuint64(ctx->q + offset);
+      offset += 8;
+   }
 
-		uint64_t one = 1;
-		if (partial > 0) {
-			uint64_t mask = (one << partial) - 1;
-			ctx->state[full] ^= leuint64(ctx->q + offset) & mask;
-			one = 1;
-		}
+   if (partial > 0) {
+      uint64_t mask = (1L << partial) - 1;
+      ctx->state[full] ^= keccak_leuint64(ctx->q + offset) & mask;
+   }
 
-		ctx->state[(ctx->rate_bits - 1) >> 6] ^= 9223372036854775808ULL;/* 1 << 63 */
-	
+   ctx->state[(ctx->rate_bits - 1) >> 6] ^= 9223372036854775808ULL;/* 1 << 63 */
 
-		keccak_permutations(ctx);
-
-
-		keccak_extract(ctx);
+   keccak_permutations(ctx);
+   keccak_extract(ctx);
 
 	ctx->bits_in_queue = ctx->rate_bits;
-
 }
 
 
-int64_t MIN(int64_t a, int64_t b)
+int64_t keccak_MIN(int64_t a, int64_t b)
 {
 	if (a > b)
 		return b;
 	return a;
 }
 
-uint64_t UMIN(uint64_t a, uint64_t b)
+uint64_t keccak_UMIN(uint64_t a, uint64_t b)
 {
 	if (a > b)
 		return b;
 	return a;
 }
 
-uint64_t leuint64(void *in)
+uint64_t keccak_leuint64(void *in)
 {
 	uint64_t a;
 	a = *((uint64_t *)in);
 	return a;
-	/*
-#if defined(NATIVE_LITTLE_ENDIAN)
-	uint64_t a;
-	a = *((uint64_t *)in);
-#else
-	uint8_t *a = (uint8_t *)in;
-	return ((uint64_t)(a[0]) << 0) | ((uint64_t)(a[1]) << 8) | ((uint64_t)(a[2]) << 16) | ((uint64_t)(a[3]) << 24) | ((uint64_t)(a[4]) << 32)
-		| ((uint64_t)(a[5]) << 40) | ((uint64_t)(a[6]) << 48) | ((uint64_t)(a[7]) << 56);
-#endif*/
 }
 
-void keccak_aborb(keccak_ctx_t *ctx, byte* in) {
+void keccak_absorb(keccak_ctx_t *ctx, byte* in) {
 	
 	uint64_t offset = 0;
 	for (uint64_t i = 0; i < ctx->absorb_round; ++i) {
-		ctx->state[i] ^= leuint64(in + offset);
+		ctx->state[i] ^= keccak_leuint64(in + offset);
 		offset += 8;
 	}
 
@@ -170,15 +159,13 @@ void keccak_extract(keccak_ctx_t *ctx)
 	int64_t a;
 	int s = sizeof(uint64_t);
 	for (int i = 0;i < len;i++) {
-		a = leuint64((int64_t*)&ctx->state[i]);
-		//ctx->q[i]+ = ((uint64_t *)in);
-
-		//ctx->q[i] = ;
+		a = keccak_leuint64((int64_t*)&ctx->state[i]);
 		memcpy(ctx->q + (i * s), &a, s);
 	}
 }
 
-void keccak_permutations(keccak_ctx_t * ctx) {
+void keccak_permutations(keccak_ctx_t * ctx)
+{
 	
 	int64_t* A = ctx->state;;
 	
@@ -197,11 +184,11 @@ void keccak_permutations(keccak_ctx_t * ctx) {
 		int64_t c3 = *a03 ^ *a08 ^ *a13 ^ *a18 ^ *a23;
 		int64_t c4 = *a04 ^ *a09 ^ *a14 ^ *a19 ^ *a24;
 
-		int64_t d1 = ROTL64b(c1, 1) ^ c4;
-		int64_t d2 = ROTL64b(c2, 1) ^ c0;
-		int64_t d3 = ROTL64b(c3, 1) ^ c1;
-		int64_t d4 = ROTL64b(c4, 1) ^ c2;
-		int64_t d0 = ROTL64b(c0, 1) ^ c3;
+		int64_t d1 = keccak_ROTL64(c1, 1) ^ c4;
+		int64_t d2 = keccak_ROTL64(c2, 1) ^ c0;
+		int64_t d3 = keccak_ROTL64(c3, 1) ^ c1;
+		int64_t d4 = keccak_ROTL64(c4, 1) ^ c2;
+		int64_t d0 = keccak_ROTL64(c0, 1) ^ c3;
 
 		*a00 ^= d1;
 		*a05 ^= d1;
@@ -231,30 +218,30 @@ void keccak_permutations(keccak_ctx_t * ctx) {
 
 
 		/* Rho pi */
-		c1 = ROTL64b(*a01, 1);
-		*a01 = ROTL64b(*a06, 44);
-		*a06 = ROTL64b(*a09, 20);
-		*a09 = ROTL64b(*a22, 61);
-		*a22 = ROTL64b(*a14, 39);
-		*a14 = ROTL64b(*a20, 18);
-		*a20 = ROTL64b(*a02, 62);
-		*a02 = ROTL64b(*a12, 43);
-		*a12 = ROTL64b(*a13, 25);
-		*a13 = ROTL64b(*a19, 8);
-		*a19= ROTL64b(*a23, 56);
-		*a23 = ROTL64b(*a15, 41);
-		*a15 = ROTL64b(*a04, 27);
-		*a04 = ROTL64b(*a24, 14);
-		*a24 = ROTL64b(*a21, 2);
-		*a21 = ROTL64b(*a08, 55);
-		*a08 = ROTL64b(*a16, 45);
-		*a16 = ROTL64b(*a05, 36);
-		*a05 = ROTL64b(*a03, 28);
-		*a03 = ROTL64b(*a18, 21);
-		*a18 = ROTL64b(*a17, 15);
-		*a17 = ROTL64b(*a11, 10);
-		*a11 = ROTL64b(*a07, 6);
-		*a07 = ROTL64b(*a10, 3);
+		c1 = keccak_ROTL64(*a01, 1);
+		*a01 = keccak_ROTL64(*a06, 44);
+		*a06 = keccak_ROTL64(*a09, 20);
+		*a09 = keccak_ROTL64(*a22, 61);
+		*a22 = keccak_ROTL64(*a14, 39);
+		*a14 = keccak_ROTL64(*a20, 18);
+		*a20 = keccak_ROTL64(*a02, 62);
+		*a02 = keccak_ROTL64(*a12, 43);
+		*a12 = keccak_ROTL64(*a13, 25);
+		*a13 = keccak_ROTL64(*a19, 8);
+		*a19 = keccak_ROTL64(*a23, 56);
+		*a23 = keccak_ROTL64(*a15, 41);
+		*a15 = keccak_ROTL64(*a04, 27);
+		*a04 = keccak_ROTL64(*a24, 14);
+		*a24 = keccak_ROTL64(*a21, 2);
+		*a21 = keccak_ROTL64(*a08, 55);
+		*a08 = keccak_ROTL64(*a16, 45);
+		*a16 = keccak_ROTL64(*a05, 36);
+		*a05 = keccak_ROTL64(*a03, 28);
+		*a03 = keccak_ROTL64(*a18, 21);
+		*a18 = keccak_ROTL64(*a17, 15);
+		*a17 = keccak_ROTL64(*a11, 10);
+		*a11 = keccak_ROTL64(*a07, 6);
+		*a07 = keccak_ROTL64(*a10, 3);
 		*a10 = c1;
 
 		/* Chi */
@@ -303,7 +290,7 @@ void keccak_permutations(keccak_ctx_t * ctx) {
 	}
 }
 
-uint64_t ROTL64b(uint64_t a, uint64_t  b)
+uint64_t keccak_ROTL64(uint64_t a, uint64_t  b)
 {
 	return (a << b) | (a >> (64 - b));
 }

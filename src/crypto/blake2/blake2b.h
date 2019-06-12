@@ -1,10 +1,24 @@
+/*
+ * blake2b.h  Implementation of Blake2b digest
+ *
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
+ * See LICENSE.PDF   **** NO WARRANTY ****
+ *
+ * Date: 12 June 2019
+ * Revision: 1
+ *
+ * This file is subject to the license as found in LICENSE.PDF
+ *
+ */
+
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include "../../config.h"
 
+#ifndef BLAKE2B
+#define BLAKE2B
 
-typedef unsigned char byte;
-typedef unsigned int word32;
 #define BLAKE2B_ROUNDS 12
 #define BLAKE2B_BLOCK_LENGTH 128
 #define BLAKE2B_CHAIN_SIZE 8
@@ -39,6 +53,7 @@ static const unsigned char BLAKE2B_SIGMAS[12][16] =
 typedef struct
 {
 	uint32_t digestlen;
+
 	byte *key;
 	uint32_t keylen;
 
@@ -61,3 +76,5 @@ void blake2b_compress(blake2b_ctx_t *ctx, byte* in, uint32_t inoffset);
 uint64_t blake2b_leuint64(byte *in);
 uint64_t blake2b_ROTR64(uint64_t a, uint8_t b);
 void blake2b_G(blake2b_ctx_t *ctx, int64_t m1, int64_t m2, int32_t a, int32_t b, int32_t c, int32_t d);
+
+#endif
