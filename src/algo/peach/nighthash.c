@@ -11,11 +11,11 @@
  *
  */
 
-#include "../../crypto/blake2/blake2b.c"
-#include "../../crypto/sha1/sha1.c"
-#include "../../crypto/sha256.c"
-#include "../../crypto/keccak/keccak.c"
-#include "../../crypto/md5/md5.c"
+#include "../../crypto/hash/cpu/blake2b.c"
+#include "../../crypto/hash/cpu/sha1.c"
+#include "../../crypto/hash/cpu/sha256.c"
+#include "../../crypto/hash/cpu/keccak.c"
+#include "../../crypto/hash/cpu/md5.c"
 
 void night_hash(byte *out, byte *in, uint32_t inlen)
 {

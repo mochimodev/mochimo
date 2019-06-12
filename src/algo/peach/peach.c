@@ -17,14 +17,14 @@
 #include <math.h>
 #include <sys/time.h>
 
-#include "../../crypto/sha1/sha1.c"
-#include "../../crypto/sha256.c"
+#include "../../crypto/hash/cpu/sha1.c"
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
 void trigg_expand2(byte *in, char *out);
 
-void generate_tile(byte** out, uint32_t index, byte* seed, byte * map);
+/* Prototype for forward reference.  To-do: Clean this up. */
+void generate_tile(byte **out, uint32_t index, byte *seed, byte *map);
 
 /*
  * Return 0 if solved, else 1.
@@ -55,7 +55,7 @@ int peach_eval(byte *bp, byte d)
    return 1;
 }
 
-uint32_t next_index(uint32_t current_index, byte* current_tile, byte* nonce)
+uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
 {
    SHA256_CTX ictx;
    uint32_t index;
@@ -94,6 +94,9 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
 {
    uint32_t op;
    op = 0;
+   SHA1_CTX sha1;
+   SHA256_CTX sha256;
+
 
    /* TODO: Replace with floating point arithmetic */
    for(int i = 0; i < inlen; i++)
@@ -103,56 +106,48 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
    {
       case 0:
          /* Production: Blake2b key 32 bytes, Placeholder: SHA1 */
-         SHA1_CTX sha1;
          sha1_init(&sha1);
          sha1_update(&sha1, in, inlen);
          sha1_final(&sha1, out);
          break;
       case 1:
          /* Production: Blake2b key 64 bytes, Placeholder: SHA256 */
-         SHA256_CTX sha256;
          sha256_init(&sha256);
          sha256_update(&sha256, in, inlen);
          sha256_final(&sha256, out);
          break;
       case 2:
          /* Production: SHA1 */
-         SHA1_CTX sha1;
          sha1_init(&sha1);
          sha1_update(&sha1, in, inlen);
          sha1_final(&sha1, out);
          break;
       case 3:
          /* Production: SHA256 */
-         SHA256_CTX sha256;
          sha256_init(&sha256);
          sha256_update(&sha256, in, inlen);
          sha256_final(&sha256, out);
          break;
       case 4:
          /* Production SHA3, Placeholder: SHA1 */
-         SHA1_CTX sha1;
          sha1_init(&sha1);
          sha1_update(&sha1, in, inlen);
          sha1_final(&sha1, out);
          break;         
       case 5:
          /* Production Keccak, Placeholder: SHA256 */
-         SHA256_CTX sha256;
          sha256_init(&sha256);
          sha256_update(&sha256, in, inlen);
          sha256_final(&sha256, out);
          break;
       case 6:
          /* Production MD4, Placeholder: SHA1 */
-         SHA1_CTX sha1;
          sha1_init(&sha1);
          sha1_update(&sha1, in, inlen);
          sha1_final(&sha1, out);
          break;
       case 7:
          /* Production MD5, Placeholder: SHA256 */
-         SHA256_CTX sha256;
          sha256_init(&sha256);
          sha256_update(&sha256, in, inlen);
          sha256_final(&sha256, out);

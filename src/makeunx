@@ -105,7 +105,7 @@ case "$1" in
    "bin") # Compile binaries
       rm -f ccerror.log
       echo "Make dependencies..."
-      $CC -c crypto/sha256.c      2>>ccerror.log # SHA256
+      $CC -c crypto/hash/cpu/sha256.c      2>>ccerror.log # SHA256
       $CC -c crypto/wots/wots.c   2>>ccerror.log # WOTS+
       $CC -c algo/trigg/trigg.c   2>>ccerror.log # Trigg CPU
       if test $MINER -eq 1
@@ -161,7 +161,7 @@ case "$1" in
    "wallet") # Compile only the wallet binary
       rm -f ccerror.log
       echo "Make dependencies..."
-      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
+      $CC -c crypto/hash/cpu/sha256.c     2>>ccerror.log # Make SHA256
       $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
       echo "Building wallet binary..."
       $CC -o wallet  wallet.c  sha256.o wots.o 2>>ccerror.log

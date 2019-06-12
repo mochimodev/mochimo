@@ -31,7 +31,7 @@
 #define NSIG 23
 #endif
 
-#include "crypto/sha256.h"
+#include "crypto/hash/cpu/sha256.h"
 
 #ifdef DEBUG
 #define debug(_x) if(Trace > 1) plog(_x)

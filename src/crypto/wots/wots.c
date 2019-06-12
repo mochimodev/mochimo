@@ -19,7 +19,7 @@
 
 #define core_hash(out, in, inlen) sha256(in, inlen, out)
 
-#include "../sha256.h"  /* defines byte and word32 */
+#include "../hash/cpu/sha256.h"  /* defines byte and word32 */
 #include "wots.h"
 
 /**

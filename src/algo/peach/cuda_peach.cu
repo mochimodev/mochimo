@@ -14,7 +14,7 @@
 #include <unistd.h>
 #include <cuda_runtime.h>
 extern "C" {
-#include "../../crypto/sha256.h"
+#include "../../crypto/hash/cpu/sha256.h"
 }
 
 #include "../../config.h"

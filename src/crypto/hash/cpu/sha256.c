@@ -18,7 +18,10 @@
 #include "sha256.h"
 
 /****************************** MACROS ******************************/
+#ifndef ROTLEFT
 #define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
+#endif
+
 #define ROTRIGHT(a,b) (((a) >> (b)) | ((a) << (32-(b))))
 
 #define CH(x,y,z) (((x) & (y)) ^ (~(x) & (z)))
@@ -155,4 +158,14 @@ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 		hash[i + 24] = (ctx->state[6] >> (24 - i * 8)) & 0x000000ff;
 		hash[i + 28] = (ctx->state[7] >> (24 - i * 8)) & 0x000000ff;
 	}
+}
+
+/* Below function added for ezpz-ness */
+void sha256(const unsigned char *in, int inlen, unsigned char *hashout)
+{
+   SHA256_CTX ctx;
+
+   sha256_init(&ctx);
+   sha256_update(&ctx, in, inlen);
+   sha256_final(&ctx, hashout);
 }

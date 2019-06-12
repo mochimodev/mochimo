@@ -13,6 +13,15 @@
 #ifndef WOTS_H
 #define WOTS_H
 
+#ifndef WORD32
+#define WORD32
+typedef unsigned char byte;      /* 8-bit byte */
+typedef unsigned short word16;   /* 16-bit word */
+typedef unsigned int word32;     /* 32-bit word  */
+/* for 16-bit machines: */
+/* typedef unsigned long word32;  */
+#endif  /* WORD32 */
+
 
 /* Parameters */
 

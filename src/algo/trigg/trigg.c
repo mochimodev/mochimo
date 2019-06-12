@@ -29,7 +29,7 @@
 
 
 #include "../../config.h"
-#include "../../crypto/sha256.h"
+#include "../../crypto/hash/cpu/sha256.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -207,7 +207,6 @@ static FE Frame[][MAXH] = {
 void put16(void *buff, word16 val);
 word32 rand16(void);
 word32 rand2(void);
-
 
 /**
  * Create a new TRIGG chain for the solution state-space

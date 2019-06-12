@@ -7,6 +7,7 @@
  *
 */
 
+#include "hash/cpu/sha256.h"
 
 /* --------  XO4 Cipher package  --------
  * Courtesy Patrick Cargill -- EYES ONLY!

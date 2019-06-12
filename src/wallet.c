@@ -83,7 +83,7 @@ unsigned sleep(unsigned seconds);
 #define HAS_TAG(addr) \
    (((byte *) (addr))[2196] != 0x42 && ((byte *) (addr))[2196] != 0x00)
 
-#include "crypto/sha256.h"      /* also defines word32 */
+#include "crypto/hash/cpu/sha256.h"      /* also defines word32 */
 #include "crypto/wots/wots.h"   /* TXADDRLEN */
 
 

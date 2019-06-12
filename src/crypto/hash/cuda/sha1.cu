@@ -1,24 +1,46 @@
-/*********************************************************************
-* Filename:   sha1.c
-* Author:     Brad Conte (brad AT bradconte.com)
-* Copyright:
-* Disclaimer: This code is presented "as is" without any guarantees.
-* Details:    Implementation of the SHA1 hashing algorithm.
-              Algorithm specification can be found here:
-               * http://csrc.nist.gov/publications/fips/fips180-2/fips180-2withchangenotice.pdf
-              This implementation uses little endian byte order.
-*********************************************************************/
+/*
+ * sha1.cu CUDA Implementation of SHA1 Hashing       
+ *
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
+ * See LICENSE.PDF   **** NO WARRANTY ****
+ *
+ * Date: 12 June 2019
+ * Revision: 1
+ *
+ * This file is subject to the license as found in LICENSE.PDF
+ *
+ * Based on the public domain Reference Implementation in C, by 
+ * Brad Conte, original code here:
+ *
+ * https://github.com/B-Con/crypto-algorithms
+ *
+ */
+
 
 /*************************** HEADER FILES ***************************/
 #include <stdlib.h>
 #include <memory.h>
-#include "sha1.h"
+extern "C" {
+#include "sha1.cuh"
+}
+
+/****************************** MACROS ******************************/
+#define SHA1_BLOCK_SIZE 20              // SHA1 outputs a 20 byte digest
+
+/**************************** DATA TYPES ****************************/
+typedef struct {
+	BYTE data[64];
+	WORD datalen;
+	unsigned long long bitlen;
+	WORD state[5];
+	WORD k[4];
+} SHA1_CTX;
 
 /****************************** MACROS ******************************/
 #define ROTLEFT(a, b) ((a << b) | (a >> (32 - b)))
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-void sha1_transform(SHA1_CTX *ctx, const BYTE data[])
+__device__  __forceinline__ void sha1_transform(SHA1_CTX *ctx, const BYTE data[])
 {
 	WORD a, b, c, d, e, i, j, t, m[80];
 
@@ -75,7 +97,7 @@ void sha1_transform(SHA1_CTX *ctx, const BYTE data[])
 	ctx->state[4] += e;
 }
 
-void sha1_init(SHA1_CTX *ctx)
+__device__ void sha1_init(SHA1_CTX *ctx)
 {
 	ctx->datalen = 0;
 	ctx->bitlen = 0;
@@ -90,7 +112,7 @@ void sha1_init(SHA1_CTX *ctx)
 	ctx->k[3] = 0xca62c1d6;
 }
 
-void sha1_update(SHA1_CTX *ctx, const BYTE data[], size_t len)
+__device__ void sha1_update(SHA1_CTX *ctx, const BYTE data[], size_t len)
 {
 	size_t i;
 
@@ -105,7 +127,7 @@ void sha1_update(SHA1_CTX *ctx, const BYTE data[], size_t len)
 	}
 }
 
-void sha1_final(SHA1_CTX *ctx, BYTE hash[])
+__device__ void sha1_final(SHA1_CTX *ctx, BYTE hash[])
 {
 	WORD i;
 
@@ -146,4 +168,44 @@ void sha1_final(SHA1_CTX *ctx, BYTE hash[])
 		hash[i + 12] = (ctx->state[3] >> (24 - i * 8)) & 0x000000ff;
 		hash[i + 16] = (ctx->state[4] >> (24 - i * 8)) & 0x000000ff;
 	}
+}
+
+__global__ void kernel_sha1_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_batch)
+{
+	WORD thread = blockIdx.x * blockDim.x + threadIdx.x;
+	if (thread >= n_batch)
+	{
+		return;
+	}
+	BYTE* in = indata  + thread * inlen;
+	BYTE* out = outdata  + thread * SHA1_BLOCK_SIZE;
+	SHA1_CTX ctx;
+	sha1_init(&ctx);
+	sha1_update(&ctx, in, inlen);
+	sha1_final(&ctx, out);
+}
+
+extern "C"
+{
+void mcm_cuda_sha1_hash_batch(BYTE* in, WORD inlen, BYTE* out, WORD n_batch)
+{
+	BYTE *cuda_indata;
+	BYTE *cuda_outdata;
+	cudaMalloc(&cuda_indata, inlen * n_batch);
+	cudaMalloc(&cuda_outdata, SHA1_BLOCK_SIZE * n_batch);
+	cudaMemcpy(cuda_indata, in, inlen * n_batch, cudaMemcpyHostToDevice);
+
+	WORD thread = 256;
+	WORD block = (n_batch + thread - 1) / thread;
+
+	kernel_sha1_hash << < block, thread >> > (cuda_indata, inlen, cuda_outdata, n_batch);
+	cudaMemcpy(out, cuda_outdata, SHA1_BLOCK_SIZE * n_batch, cudaMemcpyDeviceToHost);
+	cudaDeviceSynchronize();
+	cudaError_t error = cudaGetLastError();
+	if (error != cudaSuccess) {
+		printf("Error cuda sha1 hash: %s \n", cudaGetErrorString(error));
+	}
+	cudaFree(cuda_indata);
+	cudaFree(cuda_outdata);
+}
 }
