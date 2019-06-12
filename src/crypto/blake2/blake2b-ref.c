@@ -309,7 +309,7 @@ int crypto_hash( unsigned char *out, unsigned char *in, unsigned long long inlen
   return blake2b( out, BLAKE2B_OUTBYTES, in, inlen, NULL, 0 );
 }
 #endif
-#define BLAKE2B_SELFTEST
+
 #if defined(BLAKE2B_SELFTEST)
 #include <string.h>
 #include "blake2-kat.h"
