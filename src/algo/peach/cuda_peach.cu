@@ -18,7 +18,9 @@ extern "C" {
 }
 
 #include "../../config.h"
-#include "sha256.cuh"
+#include "../../crypto/hash/cuda/sha256.cu"
+#include "../../crypto/hash/cuda/sha1.cu"
+
 #include "peach.h"
 
 #define AS_UINT2(addr) *((uint2*)(addr))
@@ -113,7 +115,7 @@ __device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *g_map, uint8_t *n
    int i;
   uint32_t index;
   byte hash[HASHLEN];
-  cuda_SHA256_CTX ictx;
+  CUDA_SHA256_CTX ictx;
    
   cuda_sha256_init(&ictx);
   cuda_sha256_update(&ictx, nonce, HASHLEN);
@@ -128,10 +130,78 @@ __device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *g_map, uint8_t *n
   return index % MAP;
 }
 
+__device__ void cuda_night_hash(unsigned char *out, unsigned char *in, uint32_t inlen)
+{
+   uint32_t op;
+   op = 0;
+   CUDA_SHA1_CTX sha1;
+   CUDA_SHA256_CTX sha256;
+
+
+   /* TODO: Replace with floating point arithmetic */
+   for(int i = 0; i < inlen; i++)
+      op += in[i];
+
+   switch(op & 7)
+   {
+      case 0:
+         /* Production: Blake2b key 32 bytes, Placeholder: SHA1 */
+         cuda_sha1_init(&sha1);
+         cuda_sha1_update(&sha1, in, inlen);
+         cuda_sha1_final(&sha1, out);
+         break;
+      case 1:
+         /* Production: Blake2b key 64 bytes, Placeholder: SHA256 */
+         cuda_sha256_init(&sha256);
+         cuda_sha256_update(&sha256, in, inlen);
+         cuda_sha256_final(&sha256, out);
+         break;
+      case 2:
+         /* Production: SHA1 */
+         cuda_sha1_init(&sha1);
+         cuda_sha1_update(&sha1, in, inlen);
+         cuda_sha1_final(&sha1, out);
+         break;
+      case 3:
+         /* Production: SHA256 */
+         cuda_sha256_init(&sha256);
+         cuda_sha256_update(&sha256, in, inlen);
+         cuda_sha256_final(&sha256, out);
+         break;
+      case 4:
+         /* Production SHA3, Placeholder: SHA1 */
+         cuda_sha1_init(&sha1);
+         cuda_sha1_update(&sha1, in, inlen);
+         cuda_sha1_final(&sha1, out);
+         break;         
+      case 5:
+         /* Production Keccak, Placeholder: SHA256 */
+         cuda_sha256_init(&sha256);
+         cuda_sha256_update(&sha256, in, inlen);
+         cuda_sha256_final(&sha256, out);
+         break;
+      case 6:
+         /* Production MD4, Placeholder: SHA1 */
+         cuda_sha1_init(&sha1);
+         cuda_sha1_update(&sha1, in, inlen);
+         cuda_sha1_final(&sha1, out);
+         break;
+      case 7:
+         /* Production MD5, Placeholder: SHA256 */
+         cuda_sha256_init(&sha256);
+         cuda_sha256_update(&sha256, in, inlen);
+         cuda_sha256_final(&sha256, out);
+         break;
+      default: /* Shouldn't get here. */
+         break;
+   }
+}
+
+
 __device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) {
   /**
    * Declarations */
-  cuda_SHA256_CTX ictx;
+  CUDA_SHA256_CTX ictx;
   int i, j, k, t, z;
   uint8_t bits, _104, _72, selector, *tilep;
   uint32_t op;
@@ -299,6 +369,8 @@ __device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) 
         cuda_sha256_update(&ictx, &tilep[i], HASHLEN);
         cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
         cuda_sha256_final(&ictx, &tilep[j]);
+
+        cuda_night_hash(&tilep[j], &tilep[j], HASHLEN);
       }
     }
 }
@@ -323,7 +395,7 @@ __global__ void cuda_find_peach(uint32_t threads, int g_cache, uint8_t *g_map,
                            int *g_found, uint8_t *g_seed) {
 
   const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
-  cuda_SHA256_CTX ictx;
+  CUDA_SHA256_CTX ictx;
   uint32_t sm;
   uint8_t bt_hash[32], fhash[32];
   uint8_t seed[16] = {0}, nonce[32] = {0};

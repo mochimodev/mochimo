@@ -34,13 +34,15 @@ typedef struct {
 	unsigned long long bitlen;
 	WORD state[5];
 	WORD k[4];
-} SHA1_CTX;
+} CUDA_SHA1_CTX;
 
 /****************************** MACROS ******************************/
-#define ROTLEFT(a, b) ((a << b) | (a >> (32 - b)))
+#ifndef ROTLEFT
+#define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
+#endif
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-__device__  __forceinline__ void sha1_transform(SHA1_CTX *ctx, const BYTE data[])
+__device__  __forceinline__ void cuda_sha1_transform(CUDA_SHA1_CTX *ctx, const BYTE data[])
 {
 	WORD a, b, c, d, e, i, j, t, m[80];
 
@@ -97,7 +99,7 @@ __device__  __forceinline__ void sha1_transform(SHA1_CTX *ctx, const BYTE data[]
 	ctx->state[4] += e;
 }
 
-__device__ void sha1_init(SHA1_CTX *ctx)
+__device__ void cuda_sha1_init(CUDA_SHA1_CTX *ctx)
 {
 	ctx->datalen = 0;
 	ctx->bitlen = 0;
@@ -112,7 +114,7 @@ __device__ void sha1_init(SHA1_CTX *ctx)
 	ctx->k[3] = 0xca62c1d6;
 }
 
-__device__ void sha1_update(SHA1_CTX *ctx, const BYTE data[], size_t len)
+__device__ void cuda_sha1_update(CUDA_SHA1_CTX *ctx, const BYTE data[], size_t len)
 {
 	size_t i;
 
@@ -120,14 +122,14 @@ __device__ void sha1_update(SHA1_CTX *ctx, const BYTE data[], size_t len)
 		ctx->data[ctx->datalen] = data[i];
 		ctx->datalen++;
 		if (ctx->datalen == 64) {
-			sha1_transform(ctx, ctx->data);
+			cuda_sha1_transform(ctx, ctx->data);
 			ctx->bitlen += 512;
 			ctx->datalen = 0;
 		}
 	}
 }
 
-__device__ void sha1_final(SHA1_CTX *ctx, BYTE hash[])
+__device__ void cuda_sha1_final(CUDA_SHA1_CTX *ctx, BYTE hash[])
 {
 	WORD i;
 
@@ -143,7 +145,7 @@ __device__ void sha1_final(SHA1_CTX *ctx, BYTE hash[])
 		ctx->data[i++] = 0x80;
 		while (i < 64)
 			ctx->data[i++] = 0x00;
-		sha1_transform(ctx, ctx->data);
+		cuda_sha1_transform(ctx, ctx->data);
 		memset(ctx->data, 0, 56);
 	}
 
@@ -157,7 +159,7 @@ __device__ void sha1_final(SHA1_CTX *ctx, BYTE hash[])
 	ctx->data[58] = ctx->bitlen >> 40;
 	ctx->data[57] = ctx->bitlen >> 48;
 	ctx->data[56] = ctx->bitlen >> 56;
-	sha1_transform(ctx, ctx->data);
+	cuda_sha1_transform(ctx, ctx->data);
 
 	// Since this implementation uses little endian byte ordering and MD uses big endian,
 	// reverse all the bytes when copying the final state to the output hash.
@@ -179,10 +181,10 @@ __global__ void kernel_sha1_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n
 	}
 	BYTE* in = indata  + thread * inlen;
 	BYTE* out = outdata  + thread * SHA1_BLOCK_SIZE;
-	SHA1_CTX ctx;
-	sha1_init(&ctx);
-	sha1_update(&ctx, in, inlen);
-	sha1_final(&ctx, out);
+	CUDA_SHA1_CTX ctx;
+	cuda_sha1_init(&ctx);
+	cuda_sha1_update(&ctx, in, inlen);
+	cuda_sha1_final(&ctx, out);
 }
 
 extern "C"
