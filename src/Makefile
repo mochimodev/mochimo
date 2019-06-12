@@ -19,14 +19,11 @@ debug: $(EXEC)
 sha256.o: $(SOURCE_FOLDER)crypto/sha256.c
 	$(CC) -g -c $(SOURCE_FOLDER)crypto/sha256.c -o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 
-blake2b-ref.o: $(SOURCE_FOLDER)crypto/blake2/blake2b-ref.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/blake2/blake2b-ref.c -o $(SOURCE_FOLDER)crypto/blake2b-ref.o $(LDFLAGS)
+blake2b.o: $(SOURCE_FOLDER)crypto/blake2/blake2b.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/blake2/blake2b.c -o $(SOURCE_FOLDER)crypto/blake2/blake2b.o $(LDFLAGS)
 
-blake2s-ref.o: $(SOURCE_FOLDER)crypto/blake2/blake2s-ref.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/blake2/blake2s-ref.c -o $(SOURCE_FOLDER)crypto/blake2/blake2s-ref.o $(LDFLAGS)
-
-sha3.o: $(SOURCE_FOLDER)crypto/sha3/sha3.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/sha3/sha3.c -o $(SOURCE_FOLDER)crypto/sha3/sha3.o $(LDFLAGS)
+keccak.o: $(SOURCE_FOLDER)crypto/keccak/keccak.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/keccak/keccak.c -o $(SOURCE_FOLDER)crypto/keccak/keccak.o $(LDFLAGS)
 
 md5.o: $(SOURCE_FOLDER)crypto/md5/md5.c
 	$(CC) -g -c $(SOURCE_FOLDER)crypto/md5/md5.c -o $(SOURCE_FOLDER)crypto/md5/md5.o $(LDFLAGS)
@@ -46,7 +43,7 @@ cuda_trigg.o:
 trigg.o: $(SOURCE_FOLDER)algo/trigg/trigg.c
 	$(CC) -g -c $(SOURCE_FOLDER)algo/trigg/trigg.c -o $(SOURCE_FOLDER)algo/trigg/trigg.o $(LDFLAGS)
 	
-mochimo: wots.o trigg.o sha256.o blake2b-ref.o blake2s-ref.o sha3.o md5.o sha1.o
+mochimo: wots.o trigg.o sha256.o blake2b.o keccak.o md5.o sha1.o
 	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
 	
 cuda_mochimo: wots.o cuda_trigg.o trigg.o sha256.o
@@ -72,7 +69,6 @@ neogen: sha256.o
 
 txclean: sha256.o
 	$(CC) -g -o $(BIN_FOLDER)txclean $(SOURCE_FOLDER)txclean.c $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
-
 
 minertest: wots.o trigg.o sha256.o
 	$(CC) -g -o $(BIN_FOLDER)minertest $(SOURCE_FOLDER)minertest.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)

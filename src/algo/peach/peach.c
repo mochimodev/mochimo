@@ -16,11 +16,9 @@
 #include <inttypes.h>
 #include <math.h>
 #include <sys/time.h>
-#include "../../crypto/blake2/blake2b-ref.c"
-#include "../../crypto/blake2/blake2s-ref.c"
-#include "../../crypto/sha3/sha3.c"
+
 #include "../../crypto/sha1/sha1.c"
-#include "../../crypto/md5/md5.c"
+#include "../../crypto/sha256.c"
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
@@ -101,74 +99,63 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
    for(int i = 0; i < inlen; i++)
       op += in[i];
 
-   switch(op % 6)
+   switch(op & 7)
    {
       case 0:
-      {
-         /* Blake2s
-         * CUDA impl:
-         *          https://github.com/vertcoin-project/vertminer-nvidia/blob/master/Algo256/blake2s.cu
-         */
-         byte key[HASHLEN];
-         memset(key, in[inlen - 1], HASHLEN);
-         blake2s(out, HASHLEN, in, inlen, key, HASHLEN);
-      }
+         /* Production: Blake2b key 32 bytes, Placeholder: SHA1 */
+         SHA1_CTX sha1;
+         sha1_init(&sha1);
+         sha1_update(&sha1, in, inlen);
+         sha1_final(&sha1, out);
          break;
       case 1:
-      {
-         /* Blake2b
-         * CUDA impl:
-         *          https://github.com/tromp/equihash/blob/master/blake2b.cu
-         *          https://github.com/nicehash/nheqminer/blob/master/cuda_tromp/blake2b.cu
-         */
-         byte key[HASHLEN];
-         memset(key, in[inlen - 1], HASHLEN);
-         blake2b(out, HASHLEN, in, inlen, key, HASHLEN);
-      }
+         /* Production: Blake2b key 64 bytes, Placeholder: SHA256 */
+         SHA256_CTX sha256;
+         sha256_init(&sha256);
+         sha256_update(&sha256, in, inlen);
+         sha256_final(&sha256, out);
          break;
       case 2:
-      {
-         /* SHA3
-         * CUDA impl:
-         *    https://github.com/skapix/sha3/blob/master/lib/sha3_gpu.cu
-         */
-         sha3_HashBuffer(256, SHA3_FLAGS_NONE, in, inlen, out, HASHLEN);
-      }
+         /* Production: SHA1 */
+         SHA1_CTX sha1;
+         sha1_init(&sha1);
+         sha1_update(&sha1, in, inlen);
+         sha1_final(&sha1, out);
          break;
       case 3:
-      {
-         /* Keccak
-         * CUDA impl:
-         *       https://github.com/cbuchner1/CudaMiner/blob/master/keccak.cu
-         *    http://www.cayrel.net/?Keccak-implementation-on-GPU
-         *    https://sites.google.com/site/keccaktreegpu/
-         */
-         sha3_HashBuffer(256, SHA3_FLAGS_KECCAK, in, inlen, out, HASHLEN);
-      }
+         /* Production: SHA256 */
+         SHA256_CTX sha256;
+         sha256_init(&sha256);
+         sha256_update(&sha256, in, inlen);
+         sha256_final(&sha256, out);
          break;
       case 4:
-      {
-         /* SHA1
-         * CUDA impl:
-         *        https://github.com/smoes/SHA1-CUDA-bruteforce
-         */
-         SHA1_CTX ctx;
-         sha1_init(&ctx);
-         sha1_update(&ctx, in, inlen);
-         sha1_final(&ctx, out);
-      }
-         break;
+         /* Production SHA3, Placeholder: SHA1 */
+         SHA1_CTX sha1;
+         sha1_init(&sha1);
+         sha1_update(&sha1, in, inlen);
+         sha1_final(&sha1, out);
+         break;         
       case 5:
-      {
-         /* MD5
-         * CUDA impl:
-         *        https://github.com/xpn/CUDA-MD5-Crack
-         */
-         MD5_CTX ctx;
-         md5_init(&ctx);
-         md5_update(&ctx, in, inlen);
-         md5_final(&ctx, out);
-      }
+         /* Production Keccak, Placeholder: SHA256 */
+         SHA256_CTX sha256;
+         sha256_init(&sha256);
+         sha256_update(&sha256, in, inlen);
+         sha256_final(&sha256, out);
+         break;
+      case 6:
+         /* Production MD4, Placeholder: SHA1 */
+         SHA1_CTX sha1;
+         sha1_init(&sha1);
+         sha1_update(&sha1, in, inlen);
+         sha1_final(&sha1, out);
+         break;
+      case 7:
+         /* Production MD5, Placeholder: SHA256 */
+         SHA256_CTX sha256;
+         sha256_init(&sha256);
+         sha256_update(&sha256, in, inlen);
+         sha256_final(&sha256, out);
          break;
       default:
          error("Peach night hash OP is outside the expected range (%i)\n", op);
@@ -384,7 +371,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
          sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
          sha256_final(&ictx, &tilep[j]);
          
-         // night_hash(&tilep[j], &tilep[j], HASHLEN);
+         night_hash(&tilep[j], &tilep[j], HASHLEN);
       }
    } /* end for(i = j = k = 0... */
 
@@ -525,6 +512,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
          plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", 
              (long int) telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
          *hps = h;
+
          char haiku[256];
          trigg_expand2(bt->nonce, haiku);
          printf("\nS:%s\n\n", haiku);
