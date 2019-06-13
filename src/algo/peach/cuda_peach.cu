@@ -56,7 +56,7 @@ inline void __cudaCheckError( const char *file, const int line )
         exit( -1 );
     }
 
-    // More careful checking. However, this will affect performance.
+    /* More careful checking. However, this will affect performance.
     // Comment away if needed.
     err = cudaDeviceSynchronize();
     if( cudaSuccess != err )
@@ -64,7 +64,7 @@ inline void __cudaCheckError( const char *file, const int line )
         fprintf( stderr, "cudaCheckError() with sync failed at %s:%i : %s\n",
                  file, line, cudaGetErrorString( err ) );
         exit( -1 );
-    }
+    } */
 #endif
 
     return;
