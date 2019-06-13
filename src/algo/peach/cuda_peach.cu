@@ -917,7 +917,7 @@ extern "C" {
 
 typedef struct __peach_cuda_ctx {
     byte curr_seed[16], next_seed[16];
-    int *d_found;
+    int *d_found, init;
     uint8_t *seed, *d_seed;
     uint8_t *input, *d_map;
     cudaStream_t stream;
@@ -932,7 +932,6 @@ int *found;
 byte *diff;
 byte *phash;
 byte bnum[8] = {0};
-byte initGPU = 0;
 int nGPU = 0;
 
 int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
@@ -971,8 +970,8 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
         /* Set initial round variables */
         ctx[i].next_seed[0] = 0;
         /* If first init, setup map and cache */
-        if(initGPU == 0) {
-            initGPU = 1;
+        if(ctx[i].init != 1) {
+            ctx[i].init = 1;
             cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
             /**
              * NOTE: The device MAP that holds the data of a map DOES NOT
