@@ -88,7 +88,7 @@ int miner(char *blockin, char *blockout)
           /* ... better double check */
          if(peach(&bt, Difficulty, NULL, 1)) {
             printf("ERROR - Solved block is not valid\n");
-            byte* bt_bytes = (byte*) bt;
+            byte* bt_bytes = (byte*) &bt;
             char hex[124 * 4];
             for(int i = 0; i < 124; i++){
                sprintf(hex + i * 4, "%03i ", bt_bytes[i]);
