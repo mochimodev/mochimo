@@ -11,8 +11,6 @@
  *
  */
 
-//#include "../../config.h"
-
 #define HASHLENMID 	                   16
 #define HASHLEN                        32
 #define TILE_ROWS                      32

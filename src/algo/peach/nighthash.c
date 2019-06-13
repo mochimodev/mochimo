@@ -11,13 +11,17 @@
  *
  */
 
-#include "../../crypto/hash/cpu/blake2b.c"
-#include "../../crypto/hash/cpu/sha1.c"
-#include "../../crypto/hash/cpu/sha256.c"
+#include "../../crypto/hash/cpu/keccak.h"
 #include "../../crypto/hash/cpu/keccak.c"
+#include "../../crypto/hash/cpu/blake2b.c"
+//#include "../../crypto/hash/cpu/sha1.c"
+//#include "../../crypto/hash/cpu/sha256.c"
+
+#include "../../crypto/hash/cpu/md2.c"
 #include "../../crypto/hash/cpu/md5.c"
 
-void night_hash(byte *out, byte *in, uint32_t inlen)
+
+void night_hash2(byte *out, uint32_t index, byte *in, uint32_t inlen)
 {
    uint32_t op;
    op = 0;
@@ -40,6 +44,7 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          blake2b_ctx_t blake2b;
          blake2b_init(&blake2b, key, HASHLEN, 256);
          blake2b_update(&blake2b, in, inlen);
+         blake2b_update(&blake2b, (byte*) &index, inlen);
          blake2b_final(&blake2b, out);
       }
          break;
@@ -55,6 +60,7 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          blake2b_ctx_t blake2b;
          blake2b_init(&blake2b, key, HASHLEN, 256);
          blake2b_update(&blake2b, in, inlen);
+         blake2b_update(&blake2b, (byte*) &index, inlen);
          blake2b_final(&blake2b, out);
       }
          break;
@@ -66,6 +72,7 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          SHA1_CTX sha1;
          sha1_init(&sha1);
          sha1_update(&sha1, in, inlen);
+         sha1_update(&sha1, (byte*) &index, inlen);
          sha1_final(&sha1, out);
       }
          break;
@@ -77,15 +84,8 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          SHA256_CTX sha256;
          sha256_init(&sha256);
          sha256_update(&sha256, in, inlen);
+         sha256_update(&sha256, (byte*) &index, inlen);
          sha256_final(&sha256, out);
-
-         /* Keccak
-         * CUDA impl:
-         *       https://github.com/cbuchner1/CudaMiner/blob/master/keccak.cu
-         *    http://www.cayrel.net/?Keccak-implementation-on-GPU
-         *    https://sites.google.com/site/keccaktreegpu/
-         */
-         //sha3_HashBuffer(256, SHA3_FLAGS_KECCAK, in, inlen, out, HASHLEN);
       }
          break;
       case 4:
@@ -94,30 +94,40 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          * CUDA impl:
          *        https://github.com/smoes/SHA1-CUDA-bruteforce
          */
+
          keccak_ctx_t sha3;
          keccack_sha3_init(&sha3, 256);
          keccack_update(&sha3, in, inlen);
+         keccack_update(&sha3, (byte*) &index, inlen);
          keccack_final(&sha3, out);
       }
          break;
       case 5:
       {
-         /* SHA3 256
-         *
+         /* Keccak
+         * CUDA impl:
+         *    https://github.com/cbuchner1/CudaMiner/blob/master/keccak.cu
+         *    http://www.cayrel.net/?Keccak-implementation-on-GPU
+         *    https://sites.google.com/site/keccaktreegpu/
          */
-         keccak_ctx_t sha3;
-         keccack_init(&sha3, 256);
-         keccack_update(&sha3, in, inlen);
-         keccack_final(&sha3, out);
 
-      }
+         keccak_ctx_t keccak;
+         keccack_init(&keccak, (uint32_t)256);
+         keccack_update(&keccak, in, inlen);
+         keccack_update(&keccak, (byte*) &index, inlen);
+         keccack_final(&keccak, out);
+     }
          break;
-
       case 6:
       {
-         /* MD4
-         * TODO: implement
+         /* MD2
+         *
          */
+         MD2_CTX md2;
+         md2_init(&md2);
+         md2_update(&md2, in, inlen);
+         md2_update(&md2, (byte*) &index, inlen);
+         md2_final(&md2, out);
       }
          break;
       case 7:
@@ -126,15 +136,15 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          * CUDA impl:
          *        https://github.com/xpn/CUDA-MD5-Crack
          */
-         MD5_CTX ctx;
-         md5_init(&ctx);
-         md5_update(&ctx, in, inlen);
-         md5_final(&ctx, out);
-
+         MD5_CTX md5;
+         md5_init(&md5);
+         md5_update(&md5, in, inlen);
+         md5_update(&md5, (byte*) &index, inlen);
+         md5_final(&md5, out);
       }
          break;
       default:
-         error("Peach night hash OP is outside the expected range (%i)\n", op);
+         error("Fatal: Peach night hash OP is outside the expected range (%i)\n", op);
          assert(0);
          break;
    }

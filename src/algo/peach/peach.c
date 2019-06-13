@@ -18,6 +18,7 @@
 #include <sys/time.h>
 
 #include "../../crypto/hash/cpu/sha1.c"
+//#include "nighthash.c"
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
@@ -68,9 +69,10 @@ uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
    sha256_update(&ictx, nonce, HASHLEN);
    sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
    sha256_update(&ictx, current_tile, TILE_LENGTH);
-
    sha256_final(&ictx, hash);
    
+   /* night_hash2(hash, j, current_tile, TILE_LENGTH); */
+
    /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
    for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
 
@@ -153,7 +155,7 @@ void night_hash(byte *out, byte *in, uint32_t inlen)
          sha256_final(&sha256, out);
          break;
       default:
-         error("Peach night hash OP is outside the expected range (%i)\n", op);
+         error("Fatal: Peach night hash OP is outside the expected range (%i)\n", op);
          assert(0);
          break;
    }
@@ -180,7 +182,6 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
    /* Hash nonce in first to prevent caching of index's hash. */
    sha256_update(&ictx, seed, HASHLEN);    
    sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
-
    sha256_final(&ictx, tilep);
   
    for(i = j = k = 0; i < TILE_LENGTH; i += HASHLEN) { /* For each tile row */
@@ -269,7 +270,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
             }
                break;
             default:
-               error("Peach float OP is outside the expected range (%i)\n", op);
+               error("Fatal: Peach float OP is outside the expected range (%i)\n", op);
                assert(0);
                break;
          }
@@ -353,7 +354,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
                for(z = 1; z < HASHLEN; z++) tilep[i + z] ^= tilep[i + z - 1];
                break;
             default:
-               error("Peach transform OP is outside the expected range (%i)\n", op);
+               error("Fatal: Peach transform OP is outside the expected range (%i)\n", op);
                assert(0);
                break;
          } /* end switch(... */
@@ -367,6 +368,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
          sha256_final(&ictx, &tilep[j]);
          
          night_hash(&tilep[j], &tilep[j], HASHLEN);
+         /* night_hash2(&tilep[j], j, &tilep[j], HASHLEN); */
       }
    } /* end for(i = j = k = 0... */
 
@@ -464,7 +466,6 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
      
       for(j = 0; j < JUMP; j++) {
          sm = next_index(sm, tile, bt->nonce);
-
          get_tile(&tile, sm, bt->phash, map, cache);
       }
        

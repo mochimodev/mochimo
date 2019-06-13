@@ -15,7 +15,9 @@
 #include "md5.h"
 
 /****************************** MACROS ******************************/
+#ifndef ROTLEFT
 #define ROTLEFT(a,b) ((a << b) | (a >> (32-b)))
+#endif
 
 #define F(x,y,z) ((x & y) | (~x & z))
 #define G(x,y,z) ((x & z) | (y & ~z))

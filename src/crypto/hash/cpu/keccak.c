@@ -15,7 +15,7 @@
 /*
  * Digestbitlen must be 128 224 256 288 384 512
  */
-void keccak_init(keccak_ctx_t *ctx, uint32_t digestbitlen) 
+void keccak_init(keccak_ctx_t *ctx, uint32_t digestbitlen)
 {
    memset(ctx, 0, sizeof(keccak_ctx_t));
    ctx->sha3_flag = 0;
@@ -35,7 +35,7 @@ void keccak_sha3_init(keccak_ctx_t *ctx, uint32_t digestbitlen)
    ctx->sha3_flag = 1;
 }
 
-void keccak_update(keccak_ctx_t *ctx, byte *in, uint64_t inlen) 
+void keccak_update(keccak_ctx_t *ctx, byte *in, uint64_t inlen)
 {
    int64_t bytes = ctx->bits_in_queue >> 3;
    int64_t count = 0;
