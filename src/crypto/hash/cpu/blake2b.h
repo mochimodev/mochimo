@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-#include "../../config.h"
+#include "../../../config.h"
 
 #ifndef BLAKE2B
 #define BLAKE2B
@@ -52,19 +52,18 @@ static const unsigned char BLAKE2B_SIGMAS[12][16] =
 
 typedef struct
 {
-	uint32_t digestlen;
+   uint32_t digestlen;
+   byte *key;
+   uint32_t keylen;
 
-	byte *key;
-	uint32_t keylen;
-
-	byte buff[BLAKE2B_BLOCK_LENGTH];
-	int64_t chain[BLAKE2B_CHAIN_SIZE];
-	int64_t state[BLAKE2B_STATE_SIZE];
+   byte buff[BLAKE2B_BLOCK_LENGTH];
+   int64_t chain[BLAKE2B_CHAIN_SIZE];
+   int64_t state[BLAKE2B_STATE_SIZE];
 	
-	uint32_t pos;
-	uint64_t t0;
-	uint64_t t1;
-	uint64_t f0;
+   uint32_t pos;
+   uint64_t t0;
+   uint64_t t1;
+   uint64_t f0;
 
 } blake2b_ctx_t;
 

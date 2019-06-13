@@ -86,12 +86,20 @@ int miner(char *blockin, char *blockout)
          cuda_peach((byte *) &bt, &hps, &Running);
          if(!Running) break;
           /* ... better double check */
-          if(peach(&bt, Difficulty, NULL, 1)) {
-             printf("ERROR - Solved block is not valid\n");
-             error("!!!!!Peach solved block is not valid!!!!!");
-             sleep(5);
-             break;
-          }
+         if(peach(&bt, Difficulty, NULL, 1)) {
+            printf("ERROR - Solved block is not valid\n");
+            byte* bt_bytes = (byte*) bt;
+            char hex[124 * 4];
+            for(int i = 0; i < 124; i++){
+               sprintf(hex + i * 4, "%03i ", bt_bytes[i]);
+            }
+            plog("!!!!!CUDA Peach solved block is not valid!!!!!");
+            plog("BT -> %s", hex);            
+            error("!!!!!CUDA Peach solved block is not valid!!!!!");
+            error("BT -> %s", hex);
+            sleep(5);
+            break;
+         }
           /* K all g... */
 #endif
 #ifdef CPUNODE

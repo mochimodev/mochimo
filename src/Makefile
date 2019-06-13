@@ -16,20 +16,20 @@ OBJ_FOLDER=obj/Debug
 all: $(EXEC)
 debug: $(EXEC)
 
-sha256.o: $(SOURCE_FOLDER)crypto/sha256.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/sha256.c -o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
+sha256.o: $(SOURCE_FOLDER)crypto/hash/cpu/sha256.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/hash/cpu/sha256.c -o $(SOURCE_FOLDER)crypto/hash/cpu/sha256.o $(LDFLAGS)
 
-blake2b.o: $(SOURCE_FOLDER)crypto/blake2/blake2b.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/blake2/blake2b.c -o $(SOURCE_FOLDER)crypto/blake2/blake2b.o $(LDFLAGS)
+blake2b.o: $(SOURCE_FOLDER)crypto/hash/cpu/blake2b.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/hash/cpu/blake2b.c -o $(SOURCE_FOLDER)crypto/hash/cpu/blake2b.o $(LDFLAGS)
 
-keccak.o: $(SOURCE_FOLDER)crypto/keccak/keccak.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/keccak/keccak.c -o $(SOURCE_FOLDER)crypto/keccak/keccak.o $(LDFLAGS)
+keccak.o: $(SOURCE_FOLDER)crypto/hash/cpu/keccak.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/hash/cpu/keccak.c -o $(SOURCE_FOLDER)crypto/hash/cpu/keccak.o $(LDFLAGS)
 
-md5.o: $(SOURCE_FOLDER)crypto/md5/md5.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/md5/md5.c -o $(SOURCE_FOLDER)crypto/md5/md5.o $(LDFLAGS)
+md5.o: $(SOURCE_FOLDER)crypto/hash/cpu//md5.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/hash/cpu/md5.c -o $(SOURCE_FOLDER)crypto/hash/cpu/md5.o $(LDFLAGS)
 	
-sha1.o: $(SOURCE_FOLDER)crypto/sha1/sha1.c
-	$(CC) -g -c $(SOURCE_FOLDER)crypto/sha1/sha1.c -o $(SOURCE_FOLDER)crypto/sha1/sha1.o $(LDFLAGS)
+sha1.o: $(SOURCE_FOLDER)crypto/hash/cpu/sha1.c
+	$(CC) -g -c $(SOURCE_FOLDER)crypto/hash/cpu/sha1.c -o $(SOURCE_FOLDER)crypto/hash/cpu/sha1.o $(LDFLAGS)
 	
 wotshash.o: $(SOURCE_FOLDER)wots/wotshash.c
 	$(CC) -g -o $(SOURCE_FOLDER)crypto/wots/wotshash.o -c $(SOURCE_FOLDER)crypto/wots/wotshash.c $(LDFLAGS)
@@ -44,7 +44,7 @@ trigg.o: $(SOURCE_FOLDER)algo/trigg/trigg.c
 	$(CC) -g -c $(SOURCE_FOLDER)algo/trigg/trigg.c -o $(SOURCE_FOLDER)algo/trigg/trigg.o $(LDFLAGS)
 	
 mochimo: wots.o trigg.o sha256.o blake2b.o keccak.o md5.o sha1.o
-	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)
+	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/hash/cpu/sha256.o $(LDFLAGS)
 	
 cuda_mochimo: wots.o cuda_trigg.o trigg.o sha256.o
 	$(CC) -g -o $(BIN_FOLDER)mochimo $(SOURCE_FOLDER)mochimo.c $(SOURCE_FOLDER)algo/trigg/trigg.o $(SOURCE_FOLDER)algo/trigg/cuda_trigg.o $(SOURCE_FOLDER)crypto/wots/wots.o $(SOURCE_FOLDER)crypto/sha256.o $(LDFLAGS)

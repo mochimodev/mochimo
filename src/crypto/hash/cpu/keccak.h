@@ -32,16 +32,16 @@ typedef unsigned char byte;
 
 typedef struct{
 	
-	byte sha3_flag;
-	uint32_t digestbitlen;
-	uint64_t rate_bits;
-	uint64_t rate_bytes;
-	uint64_t absorb_round;
+   byte sha3_flag;
+   uint32_t digestbitlen;
+   uint64_t rate_bits;
+   uint64_t rate_bytes;
+   uint64_t absorb_round;
 
-	int64_t state[KECCAK_STATE_SIZE];
-	byte q[KECCAK_Q_SIZE];
+   int64_t state[KECCAK_STATE_SIZE];
+   byte q[KECCAK_Q_SIZE];
 
-	uint64_t bits_in_queue;
+   uint64_t bits_in_queue;
 
  } keccak_ctx_t;
 
@@ -57,4 +57,5 @@ void keccak_absorb(keccak_ctx_t *ctx, byte* in);
 void keccak_extract(keccak_ctx_t *ctx);
 void keccak_pad(keccak_ctx_t *ctx);
 void keccak_permutations(keccak_ctx_t * ctx);
+
 #endif

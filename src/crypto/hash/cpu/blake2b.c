@@ -37,52 +37,49 @@ void blake2b_init(blake2b_ctx_t *ctx, byte* key, uint32_t keylen, uint32_t diges
    ctx->chain[6] = BLAKE2B_IVS[6];
    ctx->chain[7] = BLAKE2B_IVS[7];
 
-	memcpy(ctx->buff, ctx->key, ctx->keylen);
-	ctx->pos = BLAKE2B_BLOCK_LENGTH;
+   memcpy(ctx->buff, ctx->key, ctx->keylen);
+   ctx->pos = BLAKE2B_BLOCK_LENGTH;
 }
 
 void blake2b_update(blake2b_ctx_t *ctx, byte* in, uint64_t inlen)
 {
-	if (inlen == 0)
-	   return;
+   if (inlen == 0)
+      return;
 
-	uint32_t start = 0;
-	int64_t inIndex = 0, blockIndex = 0;
+   uint32_t start = 0;
+   int64_t in_index = 0, block_index = 0;
 	
-	if (ctx->pos)
-	{
-	   start = BLAKE2B_BLOCK_LENGTH - ctx->pos;
-		if (start < inlen)
-		{ 
+   if (ctx->pos)
+   {
+      start = BLAKE2B_BLOCK_LENGTH - ctx->pos;
+      if (start < inlen){ 
          memcpy(ctx->buff + ctx->pos, in, start);
-			ctx->t0 += BLAKE2B_BLOCK_LENGTH;
-			if (ctx->t0 == 0)
-				ctx->t1++;
+         ctx->t0 += BLAKE2B_BLOCK_LENGTH;
+
+         if (ctx->t0 == 0) ctx->t1++;
 			
 			blake2b_compress(ctx, ctx->buff, 0);
 			ctx->pos = 0;
 			memset(ctx->buff, 0, BLAKE2B_BLOCK_LENGTH);
-		}
-		else
-		{
-			memcpy(ctx->buff + ctx->pos, in, inlen);//read the whole *in
-			ctx->pos += inlen;
-			return;
-		}
-	}
+         } else {
+	   memcpy(ctx->buff + ctx->pos, in, inlen);//read the whole *in
+	   ctx->pos += inlen;
+	   return;
+	 }
+      }
 
-	blockIndex =  inlen - BLAKE2B_BLOCK_LENGTH;
-	for (inIndex = start; inIndex < blockIndex; inIndex += BLAKE2B_BLOCK_LENGTH)
-	{
-	   ctx->t0 += BLAKE2B_BLOCK_LENGTH;
-		if (ctx->t0 == 0)
-	      ctx->t1++;
+      block_index =  inlen - BLAKE2B_BLOCK_LENGTH;
+      for (in_index = start; in_index < block_index; in_index += BLAKE2B_BLOCK_LENGTH)
+      {
+         ctx->t0 += BLAKE2B_BLOCK_LENGTH;
+	 if (ctx->t0 == 0)
+	    ctx->t1++;
 
-		blake2b_compress(ctx, in, inIndex);
-	}
+         blake2b_compress(ctx, in, in_index);
+      }
 
-	memcpy(ctx->buff, in + inIndex, inlen - inIndex);
-   ctx->pos += inlen - inIndex;
+      memcpy(ctx->buff, in + in_index, inlen - in_index);
+      ctx->pos += inlen - in_index;
 }
 
 void blake2b_final(blake2b_ctx_t *ctx, byte* out)
@@ -121,33 +118,33 @@ void blake2b_init_state(blake2b_ctx_t *ctx)
 
 void blake2b_compress(blake2b_ctx_t *ctx, byte* in, uint32_t inoffset)
 {
-	blake2b_init_state(ctx);
+   blake2b_init_state(ctx);
 
-	uint64_t  m[16] = {0};
-	for (int j = 0; j < 16; j++)
-   	   m[j] = blake2b_leuint64(in + inoffset + j * 8);
+   uint64_t  m[16] = {0};
+   for (int j = 0; j < 16; j++)
+      m[j] = blake2b_leuint64(in + inoffset + (j << 3));
 	
-	for (int round = 0; round < BLAKE2B_ROUNDS; round++)
-	{
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][0]], m[BLAKE2B_SIGMAS[round][1]], 0, 4, 8, 12);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][2]], m[BLAKE2B_SIGMAS[round][3]], 1, 5, 9, 13);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][4]], m[BLAKE2B_SIGMAS[round][5]], 2, 6, 10, 14);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][6]], m[BLAKE2B_SIGMAS[round][7]], 3, 7, 11, 15);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][8]], m[BLAKE2B_SIGMAS[round][9]], 0, 5, 10, 15);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][10]], m[BLAKE2B_SIGMAS[round][11]], 1, 6, 11, 12);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][12]], m[BLAKE2B_SIGMAS[round][13]], 2, 7, 8, 13);
-		blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][14]], m[BLAKE2B_SIGMAS[round][15]], 3, 4, 9, 14);
-	}
+   for (int round = 0; round < BLAKE2B_ROUNDS; round++)
+   {
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][0]], m[BLAKE2B_SIGMAS[round][1]], 0, 4, 8, 12);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][2]], m[BLAKE2B_SIGMAS[round][3]], 1, 5, 9, 13);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][4]], m[BLAKE2B_SIGMAS[round][5]], 2, 6, 10, 14);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][6]], m[BLAKE2B_SIGMAS[round][7]], 3, 7, 11, 15);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][8]], m[BLAKE2B_SIGMAS[round][9]], 0, 5, 10, 15);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][10]], m[BLAKE2B_SIGMAS[round][11]], 1, 6, 11, 12);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][12]], m[BLAKE2B_SIGMAS[round][13]], 2, 7, 8, 13);
+      blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][14]], m[BLAKE2B_SIGMAS[round][15]], 3, 4, 9, 14);
+   }
 
-	for (int offset = 0; offset < BLAKE2B_CHAIN_SIZE; offset++)
-		ctx->chain[offset] = ctx->chain[offset] ^ ctx->state[offset] ^ ctx->state[offset + 8];
+   for (int offset = 0; offset < BLAKE2B_CHAIN_SIZE; offset++)
+      ctx->chain[offset] = ctx->chain[offset] ^ ctx->state[offset] ^ ctx->state[offset + 8];
 }
 
 uint64_t blake2b_leuint64(byte *in)
 {
-	uint64_t a;
-	a = *((uint64_t *)in);
-	return a;
+   uint64_t a;
+   a = *((uint64_t *)in);
+   return a;
 
 	/* If memory is not little endian
 	uint8_t *a = (uint8_t *)in;
@@ -163,13 +160,13 @@ uint64_t blake2b_ROTR64(uint64_t a, uint8_t b)
 
 void blake2b_G(blake2b_ctx_t *ctx, int64_t m1, int64_t m2, int32_t a, int32_t b, int32_t c, int32_t d)
 {
-	ctx->state[a] = ctx->state[a] + ctx->state[b] + m1;
-	ctx->state[d] = blake2b_ROTR64(ctx->state[d] ^ ctx->state[a], 32);
-	ctx->state[c] = ctx->state[c] + ctx->state[d];
-	ctx->state[b] = blake2b_ROTR64(ctx->state[b] ^ ctx->state[c], 24);
-	ctx->state[a] = ctx->state[a] + ctx->state[b] + m2;
-	ctx->state[d] = blake2b_ROTR64(ctx->state[d] ^ ctx->state[a], 16);
-	ctx->state[c] = ctx->state[c] + ctx->state[d];
-	ctx->state[b] = blake2b_ROTR64(ctx->state[b] ^ ctx->state[c], 63);
+   ctx->state[a] = ctx->state[a] + ctx->state[b] + m1;
+   ctx->state[d] = blake2b_ROTR64(ctx->state[d] ^ ctx->state[a], 32);
+   ctx->state[c] = ctx->state[c] + ctx->state[d];
+   ctx->state[b] = blake2b_ROTR64(ctx->state[b] ^ ctx->state[c], 24);
+   ctx->state[a] = ctx->state[a] + ctx->state[b] + m2;
+   ctx->state[d] = blake2b_ROTR64(ctx->state[d] ^ ctx->state[a], 16);
+   ctx->state[c] = ctx->state[c] + ctx->state[d];
+   ctx->state[b] = blake2b_ROTR64(ctx->state[b] ^ ctx->state[c], 63);
 }
 
