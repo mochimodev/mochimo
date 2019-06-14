@@ -96,10 +96,10 @@ void night_hash2(byte *out, uint32_t index, byte *in, uint32_t inlen)
          */
 
          keccak_ctx_t sha3;
-         keccack_sha3_init(&sha3, 256);
-         keccack_update(&sha3, in, inlen);
-         keccack_update(&sha3, (byte*) &index, inlen);
-         keccack_final(&sha3, out);
+         keccak_sha3_init(&sha3, 256);
+         keccak_update(&sha3, in, inlen);
+         keccak_update(&sha3, (byte*) &index, inlen);
+         keccak_final(&sha3, out);
       }
          break;
       case 5:
@@ -112,10 +112,10 @@ void night_hash2(byte *out, uint32_t index, byte *in, uint32_t inlen)
          */
 
          keccak_ctx_t keccak;
-         keccack_init(&keccak, (uint32_t)256);
-         keccack_update(&keccak, in, inlen);
-         keccack_update(&keccak, (byte*) &index, inlen);
-         keccack_final(&keccak, out);
+         keccak_init(&keccak, (uint32_t)256);
+         keccak_update(&keccak, in, inlen);
+         keccak_update(&keccak, (byte*) &index, inlen);
+         keccak_final(&keccak, out);
      }
          break;
       case 6:

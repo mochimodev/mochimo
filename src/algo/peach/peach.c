@@ -18,7 +18,7 @@
 #include <sys/time.h>
 
 #include "../../crypto/hash/cpu/sha1.c"
-//#include "nighthash.c"
+#include "nighthash.c"
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);

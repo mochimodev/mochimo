@@ -1,11 +1,11 @@
 /*
- * cuda_peach.cu  Multi-GPU CUDA Mining
+ * cuda_trigg.cu  Multi-GPU CUDA Mining
  *
  * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
- * Date:  June 2019
- * Revision: 1
+ * Date: 10 August 2018
+ * Revision: 31
  */
 
 #include <stdio.h>
@@ -121,7 +121,164 @@ __device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *g_map, uint8_t *n
   return index % MAP;
 }
 
-__device__ void cuda_night_hash(unsigned char *out, unsigned char *in, uint32_t inlen)
+/**
+ * Performs data manipulation on 256 bits (32 bytes) of data using
+ * deterministic floating point operations on IEEE 754 compliant
+ * machines and devices */
+__device__ void cuda_fp256(uint8_t *data, uint32_t index, uint32_t *op)
+{
+   /**
+    * Definitions */
+   int32_t i, operand;
+   float floatv, *floatp;
+   /**
+    * Work on data 4 bytes at a time */
+   for(i = *op = 0; i < 32; i += 4)
+   {
+      /**
+       * Cast 4 byte piece to float pointer */
+      floatp = (float *) &data[i];
+      /**
+       * 4 byte separation order depends on initial byte:
+       * #1) *op = data... determine floating point operation type
+       * #2) operand = ... determine the value of the operand
+       * #3) operand ^=... determine the sign of the operand
+       *                   ^must always be performed after #2) */
+      switch(data[i] & 7)
+      {
+         case 0:
+            *op = (uint32_t) data[i + 1];
+            operand = (int32_t) data[ (data[i + 2] & 31) ];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+         case 1:
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            if(data[i + 2] & 1) operand ^= 0x80000000;
+            *op = (uint32_t) data[i + 3];
+            break;
+         case 2:
+            *op = (uint32_t) data[i];
+            operand = (int32_t) data[ (data[i + 2] & 31) ];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+         case 3:
+            *op = (uint32_t) data[i];
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            if(data[i + 2] & 1) operand ^= 0x80000000;
+            break;
+         case 4:
+            operand = (int32_t) data[ (data[i] & 31) ];
+            if(data[i + 1] & 1) operand ^= 0x80000000;
+            *op = (uint32_t) data[i + 3];
+            break;
+         case 5:
+            operand = (int32_t) data[ (data[i] & 31) ];
+            if(data[i + 1] & 1) operand ^= 0x80000000;
+            *op = (uint32_t) data[i + 2];
+            break;
+         case 6:
+            *op = (uint32_t) data[i++];
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+         case 7:
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            *op = (uint32_t) data[i + 2];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+      } /* end switch(data[j] & 31... */
+      /**
+       * Cast operand to float */
+      floatv = (float) operand;
+      /**
+       * Replace NaN's with tileNum */
+      if(isnan(*floatp)) *floatp = (float) index;
+      if(isnan(floatv)) floatv = (float) index;
+      /**
+       * Perform predetermined floating point operation */
+      switch(*op & 3) {
+         case 0:
+            *floatp += floatv;
+            break;
+         case 1:
+            *floatp -= floatv;
+            break;
+         case 2:
+            *floatp *= floatv;
+            break;
+         case 3:
+            *floatp /= floatv;
+            break;
+      }
+   } /* end for(*op = 0... */
+}
+
+/**
+ * Performs data manipulation on 256 bits (32 bytes) of data using
+ * random byte transform operations, for increased complexity */
+__device__ void cuda_bitbyte256(uint8_t *data, uint32_t *op)
+{
+   /**
+    * Definitions */
+   int32_t i, z;
+   uint8_t temp, _104, _72;
+   /**
+    * Perform <TILE_TRANSFORMS> number of bit/byte manipulations */
+   for(i = 0, _104 = 104, _72 = 72; i < TILE_TRANSFORMS; i++)
+   {
+      /**
+       * Determine operation to use this iteration */
+      *op += (uint32_t) data[i & 31];
+      /**
+       * Perform random operation */
+      switch(*op & 7) {
+         case 0: /* Swap the first and last bit in each byte. */
+            for(z = 0; z < 32; z++)
+               data[z] ^= 0x81;
+            break;
+         case 1: /* Swap bytes */
+            for(z = 0; z < 16; z++) {
+               temp = data[z];
+               data[z] = data[z + 16];
+               data[z + 16] = temp;
+            }
+            break;
+         case 2: /* Complement One, all bytes */
+            for(z = 1; z < 32; z++)
+               data[z] = ~data[z];
+            break;
+         case 3: /* Alternate +1 and -1 on all bytes */
+            for(z = 0; z < 32; z++)
+               data[z] += ((z & 1) == 0) ? 1 : -1;
+            break;
+         case 4: /* Alternate +i and -i on all bytes */
+            for(z = 0; z < 32; z++)
+               data[z] += ((z & 1) == 0) ? -i : i;
+            break;
+         case 5: /* Replace every occurrence of _104 with _72 */ 
+            for(z = 0; z < 32; z++)
+               if(data[z] == _104) data[z] = _72;
+            break;
+         case 6: /* If byte a is > byte b, swap them. */
+            for(z = 0; z < 16; z++) {
+               if(data[z] > data[z + 16]) {
+                  temp = data[z];
+                  data[z] = data[z + 16];
+                  data[z + 16] = temp;
+               }
+            }
+            break;
+         case 7: /* XOR all bytes */
+            for(z = 1; z < HASHLEN; z++)
+               data[z] ^= data[z - 1];
+            break;
+      } /* end switch(... */
+   } /* end for(i = 0... */ 
+}
+
+
+__device__ void cuda_night_hash(unsigned char *out, unsigned char *in,
+                                uint32_t inlen)
 {
    uint32_t op;
    op = 0;
@@ -190,180 +347,47 @@ __device__ void cuda_night_hash(unsigned char *out, unsigned char *in, uint32_t 
 
 
 __device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) {
-  /**
-   * Declarations */
-  CUDA_SHA256_CTX ictx;
-  int i, j, k, t, z;
-  uint8_t bits, _104, _72, selector, *tilep;
-  uint32_t op;
-  float floatv, *floatp;
-  
-  _104 = 104;
-  _72 = 72;
+   /**
+    * Declarations */
+   CUDA_SHA256_CTX ictx;
+   int i;
+   uint8_t *tilep, *next_tilep;
+   uint32_t op;
 
-  /* set map pointer */
-  tilep = &g_map[tilenum * TILE_LENGTH];
-  
-  /* begin tile data */
-  cuda_sha256_init(&ictx);
-  cuda_sha256_update(&ictx, phash, HASHLEN);
-  cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
-  cuda_sha256_final(&ictx, tilep);
+   /* set map pointer */
+   tilep = &g_map[tilenum * TILE_LENGTH];
 
-    for(i = j = k = 0; i < TILE_LENGTH; i+=HASHLEN) //for each row of the tile
-    {
-      for(op = 0; j < i + HASHLEN; j += 4)
-      {
-         /* set float pointer */
-         floatp = (float *) &tilep[j];
-         
-         /* Byte selections depend on initial 8 bits
-          * Note: Trying not to perform "floatv =" first */
-         switch(tilep[k] & 7) {
-            case 0:
-               // skip a byte
-               k++;
-               // determine floating point operation type
-               op = tilep[k++];
-               // determine which byte to select on the current 32 byte series
-               selector = tilep[k++] & (HASHLEN - 1); // & (HASHLEN - 1), returns 0-31
-               floatv = (float) tilep[i + selector]; // i + selector, index in 32 byte series
-               // determine if floating point operation is performed on a negative number
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               break;
-            case 1:
-               k++;
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               op = tilep[k++];
-               break;
-            case 2:
-               op = tilep[k++];
-               k++;
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               break;
-            case 3:
-               op = tilep[k++];
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               k++;
-               break;
-            case 4:
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               k++;
-               op = tilep[k++];
-               break;
-            case 5:
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               op = tilep[k++];
-               k++;
-               break;
-            case 6:
-               op = tilep[k++];
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               k++;
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               break;
-            case 7:
-               k++;
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               op = tilep[k++];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               break;
-         }
+   /* begin tile data */
+   cuda_sha256_init(&ictx);
+   cuda_sha256_update(&ictx, phash, HASHLEN);
+   cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
+   cuda_sha256_final(&ictx, tilep);
 
-         /* Replace NaN's with tileNum. */
-         if(isnan(*floatp)) *floatp = (float) tilenum;
-         if(isnan(floatv)) floatv = (float) tilenum;
-
-         /* Float operation depends on final 8 bits.
-          * Perform floating point operation. */
-         switch(op & 3) {
-            case 0:
-                  *floatp += floatv;
-                  break;
-            case 1:
-                  *floatp -= floatv;
-                  break;
-            case 2:
-                  *floatp *= floatv;
-                  break;
-            case 3:
-                  *floatp /= floatv;
-                  break;
-         }
-         
-      } /* end for(op = 0... */
+   /**
+    * Perform TILE_LENGTH iterations (32) of a 3-Part data manipulation series */
+   for(i = 0; i < TILE_LENGTH; i+=HASHLEN) //for each row of the tile
+   {
+      /**
+       * Part 1
+       * Apply deterministic floating point operations to 32 byte chunk */
+      cuda_fp256(&tilep[i], tilenum, &op);
+      /**
+       * Part 2
+       * Apply bit/byte manipulations on 32 byte chunk */
+      cuda_bitbyte256(&tilep[i], &op);
       
-      /* Execute bit manipulations per tile row. */
-      for(t = 0; t < TILE_TRANSFORMS; t++) {
-         /* Determine tile byte offset and operation to use. */
-         op += (uint32_t) tilep[i + (t % HASHLEN)];
-
-         switch(op & 7) {
-            case 0: /* Swap the first and last bit in each byte. */
-               for(z = 0; z < HASHLEN; z++) tilep[i + z] ^= 0x81;
-               break;
-            case 1: /* Swap bytes */
-               for(z = 0;z<HASHLENMID;z++) {
-                  bits = tilep[i + z];
-                  tilep[i + z] = tilep[i + HASHLENMID + z];
-                  tilep[i + HASHLENMID + z] = bits;
-               }
-               break;
-            case 2: /* Complement One, all bytes */
-               for(z = 1; z < HASHLEN; z++) tilep[i + z] = ~tilep[i + z];
-               break;
-            case 3: /* Alternate +1 and -1 on all bytes */
-               for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += ((z & 1) == 0) ? 1 : -1;
-               }
-               break;
-            case 4: /* Alternate +t and -t on all bytes */
-               for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += ((z & 1) == 0) ? -t : t;
-               }
-               break;
-            case 5: /* Replace every occurrence of h with H */ 
-               for(z = 0; z < HASHLEN; z++) {
-                  if(tilep[i + z] == _104) tilep[i + z] = _72;
-               }
-               break;
-            case 6: /* If byte a is > byte b, swap them. */
-               for(z = 0; z < HASHLENMID; z++) {
-                  if(tilep[i + z] > tilep[i + HASHLENMID + z]) {
-                     bits = tilep[i + z];
-                     tilep[i + z] = tilep[i + HASHLENMID + z];
-                     tilep[i + HASHLENMID + z] = bits;
-                  }
-               }
-               break;
-            case 7: /* XOR all bytes */
-               for(z = 1; z < HASHLEN; z++) tilep[i + z] ^= tilep[i + z - 1];
-               break;
-         } /* end switch(... */
-      } /* end for(t = 0... */ 
       
       /* hash the result of the current tile's row to the next */
-      if(j < TILE_LENGTH) {
-        cuda_sha256_init(&ictx);
-        cuda_sha256_update(&ictx, &tilep[i], HASHLEN);
-        cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
-        cuda_sha256_final(&ictx, &tilep[j]);
+      if((i + 32) < TILE_LENGTH) {
+         next_tilep = &tilep[i + 32];
+         cuda_sha256_init(&ictx);
+         cuda_sha256_update(&ictx, &tilep[i], HASHLEN);
+         cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
+         cuda_sha256_final(&ictx, next_tilep);
 
-        cuda_night_hash(&tilep[j], &tilep[j], HASHLEN);
+         cuda_night_hash(next_tilep, &tilep[i], HASHLEN);
       }
-    }
+   }
 }
 
 __global__ void cuda_build_map(uint32_t g_cache, uint8_t *g_map) {
