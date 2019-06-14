@@ -16,8 +16,13 @@
 #define MD5_BLOCK_SIZE 16               // MD5 outputs a 16 byte digest
 
 /**************************** DATA TYPES ****************************/
+#ifndef BYTE
 typedef unsigned char BYTE;             // 8-bit byte
+#endif
+
+#ifndef WORD
 typedef unsigned int  WORD;             // 32-bit word, change to "long" for 16-bit machines
+#endif
 
 typedef struct {
    BYTE data[64];

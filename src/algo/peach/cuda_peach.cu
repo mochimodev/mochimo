@@ -1,11 +1,11 @@
 /*
- * cuda_trigg.cu  Multi-GPU CUDA Mining
+ * cuda_peach.cu  Multi-GPU CUDA Mining
  *
  * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
- * Date: 10 August 2018
- * Revision: 31
+ * Date:  June 2019
+ * Revision: 1
  */
 
 #include <stdio.h>

@@ -16,7 +16,9 @@
 #define MD2_BLOCK_SIZE 16
 
 /**************************** DATA TYPES ****************************/
+#ifndef BYTE
 typedef unsigned char BYTE;             // 8-bit byte
+#endif
 
 typedef struct {
    BYTE data[16];
