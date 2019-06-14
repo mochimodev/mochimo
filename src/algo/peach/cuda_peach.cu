@@ -25,40 +25,12 @@ extern "C" {
 
 #define AS_UINT2(addr) *((uint2*)(addr))
 
-// Define this to turn on error checking
-#define CUDA_ERROR_CHECK
-
-#define CudaSyncError(x)     __cudaSyncError( x, __FILE__, __LINE__ )
-#define CudaCheckError(x)    __cudaCheckError( x, __FILE__, __LINE__ )
-
-inline void __cudaSyncError( const char *msg, const char *file, const int line )
+inline void cudaCheckError( const char *msg, uint32_t gpu, const char *file)
 {
-#ifdef CUDA_ERROR_CHECK
-    cudaError err = cudaDeviceSynchronize();
-    if( cudaSuccess != err )
-    {
-        fprintf( stderr, "cudaCheckError() with sync failed at %s:%i : %s\n",
-                 file, line, cudaGetErrorString( err ) );
-        exit( -1 );
-    }
-#endif
-
-    return;
-}
-
-inline void __cudaCheckError( const char *msg, const char *file, const int line )
-{
-#ifdef CUDA_ERROR_CHECK
-    cudaError err = cudaGetLastError();
-    if ( cudaSuccess != err )
-    {
-        fprintf( stderr, "cudaCheckError() fail caught at '%s' in %s:%i : %s\n",
-                 msg, file, line, cudaGetErrorString( err ) );
-        exit( -1 );
-    }
-#endif
-
-    return;
+   cudaError err = cudaGetLastError();
+   if(cudaSuccess != err)
+      error("%s Error (#%d) in %s: %s\n", msg, gpu, file,
+            cudaGetErrorString(err));
 }
 
 
@@ -942,101 +914,126 @@ PeachCudaCTX ctx[63];    /* Max 63 GPUs Supported */
 uint32_t threads = 1048576;
 dim3 grid(4096);
 dim3 block(256);
-char cuda_status[256];
 int *found;
 byte *diff;
 byte *phash;
+byte gpuInit = 0;
 byte bnum[8] = {0};
 int nGPU = 0;
 
 int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
-    /* Obtain and check system GPU count */
-    cudaGetDeviceCount(&nGPU);
-    if(nGPU<1 || nGPU>63) return nGPU;
-    /* Allocate pinned host memory */
-    cudaMallocHost(&diff, 1);
-    cudaMallocHost(&found, 4);
-    cudaMallocHost(&phash, 32);
-    cudaMallocHost(&found, 4);
-    /* Copy immediate block data to pinned memory */
-    memcpy(diff, &difficulty, 1);
-    memset(found, 0, 4);
-    memcpy(phash, prevhash, 32);
+   /**
+    * Definitions */
+   int i;
+   /**
+    * Obtain and check system GPU count */
+   cudaGetDeviceCount(&nGPU);
+   if(nGPU<1 || nGPU>63) return nGPU;
+   /**
+    * Allocate pinned host memory */
+   cudaMallocHost(&diff, 1);
+   cudaMallocHost(&found, 4);
+   cudaMallocHost(&phash, 32);
+   cudaMallocHost(&found, 4);
+   /**
+    * Copy immediate block data to pinned memory */
+   memcpy(diff, &difficulty, 1);
+   memset(found, 0, 4);
+   memcpy(phash, prevhash, 32);
+   /**
+    * Initialize GPU context init variable incase
+    * it holds a random number from memory */
+   for (i = 0; i < nGPU; i++)
+      if(!gpuInit) ctx[i].init = 0;
+   gpuInit = 1;
+   /**
+    * Initialize GPU data asynchronously */
+   for (i = 0; i < nGPU; i++) {
+      cudaSetDevice(i);
+      /**
+       * Create Stream */
+      cudaStreamCreate(&ctx[i].stream);
+      /**
+       * Allocate device memory */
+      cudaMalloc(&ctx[i].d_found, 4);
+      cudaMalloc(&ctx[i].d_seed, 16);
+      /**
+       * Allocate associated device-host memory */
+      cudaMallocHost(&ctx[i].seed, 16);
+      cudaMallocHost(&ctx[i].input, 108);
+      /**
+       * Copy immediate block data to device memory */
+      cudaMemcpyToSymbolAsync(c_difficulty, diff, 1, 0,
+                              cudaMemcpyHostToDevice, ctx[i].stream);
+      cudaMemcpyToSymbolAsync(c_phash, phash, 32, 0,
+                              cudaMemcpyHostToDevice, ctx[i].stream);
+      /**
+       * Set remaining device memory */
+      cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
+      cudaMemsetAsync(ctx[i].d_seed, 0, 16, ctx[i].stream);
+      /**
+       * Set initial round variables */
+      ctx[i].next_seed[0] = 0;
+      /**
+       * If first init, setup map and cache */
+      if(ctx[i].init == 0) {
+         cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
+         ctx[i].init = 1;
+         /**
+          * NOTE: The device MAP that holds the data of a map DOES NOT
+          * explicitly get free()'d. The reason behind this is because
+          * we reuse the map variable between blocks, and just rebuild
+          * the map once every block. The GPU free's the MAP when the
+          * program ends by default. This can be adjusted later. */
+      }
+      /**
+       * (re)Build map if new block */
+      if(memcmp(bnum, blocknumber, 8) != 0)
+         cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>
+            (MAP,ctx[i].d_map);
+   }
+   /**
+    * Check for any GPU initialization errors */
+   for(i = 0; i < nGPU; i++) {
+      cudaSetDevice(i);
+      cudaStreamSynchronize(ctx[i].stream);
+      cudaCheckError("init_cuda_peach()", i, __FILE__);
+   }
+   /**
+    * Update block number */
+   memcpy(bnum, blocknumber, 8);
 
-    int i = 0;
-    for ( ; i<nGPU; i++) {
-        cudaSetDevice(i);
-        /* Create Stream */
-        cudaStreamCreate(&ctx[i].stream);
-        /* Allocate device memory */
-        cudaMalloc(&ctx[i].d_found, 4);
-        cudaMalloc(&ctx[i].d_seed, 16);
-        /* Allocate associated device-host memory */
-        cudaMallocHost(&ctx[i].seed, 16);
-        cudaMallocHost(&ctx[i].input, 108);
-        /* Copy immediate block data to device memory */
-        cudaMemcpyToSymbolAsync(c_difficulty, diff, 1, 0,
-                                cudaMemcpyHostToDevice, ctx[i].stream);
-        cudaMemcpyToSymbolAsync(c_phash, phash, 32, 0,
-                                cudaMemcpyHostToDevice, ctx[i].stream);
-        /* Set remaining device memory */
-        cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
-        cudaMemsetAsync(ctx[i].d_seed, 0, 16, ctx[i].stream);
-        /* Set initial round variables */
-        ctx[i].next_seed[0] = 0;
-      
-        sprintf(cuda_status, "CUDA#%d init() memory bulk", i);
-        CudaSyncError(cuda_status);
-      
-        /* If first init, setup map and cache */
-        if(ctx[i].init != 1) {
-            ctx[i].init = 1;
-            cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
-            /**
-             * NOTE: The device MAP that holds the data of a map DOES NOT
-             * explicitly get free()'d. The reason behind this is because
-             * we reuse the map variable between blocks, and just rebuild
-             * the map once every block. The GPU free's the MAP when the
-             * program ends by default */
-      
-            sprintf(cuda_status, "CUDA#%d init() map malloc", i);
-            CudaSyncError(cuda_status);
-        }
-        /* (re)Build map if new block */
-        if(memcmp(bnum, blocknumber, 8) != 0) {
-            cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>(MAP,ctx[i].d_map);
-        }
-      
-        sprintf(cuda_status, "CUDA#%d init() build_map", i);
-        CudaSyncError(cuda_status);
-    }
-    
-    memcpy(bnum, blocknumber, 8);
-
-    return nGPU;
+   return nGPU;
 }
 
 void free_cuda_peach() {
-    /* Free pinned host memory */
-    cudaFreeHost(diff);
-    cudaFreeHost(found);
-    cudaFreeHost(phash);
-
-    int i = 0;
-    for ( ; i<nGPU; i++) {
-        cudaSetDevice(i);
-        /* Destroy Stream */
-        cudaStreamDestroy(ctx[i].stream);
-        /* Free device memory */
-        cudaFree(ctx[i].d_found);
-        cudaFree(ctx[i].d_seed);
-        /* Free associated device-host memory */
-        cudaFreeHost(ctx[i].seed);
-        cudaFreeHost(ctx[i].input);
-
-        sprintf(cuda_status, "CUDA#%d free()", i);
-        CudaSyncError(cuda_status);
-    }
+   /**
+    * Definitions */
+   int i;
+   /**
+    * Free pinned host memory */
+   cudaFreeHost(diff);
+   cudaFreeHost(found);
+   cudaFreeHost(phash);
+   /**
+    * Free GPU data */
+   for (i = 0; i<nGPU; i++) {
+      cudaSetDevice(i);
+      /**
+       * Destroy Stream */
+      cudaStreamDestroy(ctx[i].stream);
+      /**
+       * Free device memory */
+      cudaFree(ctx[i].d_found);
+      cudaFree(ctx[i].d_seed);
+      /**
+       * Free associated device-host memory */
+      cudaFreeHost(ctx[i].seed);
+      cudaFreeHost(ctx[i].input);
+      /**
+       * Check for any GPU free() errors */
+      cudaCheckError("free_cuda_peach()", i, __FILE__);
+   }
 }
 
 extern byte *trigg_gen(byte *in);
@@ -1044,38 +1041,36 @@ extern char *trigg_expand2(byte *in, byte *out);
 
 __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
 {
-    int i;
-    uint64_t nHaiku = 0;
-    time_t seconds = time(NULL);
-    for( ; *runflag && *found == 0; ) {
-        for (i=0; i<nGPU; i++) {
-            /* Prepare next seed for GPU... */
-            if(ctx[i].next_seed[0] == 0) {
-                /* ... generate first GPU seed (and expand as Haiku) */
-                trigg_gen(ctx[i].next_seed);
+   int i;
+   uint64_t nHaiku = 0;
+   time_t seconds = time(NULL);
+   for( ; *runflag && *found == 0; ) {
+      for (i=0; i<nGPU; i++) {
+         /* Prepare next seed for GPU... */
+         if(ctx[i].next_seed[0] == 0) {
+            /* ... generate first GPU seed (and expand as Haiku) */
+            trigg_gen(ctx[i].next_seed);
 
-                /* ... and prepare round data */
-                memcpy(ctx[i].input, bt, 92);
-                memcpy(ctx[i].input+92, ctx[i].next_seed, 16);
+            /* ... and prepare round data */
+            memcpy(ctx[i].input, bt, 92);
+            memcpy(ctx[i].input+92, ctx[i].next_seed, 16);
+         }
+         /* Check if GPU has finished */
+         cudaSetDevice(i);
+         if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
+            cudaMemcpy(found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+            if(*found==1) { /* SOLVED A BLOCK! */
+               cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
+               memcpy(bt + 92, ctx[i].curr_seed, 16);
+               memcpy(bt + 92 + 16, ctx[i].seed, 16);
+               break;
             }
-            /* Check if GPU has finished */
-            sprintf(cuda_status, "CUDA#%d iteration check", i);
-            CudaCheckError(cuda_status);
-            cudaSetDevice(i);
-            if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
-                cudaMemcpy(found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
-                if(*found==1) { /* SOLVED A BLOCK! */
-                    cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
-                    memcpy(bt + 92, ctx[i].curr_seed, 16);
-                    memcpy(bt + 92 + 16, ctx[i].seed, 16);
-                    break;
-                }
-                /* Send new GPU round Data */
-                cudaMemcpyToSymbolAsync(c_input32, ctx[i].input, 108, 0,
-                                        cudaMemcpyHostToDevice, ctx[i].stream);
-                /* Start GPU round */
-                cuda_find_peach<<<grid, block, 0, ctx[i].stream>>>(threads, MAP,
-                                    ctx[i].d_map, ctx[i].d_found, ctx[i].d_seed);
+            /* Send new GPU round Data */
+            cudaMemcpyToSymbolAsync(c_input32, ctx[i].input, 108, 0,
+                                    cudaMemcpyHostToDevice, ctx[i].stream);
+            /* Start GPU round */
+            cuda_find_peach<<<grid, block, 0, ctx[i].stream>>>(threads, MAP,
+                           ctx[i].d_map, ctx[i].d_found, ctx[i].d_seed);
 
                 /* Add to haiku count */
                 nHaiku += threads;
@@ -1084,6 +1079,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
                 memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
                 ctx[i].next_seed[0] = 0;
             } else continue;  /* Waiting on GPU ... */
+            cudaCheckError("cuda_peach()", i, __FILE__);
         }
     }
     
