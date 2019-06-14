@@ -15,6 +15,9 @@ Licensing stuff
 #if USE_SHA256
 #include "sha256.cuh"
 #endif
+#if USE_BLAKE2B
+#include "blake2b.cuh"
+#endif
 #endif
 
 #if USE_MD2
@@ -71,6 +74,21 @@ void sha256_hash(SHA256_CTX* ctx, BYTE * in, WORD inlen, BYTE * out)
 void cuda_sha256_hash_batch(BYTE * in, WORD inlen, BYTE * out, WORD n_batch)
 {
     mcm_cuda_sha256_hash_batch(in, inlen, out, n_batch);
+}
+#endif
+#endif
+
+#if USE_BLAKE2B
+void blake2b_hash(BLAKE2B_CTX* ctx, BYTE* key, WORD keylen, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit)
+{
+    blake2b_init(ctx, key, keylen, n_outbit);
+    blake2b_update(ctx, in, inlen);
+    blake2b_final(ctx, out);
+}
+#if CUDA_HASH
+void cuda_blake2b_hash_batch(BYTE* key, WORD keylen, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit, WORD n_batch)
+{
+    mcm_cuda_blake2b_hash_batch(key, keylen, in, inlen, out, n_outbit, n_batch);
 }
 #endif
 #endif

@@ -8,7 +8,7 @@ static void test_md2()
     BYTE md2_inp[127*1024];
     BYTE md2_oup[1024*MD2_BLOCK_SIZE];
     srand(0);
-    for (int i = 0; i < 1024; i++)
+    for (int i = 0; i < 1024 * 127; i++)
     {
         md2_inp[i] = rand() % 256;
     }
@@ -37,7 +37,7 @@ static void test_md5()
     BYTE md5_inp[127*1024];
     BYTE md5_oup[1024*MD5_BLOCK_SIZE];
     srand(0);
-    for (int i = 0; i < 1024; i++)
+    for (int i = 0; i < 1024 * 127; i++)
     {
         md5_inp[i] = rand() % 256;
     }
@@ -67,7 +67,7 @@ static void test_sha1()
     BYTE sha1_inp[127*1024];
     BYTE sha1_oup[1024*SHA1_BLOCK_SIZE];
     srand(0);
-    for (int i = 0; i < 1024; i++)
+    for (int i = 0; i < 1024 * 127; i++)
     {
         sha1_inp[i] = rand() % 256;
     }
@@ -97,7 +97,7 @@ static void test_sha256()
     BYTE sha256_inp[127*1024];
     BYTE sha256_oup[1024*SHA256_BLOCK_SIZE];
     srand(0);
-    for (int i = 0; i < 1024; i++)
+    for (int i = 0; i < 1024 * 127; i++)
     {
         sha256_inp[i] = rand() % 256;
     }
@@ -121,12 +121,92 @@ static void test_sha256()
     }
 }
 
+static void test_blake2b_wo_key()
+{
+    WORD test_block_size[] = {16,32,64};
+    WORD INPUT_SIZE = 345;
+    BYTE* KEY = NULL;
+    WORD KEYLEN = 0;
+
+    for (int j = 0; j< 3; j++)
+    {
+        WORD BLAKE2B_BLOCK_SIZE = test_block_size[j];
+        // TEST BLAKE2B
+        BYTE blake2b_inp[INPUT_SIZE*1024];
+        BYTE blake2b_oup[1024*BLAKE2B_BLOCK_SIZE];
+        srand(0);
+        for (int i = 0; i < 1024 * INPUT_SIZE; i++)
+        {
+            blake2b_inp[i] = rand() % 256;
+        }
+        // CPU hash
+        for (int i = 0; i < 1024; i++)
+        {
+            BLAKE2B_CTX ctx;
+            blake2b_hash(&ctx, KEY, KEYLEN, blake2b_inp + INPUT_SIZE * i, INPUT_SIZE, blake2b_oup + BLAKE2B_BLOCK_SIZE * i, BLAKE2B_BLOCK_SIZE <<  3);
+        }
+
+        BYTE blake2b_cu_oup[1024*BLAKE2B_BLOCK_SIZE];
+        cuda_blake2b_hash_batch(KEY, KEYLEN, blake2b_inp, INPUT_SIZE, blake2b_cu_oup, BLAKE2B_BLOCK_SIZE <<  3, 1024);
+
+        if (memcmp(blake2b_oup, blake2b_cu_oup, BLAKE2B_BLOCK_SIZE * 1024) != 0)
+        {
+            printf("Failed test BLAKE2B no key, len %u \n", BLAKE2B_BLOCK_SIZE);
+        }
+        else
+        {
+            printf("Passed test BLAKE2B no key, len %u \n", BLAKE2B_BLOCK_SIZE);
+        }
+    }
+}
+
+static void test_blake2b_w_key()
+{
+    WORD test_block_size[] = {16,32,64};
+    WORD INPUT_SIZE = 345;
+    BYTE KEY[7] = {0,1,2,3,4,5,6};
+    WORD KEYLEN = 7;
+
+    for (int j = 0; j< 3; j++)
+    {
+        WORD BLAKE2B_BLOCK_SIZE = test_block_size[j];
+        // TEST BLAKE2B
+        BYTE blake2b_inp[INPUT_SIZE*1024];
+        BYTE blake2b_oup[1024*BLAKE2B_BLOCK_SIZE];
+        srand(0);
+        for (int i = 0; i < 1024 * INPUT_SIZE; i++)
+        {
+            blake2b_inp[i] = rand() % 256;
+        }
+        // CPU hash
+        for (int i = 0; i < 1024; i++)
+        {
+            BLAKE2B_CTX ctx;
+            blake2b_hash(&ctx, KEY, KEYLEN, blake2b_inp + INPUT_SIZE * i, INPUT_SIZE, blake2b_oup + BLAKE2B_BLOCK_SIZE * i, BLAKE2B_BLOCK_SIZE <<  3);
+        }
+
+        BYTE blake2b_cu_oup[1024*BLAKE2B_BLOCK_SIZE];
+        cuda_blake2b_hash_batch(KEY, KEYLEN, blake2b_inp, INPUT_SIZE, blake2b_cu_oup, BLAKE2B_BLOCK_SIZE <<  3, 1024);
+
+        if (memcmp(blake2b_oup, blake2b_cu_oup, BLAKE2B_BLOCK_SIZE * 1024) != 0)
+        {
+            printf("Failed test BLAKE2B no key, len %u \n", BLAKE2B_BLOCK_SIZE);
+        }
+        else
+        {
+            printf("Passed test BLAKE2B no key, len %u \n", BLAKE2B_BLOCK_SIZE);
+        }
+    }
+}
+
 int main()
 {
     test_md2();
     test_md5();
     test_sha1();
     test_sha256();
+    test_blake2b_wo_key();
+    test_blake2b_w_key();
 
     return 0;
 }

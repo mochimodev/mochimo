@@ -69,6 +69,7 @@ typedef struct {
    uint64_t f0;
 
 } blake2b_ctx_t;
+typedef blake2b_ctx_t BLAKE2B_CTX;
 
 void blake2b_init(blake2b_ctx_t *ctx, byte* key, uint32_t keylen, uint32_t digestbitlen);
 void blake2b_update(blake2b_ctx_t *ctx, byte* in, uint64_t inlen);
@@ -78,5 +79,6 @@ void blake2b_compress(blake2b_ctx_t *ctx, byte* in, uint32_t inoffset);
 uint64_t blake2b_leuint64(byte *in);
 uint64_t blake2b_ROTR64(uint64_t a, uint8_t b);
 void blake2b_G(blake2b_ctx_t *ctx, int64_t m1, int64_t m2, int32_t a, int32_t b, int32_t c, int32_t d);
+
 
 #endif
