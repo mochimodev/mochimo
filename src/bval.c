@@ -26,6 +26,7 @@
 #include "mochimo.h"
 #define closesocket(_sd) close(_sd)
 char *trigg_check(byte *in, byte d, byte *bnum);
+void trigg_expand2(byte *in, char *out);
 
 #define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
@@ -112,6 +113,7 @@ int main(int argc, char **argv)
    static byte do_rename = 1;
    static byte pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
    static char *haiku;
+   static char haikufull[256];
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;
@@ -205,7 +207,9 @@ badread:
       if(peach(&bt, get32(bt.difficulty), NULL, 1)){
          drop("peach validation failed!");
       }
-      if(!Bgflag) printf("\n%s\n\n", haiku);
+
+      trigg_expand2(bt.nonce, haikufull);
+      if(!Bgflag) printf("\n%s\n\n", haikufull);
    }
    if(cmp64(bnum, v24trigger) <= 0) {
       if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL) {

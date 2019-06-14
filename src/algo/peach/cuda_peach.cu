@@ -28,15 +28,16 @@ extern "C" {
 // Define this to turn on error checking
 #define CUDA_ERROR_CHECK
 
-#define CudaSafeCall( err ) __cudaSafeCall( err, __FILE__, __LINE__ )
-#define CudaCheckError()    __cudaCheckError( __FILE__, __LINE__ )
+#define CudaSyncError(x)     __cudaSyncError( x, __FILE__, __LINE__ )
+#define CudaCheckError(x)    __cudaCheckError( x, __FILE__, __LINE__ )
 
-inline void __cudaSafeCall( cudaError err, const char *file, const int line )
+inline void __cudaSyncError( const char *msg, const char *file, const int line )
 {
 #ifdef CUDA_ERROR_CHECK
-    if ( cudaSuccess != err )
+    cudaError err = cudaDeviceSynchronize();
+    if( cudaSuccess != err )
     {
-        fprintf( stderr, "cudaSafeCall() failed at %s:%i : %s\n",
+        fprintf( stderr, "cudaCheckError() with sync failed at %s:%i : %s\n",
                  file, line, cudaGetErrorString( err ) );
         exit( -1 );
     }
@@ -45,24 +46,14 @@ inline void __cudaSafeCall( cudaError err, const char *file, const int line )
     return;
 }
 
-inline void __cudaCheckError( const char *file, const int line )
+inline void __cudaCheckError( const char *msg, const char *file, const int line )
 {
 #ifdef CUDA_ERROR_CHECK
     cudaError err = cudaGetLastError();
     if ( cudaSuccess != err )
     {
-        fprintf( stderr, "cudaCheckError() failed at %s:%i : %s\n",
-                 file, line, cudaGetErrorString( err ) );
-        exit( -1 );
-    }
-
-    // More careful checking. However, this will affect performance.
-    // Comment away if needed.
-    err = cudaDeviceSynchronize();
-    if( cudaSuccess != err )
-    {
-        fprintf( stderr, "cudaCheckError() with sync failed at %s:%i : %s\n",
-                 file, line, cudaGetErrorString( err ) );
+        fprintf( stderr, "cudaCheckError() fail caught at '%s' in %s:%i : %s\n",
+                 msg, file, line, cudaGetErrorString( err ) );
         exit( -1 );
     }
 #endif
@@ -379,7 +370,7 @@ __global__ void cuda_build_map(uint32_t g_cache, uint8_t *g_map) {
 
     const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
     
-    if (thread < g_cache && thread <= MAP) {
+    if (thread < g_cache && thread < MAP) {
      
      /*****************************************************/
      /* Determine the final tile based on selected nonce. */
@@ -927,7 +918,7 @@ PeachCudaCTX ctx[63];    /* Max 63 GPUs Supported */
 uint32_t threads = 1048576;
 dim3 grid(4096);
 dim3 block(256);
-char haikuGPU[256];
+char cuda_status[256];
 int *found;
 byte *diff;
 byte *phash;
@@ -969,6 +960,10 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
         cudaMemsetAsync(ctx[i].d_seed, 0, 16, ctx[i].stream);
         /* Set initial round variables */
         ctx[i].next_seed[0] = 0;
+      
+        sprintf(cuda_status, "CUDA#%d init() memory bulk", i);
+        CudaSyncError(cuda_status);
+      
         /* If first init, setup map and cache */
         if(ctx[i].init != 1) {
             ctx[i].init = 1;
@@ -979,11 +974,17 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
              * we reuse the map variable between blocks, and just rebuild
              * the map once every block. The GPU free's the MAP when the
              * program ends by default */
+      
+            sprintf(cuda_status, "CUDA#%d init() map malloc", i);
+            CudaSyncError(cuda_status);
         }
         /* (re)Build map if new block */
         if(memcmp(bnum, blocknumber, 8) != 0) {
             cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>(MAP,ctx[i].d_map);
         }
+      
+        sprintf(cuda_status, "CUDA#%d init() build_map", i);
+        CudaSyncError(cuda_status);
     }
     
     memcpy(bnum, blocknumber, 8);
@@ -1008,6 +1009,9 @@ void free_cuda_peach() {
         /* Free associated device-host memory */
         cudaFreeHost(ctx[i].seed);
         cudaFreeHost(ctx[i].input);
+
+        sprintf(cuda_status, "CUDA#%d free()", i);
+        CudaSyncError(cuda_status);
     }
 }
 
@@ -1031,7 +1035,8 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
                 memcpy(ctx[i].input+92, ctx[i].next_seed, 16);
             }
             /* Check if GPU has finished */
-            CudaCheckError();
+            sprintf(cuda_status, "CUDA#%d iteration check", i);
+            CudaCheckError(cuda_status);
             cudaSetDevice(i);
             if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
                 cudaMemcpy(found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);

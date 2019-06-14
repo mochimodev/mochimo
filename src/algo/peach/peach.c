@@ -476,10 +476,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
          timersub(&tend, &tstart, &telapsed);
          plog("Peach validated in %ld.%06ld seconds", 
              (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
-         /*
-         trigg_expand2(bt->nonce, haiku);
-         printf("\nV:%s\n\n", haiku);
-         */
+
          goto out;
       }
 
