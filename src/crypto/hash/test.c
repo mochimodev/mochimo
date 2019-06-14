@@ -190,11 +190,48 @@ static void test_blake2b_w_key()
 
         if (memcmp(blake2b_oup, blake2b_cu_oup, BLAKE2B_BLOCK_SIZE * 1024) != 0)
         {
-            printf("Failed test BLAKE2B no key, len %u \n", BLAKE2B_BLOCK_SIZE);
+            printf("Failed test BLAKE2B with key, len %u \n", BLAKE2B_BLOCK_SIZE);
         }
         else
         {
-            printf("Passed test BLAKE2B no key, len %u \n", BLAKE2B_BLOCK_SIZE);
+            printf("Passed test BLAKE2B with key, len %u \n", BLAKE2B_BLOCK_SIZE);
+        }
+    }
+}
+
+static void test_keccak_w_key()
+{
+    WORD test_block_size[] = {16,32,64};
+    WORD INPUT_SIZE = 345;
+
+    for (int j = 0; j< 3; j++)
+    {
+        WORD KECCAK_BLOCK_SIZE = test_block_size[j];
+        // TEST KECCAK
+        BYTE keccak_inp[INPUT_SIZE*1024];
+        BYTE keccak_oup[1024*KECCAK_BLOCK_SIZE];
+        srand(0);
+        for (int i = 0; i < 1024 * INPUT_SIZE; i++)
+        {
+            keccak_inp[i] = rand() % 256;
+        }
+        // CPU hash
+        for (int i = 0; i < 1024; i++)
+        {
+            KECCAK_CTX ctx;
+            keccak_hash(&ctx, keccak_inp + INPUT_SIZE * i, INPUT_SIZE, keccak_oup + KECCAK_BLOCK_SIZE * i, KECCAK_BLOCK_SIZE <<  3);
+        }
+
+        BYTE keccak_cu_oup[1024*KECCAK_BLOCK_SIZE];
+        cuda_keccak_hash_batch(keccak_inp, INPUT_SIZE, keccak_cu_oup, KECCAK_BLOCK_SIZE <<  3, 1024);
+
+        if (memcmp(keccak_oup, keccak_cu_oup, KECCAK_BLOCK_SIZE * 1024) != 0)
+        {
+            printf("Failed test KECCAK, len %u \n", KECCAK_BLOCK_SIZE);
+        }
+        else
+        {
+            printf("Passed test KECCAK, len %u \n", KECCAK_BLOCK_SIZE);
         }
     }
 }
@@ -207,6 +244,7 @@ int main()
     test_sha256();
     test_blake2b_wo_key();
     test_blake2b_w_key();
+    test_keccak_w_key();
 
     return 0;
 }

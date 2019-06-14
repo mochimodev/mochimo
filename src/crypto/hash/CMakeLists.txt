@@ -19,13 +19,15 @@ set(CPU_SRC ${CMAKE_SOURCE_DIR}/cpu/md2.c
 		    ${CMAKE_SOURCE_DIR}/cpu/md5.c
 		    ${CMAKE_SOURCE_DIR}/cpu/sha1.c
 		    ${CMAKE_SOURCE_DIR}/cpu/sha256.c
-			${CMAKE_SOURCE_DIR}/cpu/blake2b.c)
+			${CMAKE_SOURCE_DIR}/cpu/blake2b.c
+		    ${CMAKE_SOURCE_DIR}/cpu/keccak.c)
 #Cuda
 set(CU_SRC ${CMAKE_SOURCE_DIR}/cuda/md2.cu
 		   ${CMAKE_SOURCE_DIR}/cuda/md5.cu
 		   ${CMAKE_SOURCE_DIR}/cuda/sha1.cu
 		   ${CMAKE_SOURCE_DIR}/cuda/sha256.cu
-		   ${CMAKE_SOURCE_DIR}/cuda/blake2b.cu)
+		   ${CMAKE_SOURCE_DIR}/cuda/blake2b.cu
+		   ${CMAKE_SOURCE_DIR}/cuda/keccak.cu)
 #OCL (reserved)
 #Test
 set(HASHLIB_SRC ${CMAKE_SOURCE_DIR}/mcmhash.c

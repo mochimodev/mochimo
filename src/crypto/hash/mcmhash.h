@@ -19,6 +19,10 @@
 #include "blake2b.h"
 #endif
 
+#if USE_KECCAK
+#include "keccak.h"
+#endif
+
 
 #if OCL_HASH
 #endif
@@ -61,4 +65,14 @@ MCM_Hashlib_API void blake2b_hash(BLAKE2B_CTX* ctx, BYTE* key, WORD keylen, BYTE
 MCM_Hashlib_API void cuda_blake2b_hash_batch(BYTE* key, WORD keylen, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit, WORD n_batch);
 #endif
 #endif
+
+#if USE_KECCAK
+MCM_Hashlib_API void keccak_hash(KECCAK_CTX* ctx, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit);
+#if CUDA_HASH
+MCM_Hashlib_API void cuda_keccak_hash_batch(BYTE * in, WORD inlen, BYTE * out, WORD n_outbit, WORD n_batch);
+#endif
+#endif
+
+
+
 #endif //MCMHASHLIB_MCMHASH_H

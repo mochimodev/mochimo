@@ -252,6 +252,7 @@ __global__ void kernel_blake2b_hash(BYTE* indata, WORD inlen, BYTE* outdata, WOR
     BYTE* in = indata  + thread * inlen;
     BYTE* out = outdata  + thread * BLAKE2B_BLOCK_SIZE;
     CUDA_BLAKE2B_CTX ctx = c_CTX;
+    //if not precomputed CTX, call cuda_blake2b_init() with key
     cuda_blake2b_update(&ctx, in, inlen);
     cuda_blake2b_final(&ctx, out);
 }

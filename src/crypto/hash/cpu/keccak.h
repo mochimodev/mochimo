@@ -45,6 +45,7 @@ typedef struct {
    uint64_t bits_in_queue;
 
 } keccak_ctx_t;
+typedef keccak_ctx_t KECCAK_CTX;
 
 
 void keccak_init(keccak_ctx_t *ctx, uint32_t digestbitlen);

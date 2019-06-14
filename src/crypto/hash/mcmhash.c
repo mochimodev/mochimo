@@ -18,6 +18,9 @@ Licensing stuff
 #if USE_BLAKE2B
 #include "blake2b.cuh"
 #endif
+#if USE_KECCAK
+#include "keccak.cuh"
+#endif
 #endif
 
 #if USE_MD2
@@ -89,6 +92,21 @@ void blake2b_hash(BLAKE2B_CTX* ctx, BYTE* key, WORD keylen, BYTE * in, WORD inle
 void cuda_blake2b_hash_batch(BYTE* key, WORD keylen, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit, WORD n_batch)
 {
     mcm_cuda_blake2b_hash_batch(key, keylen, in, inlen, out, n_outbit, n_batch);
+}
+#endif
+#endif
+
+#if USE_KECCAK
+void keccak_hash(KECCAK_CTX* ctx, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit)
+{
+    keccak_init(ctx, n_outbit);
+    keccak_update(ctx, in, inlen);
+    keccak_final(ctx, out);
+}
+#if CUDA_HASH
+void cuda_keccak_hash_batch(BYTE * in, WORD inlen, BYTE * out, WORD n_outbit, WORD n_batch)
+{
+    mcm_cuda_keccak_hash_batch(in, inlen, out, n_outbit, n_batch);
 }
 #endif
 #endif
