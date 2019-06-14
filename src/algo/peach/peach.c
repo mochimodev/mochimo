@@ -58,20 +58,22 @@ int peach_eval(byte *bp, byte d)
 
 uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
 {
-   SHA256_CTX ictx;
-   uint32_t index;
    byte hash[HASHLEN];
+   /* memset hash because not all hashes in nighthash are 256 bit */
+   memset(hash, current_index, HASHLEN);
    int i;
-   
-   sha256_init(&ictx);
+   uint32_t index;
 
-   /* Hash nonce in first to prevent caching of index's hash. */
+   /* Until nighthash is ported in CUDA*/
+   SHA256_CTX ictx;
+   sha256_init(&ictx);
    sha256_update(&ictx, nonce, HASHLEN);
    sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
    sha256_update(&ictx, current_tile, TILE_LENGTH);
    sha256_final(&ictx, hash);
    
-   /* night_hash2(hash, j, current_tile, TILE_LENGTH); */
+
+   /* night_hash(hash, current_index, nonce, HASHLEN, current_tile, TILE_LENGTH); */
 
    /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
    for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
@@ -92,7 +94,7 @@ void get_tile(byte **out, uint32_t index, byte *seed, byte *map, byte *cache)
    if(cache != NULL) cache[index] = 1;
 }
 
-void night_hash(byte *out, byte *in, uint32_t inlen)
+void night_hashtmp(byte *out, byte *in, uint32_t inlen)
 {
    uint32_t op;
    op = 0;
@@ -174,7 +176,7 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
   
    /* Set map pointer. */
    if(map == NULL) tilep = *out;
-   if(map != NULL) tilep = &map[index * TILE_LENGTH];
+   else tilep = &map[index * TILE_LENGTH];
   
    /* Create tile hashing context. */
    sha256_init(&ictx);
@@ -362,13 +364,16 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
       
       /* Hash the result of the current tile's row to the next. */
       if(j < TILE_LENGTH) {
+         /* Do SHA256 before nighthash because not all hashes in nighthash are 256 bit */
          sha256_init(&ictx);
          sha256_update(&ictx, &tilep[i], HASHLEN);
          sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
          sha256_final(&ictx, &tilep[j]);
          
-         night_hash(&tilep[j], &tilep[j], HASHLEN);
-         /* night_hash2(&tilep[j], j, &tilep[j], HASHLEN); */
+         /* Until nighthash is ported in CUDA*/
+         night_hashtmp(&tilep[j], &tilep[j], HASHLEN);
+
+         /* night_hash(&tilep[j], j, &tilep[j], HASHLEN, NULL, 0); */
       }
    } /* end for(i = j = k = 0... */
 
