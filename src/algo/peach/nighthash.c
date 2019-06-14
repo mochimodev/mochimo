@@ -17,16 +17,213 @@
 #include "../../crypto/hash/cpu/md2.c"
 #include "../../crypto/hash/cpu/md5.c"
 
-int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed, uint32_t algo_type_seed_length, uint32_t digestbitlen)
+/**
+ * Performs data tranformation on 32 bit chunks (4 bytes) of data
+ * using deterministic floating point operations on IEEE 754
+ * compliant machines and devices 
+ * @param *data     - pointer to data
+ * @param len       - length of data
+ * @param index     - the current tile
+ * @param *op       - pointer to the operator value
+ * @param transform - flag indicates to transform the input data */
+void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
+                  uint8_t transform)
+{
+   /**
+    * Definitions */
+   uint8_t *temp;
+   int32_t i, j, operand;
+   float floatv, floatv1, *floatp;
+   /**
+    * Work on data 4 bytes at a time */
+   for(i = 0; i < len; i += 4)
+   {
+      /**
+       * Cast 4 byte piece to float pointer */
+      if(transform)
+         floatp = (float *) &data[i];
+      else {
+         floatv1 = (float) data[i];
+         floatp = &floatv1;
+      }
+      /**
+       * 4 byte separation order depends on initial byte:
+       * #1) *op = data... determine floating point operation type
+       * #2) operand = ... determine the value of the operand
+       * #3) if(data[i ... determine the sign of the operand
+       *                   ^must always be performed after #2) */
+      switch(data[i] & 7)
+      {
+         case 0:
+            *op += (uint32_t) data[i + 1];
+            operand = (int32_t) data[ (data[i + 2] & 31) ];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+         case 1:
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            if(data[i + 2] & 1) operand ^= 0x80000000;
+            *op += (uint32_t) data[i + 3];
+            break;
+         case 2:
+            *op += (uint32_t) data[i];
+            operand = (int32_t) data[ (data[i + 2] & 31) ];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+         case 3:
+            *op += (uint32_t) data[i];
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            if(data[i + 2] & 1) operand ^= 0x80000000;
+            break;
+         case 4:
+            operand = (int32_t) data[ (data[i] & 31) ];
+            if(data[i + 1] & 1) operand ^= 0x80000000;
+            *op += (uint32_t) data[i + 3];
+            break;
+         case 5:
+            operand = (int32_t) data[ (data[i] & 31) ];
+            if(data[i + 1] & 1) operand ^= 0x80000000;
+            *op += (uint32_t) data[i + 2];
+            break;
+         case 6:
+            *op += (uint32_t) data[i++];
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+         case 7:
+            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            *op += (uint32_t) data[i + 2];
+            if(data[i + 3] & 1) operand ^= 0x80000000;
+            break;
+      } /* end switch(data[j] & 31... */
+      /**
+       * Cast operand to float */
+      floatv = (float) operand;
+      /**
+       * Replace NaN with index */
+      if(isnan(*floatp)) *floatp = (float) index;
+      /**
+       * Perform predetermined floating point operation */
+      switch(*op & 3) {
+         case 0:
+            *floatp += floatv;
+            break;
+         case 1:
+            *floatp -= floatv;
+            break;
+         case 2:
+            *floatp *= floatv;
+            break;
+         case 3:
+            *floatp /= floatv;
+            break;
+      }
+      /**
+       * Add result of floating point operation to op */
+      for(j = i + 4 ; i < j; i++) {
+         temp = (uint8_t *) floatp;
+         *op += (uint32_t) *temp;
+      }
+   } /* end for(*op = 0... */
+}
+
+/**
+ * Performs bit/byte operations on all data (len) of data using
+ * random bit/byte transform operations, for increased complexity */
+void bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op)
+{
+   /**
+    * Definitions */
+   int32_t i, z;
+   uint32_t len2;
+   uint8_t temp, _104, _72;
+   /**
+    * Perform <TILE_TRANSFORMS> number of bit/byte manipulations */
+   for(i = 0, _104 = 104, _72 = 72, len2 = len/2; i < TILE_TRANSFORMS; i++)
+   {
+      /**
+       * Determine operation to use this iteration */
+      *op += (uint32_t) data[i & 31];
+      /**
+       * Perform random operation */
+      switch(*op & 7) {
+         case 0: /* Swap the first and last bit in each byte. */
+            for(z = 0; z < len; z++)
+               data[z] ^= 0x81;
+            break;
+         case 1: /* Swap bytes */
+            for(z = 0; z < len2; z++) {
+               temp = data[z];
+               data[z] = data[z + len2];
+               data[z + len2] = temp;
+            }
+            break;
+         case 2: /* Complement One, all bytes */
+            for(z = 1; z < len; z++)
+               data[z] = ~data[z];
+            break;
+         case 3: /* Alternate +1 and -1 on all bytes */
+            for(z = 0; z < len; z++)
+               data[z] += ((z & 1) == 0) ? 1 : -1;
+            break;
+         case 4: /* Alternate +i and -i on all bytes */
+            for(z = 0; z < len; z++)
+               data[z] += ((z & 1) == 0) ? -i : i;
+            break;
+         case 5: /* Replace every occurrence of _104 with _72 */ 
+            for(z = 0; z < len; z++)
+               if(data[z] == _104) data[z] = _72;
+            break;
+         case 6: /* If byte a is > byte b, swap them. */
+            for(z = 0; z < len2; z++) {
+               if(data[z] > data[z + len2]) {
+                  temp = data[z];
+                  data[z] = data[z + len2];
+                  data[z + len2] = temp;
+               }
+            }
+            break;
+         case 7: /* XOR all bytes */
+            for(z = 1; z < HASHLEN; z++)
+               data[z] ^= data[z - 1];
+            break;
+      } /* end switch(... */
+   } /* end for(i = 0... */ 
+}
+
+/**
+ * Nighthash function optimised for generating a tile */
+int nighthash_transform_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
+                             uint32_t algo_type_seed_length, uint32_t index,
+                             uint32_t digestbitlen)
 {
    uint32_t algo_type;
    algo_type = 0;
+   /**
+    * Perform floating point operations to transform input data
+    * and determine algo type */
+   fp_operation(algo_type_seed, algo_type_seed_length, index, &algo_type, 1);
+   /**
+    * Perform bit/byte transform operations to transform input data
+    * and determine algo type */
+   bitbyte_transform(algo_type_seed, algo_type_seed_length, &algo_type);
 
-   /* TODO: Replace with floating point arithmetic */
-  for(int i = 0; i < algo_type_seed_length; i++)
-     algo_type += algo_type_seed[i];
+   return nighthash_init(ctx, algo_type & 7, digestbitlen);
+}
 
-  return nighthash_init(ctx, algo_type & 7, digestbitlen);
+/**
+ * Nighthash function optimised for determining the next index */
+int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
+                        uint32_t algo_type_seed_length, uint32_t index,
+                        uint32_t digestbitlen)
+{
+   uint32_t algo_type;
+   algo_type = 0;
+   /**
+    * Perform floating point operations to determine algo type
+    * without transforming input data */
+   fp_operation(algo_type_seed, algo_type_seed_length, index, &algo_type, 0);
+
+   return nighthash_init(ctx, algo_type & 7, digestbitlen);
 }
 
 int nighthash_init(nighthash_ctx_t *ctx, uint32_t algo_type, uint32_t digestbitlen)
