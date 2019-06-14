@@ -1,5 +1,5 @@
 /*
- * nighthash.c  FPGA-Confuddling Hash Algo Selector
+ * nighthash.c  FPGA-Confuddling Hash Algo
  *
  * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
@@ -11,19 +11,163 @@
  *
  */
 
-#include "../../crypto/hash/cpu/keccak.h"
+#include "nighthash.h"
 #include "../../crypto/hash/cpu/keccak.c"
 #include "../../crypto/hash/cpu/blake2b.c"
-//#include "../../crypto/hash/cpu/sha1.c"
-//#include "../../crypto/hash/cpu/sha256.c"
-
 #include "../../crypto/hash/cpu/md2.c"
 #include "../../crypto/hash/cpu/md5.c"
 
-/*
- * Produce at 256 bit hash at most
- */
-void night_hash(byte *out, uint32_t index, byte *in, uint32_t inlen, byte *in2, uint32_t inlen2)
+int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed, uint32_t algo_type_seed_length, uint32_t digestbitlen)
+{
+   uint32_t algo_type;
+   algo_type = 0;
+
+   /* TODO: Replace with floating point arithmetic */
+  for(int i = 0; i < algo_type_seed_length; i++)
+     algo_type += algo_type_seed[i];
+
+  return nighthash_init(ctx, algo_type & 7, digestbitlen);
+}
+
+int nighthash_init(nighthash_ctx_t *ctx, uint32_t algo_type, uint32_t digestbitlen)
+{
+   if(digestbitlen != 256 && digestbitlen != 512)
+      return -1;
+
+   memset(ctx, 0, sizeof(nighthash_ctx_t));
+
+   switch(algo_type)
+   {
+      case 0:
+      {
+         byte key[32];
+         memset(key, algo_type, 32);
+         blake2b_init(&(ctx->blake2b), key, 32, digestbitlen);
+      }
+         break;
+      case 1:
+      {
+         byte key[64];
+         memset(key, algo_type, 64);
+         blake2b_init(&(ctx->blake2b), key, 32, digestbitlen);
+      }
+         break;
+      case 2:
+      {
+         sha1_init(&(ctx->sha1));
+      }
+         break;
+      case 3:
+      {
+         sha256_init(&(ctx->sha256));
+      }
+         break;
+      case 4:
+      {
+         keccak_sha3_init(&(ctx->sha3), digestbitlen);
+      }
+         break;
+      case 5:
+      {
+         keccak_init(&(ctx->keccak), digestbitlen);
+      }
+         break;
+      case 6:
+      {
+         md2_init(&(ctx->md2));
+      }
+         break;
+      case 7:
+      {
+         md5_init(&(ctx->md5));
+      }
+         break;
+      default:
+         error("Fatal: Invalid night hash algo type (%i)\n", algo_type);
+         return -1;
+   }
+
+   ctx->digestlen = digestbitlen >> 3;
+   ctx->algo_type = algo_type;
+   return 0;
+}
+
+int nighthash_update(nighthash_ctx_t *ctx, byte *in, uint32_t inlen)
+{
+   switch(ctx->algo_type)
+   {
+      case 0:
+         blake2b_update(&(ctx->blake2b), in, inlen);
+         break;
+      case 1:
+         blake2b_update(&(ctx->blake2b), in, inlen);
+         break;
+      case 2:
+         sha1_update(&(ctx->sha1), in, inlen);
+         break;
+      case 3:
+         sha256_update(&(ctx->sha256), in, inlen);
+         break;
+      case 4:
+         keccak_update(&(ctx->sha3), in, inlen);
+         break;
+      case 5:
+         keccak_update(&(ctx->keccak), in, inlen);
+         break;
+      case 6:
+         md2_update(&(ctx->md2), in, inlen);
+         break;
+      case 7:
+         md5_update(&(ctx->md5), in, inlen);
+         break;
+      default:
+         error("Fatal: Invalid night hash algo type (%i)\n", ctx->algo_type);
+         return -1;
+   }
+   return 0;
+}
+
+int nighthash_final(nighthash_ctx_t *ctx, byte *out)
+{
+   switch(ctx->algo_type)
+   {
+      case 0:
+         blake2b_final(&(ctx->blake2b), out);
+         break;
+      case 1:
+         blake2b_final(&(ctx->blake2b), out);
+         break;
+      case 2:
+         sha1_final(&(ctx->sha1), out);
+         memset(out + 20, 0, ctx->digestlen - 20);
+         break;
+      case 3:
+         sha256_final(&(ctx->sha256), out);
+         if(ctx->digestlen > 32)
+            memset(out + 32, 0, ctx->digestlen - 32);
+         break;
+      case 4:
+         keccak_final(&(ctx->sha3), out);
+         break;
+      case 5:
+         keccak_final(&(ctx->keccak), out);
+         break;
+      case 6:
+         md2_final(&(ctx->md2), out);
+         memset(out + 16, 0, ctx->digestlen - 16);
+         break;
+      case 7:
+         md5_final(&(ctx->md5), out);
+         memset(out + 16, 0, ctx->digestlen - 16);
+         break;
+      default:
+         error("Fatal: Invalid night hash algo type (%i)\n", ctx->algo_type);
+         return -1;
+   }
+   return 0;
+}
+
+void nighthashold(byte *out, uint32_t index, byte *in, uint32_t inlen, byte *in2, uint32_t inlen2)
 {
    uint32_t op;
    op = 0;
@@ -158,4 +302,5 @@ void night_hash(byte *out, uint32_t index, byte *in, uint32_t inlen, byte *in2, 
          assert(0);
          break;
    }
+
 }

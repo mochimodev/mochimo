@@ -43,11 +43,11 @@
 #include "update.c"
 #include "init.c"       /* read Coreplist[] and get_eon()  */
 #include "server.c"     /* tcp server */
-
 int main(void)
 {
    Running = 1;
    Difficulty=16;
+
    miner("cblock.dat", "mblock.dat");
    return 0;
 }

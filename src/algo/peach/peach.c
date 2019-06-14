@@ -24,7 +24,7 @@
 byte *trigg_gen(byte *in);
 void trigg_expand2(byte *in, char *out);
 
-/* Prototype for forward reference.  To-do: Clean this up. */
+/* Prototype for forward reference.  TODO: Clean this up. */
 void generate_tile(byte **out, uint32_t index, byte *seed, byte *map);
 
 /*
@@ -59,8 +59,6 @@ int peach_eval(byte *bp, byte d)
 uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
 {
    byte hash[HASHLEN];
-   /* memset hash because not all hashes in nighthash are 256 bit */
-   memset(hash, current_index, HASHLEN);
    int i;
    uint32_t index;
 
@@ -71,12 +69,25 @@ uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
    sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
    sha256_update(&ictx, current_tile, TILE_LENGTH);
    sha256_final(&ictx, hash);
-   
 
-   /* night_hash(hash, current_index, nonce, HASHLEN, current_tile, TILE_LENGTH); */
+   
+   /*
+   int s = sizeof(uint32_t);
+   int seedlen = s + HASHLEN;
+   byte seed[seedlen];
+   memcpy(seed, current_tile, s);
+   memcpy(seed + s, nonce, HASHLEN);
+
+   nighthash_ctx_t nighthash;
+   nighthash_seed_init(&nighthash, seed, seedlen, 256);
+   nighthash_update(&nighthash, nonce, HASHLEN);
+   nighthash_update(&nighthash, (byte*) &current_index, s);
+   nighthash_update(&nighthash, current_tile, TILE_LENGTH);
+   nighthash_final(&nighthash, hash);
+   */
 
    /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
-   for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
+   for(i = 0, index = 0; i < (HASHLEN >> 2); i++) index += *((uint32_t *) &hash[i]);
 
    return index % MAP;
 }
@@ -102,7 +113,6 @@ void night_hashtmp(byte *out, byte *in, uint32_t inlen)
    SHA256_CTX sha256;
 
 
-   /* TODO: Replace with floating point arithmetic */
    for(int i = 0; i < inlen; i++)
       op += in[i];
 
@@ -364,16 +374,22 @@ void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
       
       /* Hash the result of the current tile's row to the next. */
       if(j < TILE_LENGTH) {
-         /* Do SHA256 before nighthash because not all hashes in nighthash are 256 bit */
          sha256_init(&ictx);
          sha256_update(&ictx, &tilep[i], HASHLEN);
          sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
          sha256_final(&ictx, &tilep[j]);
-         
+
          /* Until nighthash is ported in CUDA*/
          night_hashtmp(&tilep[j], &tilep[j], HASHLEN);
 
-         /* night_hash(&tilep[j], j, &tilep[j], HASHLEN, NULL, 0); */
+         /*
+         nighthash_ctx_t nighthash;
+         nighthash_seed_init(&nighthash, &tilep[i], HASHLEN, 256);
+         nighthash_update(&nighthash, &tilep[i], HASHLEN);
+         nighthash_update(&nighthash, (byte*) &index, sizeof(uint32_t));
+         nighthash_final(&nighthash, &tilep[j]);
+         */
+
       }
    } /* end for(i = j = k = 0... */
 
