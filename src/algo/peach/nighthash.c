@@ -19,10 +19,10 @@
 #include "../../crypto/hash/cpu/md5.c"
 
 /**
- * Performs data tranformation on 32 bit chunks (4 bytes) of data
+ * Performs data transformation on 32 bit chunks (4 bytes) of data
  * using deterministic floating point operations on IEEE 754
  * compliant machines and devices.
- * @param *data     - pointer to in data
+ * @param *data     - pointer to in data (at least 32 bytes)
  * @param len       - length of data
  * @param index     - the current tile
  * @param *op       - pointer to the operator value
@@ -31,11 +31,12 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
                   uint8_t transform)
 {
    uint8_t *temp;
+   uint32_t adjustedlen = (len >> 2) << 2; /* Adjust the length to a multiple of 4 */
    int32_t i, j, operand;
    float floatv, floatv1, *floatp;
 
    /* Work on data 4 bytes at a time */
-   for(i = 0; i < len; i += 4)
+   for(i = 0; i < adjustedlen; i += 4)
    {
       /* Cast 4 byte piece to float pointer */
       if(transform)
@@ -83,7 +84,7 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
             *op += (uint32_t) data[i + 2];
             break;
          case 6:
-            *op += (uint32_t) data[i++];
+            *op += (uint32_t) data[i + 1];
             operand = (int32_t) data[ (data[i + 1] & 31) ];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
@@ -120,9 +121,9 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
       if(isnan(*floatp)) *floatp = (float) index;
 
       /* Add result of floating point operation to op */
-      for(j = 0; j < i + 4; j++) {
-         temp = (uint8_t *) floatp;
-         *op += (uint32_t) temp[i];
+      temp = (uint8_t *) floatp;
+      for(j = 0; j < 4; j++) {
+         *op += (uint32_t) temp[j];
       }
    } /* end for(*op = 0... */
 }
