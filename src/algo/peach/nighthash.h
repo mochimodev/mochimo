@@ -36,7 +36,12 @@ typedef struct {
 
 } nighthash_ctx_t;
 
-int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed, uint32_t algo_type_seed_length, uint32_t digestbitlen);
+int nighthash_transform_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
+                             uint32_t algo_type_seed_length, uint32_t index,
+                             uint32_t digestbitlen);
+int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
+                        uint32_t algo_type_seed_length, uint32_t index,
+                        uint32_t digestbitlen);
 int nighthash_init(nighthash_ctx_t *ctx, uint32_t algo_type, uint32_t digestbitlen);
 int nighthash_update(nighthash_ctx_t *ctx, byte *in, uint32_t inlen);
 int nighthash_final(nighthash_ctx_t *ctx, byte *out);
