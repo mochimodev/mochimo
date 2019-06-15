@@ -358,7 +358,7 @@ char *hash2str(byte *hash)
 int moveublock(char *ublock, byte *newnum)
 {
    char buff[256];
-   char cmd[256];
+   char cmd[288];
    char *bnum;
 
    bnum = bnum2hex(newnum);
