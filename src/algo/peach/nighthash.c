@@ -21,7 +21,7 @@
 /**
  * Performs data tranformation on 32 bit chunks (4 bytes) of data
  * using deterministic floating point operations on IEEE 754
- * compliant machines and devices 
+ * compliant machines and devices.
  * @param *data     - pointer to in data
  * @param len       - length of data
  * @param index     - the current tile
@@ -97,7 +97,7 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
       /* Cast operand to float */
       floatv = (float) operand;
 
-      /* Replace NaN with index */
+      /* Replace pre-operation NaN with index */
       if(isnan(*floatp)) *floatp = (float) index;
 
       /* Perform predetermined floating point operation */
@@ -121,6 +121,9 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
          temp = (uint8_t *) floatp;
          *op += (uint32_t) *temp;
       }
+
+      /* Replace post-operation NaN with index */
+      if(isnan(*floatp)) *floatp = (float) index;
    } /* end for(*op = 0... */
 }
 
