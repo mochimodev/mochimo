@@ -12,8 +12,9 @@
  */
 
 #include "nighthash.h"
-#include "../../crypto/hash/cpu/keccak.c"
 #include "../../crypto/hash/cpu/blake2b.c"
+#include "../../crypto/hash/cpu/sha1.c"
+#include "../../crypto/hash/cpu/keccak.c"
 #include "../../crypto/hash/cpu/md2.c"
 #include "../../crypto/hash/cpu/md5.c"
 
@@ -21,7 +22,7 @@
  * Performs data tranformation on 32 bit chunks (4 bytes) of data
  * using deterministic floating point operations on IEEE 754
  * compliant machines and devices 
- * @param *data     - pointer to data
+ * @param *data     - pointer to in data
  * @param len       - length of data
  * @param index     - the current tile
  * @param *op       - pointer to the operator value
@@ -29,25 +30,22 @@
 void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
                   uint8_t transform)
 {
-   /**
-    * Definitions */
    uint8_t *temp;
    int32_t i, j, operand;
    float floatv, floatv1, *floatp;
-   /**
-    * Work on data 4 bytes at a time */
+
+   /* Work on data 4 bytes at a time */
    for(i = 0; i < len; i += 4)
    {
-      /**
-       * Cast 4 byte piece to float pointer */
+      /* Cast 4 byte piece to float pointer */
       if(transform)
          floatp = (float *) &data[i];
       else {
          floatv1 = (float) data[i];
          floatp = &floatv1;
       }
-      /**
-       * 4 byte separation order depends on initial byte:
+
+      /* 4 byte separation order depends on initial byte:
        * #1) *op = data... determine floating point operation type
        * #2) operand = ... determine the value of the operand
        * #3) if(data[i ... determine the sign of the operand
@@ -95,14 +93,14 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
       } /* end switch(data[j] & 31... */
-      /**
-       * Cast operand to float */
+
+      /* Cast operand to float */
       floatv = (float) operand;
-      /**
-       * Replace NaN with index */
+
+      /* Replace NaN with index */
       if(isnan(*floatp)) *floatp = (float) index;
-      /**
-       * Perform predetermined floating point operation */
+
+      /* Perform predetermined floating point operation */
       switch(*op & 3) {
          case 0:
             *floatp += floatv;
@@ -117,8 +115,8 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
             *floatp /= floatv;
             break;
       }
-      /**
-       * Add result of floating point operation to op */
+
+      /* Add result of floating point operation to op */
       for(j = i + 4 ; i < j; i++) {
          temp = (uint8_t *) floatp;
          *op += (uint32_t) *temp;
@@ -128,23 +126,23 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
 
 /**
  * Performs bit/byte operations on all data (len) of data using
- * random bit/byte transform operations, for increased complexity */
+ * random bit/byte transform operations, for increased complexity
+ * @param *data     - pointer to in data
+ * @param len       - length of data
+ * @param *op       - pointer to the operator value */
 void bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op)
 {
-   /**
-    * Definitions */
    int32_t i, z;
    uint32_t len2;
    uint8_t temp, _104, _72;
-   /**
-    * Perform <TILE_TRANSFORMS> number of bit/byte manipulations */
+
+   /* Perform <TILE_TRANSFORMS> number of bit/byte manipulations */
    for(i = 0, _104 = 104, _72 = 72, len2 = len/2; i < TILE_TRANSFORMS; i++)
    {
-      /**
-       * Determine operation to use this iteration */
+      /* Determine operation to use this iteration */
       *op += (uint32_t) data[i & 31];
-      /**
-       * Perform random operation */
+
+      /* Perform random operation */
       switch(*op & 7) {
          case 0: /* Swap the first and last bit in each byte. */
             for(z = 0; z < len; z++)
@@ -198,12 +196,12 @@ int nighthash_transform_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
 {
    uint32_t algo_type;
    algo_type = 0;
-   /**
-    * Perform floating point operations to transform input data
+   
+   /* Perform floating point operations to transform input data
     * and determine algo type */
    fp_operation(algo_type_seed, algo_type_seed_length, index, &algo_type, 1);
-   /**
-    * Perform bit/byte transform operations to transform input data
+   
+   /* Perform bit/byte transform operations to transform input data
     * and determine algo type */
    bitbyte_transform(algo_type_seed, algo_type_seed_length, &algo_type);
 
@@ -218,8 +216,8 @@ int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
 {
    uint32_t algo_type;
    algo_type = 0;
-   /**
-    * Perform floating point operations to determine algo type
+
+   /* Perform floating point operations to determine algo type
     * without transforming input data */
    fp_operation(algo_type_seed, algo_type_seed_length, index, &algo_type, 0);
 

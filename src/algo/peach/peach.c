@@ -17,15 +17,11 @@
 #include <math.h>
 #include <sys/time.h>
 
-#include "../../crypto/hash/cpu/sha1.c"
 #include "nighthash.c"
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
 void trigg_expand2(byte *in, char *out);
-
-/* Prototype for forward reference.  TODO: Clean this up. */
-void generate_tile(byte **out, uint32_t index, byte *seed, byte *map);
 
 /*
  * Return 0 if solved, else 1.
@@ -58,39 +54,81 @@ int peach_eval(byte *bp, byte d)
 
 uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
 {
+   nighthash_ctx_t nighthash;
+   byte seed[HASHLEN + 4 + TILE_LENGTH];
    byte hash[HASHLEN];
-   int i;
+   int i, seedlen;
    uint32_t index;
 
-   /* Until nighthash is ported in CUDA*/
-   SHA256_CTX ictx;
-   sha256_init(&ictx);
-   sha256_update(&ictx, nonce, HASHLEN);
-   sha256_update(&ictx, (byte*) &current_index,sizeof(uint32_t));
-   sha256_update(&ictx, current_tile, TILE_LENGTH);
-   sha256_final(&ictx, hash);
+   /* Create nighthash seed for this index on the map */
+   seedlen = HASHLEN + 4 + TILE_LENGTH;
+   memcpy(seed, nonce, HASHLEN);
+   memcpy(seed + HASHLEN, (byte *) &current_index, 4);
+   memcpy(seed + HASHLEN + 4, current_tile, TILE_LENGTH);
 
-   
-   /*
-   int s = sizeof(uint32_t);
-   int seedlen = s + HASHLEN;
-   byte seed[seedlen];
-   memcpy(seed, current_tile, s);
-   memcpy(seed + s, nonce, HASHLEN);
+   /* Setup nighthash the seed, NO TRANSFORM */
+   nighthash_seed_init(&nighthash, seed, seedlen, current_index, 256);
 
-   nighthash_ctx_t nighthash;
-   nighthash_seed_init(&nighthash, seed, seedlen, 256);
-   nighthash_update(&nighthash, nonce, HASHLEN);
-   nighthash_update(&nighthash, (byte*) &current_index, s);
-   nighthash_update(&nighthash, current_tile, TILE_LENGTH);
+   /* Update nighthash with the seed data */
+   nighthash_update(&nighthash, seed, seedlen);
+
+   /* Finalize nighthash into the first 32 byte chunk of the tile */
    nighthash_final(&nighthash, hash);
-   */
 
-   /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
-   for(i = 0, index = 0; i < (HASHLEN >> 2); i++) index += *((uint32_t *) &hash[i]);
+   /* Convert 32-byte Hash Value Into 8x 32-bit Unsigned Integer */
+   for(i = 0, index = 0; i < (HASHLEN >> 2); i++)
+      index += ((uint32_t *) &hash)[i];
 
    return index % MAP;
 }
+
+void generate_tile(byte **out, uint32_t index, byte *phash, byte *map)
+{
+   nighthash_ctx_t nighthash;
+   byte seed[4 + HASHLEN];
+   byte *tilep;
+   int i, j, seedlen;
+
+   /* Set tile pointer */
+   if(map == NULL) tilep = *out;
+   else tilep = &map[index * TILE_LENGTH];
+
+   /* Create nighthash seed for this index on the map */
+   seedlen = 4 + HASHLEN;
+   memcpy(seed, (byte *) &index, 4);
+   memcpy(seed + 4, phash, HASHLEN);
+
+   /* Setup nighthash with a transform of the seed */
+   nighthash_transform_init(&nighthash, seed, seedlen, index, 256);
+
+   /* Update nighthash with the seed data */
+   nighthash_update(&nighthash, seed, seedlen);
+
+   /* Finalize nighthash into the first 32 byte chunk of the tile */
+   nighthash_final(&nighthash, tilep);
+
+   /* Begin constructing the full tile */
+   for(i = 0; i < TILE_LENGTH; i += HASHLEN) { /* For each tile row */
+      /* Set next row's pointer location */
+      j = i + HASHLEN;
+
+      /* Hash the current row to the next, if not at the end */
+      if(j < TILE_LENGTH) {
+         /* Setup nighthash with a transform of the current row */
+         nighthash_transform_init(&nighthash, &tilep[i], HASHLEN,
+                                  index, 256);
+
+         /* Update nighthash with the seed data and tile index */
+         nighthash_update(&nighthash, &tilep[i], HASHLEN);
+         nighthash_update(&nighthash, (byte *) &index, 4);
+
+         /* Finalize nighthash into the first 32 byte chunk of the tile */
+         nighthash_final(&nighthash, &tilep[j]);
+      }
+   }
+
+   if(map != NULL) *(out) = tilep;
+} /* end generate_tile() */
 
 void get_tile(byte **out, uint32_t index, byte *seed, byte *map, byte *cache)
 {
@@ -100,301 +138,10 @@ void get_tile(byte **out, uint32_t index, byte *seed, byte *map, byte *cache)
       return;
    }
 
-   /* Tile not yet generated, generate it, and flag the cache accordingly. */   
+   /* Tile not yet generated, generate it, and flag the cache accordingly. */
    generate_tile(out, index, seed, map);
    if(cache != NULL) cache[index] = 1;
 }
-
-void night_hashtmp(byte *out, byte *in, uint32_t inlen)
-{
-   uint32_t op;
-   op = 0;
-   SHA1_CTX sha1;
-   SHA256_CTX sha256;
-
-
-   for(int i = 0; i < inlen; i++)
-      op += in[i];
-
-   switch(op & 7)
-   {
-      case 0:
-         /* Production: Blake2b key 32 bytes, Placeholder: SHA1 */
-         sha1_init(&sha1);
-         sha1_update(&sha1, in, inlen);
-         sha1_final(&sha1, out);
-         break;
-      case 1:
-         /* Production: Blake2b key 64 bytes, Placeholder: SHA256 */
-         sha256_init(&sha256);
-         sha256_update(&sha256, in, inlen);
-         sha256_final(&sha256, out);
-         break;
-      case 2:
-         /* Production: SHA1 */
-         sha1_init(&sha1);
-         sha1_update(&sha1, in, inlen);
-         sha1_final(&sha1, out);
-         break;
-      case 3:
-         /* Production: SHA256 */
-         sha256_init(&sha256);
-         sha256_update(&sha256, in, inlen);
-         sha256_final(&sha256, out);
-         break;
-      case 4:
-         /* Production SHA3, Placeholder: SHA1 */
-         sha1_init(&sha1);
-         sha1_update(&sha1, in, inlen);
-         sha1_final(&sha1, out);
-         break;         
-      case 5:
-         /* Production Keccak, Placeholder: SHA256 */
-         sha256_init(&sha256);
-         sha256_update(&sha256, in, inlen);
-         sha256_final(&sha256, out);
-         break;
-      case 6:
-         /* Production MD4, Placeholder: SHA1 */
-         sha1_init(&sha1);
-         sha1_update(&sha1, in, inlen);
-         sha1_final(&sha1, out);
-         break;
-      case 7:
-         /* Production MD5, Placeholder: SHA256 */
-         sha256_init(&sha256);
-         sha256_update(&sha256, in, inlen);
-         sha256_final(&sha256, out);
-         break;
-      default:
-         error("Fatal: Peach night hash OP is outside the expected range (%i)\n", op);
-         assert(0);
-         break;
-   }
-}
-
-void generate_tile(byte **out, uint32_t index, byte *seed, byte *map)
-{
-   SHA256_CTX ictx;
-   uint32_t op;
-   byte bits, _104, _72, selector, *tilep;
-   int i, j, k, t, z;
-   float floatv, *floatp;
-
-   _104 = 104;
-   _72 = 72;
-  
-   /* Set map pointer. */
-   if(map == NULL) tilep = *out;
-   else tilep = &map[index * TILE_LENGTH];
-  
-   /* Create tile hashing context. */
-   sha256_init(&ictx);
-
-   /* Hash nonce in first to prevent caching of index's hash. */
-   sha256_update(&ictx, seed, HASHLEN);    
-   sha256_update(&ictx, (byte*)&index, sizeof(uint32_t));
-   sha256_final(&ictx, tilep);
-  
-   for(i = j = k = 0; i < TILE_LENGTH; i += HASHLEN) { /* For each tile row */
-      for(op = 0; j < i + HASHLEN; j += 4) {
-         
-         /* set float pointers */
-         floatp = (float *) &tilep[j];
-         
-         /* Byte selections depend on initial 8 bits
-          * Note: Trying not to perform "floatv =" first */
-         switch(tilep[k] & 7) {
-            case 0:
-            {
-               // skip a byte
-               k++;
-               // determine floating point operation type
-               op = tilep[k++];
-               // determine which byte to select on the current 32 byte series
-               selector = tilep[k++] & (HASHLEN - 1); // & (HASHLEN - 1), returns 0-31
-               floatv = (float) tilep[i + selector]; // i + selector, index in 32 byte series
-               // determine if floating point operation is performed on a negative number
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-            }
-               break;
-            case 1:
-            {
-               k++;
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               op = tilep[k++];
-            }
-               break;
-            case 2:
-            {
-               op = tilep[k++];
-               k++;
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-            }
-               break;
-            case 3:
-            {
-               op = tilep[k++];
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               k++;
-            }
-               break;
-            case 4:
-            {
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               k++;
-               op = tilep[k++];
-            }
-               break;
-            case 5:
-            {
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-               op = tilep[k++];
-               k++;
-            }
-               break;
-            case 6:
-            {
-               op = tilep[k++];
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               k++;
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-            }
-               break;
-            case 7:
-            {
-               k++;
-               selector = tilep[k++] & (HASHLEN - 1);
-               floatv = (float) tilep[i + selector];
-               op = tilep[k++];
-               if(tilep[k++] & 1) floatv = (float)((int)floatv ^ 0x80000000);
-            }
-               break;
-            default:
-               error("Fatal: Peach float OP is outside the expected range (%i)\n", op);
-               assert(0);
-               break;
-         }
-
-         /* Replace NaN's with tileNum. */
-         if(isnan(*floatp)) *floatp = (float) index;
-         if(isnan(floatv)) floatv = (float) index;
-
-         /* Float operation depends on final 8 bits.
-          * Perform floating point operation. */
-         switch(op & 3) {
-            case 0:
-               {
-                  *floatp += floatv;
-               }
-                  break;
-            case 1:
-               {
-                  *floatp -= floatv;
-               }
-                  break;
-            case 2:
-               {
-                  *floatp *= floatv;
-               }
-                  break;
-            case 3:
-               {
-                  *floatp /= floatv;
-               }
-                  break;
-         }
-         
-      } /* end for(op = 0... */
-      
-      /* Execute bit manipulations per tile row. */
-      for(t = 0; t < TILE_TRANSFORMS; t++) {
-         /* Determine tile byte offset and operation to use. */
-         op += (uint32_t) tilep[i + (t % HASHLEN)];
-
-         switch(op & 7) {
-            case 0: /* Swap the first and last bit in each byte. */
-               for(z = 0; z < HASHLEN; z++)
-                  tilep[i + z] ^= 0x81;
-               break;
-            case 1: /* Swap bytes */
-               for(z = 0;z<HASHLENMID;z++) {
-                  bits = tilep[i + z];
-                  tilep[i + z] = tilep[i + HASHLENMID + z];
-                  tilep[i + HASHLENMID + z] = bits;
-               }
-               break;
-            case 2: /* Complement One, all bytes */
-               for(z = 1; z < HASHLEN; z++) tilep[i + z] = ~tilep[i + z];
-               break;
-            case 3: /* Alternate +1 and -1 on all bytes */
-               for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += ((z & 1) == 0) ? 1 : -1;
-               }
-               break;
-            case 4: /* Alternate +t and -t on all bytes */
-               for(z = 0; z < HASHLEN; z++) {
-                  tilep[i + z] += ((z & 1) == 0) ? -t : t;
-               }
-               break;
-            case 5: /* Replace every occurrence of h with H */ 
-               for(z = 0; z < HASHLEN; z++) {
-                  if(tilep[i + z] == _104) tilep[i + z] = _72;
-               }
-               break;
-            case 6: /* If byte a is > byte b, swap them. */
-               for(z = 0; z < HASHLENMID; z++) {
-                  if(tilep[i + z] > tilep[i + HASHLENMID + z]) {
-                     bits = tilep[i + z];
-                     tilep[i + z] = tilep[i + HASHLENMID + z];
-                     tilep[i + HASHLENMID + z] = bits;
-                  }
-               }
-               break;
-            case 7: /* XOR all bytes */
-               for(z = 1; z < HASHLEN; z++) tilep[i + z] ^= tilep[i + z - 1];
-               break;
-            default:
-               error("Fatal: Peach transform OP is outside the expected range (%i)\n", op);
-               assert(0);
-               break;
-         } /* end switch(... */
-      } /* end for(t = 0... */ 
-      
-      /* Hash the result of the current tile's row to the next. */
-      if(j < TILE_LENGTH) {
-         sha256_init(&ictx);
-         sha256_update(&ictx, &tilep[i], HASHLEN);
-         sha256_update(&ictx, (byte*) &index, sizeof(uint32_t));
-         sha256_final(&ictx, &tilep[j]);
-
-         /* Until nighthash is ported in CUDA*/
-         night_hashtmp(&tilep[j], &tilep[j], HASHLEN);
-
-         /*
-         nighthash_ctx_t nighthash;
-         nighthash_seed_init(&nighthash, &tilep[i], HASHLEN, 256);
-         nighthash_update(&nighthash, &tilep[i], HASHLEN);
-         nighthash_update(&nighthash, (byte*) &index, sizeof(uint32_t));
-         nighthash_final(&nighthash, &tilep[j]);
-         */
-
-      }
-   } /* end for(i = j = k = 0... */
-
-   if(map != NULL) *(out) = map + (index * TILE_LENGTH);
-} /* end generate_tile() */
 
 int is_solution(byte diff, byte* tile, byte* bt_hash)
 {
