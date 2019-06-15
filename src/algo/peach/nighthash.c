@@ -41,7 +41,7 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
       if(transform)
          floatp = (float *) &data[i];
       else {
-         floatv1 = (float) data[i];
+         floatv1 = *(float *) &data[i];
          floatp = &floatv1;
       }
 
@@ -116,14 +116,14 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
             break;
       }
 
-      /* Add result of floating point operation to op */
-      for(j = i + 4 ; i < j; i++) {
-         temp = (uint8_t *) floatp;
-         *op += (uint32_t) *temp;
-      }
-
       /* Replace post-operation NaN with index */
       if(isnan(*floatp)) *floatp = (float) index;
+
+      /* Add result of floating point operation to op */
+      for(j = 0; j < i + 4; j++) {
+         temp = (uint8_t *) floatp;
+         *op += (uint32_t) temp[i];
+      }
    } /* end for(*op = 0... */
 }
 
