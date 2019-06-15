@@ -60,10 +60,11 @@ __constant__ static int Z_INGADJ[64] =
 inline void cudaCheckError( const char *msg, uint32_t gpu, const char *file)
 {
    cudaError err = cudaGetLastError();
-   if(cudaSuccess != err)
+   if(cudaSuccess != err) {
       fprintf(stderr, "%s Error (#%d) in %s: %s\n",
               msg, gpu, file, cudaGetErrorString(err));
-   exit(-1);
+      exit(-1);
+   }
 }
 
 
@@ -723,8 +724,8 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
    /**
     * Initialize GPU context init variable incase
     * it holds a random number from memory */
-   for (i = 0; i < nGPU; i++)
-      if(!gpuInit) ctx[i].init = 0;
+   for (i = 0; i < nGPU && !gpuInit; i++)
+      ctx[i].init = 0;
    gpuInit = 1;
    /**
     * Initialize GPU data asynchronously */
@@ -865,7 +866,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
       }
       
       /* Chill a bit if nothing is happening */
-      if(lastnHaiku == nHaiku) usleep(1000);
+      if(lastnHaiku == nHaiku) usleep(1000000);
       else lastnHaiku = nHaiku;
    }
     
