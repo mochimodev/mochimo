@@ -13,357 +13,137 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include <cuda_runtime.h>
-extern "C" {
-#include "../../crypto/hash/cpu/sha256.h"
-}
 
 #include "../../config.h"
-#include "../../crypto/hash/cuda/sha256.cu"
-#include "../../crypto/hash/cuda/sha1.cu"
-
 #include "peach.h"
+#include "nighthash.cu"
 
-#define AS_UINT2(addr) *((uint2*)(addr))
+__constant__ static uint8_t __align__(8) c_phash[32];
+__constant__ static uint8_t __align__(8) c_input32[108];
+__constant__ static uint8_t __align__(8) c_difficulty;
+__constant__ static int Z_PREP[4] = {12,13,14,15};
+__constant__ static int Y_PREP[2] = {16,17};
+__constant__ static int Z_ING[16] = {18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33};
+__constant__ static int Y_ING[8]  = {34,35,36,37,38,39,40,41};
+__constant__ static int X_ING[2]  = {42,43};
+__constant__ static int Z_INF[16] = {44,45,46,47,48,50,51,52,53,54,55,56,57,58,59,60};
+__constant__ static int Z_ADJ[64] =
+   {61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,
+    88,89,90,91,92,94,95,96,97,98,99,100,101,102,103,104,105,107,108,109,110,112,114,
+    115,116,117,118,119,120,121,122,123,124,125,126,127,128};
+__constant__ static int Z_AMB[16] =
+   {77,94,95,96,126,214,217,218,220,222,223,224,225,226,227,228};
+__constant__ static int Z_TIMED[8] = {84,243,249,250,251,252,253,255};
+__constant__ static int Z_NS[64] =
+   {129,130,131,132,133,134,135,136,137,138,145,149,154,155,156,157,177,178,179,180,
+    182,183,184,185,186,187,188,189,190,191,192,193,194,196,197,198,199,200,201,202,
+    203,204,205,206,207,208,209,210,211,212,213,241,244,245,246,247,248,249,250,251,
+    252,253,254,255};
+__constant__ static int Z_NPL[32] =
+   {139,140,141,142,143,144,146,147,148,150,151,153,158,159,160,161,162,163,164,165,
+    166,167,168,169,170,171,172,173,174,175,176,181};
+__constant__ static int Z_MASS[16] =
+   {214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229};
+__constant__ static int Y_MASS[8] = {230,231,232,233,234,235,236,237};
+__constant__ static int X_MASS[4] = {238,239,240,242};
+__constant__ static int Z_INGINF[32] =
+   {18,19,20,21,22,25,26,27,28,29,30,36,37,38,39,40,41,42,44,46,47,48,49,51,52,53,54,
+    55,56,57,58,59};
+__constant__ static int Z_TIME[16] =
+   {82,83,84,85,86,87,88,243,249,250,251,252,253,254,255,253};
+__constant__ static int Z_INGADJ[64] =
+   {18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,23,
+    24,31,32,33,34,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,
+    83,84,85,86,87,88,89,90,91,92};
+
 
 inline void cudaCheckError( const char *msg, uint32_t gpu, const char *file)
 {
    cudaError err = cudaGetLastError();
    if(cudaSuccess != err)
-      error("%s Error (#%d) in %s: %s\n", msg, gpu, file,
-            cudaGetErrorString(err));
+      fprintf(stderr, "%s Error (#%d) in %s: %s\n",
+              msg, gpu, file, cudaGetErrorString(err));
+   exit(-1);
 }
 
 
-
-__constant__ static uint8_t __align__(8) c_phash[32];
-__constant__ static uint8_t __align__(8) c_input32[108];
-__constant__ static uint8_t __align__(8) c_difficulty;
-__constant__ static int Z_PREP[4]  = {12,13,14,15};
-__constant__ static int Y_PREP[2]  = {16,17};
-__constant__ static int Z_ING[16]  = {18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33};
-__constant__ static int Y_ING[8]   = {34,35,36,37,38,39,40,41};
-__constant__ static int X_ING[2]   = {42,43};
-__constant__ static int Z_INF[16]  = {44,45,46,47,48,50,51,52,53,54,55,56,57,58,59,60};
-__constant__ static int Z_ADJ[64]  = {61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,
-                                      81,82,83,84,85,86,87,88,89,90,91,92,94,95,96,97,98,99,100,
-                                      101,102,103,104,105,107,108,109,110,112,114,115,116,117,118,
-                                      119,120,121,122,123,124,125,126,127,128};
-__constant__ static int Z_AMB[16]  = {77,94,95,96,126,214,217,218,220,222,223,224,225,226,227,228};
-__constant__ static int Z_TIMED[8] = {84,243,249,250,251,252,253,255};
-__constant__ static int Z_NS[64]   = {129,130,131,132,133,134,135,136,137,138,145,149,154,155,156,
-                                      157,177,178,179,180,182,183,184,185,186,187,188,189,190,191,
-                                      192,193,194,196,197,198,199,200,201,202,203,204,205,206,207,
-                                      208,209,210,211,212,213,241,244,245,246,247,248,249,250,251,
-                                      252,253,254,255};
-__constant__ static int Z_NPL[32]  = {139,140,141,142,143,144,146,147,148,150,151,153,158,159,160,
-                                      161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,
-                                      176,181};
-__constant__ static int Z_MASS[16] = {214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229};
-__constant__ static int Y_MASS[8]  = {230,231,232,233,234,235,236,237};
-__constant__ static int X_MASS[4]  = {238,239,240,242};
-__constant__ static int Z_INGINF[32] = {18,19,20,21,22,25,26,27,28,29,30,36,37,38,39,40,41,42,44,
-                                        46,47,48,49,51,52,53,54,55,56,57,58,59};
-__constant__ static int Z_TIME[16] = {82,83,84,85,86,87,88,243,249,250,251,252,253,254,255,253};
-__constant__ static int Z_INGADJ[64] = {18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,
-                                        37,38,39,40,41,42,43,23,24,31,32,33,34,61,62,63,64,65,66,
-                                        67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,
-                                        86,87,88,89,90,91,92};
-
-
-
-__device__ uint32_t cuda_next_index(uint32_t tilenum, uint8_t *g_map, uint8_t *nonce) {
-  /**
-   * Assume tile[1024] pointer and nonce[16] pointer
-   * Plus an additional unsigned - 0x20A0 bits */
-   int i;
-  uint32_t index;
-  byte hash[HASHLEN];
-  CUDA_SHA256_CTX ictx;
-   
-  cuda_sha256_init(&ictx);
-  cuda_sha256_update(&ictx, nonce, HASHLEN);
-  cuda_sha256_update(&ictx, (byte *) &tilenum, sizeof(uint32_t));
-  cuda_sha256_update(&ictx, &g_map[tilenum * TILE_LENGTH], TILE_LENGTH);
-
-  cuda_sha256_final(&ictx, hash);
-   
-   /* Convert 32-byte Hash Value Into 32-bit Unsigned Integer */
-   for(i = 0, index = 0; i < (HASHLEN / 4); i++) index += *((uint32_t *) &hash[i]);
-
-  return index % MAP;
-}
-
-/**
- * Performs data manipulation on 256 bits (32 bytes) of data using
- * deterministic floating point operations on IEEE 754 compliant
- * machines and devices */
-__device__ void cuda_fp256(uint8_t *data, uint32_t index, uint32_t *op)
+__device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map, uint8_t *nonce)
 {
-   /**
-    * Definitions */
-   int32_t i, operand;
-   float floatv, *floatp;
-   /**
-    * Work on data 4 bytes at a time */
-   for(i = *op = 0; i < 32; i += 4)
-   {
-      /**
-       * Cast 4 byte piece to float pointer */
-      floatp = (float *) &data[i];
-      /**
-       * 4 byte separation order depends on initial byte:
-       * #1) *op = data... determine floating point operation type
-       * #2) operand = ... determine the value of the operand
-       * #3) operand ^=... determine the sign of the operand
-       *                   ^must always be performed after #2) */
-      switch(data[i] & 7)
-      {
-         case 0:
-            *op = (uint32_t) data[i + 1];
-            operand = (int32_t) data[ (data[i + 2] & 31) ];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-         case 1:
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
-            if(data[i + 2] & 1) operand ^= 0x80000000;
-            *op = (uint32_t) data[i + 3];
-            break;
-         case 2:
-            *op = (uint32_t) data[i];
-            operand = (int32_t) data[ (data[i + 2] & 31) ];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-         case 3:
-            *op = (uint32_t) data[i];
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
-            if(data[i + 2] & 1) operand ^= 0x80000000;
-            break;
-         case 4:
-            operand = (int32_t) data[ (data[i] & 31) ];
-            if(data[i + 1] & 1) operand ^= 0x80000000;
-            *op = (uint32_t) data[i + 3];
-            break;
-         case 5:
-            operand = (int32_t) data[ (data[i] & 31) ];
-            if(data[i + 1] & 1) operand ^= 0x80000000;
-            *op = (uint32_t) data[i + 2];
-            break;
-         case 6:
-            *op = (uint32_t) data[i++];
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-         case 7:
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
-            *op = (uint32_t) data[i + 2];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-      } /* end switch(data[j] & 31... */
-      /**
-       * Cast operand to float */
-      floatv = (float) operand;
-      /**
-       * Replace NaN's with tileNum */
-      if(isnan(*floatp)) *floatp = (float) index;
-      if(isnan(floatv)) floatv = (float) index;
-      /**
-       * Perform predetermined floating point operation */
-      switch(*op & 3) {
-         case 0:
-            *floatp += floatv;
-            break;
-         case 1:
-            *floatp -= floatv;
-            break;
-         case 2:
-            *floatp *= floatv;
-            break;
-         case 3:
-            *floatp /= floatv;
-            break;
-      }
-   } /* end for(*op = 0... */
+   CUDA_NIGHTHASH_CTX nighthash;
+   byte seed[HASHLEN + 4 + TILE_LENGTH];
+   byte hash[HASHLEN];
+   int i, seedlen;
+
+   /* Create nighthash seed for this index on the map */
+   seedlen = HASHLEN + 4 + TILE_LENGTH;
+   memcpy(seed, nonce, HASHLEN);
+   memcpy(seed + HASHLEN, (byte *) &index, 4);
+   memcpy(seed + HASHLEN + 4, &g_map[index * TILE_LENGTH], TILE_LENGTH);
+
+   /* Setup nighthash the seed, NO TRANSFORM */
+   cuda_nighthash_init(&nighthash, seed, seedlen, index, 0);
+
+   /* Update nighthash with the seed data */
+   cuda_nighthash_update(&nighthash, seed, seedlen);
+
+   /* Finalize nighthash into the first 32 byte chunk of the tile */
+   cuda_nighthash_final(&nighthash, hash);
+
+   /* Convert 32-byte Hash Value Into 8x 32-bit Unsigned Integer */
+   for(i = 0, index = 0; i < 8; i++)
+      index += ((uint32_t *) &hash)[i];
+
+   return index % MAP;
 }
 
-/**
- * Performs data manipulation on 256 bits (32 bytes) of data using
- * random byte transform operations, for increased complexity */
-__device__ void cuda_bitbyte256(uint8_t *data, uint32_t *op)
+
+__device__ void cuda_gen_tile(uint32_t index, uint8_t *phash, uint8_t *g_map)
 {
-   /**
-    * Definitions */
-   int32_t i, z;
-   uint8_t temp, _104, _72;
-   /**
-    * Perform <TILE_TRANSFORMS> number of bit/byte manipulations */
-   for(i = 0, _104 = 104, _72 = 72; i < TILE_TRANSFORMS; i++)
-   {
-      /**
-       * Determine operation to use this iteration */
-      *op += (uint32_t) data[i & 31];
-      /**
-       * Perform random operation */
-      switch(*op & 7) {
-         case 0: /* Swap the first and last bit in each byte. */
-            for(z = 0; z < 32; z++)
-               data[z] ^= 0x81;
-            break;
-         case 1: /* Swap bytes */
-            for(z = 0; z < 16; z++) {
-               temp = data[z];
-               data[z] = data[z + 16];
-               data[z + 16] = temp;
-            }
-            break;
-         case 2: /* Complement One, all bytes */
-            for(z = 1; z < 32; z++)
-               data[z] = ~data[z];
-            break;
-         case 3: /* Alternate +1 and -1 on all bytes */
-            for(z = 0; z < 32; z++)
-               data[z] += ((z & 1) == 0) ? 1 : -1;
-            break;
-         case 4: /* Alternate +i and -i on all bytes */
-            for(z = 0; z < 32; z++)
-               data[z] += ((z & 1) == 0) ? -i : i;
-            break;
-         case 5: /* Replace every occurrence of _104 with _72 */ 
-            for(z = 0; z < 32; z++)
-               if(data[z] == _104) data[z] = _72;
-            break;
-         case 6: /* If byte a is > byte b, swap them. */
-            for(z = 0; z < 16; z++) {
-               if(data[z] > data[z + 16]) {
-                  temp = data[z];
-                  data[z] = data[z + 16];
-                  data[z + 16] = temp;
-               }
-            }
-            break;
-         case 7: /* XOR all bytes */
-            for(z = 1; z < HASHLEN; z++)
-               data[z] ^= data[z - 1];
-            break;
-      } /* end switch(... */
-   } /* end for(i = 0... */ 
-}
+   CUDA_NIGHTHASH_CTX nighthash;
+   byte seed[4 + HASHLEN];
+   byte *tilep;
+   int i, j, seedlen;
 
+   /* Set map pointer */
+   tilep = &g_map[index * TILE_LENGTH];
 
-__device__ void cuda_night_hash(unsigned char *out, unsigned char *in,
-                                uint32_t inlen)
-{
-   uint32_t op;
-   op = 0;
-   CUDA_SHA1_CTX sha1;
-   CUDA_SHA256_CTX sha256;
+   /* Create nighthash seed for this index on the map */
+   seedlen = 4 + HASHLEN;
+   memcpy(seed, (byte *) &index, 4);
+   memcpy(seed + 4, phash, HASHLEN);
 
+   /* Setup nighthash with a transform of the seed */
+   cuda_nighthash_init(&nighthash, seed, seedlen, index, 1);
 
-   /* TODO: Replace with floating point arithmetic */
-   for(int i = 0; i < inlen; i++)
-      op += in[i];
+   /* Update nighthash with the seed data */
+   cuda_nighthash_update(&nighthash, seed, seedlen);
 
-   switch(op & 7)
-   {
-      case 0:
-         /* Production: Blake2b key 32 bytes, Placeholder: SHA1 */
-         cuda_sha1_init(&sha1);
-         cuda_sha1_update(&sha1, in, inlen);
-         cuda_sha1_final(&sha1, out);
-         break;
-      case 1:
-         /* Production: Blake2b key 64 bytes, Placeholder: SHA256 */
-         cuda_sha256_init(&sha256);
-         cuda_sha256_update(&sha256, in, inlen);
-         cuda_sha256_final(&sha256, out);
-         break;
-      case 2:
-         /* Production: SHA1 */
-         cuda_sha1_init(&sha1);
-         cuda_sha1_update(&sha1, in, inlen);
-         cuda_sha1_final(&sha1, out);
-         break;
-      case 3:
-         /* Production: SHA256 */
-         cuda_sha256_init(&sha256);
-         cuda_sha256_update(&sha256, in, inlen);
-         cuda_sha256_final(&sha256, out);
-         break;
-      case 4:
-         /* Production SHA3, Placeholder: SHA1 */
-         cuda_sha1_init(&sha1);
-         cuda_sha1_update(&sha1, in, inlen);
-         cuda_sha1_final(&sha1, out);
-         break;         
-      case 5:
-         /* Production Keccak, Placeholder: SHA256 */
-         cuda_sha256_init(&sha256);
-         cuda_sha256_update(&sha256, in, inlen);
-         cuda_sha256_final(&sha256, out);
-         break;
-      case 6:
-         /* Production MD4, Placeholder: SHA1 */
-         cuda_sha1_init(&sha1);
-         cuda_sha1_update(&sha1, in, inlen);
-         cuda_sha1_final(&sha1, out);
-         break;
-      case 7:
-         /* Production MD5, Placeholder: SHA256 */
-         cuda_sha256_init(&sha256);
-         cuda_sha256_update(&sha256, in, inlen);
-         cuda_sha256_final(&sha256, out);
-         break;
-      default: /* Shouldn't get here. */
-         break;
-   }
-}
+   /* Finalize nighthash into the first 32 byte chunk of the tile */
+   cuda_nighthash_final(&nighthash, tilep);
 
+   /* Begin constructing the full tile */
+   for(i = 0; i < TILE_LENGTH; i += HASHLEN) { /* For each tile row */
+      /* Set next row's pointer location */
+      j = i + HASHLEN;
 
-__device__ void cuda_gen_tile(uint32_t tilenum, uint8_t *phash, uint8_t *g_map) {
-   /**
-    * Declarations */
-   CUDA_SHA256_CTX ictx;
-   int i;
-   uint8_t *tilep, *next_tilep;
-   uint32_t op;
+      /* Hash the current row to the next, if not at the end */
+      if(j < TILE_LENGTH) {
+         /* Setup nighthash with a transform of the current row */
+         cuda_nighthash_init(&nighthash, &tilep[i], HASHLEN, index, 1);
 
-   /* set map pointer */
-   tilep = &g_map[tilenum * TILE_LENGTH];
+         /* Update nighthash with the seed data and tile index */
+         cuda_nighthash_update(&nighthash, &tilep[i], HASHLEN);
+         cuda_nighthash_update(&nighthash, (byte *) &index, 4);
 
-   /* begin tile data */
-   cuda_sha256_init(&ictx);
-   cuda_sha256_update(&ictx, phash, HASHLEN);
-   cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
-   cuda_sha256_final(&ictx, tilep);
-
-   /**
-    * Perform TILE_LENGTH iterations (32) of a 3-Part data manipulation series */
-   for(i = 0; i < TILE_LENGTH; i+=HASHLEN) //for each row of the tile
-   {
-      /**
-       * Part 1
-       * Apply deterministic floating point operations to 32 byte chunk */
-      cuda_fp256(&tilep[i], tilenum, &op);
-      /**
-       * Part 2
-       * Apply bit/byte manipulations on 32 byte chunk */
-      cuda_bitbyte256(&tilep[i], &op);
-      
-      
-      /* hash the result of the current tile's row to the next */
-      if((i + 32) < TILE_LENGTH) {
-         next_tilep = &tilep[i + 32];
-         cuda_sha256_init(&ictx);
-         cuda_sha256_update(&ictx, &tilep[i], HASHLEN);
-         cuda_sha256_update(&ictx, (byte*)&tilenum, sizeof(uint32_t));
-         cuda_sha256_final(&ictx, next_tilep);
-
-         cuda_night_hash(next_tilep, &tilep[i], HASHLEN);
+         /* Finalize nighthash into the first 32 byte chunk of the tile */
+         cuda_nighthash_final(&nighthash, &tilep[j]);
       }
    }
 }
 
-__global__ void cuda_build_map(uint32_t g_cache, uint8_t *g_map) {
 
+__global__ void cuda_build_map(uint32_t g_cache, uint8_t *g_map)
+{
     const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
     
     if (thread < g_cache && thread < MAP) {
@@ -379,8 +159,8 @@ __global__ void cuda_build_map(uint32_t g_cache, uint8_t *g_map) {
 
 
 __global__ void cuda_find_peach(uint32_t threads, int g_cache, uint8_t *g_map, 
-                           int *g_found, uint8_t *g_seed) {
-
+                           int *g_found, uint8_t *g_seed)
+{
   const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
   CUDA_SHA256_CTX ictx;
   uint32_t sm;
@@ -1042,7 +822,7 @@ extern char *trigg_expand2(byte *in, byte *out);
 __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
 {
    int i;
-   uint64_t nHaiku = 0;
+   uint64_t lastnHaiku, nHaiku = 0;
    time_t seconds = time(NULL);
    for( ; *runflag && *found == 0; ) {
       for (i=0; i<nGPU; i++) {
@@ -1072,21 +852,27 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
             cuda_find_peach<<<grid, block, 0, ctx[i].stream>>>(threads, MAP,
                            ctx[i].d_map, ctx[i].d_found, ctx[i].d_seed);
 
-                /* Add to haiku count */
-                nHaiku += threads;
+            /* Add to haiku count */
+            nHaiku += threads;
 
-                /* Store round vars aside for checks next loop */
-                memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
-                ctx[i].next_seed[0] = 0;
-            } else continue;  /* Waiting on GPU ... */
-            cudaCheckError("cuda_peach()", i, __FILE__);
-        }
-    }
+            /* Store round vars aside for checks next loop */
+            memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
+            ctx[i].next_seed[0] = 0;
+         }
+         
+         /* Waiting on GPU? ... */
+         cudaCheckError("cuda_peach()", i, __FILE__);
+      }
+      
+      /* Chill a bit if nothing is happening */
+      if(lastnHaiku == nHaiku) usleep(1000);
+      else lastnHaiku = nHaiku;
+   }
     
-    seconds = time(NULL) - seconds;
-    if(seconds == 0) seconds = 1;
-    nHaiku /= seconds;
-    *hps = (uint32_t) nHaiku;
+   seconds = time(NULL) - seconds;
+   if(seconds == 0) seconds = 1;
+   nHaiku /= seconds;
+   *hps = (uint32_t) nHaiku;
 }
 
 

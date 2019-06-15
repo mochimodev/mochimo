@@ -107,7 +107,7 @@ __device__ LONG cuda_blake2b_ROTR64(LONG a, BYTE b)
     return (a >> b) | (a << (64 - b));
 }
 
-__device__ void cuda_blake2b_G(cuda_blake2b_ctx_t *ctx, LONG m1, LONG m2, int32_t a, int32_t b, int32_t c, int32_t d)
+__device__ void cuda_blake2b_G(cuda_blake2b_ctx_t *ctx, int64_t m1, int64_t m2, int32_t a, int32_t b, int32_t c, int32_t d)
 {
     ctx->state[a] = ctx->state[a] + ctx->state[b] + m1;
     ctx->state[d] = cuda_blake2b_ROTR64(ctx->state[d] ^ ctx->state[a], 32);
@@ -185,7 +185,7 @@ __device__ void cuda_blake2b_update(cuda_blake2b_ctx_t *ctx, BYTE* in, LONG inle
         return;
 
     WORD start = 0;
-    LONG in_index = 0, block_index = 0;
+    int64_t in_index = 0, block_index = 0;
 
     if (ctx->pos)
     {

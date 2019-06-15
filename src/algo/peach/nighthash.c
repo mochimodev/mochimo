@@ -27,7 +27,7 @@
  * @param index     - the current tile
  * @param *op       - pointer to the operator value
  * @param transform - flag indicates to transform the input data */
-void fp_operation(uint8_t *data, uint32_t len, uint32_t index, int32_t *op,
+void fp_operation(uint8_t *data, uint32_t len, uint32_t index, uint32_t *op,
                   uint8_t transform)
 {
    uint8_t *temp;
@@ -248,7 +248,7 @@ int nighthash_init(nighthash_ctx_t *ctx, uint32_t algo_type, uint32_t digestbitl
       {
          byte key[64];
          memset(key, algo_type, 64);
-         blake2b_init(&(ctx->blake2b), key, 32, digestbitlen);
+         blake2b_init(&(ctx->blake2b), key, 64, digestbitlen);
       }
          break;
       case 2:

@@ -31,7 +31,7 @@ typedef struct {
 	BYTE state[48];
 	BYTE checksum[16];
 	int len;
-} MD2_CTX;
+} CUDA_MD2_CTX;
 
 /**************************** VARIABLES *****************************/
 __constant__ BYTE s[256] = {
@@ -56,7 +56,7 @@ __constant__ BYTE s[256] = {
 };
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-__device__ void md2_transform(MD2_CTX *ctx, BYTE data[])
+__device__ void cuda_md2_transform(CUDA_MD2_CTX *ctx, BYTE data[])
 {
 	int j,k,t;
 
@@ -82,7 +82,7 @@ __device__ void md2_transform(MD2_CTX *ctx, BYTE data[])
 	}
 }
 
-__device__ void md2_init(MD2_CTX *ctx)
+__device__ void cuda_md2_init(CUDA_MD2_CTX *ctx)
 {
 	int i;
 
@@ -93,7 +93,7 @@ __device__ void md2_init(MD2_CTX *ctx)
 	ctx->len = 0;
 }
 
-__device__ void md2_update(MD2_CTX *ctx, const BYTE data[], size_t len)
+__device__ void cuda_md2_update(CUDA_MD2_CTX *ctx, const BYTE data[], size_t len)
 {
 	size_t i;
 
@@ -101,13 +101,13 @@ __device__ void md2_update(MD2_CTX *ctx, const BYTE data[], size_t len)
 		ctx->data[ctx->len] = data[i];
 		ctx->len++;
 		if (ctx->len == MD2_BLOCK_SIZE) {
-			md2_transform(ctx, ctx->data);
+			cuda_md2_transform(ctx, ctx->data);
 			ctx->len = 0;
 		}
 	}
 }
 
-__device__ void md2_final(MD2_CTX *ctx, BYTE hash[])
+__device__ void cuda_md2_final(CUDA_MD2_CTX *ctx, BYTE hash[])
 {
 	int to_pad;
 
@@ -116,8 +116,8 @@ __device__ void md2_final(MD2_CTX *ctx, BYTE hash[])
 	while (ctx->len < MD2_BLOCK_SIZE)
 		ctx->data[ctx->len++] = to_pad;
 
-	md2_transform(ctx, ctx->data);
-	md2_transform(ctx, ctx->checksum);
+	cuda_md2_transform(ctx, ctx->data);
+	cuda_md2_transform(ctx, ctx->checksum);
 
 	memcpy(hash, ctx->state, MD2_BLOCK_SIZE);
 }
@@ -131,10 +131,10 @@ __global__ void kernel_md2_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_
 	}
 	BYTE* in = indata  + thread * inlen;
 	BYTE* out = outdata  + thread * MD2_BLOCK_SIZE;
-	MD2_CTX ctx;
-	md2_init(&ctx);
-	md2_update(&ctx, in, inlen);
-	md2_final(&ctx, out);
+	CUDA_MD2_CTX ctx;
+	cuda_md2_init(&ctx);
+	cuda_md2_update(&ctx, in, inlen);
+	cuda_md2_final(&ctx, out);
 }
 extern "C" {
 void mcm_cuda_md2_hash_batch(BYTE *in, WORD inlen, BYTE *out, WORD n_batch) {

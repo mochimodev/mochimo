@@ -34,10 +34,12 @@ typedef struct {
 	WORD datalen;
 	unsigned long long bitlen;
 	WORD state[4];
-} MD5_CTX;
+} CUDA_MD5_CTX;
 
 /****************************** MACROS ******************************/
+#ifndef ROTLEFT
 #define ROTLEFT(a,b) ((a << b) | (a >> (32-b)))
+#endif
 
 #define F(x,y,z) ((x & y) | (~x & z))
 #define G(x,y,z) ((x & z) | (y & ~z))
@@ -54,7 +56,7 @@ typedef struct {
                             a = b + ROTLEFT(a,s); }
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-__device__ void md5_transform(MD5_CTX *ctx, const BYTE data[])
+__device__ void cuda_md5_transform(CUDA_MD5_CTX *ctx, const BYTE data[])
 {
 	WORD a, b, c, d, m[16], i, j;
 
@@ -143,7 +145,7 @@ __device__ void md5_transform(MD5_CTX *ctx, const BYTE data[])
 	ctx->state[3] += d;
 }
 
-__device__ void md5_init(MD5_CTX *ctx)
+__device__ void cuda_md5_init(CUDA_MD5_CTX *ctx)
 {
 	ctx->datalen = 0;
 	ctx->bitlen = 0;
@@ -153,7 +155,7 @@ __device__ void md5_init(MD5_CTX *ctx)
 	ctx->state[3] = 0x10325476;
 }
 
-__device__ void md5_update(MD5_CTX *ctx, const BYTE data[], size_t len)
+__device__ void cuda_md5_update(CUDA_MD5_CTX *ctx, const BYTE data[], size_t len)
 {
 	size_t i;
 
@@ -161,14 +163,14 @@ __device__ void md5_update(MD5_CTX *ctx, const BYTE data[], size_t len)
 		ctx->data[ctx->datalen] = data[i];
 		ctx->datalen++;
 		if (ctx->datalen == 64) {
-			md5_transform(ctx, ctx->data);
+			cuda_md5_transform(ctx, ctx->data);
 			ctx->bitlen += 512;
 			ctx->datalen = 0;
 		}
 	}
 }
 
-__device__ void md5_final(MD5_CTX *ctx, BYTE hash[])
+__device__ void cuda_md5_final(CUDA_MD5_CTX *ctx, BYTE hash[])
 {
 	size_t i;
 
@@ -184,7 +186,7 @@ __device__ void md5_final(MD5_CTX *ctx, BYTE hash[])
 		ctx->data[i++] = 0x80;
 		while (i < 64)
 			ctx->data[i++] = 0x00;
-		md5_transform(ctx, ctx->data);
+		cuda_md5_transform(ctx, ctx->data);
 		memset(ctx->data, 0, 56);
 	}
 
@@ -198,7 +200,7 @@ __device__ void md5_final(MD5_CTX *ctx, BYTE hash[])
 	ctx->data[61] = ctx->bitlen >> 40;
 	ctx->data[62] = ctx->bitlen >> 48;
 	ctx->data[63] = ctx->bitlen >> 56;
-	md5_transform(ctx, ctx->data);
+	cuda_md5_transform(ctx, ctx->data);
 
 	// Since this implementation uses little endian byte ordering and MD uses big endian,
 	// reverse all the bytes when copying the final state to the output hash.
@@ -219,10 +221,10 @@ __global__ void kernel_md5_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_
 	}
 	BYTE* in = indata  + thread * inlen;
 	BYTE* out = outdata  + thread * MD5_BLOCK_SIZE;
-	MD5_CTX ctx;
-	md5_init(&ctx);
-	md5_update(&ctx, in, inlen);
-	md5_final(&ctx, out);
+	CUDA_MD5_CTX ctx;
+	cuda_md5_init(&ctx);
+	cuda_md5_update(&ctx, in, inlen);
+	cuda_md5_final(&ctx, out);
 }
 
 extern "C"
