@@ -868,7 +868,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
       }
       
       /* Chill a bit if nothing is happening */
-      if(lastnHaiku == nHaiku) usleep(100000);
+      if(lastnHaiku == nHaiku) usleep(1000);
       else lastnHaiku = nHaiku;
    }
     
