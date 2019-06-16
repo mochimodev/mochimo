@@ -6,9 +6,9 @@ extern "C"
 #define BLAKE2B_ROUNDS 12
 #define BLAKE2B_BLOCK_LENGTH 128
 #define BLAKE2B_CHAIN_SIZE 8
-#define BLAKE2B_CHAIN_LENGTH (BLAKE2B_CHAIN_SIZE * sizeof(LONG))
+#define BLAKE2B_CHAIN_LENGTH (BLAKE2B_CHAIN_SIZE * sizeof(int64_t))
 #define BLAKE2B_STATE_SIZE 16
-#define BLAKE2B_STATE_LENGTH (BLAKE2B_STATE_SIZE * sizeof(LONG))
+#define BLAKE2B_STATE_LENGTH (BLAKE2B_STATE_SIZE * sizeof(int64_t))
 extern "C"
 {
 typedef struct {
@@ -18,8 +18,8 @@ typedef struct {
     WORD keylen;
 
     BYTE buff[BLAKE2B_BLOCK_LENGTH];
-    LONG chain[BLAKE2B_CHAIN_SIZE];
-    LONG state[BLAKE2B_STATE_SIZE];
+    int64_t chain[BLAKE2B_CHAIN_SIZE];
+    int64_t state[BLAKE2B_STATE_SIZE];
 
     WORD pos;
     LONG t0;
@@ -159,6 +159,7 @@ __device__ void cuda_blake2b_init(cuda_blake2b_ctx_t *ctx, BYTE* key, WORD keyle
 {
     memset(ctx, 0, sizeof(cuda_blake2b_ctx_t));
 
+    ctx->keylen = keylen;
     ctx->digestlen = digestbitlen >> 3;
     ctx->pos = 0;
     ctx->t0 = 0;
@@ -175,7 +176,6 @@ __device__ void cuda_blake2b_init(cuda_blake2b_ctx_t *ctx, BYTE* key, WORD keyle
 
     memcpy(ctx->buff, key, keylen);
     memcpy(ctx->key, key, keylen);
-    ctx->keylen = keylen;
     ctx->pos = BLAKE2B_BLOCK_LENGTH;
 }
 

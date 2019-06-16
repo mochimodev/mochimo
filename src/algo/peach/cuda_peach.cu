@@ -80,7 +80,7 @@ __device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map, uint8_t *non
    memcpy(seed, nonce, HASHLEN);
    memcpy(seed + HASHLEN, (byte *) &index, 4);
    memcpy(seed + HASHLEN + 4, &g_map[index * TILE_LENGTH], TILE_LENGTH);
-
+   
    /* Setup nighthash the seed, NO TRANSFORM */
    cuda_nighthash_init(&nighthash, seed, seedlen, index, 0);
 
@@ -164,7 +164,7 @@ __global__ void cuda_find_peach(uint32_t threads, int g_cache, uint8_t *g_map,
 {
   const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
   CUDA_SHA256_CTX ictx;
-  uint32_t sm;
+  uint32_t sm, sma[9];
   uint8_t bt_hash[32], fhash[32];
   uint8_t seed[16] = {0}, nonce[32] = {0};
   int i, j, n, x;
@@ -625,7 +625,7 @@ End 64-bit Frames */
      /* finalise sha256 hash */
      cuda_sha256_final(&ictx, bt_hash);
 
-
+      
      /*****************************************************/
      /* Determine the final tile based on selected nonce  */
      /* Time to find the princess!                        */
@@ -638,8 +638,10 @@ End 64-bit Frames */
      sm %= MAP;
        
      /* make <JUMP> tile jumps to find the final tile */
-     for(j = 0; j < JUMP; j++)
+     for(j = 0; j < JUMP; j++) {
+        sma[j] = sm;
         sm = cuda_next_index(sm, g_map, nonce);
+     }
 
 
      /****************************************************************/
@@ -866,7 +868,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
       }
       
       /* Chill a bit if nothing is happening */
-      if(lastnHaiku == nHaiku) usleep(1000000);
+      if(lastnHaiku == nHaiku) usleep(100000);
       else lastnHaiku = nHaiku;
    }
     

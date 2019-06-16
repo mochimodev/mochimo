@@ -230,6 +230,7 @@ int nighthash_seed_init(nighthash_ctx_t *ctx, byte *algo_type_seed,
 
 int nighthash_init(nighthash_ctx_t *ctx, uint32_t algo_type, uint32_t digestbitlen)
 {
+   byte key32[32], key64[64];
    if(digestbitlen != 256 && digestbitlen != 512)
       return -1;
 
@@ -238,48 +239,30 @@ int nighthash_init(nighthash_ctx_t *ctx, uint32_t algo_type, uint32_t digestbitl
    switch(algo_type)
    {
       case 0:
-      {
-         byte key[32];
-         memset(key, algo_type, 32);
-         blake2b_init(&(ctx->blake2b), key, 32, digestbitlen);
-      }
+         memset(key32, algo_type, 32);
+         blake2b_init(&(ctx->blake2b), key32, 32, digestbitlen);
          break;
       case 1:
-      {
-         byte key[64];
-         memset(key, algo_type, 64);
-         blake2b_init(&(ctx->blake2b), key, 64, digestbitlen);
-      }
+         memset(key64, algo_type, 64);
+         blake2b_init(&(ctx->blake2b), key64, 64, digestbitlen);
          break;
       case 2:
-      {
          sha1_init(&(ctx->sha1));
-      }
          break;
       case 3:
-      {
          sha256_init(&(ctx->sha256));
-      }
          break;
       case 4:
-      {
          keccak_sha3_init(&(ctx->sha3), digestbitlen);
-      }
          break;
       case 5:
-      {
          keccak_init(&(ctx->keccak), digestbitlen);
-      }
          break;
       case 6:
-      {
          md2_init(&(ctx->md2));
-      }
          break;
       case 7:
-      {
          md5_init(&(ctx->md5));
-      }
          break;
       default:
          error("Fatal: Invalid night hash algo type (%i)\n", algo_type);

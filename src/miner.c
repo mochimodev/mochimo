@@ -90,7 +90,7 @@ int miner(char *blockin, char *blockout)
                sprintf(hex + i * 4, "%03i ", bt_bytes[i]);
             }          
             error("!!!!!CUDA Peach solved block is not valid!!!!!");
-            error("BT -> %s", hex);
+            error("CPU BT -> %s", hex);
             sleep(5);
             break;
          }

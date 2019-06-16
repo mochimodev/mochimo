@@ -65,7 +65,7 @@ uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
    memcpy(seed, nonce, HASHLEN);
    memcpy(seed + HASHLEN, (byte *) &current_index, 4);
    memcpy(seed + HASHLEN + 4, current_tile, TILE_LENGTH);
-
+   
    /* Setup nighthash the seed, NO TRANSFORM */
    nighthash_seed_init(&nighthash, seed, seedlen, current_index, 256);
 
@@ -165,7 +165,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 {
    SHA256_CTX ictx;
 
-   uint32_t sm;
+   uint32_t sm, sma[9];
    uint64_t j, h;
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
@@ -233,6 +233,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
       get_tile(&tile, sm, bt->phash, map, cache);
      
       for(j = 0; j < JUMP; j++) {
+         sma[j] = sm;
          sm = next_index(sm, tile, bt->nonce);
          get_tile(&tile, sm, bt->phash, map, cache);
       }
@@ -245,7 +246,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
          timersub(&tend, &tstart, &telapsed);
          plog("Peach validated in %ld.%06ld seconds", 
              (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
-
+         
          goto out;
       }
 

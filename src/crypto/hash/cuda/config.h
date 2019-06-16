@@ -9,7 +9,7 @@
 
 typedef unsigned char BYTE;
 typedef unsigned int  WORD;
-typedef unsigned long long LONG;
+typedef uint64_t LONG;
 
 #include <stdlib.h>
 #include <string.h>

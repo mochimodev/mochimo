@@ -227,14 +227,17 @@ __device__ void cuda_nighthash_init(CUDA_NIGHTHASH_CTX *ctx, byte *algo_type_see
    /* Clear nighthash context */
    memset(ctx, 0, sizeof(CUDA_NIGHTHASH_CTX));
 
-   switch(algo_type & 7)
+   ctx->digestlen = 32;
+   ctx->algo_type = algo_type & 7;
+   
+   switch(ctx->algo_type)
    {
       case 0:
-         memset(key32, algo_type, 32);
+         memset(key32, ctx->algo_type, 32);
          cuda_blake2b_init(&(ctx->blake2b), key32, 32, 256);
          break;
       case 1:
-         memset(key64, algo_type, 64);
+         memset(key64, ctx->algo_type, 64);
          cuda_blake2b_init(&(ctx->blake2b), key64, 64, 256);
          break;
       case 2:
@@ -256,14 +259,11 @@ __device__ void cuda_nighthash_init(CUDA_NIGHTHASH_CTX *ctx, byte *algo_type_see
          cuda_md5_init(&(ctx->md5));
          break;
    } /* end switch(algo_type)... */
-
-   ctx->digestlen = 32;
-   ctx->algo_type = algo_type;
 }
 
 __device__ void cuda_nighthash_update(CUDA_NIGHTHASH_CTX *ctx, byte *in, uint32_t inlen)
 {
-   switch(ctx->algo_type & 7)
+   switch(ctx->algo_type)
    {
       case 0:
          cuda_blake2b_update(&(ctx->blake2b), in, inlen);
@@ -294,7 +294,7 @@ __device__ void cuda_nighthash_update(CUDA_NIGHTHASH_CTX *ctx, byte *in, uint32_
 
 __device__ void cuda_nighthash_final(CUDA_NIGHTHASH_CTX *ctx, byte *out)
 {
-   switch(ctx->algo_type & 7)
+   switch(ctx->algo_type)
    {
       case 0:
          cuda_blake2b_final(&(ctx->blake2b), out);
