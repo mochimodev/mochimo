@@ -14,9 +14,9 @@
 #define HASHLENMID 	                   16
 #define HASHLEN                        32
 #define TILE_ROWS                      32
-#define TILE_LENGTH                  1024 // (TILE_ROWS * HASHLEN)
+#define TILE_LENGTH (TILE_ROWS * HASHLEN)
 #define TILE_TRANSFORMS                 8
-#define MAP                       1000000
+#define MAP                       1048576
 #define MAP_LENGTH    (TILE_LENGTH * MAP)
 #define JUMP                            8
 

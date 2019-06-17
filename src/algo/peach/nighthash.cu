@@ -175,7 +175,7 @@ __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op
             }
             break;
          case 2: /* Complement One, all bytes */
-            for(z = 1; z < len; z++)
+            for(z = 0; z < len; z++)
                data[z] = ~data[z];
             break;
          case 3: /* Alternate +1 and -1 on all bytes */
@@ -200,7 +200,7 @@ __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op
             }
             break;
          case 7: /* XOR all bytes */
-            for(z = 1; z < HASHLEN; z++)
+            for(z = 1; z < len; z++)
                data[z] ^= data[z - 1];
             break;
       } /* end switch(... */

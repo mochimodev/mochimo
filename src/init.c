@@ -343,7 +343,6 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    long filelen;
    int ecode, gblock;
    char genfile[100];
-   char *haiku; /* For v2.4 Syntax Compatibility */
    word32 now;
    word32 tcount;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };

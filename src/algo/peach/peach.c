@@ -21,6 +21,7 @@
 
 /* Prototypes from trigg.o dependency */
 byte *trigg_gen(byte *in);
+int trigg_syntax(byte *in);
 void trigg_expand2(byte *in, char *out);
 
 /*
@@ -165,7 +166,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 {
    SHA256_CTX ictx;
 
-   uint32_t sm, sma[9];
+   uint32_t sm;
    uint64_t j, h;
    struct timeval tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
@@ -180,7 +181,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
    
    gettimeofday(&tstart, NULL);
    
-   plog("Peach mode %i, diff %i", mode, diff);   
+   if(Trace) plog("Peach mode %i, diff %i", mode, diff);   
    if(mode == 0) {
       /* Allocate MAP on the Heap */
       map = malloc(MAP_LENGTH);
@@ -214,26 +215,29 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
          memset(&bt->nonce[0], 0, HASHLEN);
          trigg_gen(&bt->nonce[0]);
          trigg_gen(&bt->nonce[16]);
+      } else if(mode == 1) {
+         /* Validation Precheck, The haiku must be syntactically correct
+          * and have the right vibe */
+         if(trigg_syntax(&bt->nonce[0]) == 0 ||
+            trigg_syntax(&bt->nonce[16]) == 0) {
+            solved = 0;
+            goto out;
+         }
       }
        
       sha256_init(&ictx);
       sha256_update(&ictx, (byte *) bt, 124 /*BTSIZE - 4 - HASHLEN*/);
       sha256_final(&ictx, bt_hash);
 
-      for(int i = 0; i < HASHLEN; i++){
-         if(i == 0) {
-            sm = bt_hash[i];
-         } else {
-            sm *= bt_hash[i];
-         }
-      }
+      sm = bt_hash[0];
+      for(int i = 1; i < HASHLEN; i++)
+         sm *= bt_hash[i];
 
       sm %= MAP;
       
       get_tile(&tile, sm, bt->phash, map, cache);
      
       for(j = 0; j < JUMP; j++) {
-         sma[j] = sm;
          sm = next_index(sm, tile, bt->nonce);
          get_tile(&tile, sm, bt->phash, map, cache);
       }
@@ -244,8 +248,9 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
       if(mode == 1) { /* Just Validating, not Mining, check once and return */
          gettimeofday(&tend, NULL);
          timersub(&tend, &tstart, &telapsed);
-         plog("Peach validated in %ld.%06ld seconds", 
-             (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
+         if(Trace)
+            plog("Peach validated in %ld.%06ld seconds", 
+                 (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
          
          goto out;
       }
@@ -263,8 +268,6 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 
             error("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
             error("BT -> %s", hex);
-            plog("!!!!!Peach Validation failed IN THE CONTEXT!!!!!");
-            plog("BT -> %s", hex);
          }
 
          cached = 0;

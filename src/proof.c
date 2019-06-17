@@ -48,7 +48,6 @@ int checkproof(TX *tx)
    word32 stime, time0, now, difficulty, highblock, prevnum = 0;
    static word32 tnum[2];
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   char *haiku; /* For v2.4 Compatibility */
 
    if(get32(Cblocknum) < V23TRIGGER) return VERROR;
    /* Un-comment next line to disable function. */

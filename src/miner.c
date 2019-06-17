@@ -76,7 +76,7 @@ int miner(char *blockin, char *blockout)
       if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 and later */
       
 #ifdef CUDANODE
-         if (!(init_cuda_peach(Difficulty, bt.phash, bt.bnum) & 0x3f)) {
+         if (!(init_cuda_peach(Difficulty, bt.phash, bt.bnum) & 63)) {
             error("Miner failed to initilize CUDA devices\n");
             break;
          }
@@ -126,7 +126,7 @@ int miner(char *blockin, char *blockout)
          htime = time(NULL) - htime;
          if(htime == 0) htime = 1;
          hps = hcount / htime;
-         write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second *
+         write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second */
          if(!Running) break;
 
          /* Block validation check */
