@@ -78,7 +78,7 @@ uint32_t next_index(uint32_t current_index, byte *current_tile, byte *nonce)
 
    /* Convert 32-byte Hash Value Into 8x 32-bit Unsigned Integer */
    for(i = 0, index = 0; i < (HASHLEN >> 2); i++)
-      index += ((uint32_t *) &hash)[i];
+      index += ((uint32_t *) hash)[i];
 
    return index % MAP;
 }

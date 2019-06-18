@@ -55,41 +55,41 @@ void fp_operation(uint8_t *data, uint32_t len, uint32_t index, uint32_t *op,
       {
          case 0:
             *op += data[i + 1];
-            operand = data[ (data[i + 2] & 31) ];
+            operand = data[i + 2];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
          case 1:
-            operand = data[ (data[i + 1] & 31) ];
+            operand = data[i + 1];
             if(data[i + 2] & 1) operand ^= 0x80000000;
             *op += data[i + 3];
             break;
          case 2:
             *op += data[i];
-            operand = data[ (data[i + 2] & 31) ];
+            operand = data[i + 2];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
          case 3:
             *op += data[i];
-            operand = data[ (data[i + 1] & 31) ];
+            operand = data[i + 1];
             if(data[i + 2] & 1) operand ^= 0x80000000;
             break;
          case 4:
-            operand = data[ (data[i] & 31) ];
+            operand = data[i];
             if(data[i + 1] & 1) operand ^= 0x80000000;
             *op += data[i + 3];
             break;
          case 5:
-            operand = data[ (data[i] & 31) ];
+            operand = data[i];
             if(data[i + 1] & 1) operand ^= 0x80000000;
             *op += data[i + 2];
             break;
          case 6:
             *op += data[i + 1];
-            operand = data[ (data[i + 1] & 31) ];
+            operand = data[i + 1];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
          case 7:
-            operand = data[ (data[i + 1] & 31) ];
+            operand = data[i + 1];
             *op += data[i + 2];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;

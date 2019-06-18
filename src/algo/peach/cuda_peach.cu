@@ -68,7 +68,7 @@ __device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map, uint8_t *non
 
    /* Convert 32-byte Hash Value Into 8x 32-bit Unsigned Integer */
    for(i = 0, index = 0; i < 8; i++)
-      index += ((uint32_t *) &hash)[i];
+      index += ((uint32_t *) hash)[i];
 
    return index & MAP;
 }
