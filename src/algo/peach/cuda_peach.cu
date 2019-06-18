@@ -32,14 +32,15 @@ __constant__ static int Z_ADJ[64] =
     88,89,90,91,92,94,95,96,97,98,99,100,101,102,103,104,105,107,108,109,110,112,114,
     115,116,117,118,119,120,121,122,123,124,125,126,127,128};
 
-inline void cudaCheckError( const char *msg, uint32_t gpu, const char *file)
+inline int cudaCheckError( const char *msg, uint32_t gpu, const char *file)
 {
    cudaError err = cudaGetLastError();
    if(cudaSuccess != err) {
       fprintf(stderr, "%s Error (#%d) in %s: %s\n",
               msg, gpu, file, cudaGetErrorString(err));
-      exit(-1);
+      return 1;
    }
+   return 0;
 }
 
 
@@ -310,7 +311,8 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
    for(i = 0; i < nGPU; i++) {
       cudaSetDevice(i);
       cudaStreamSynchronize(ctx[i].stream);
-      cudaCheckError("init_cuda_peach()", i, __FILE__);
+      if(cudaCheckError("init_cuda_peach()", i, __FILE__))
+         return -1;
    }
    
    /* Update block number */
@@ -341,9 +343,6 @@ void free_cuda_peach() {
       /* Free associated device-host memory */
       cudaFreeHost(ctx[i].seed);
       cudaFreeHost(ctx[i].input);
-      
-      /* Check for any GPU free() errors */
-      cudaCheckError("free_cuda_peach()", i, __FILE__);
    }
 }
 
@@ -391,7 +390,10 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
          }
          
          /* Waiting on GPU? ... */
-         cudaCheckError("cuda_peach()", i, __FILE__);
+         if(cudaCheckError("cuda_peach()", i, __FILE__)) {
+            *runflag = 0;
+            return;
+         }
       }
       
       /* Chill a bit if nothing is happening */

@@ -46,11 +46,15 @@ __device__ void cuda_fp_operation(uint8_t *data, uint32_t len, uint32_t index,
                                   uint32_t *op, uint8_t transform)
 {
    uint8_t *temp;
+   uint32_t adjustedlen;
    int32_t i, j, operand;
    float floatv, floatv1, *floatp;
+   
+   /* Adjust the length to a multiple of 4 */
+   adjustedlen = (len >> 2) << 2;
 
    /* Work on data 4 bytes at a time */
-   for(i = 0, len = (len >> 2) << 2; i < len; i += 4)
+   for(i = 0; i < adjustedlen; i += 4)
    {
       /* Cast 4 byte piece to float pointer */
       if(transform)
@@ -68,49 +72,49 @@ __device__ void cuda_fp_operation(uint8_t *data, uint32_t len, uint32_t index,
       switch(data[i] & 7)
       {
          case 0:
-            *op += (uint32_t) data[i + 1];
-            operand = (int32_t) data[ (data[i + 2] & 31) ];
+            *op += data[i + 1];
+            operand = data[ (data[i + 2] & 31) ];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
          case 1:
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            operand = data[ (data[i + 1] & 31) ];
             if(data[i + 2] & 1) operand ^= 0x80000000;
-            *op += (uint32_t) data[i + 3];
+            *op += data[i + 3];
             break;
          case 2:
-            *op += (uint32_t) data[i];
-            operand = (int32_t) data[ (data[i + 2] & 31) ];
+            *op += data[i];
+            operand = data[ (data[i + 2] & 31) ];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
          case 3:
-            *op += (uint32_t) data[i];
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            *op += data[i];
+            operand = data[ (data[i + 1] & 31) ];
             if(data[i + 2] & 1) operand ^= 0x80000000;
             break;
          case 4:
-            operand = (int32_t) data[ (data[i] & 31) ];
+            operand = data[ (data[i] & 31) ];
             if(data[i + 1] & 1) operand ^= 0x80000000;
-            *op += (uint32_t) data[i + 3];
+            *op += data[i + 3];
             break;
          case 5:
-            operand = (int32_t) data[ (data[i] & 31) ];
+            operand = data[ (data[i] & 31) ];
             if(data[i + 1] & 1) operand ^= 0x80000000;
-            *op += (uint32_t) data[i + 2];
+            *op += data[i + 2];
             break;
          case 6:
-            *op += (uint32_t) data[i + 1];
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
+            *op += data[i + 1];
+            operand = data[ (data[i + 1] & 31) ];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
          case 7:
-            operand = (int32_t) data[ (data[i + 1] & 31) ];
-            *op += (uint32_t) data[i + 2];
+            operand = data[ (data[i + 1] & 31) ];
+            *op += data[i + 2];
             if(data[i + 3] & 1) operand ^= 0x80000000;
             break;
       } /* end switch(data[j] & 31... */
 
       /* Cast operand to float */
-      floatv = (float) operand;
+      floatv = operand;
 
       /* Replace pre-operation NaN with index */
       if(isnan(*floatp)) *floatp = (float) index;
@@ -132,12 +136,12 @@ __device__ void cuda_fp_operation(uint8_t *data, uint32_t len, uint32_t index,
       }
 
       /* Replace post-operation NaN with index */
-      if(isnan(*floatp)) *floatp = (float) index;
+      if(isnan(*floatp)) *floatp = index;
 
       /* Add result of floating point operation to op */
       temp = (uint8_t *) floatp;
       for(j = 0; j < 4; j++) {
-         *op += (uint32_t) temp[j];
+         *op += temp[j];
       }
    } /* end for(*op = 0... */
 }
@@ -159,7 +163,7 @@ __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op
    for(i = 0, _104 = 104, _72 = 72, len2 = len/2; i < TILE_TRANSFORMS; i++)
    {
       /* Determine operation to use this iteration */
-      *op += (uint32_t) data[i & 31];
+      *op += data[i & 31];
 
       /* Perform random operation */
       switch(*op & 7) {
