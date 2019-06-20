@@ -49,7 +49,7 @@ int mtx_val(MTX *mtx, word32 *fee)
                 ADDR_TAG_PTR(mtx->src_addr), ADDR_TAG_LEN) == 0) BAIL(6);
       /* tally fees and send_total */
       if(add64(total, mtx->dst[j].amount, total)) BAIL(7);
-      if(add64(total, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
+      if(add64(mfees, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
    }  /* end for j */
    /* Check tallies... */
    if(cmp64(total, mtx->send_total) != 0) BAIL(9);
