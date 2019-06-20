@@ -32,7 +32,6 @@ int mtx_val(MTX *mtx, word32 *fee)
              ADDR_TAG_PTR(mtx->chg_addr), ADDR_TAG_LEN) != 0) BAIL(2);
    if(cmp64(mtx->change_total, Mfee) <= 0) BAIL(3);
 
-   if(!iszero(mtx->zeros, 208)) BAIL(4);  /* reserved with ismtx() tag */
    memset(total, 0, 8);
    memset(mfees, 0, 8);
    /* Tally each dst[] amount and mfees... */
@@ -40,21 +39,21 @@ int mtx_val(MTX *mtx, word32 *fee)
       /* zero dst[] tag marks end of list.  */
       if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) {
          for(bp = mtx->dst[j].amount; bp < limit; bp++) {
-            if(*bp) BAIL(5);  /* Check that rest of dst[] list is zeros. */
+            if(*bp) BAIL(4);  /* Check that rest of dst[] list is zeros. */
          }
          break;
       }
-      if(iszero(mtx->dst[j].amount, 8)) BAIL(6);  /* bad send amount */
+      if(iszero(mtx->dst[j].amount, 8)) BAIL(5);  /* bad send amount */
       /* no dst to src */
       if(memcmp(mtx->dst[j].tag,
-                ADDR_TAG_PTR(mtx->src_addr), ADDR_TAG_LEN) == 0) BAIL(7);
+                ADDR_TAG_PTR(mtx->src_addr), ADDR_TAG_LEN) == 0) BAIL(6);
       /* tally fees and send_total */
-      if(add64(total, mtx->dst[j].amount, total)) BAIL(8);
-      if(add64(total, fee, mfees)) BAIL(9);  /* Mfee or Myfee */
+      if(add64(total, mtx->dst[j].amount, total)) BAIL(7);
+      if(add64(total, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
    }  /* end for j */
    /* Check tallies... */
-   if(cmp64(total, mtx->send_total) != 0) BAIL(10);
-   if(cmp64(mtx->tx_fee, mfees) < 0) BAIL(11);
+   if(cmp64(total, mtx->send_total) != 0) BAIL(9);
+   if(cmp64(mtx->tx_fee, mfees) < 0) BAIL(10);
    return 0;  /* valid */
 bail:
    if(message && Trace) plog("mtx_val(): %d", message);
