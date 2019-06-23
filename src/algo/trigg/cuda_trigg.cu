@@ -21,10 +21,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <unistd.h>
 
 #include <cuda_runtime.h>
 extern "C" {
-#include "../../crypto/sha256.h"
+#include "../../crypto/hash/cpu/sha256.h"
 }
 
 #include "../../config.h"
@@ -744,72 +745,77 @@ typedef struct __trigg_cuda_ctx {
     cudaStream_t stream;
 } TriggCudaCTX;
 
-TriggCudaCTX ctx[64];    /* Max 64 GPUs Supported */
-int threads = 445452288;
-dim3 grid(435012);
-dim3 block(1024);
+TriggCudaCTX trigg_ctx[64];    /* Max 64 GPUs Supported */
+int trigg_threads = 445452288;
+dim3 trigg_grid(435012);
+dim3 trigg_block(1024);
 char nullcp = '\0';
-byte *diff;
-byte *bnum;
-int nGPU = 0;
+byte *trigg_diff;
+byte *trigg_bnum;
+int trigg_nGPU = 0;
+int32_t *trigg_found;
 
-__host__ int trigg_init_cuda(byte difficulty, byte *blockNumber) {
+int trigg_init_cuda(byte difficulty, byte *blockNumber) {
     /* Obtain and check system GPU count */
-    cudaGetDeviceCount(&nGPU);
-    if(nGPU<1 || nGPU>64) return nGPU;
+    trigg_nGPU = 0;
+    cudaGetDeviceCount(&trigg_nGPU);
+    if(trigg_nGPU<1 || trigg_nGPU>64) return trigg_nGPU;
     /* Allocate pinned host memory */
-    cudaMallocHost(&diff, 1);
-    cudaMallocHost(&bnum, 8);
+    cudaMallocHost(&trigg_found, 4);
+    cudaMallocHost(&trigg_diff, 1);
+    cudaMallocHost(&trigg_bnum, 8);
     /* Copy immediate block data to pinned memory */
-    memcpy(diff, &difficulty, 1);
-    memcpy(bnum, blockNumber, 8);
+    *trigg_found = 0;
+    memcpy(trigg_diff, &difficulty, 1);
+    memcpy(trigg_bnum, blockNumber, 8);
 
     int i = 0;
-    for ( ; i<nGPU; i++) {
+    for ( ; i<trigg_nGPU; i++) {
         cudaSetDevice(i);
         /* Create Stream */
-        cudaStreamCreate(&ctx[i].stream);
+        cudaStreamCreate(&trigg_ctx[i].stream);
         /* Allocate device memory */
-        cudaMalloc(&ctx[i].d_found, 4);
-        cudaMalloc(&ctx[i].d_seed, 16);
+        cudaMalloc(&trigg_ctx[i].d_found, 4);
+        cudaMalloc(&trigg_ctx[i].d_seed, 16);
         /* Allocate associated device-host memory */
-        cudaMallocHost(&ctx[i].found, 4);
-        cudaMallocHost(&ctx[i].seed, 16);
-        cudaMallocHost(&ctx[i].midstate, 32);
-        cudaMallocHost(&ctx[i].input, 32);
+        cudaMallocHost(&trigg_ctx[i].found, 4);
+        cudaMallocHost(&trigg_ctx[i].seed, 16);
+        cudaMallocHost(&trigg_ctx[i].midstate, 32);
+        cudaMallocHost(&trigg_ctx[i].input, 32);
         /* Copy immediate block data to device memory */
-        cudaMemcpyToSymbolAsync(c_blockNumber8, bnum, 8, 0,
-                                cudaMemcpyHostToDevice, ctx[i].stream);
-        cudaMemcpyToSymbolAsync(c_difficulty, diff, 1, 0,
-                                cudaMemcpyHostToDevice, ctx[i].stream);
+        cudaMemcpyToSymbolAsync(c_blockNumber8, trigg_bnum, 8, 0,
+                                cudaMemcpyHostToDevice, trigg_ctx[i].stream);
+        cudaMemcpyToSymbolAsync(c_difficulty, trigg_diff, 1, 0,
+                                cudaMemcpyHostToDevice, trigg_ctx[i].stream);
         /* Set remaining device memory */
-        cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
-        cudaMemsetAsync(ctx[i].d_seed, 0, 16, ctx[i].stream);
+        cudaMemsetAsync(trigg_ctx[i].d_found, 0, 4, trigg_ctx[i].stream);
+        cudaMemsetAsync(trigg_ctx[i].d_seed, 0, 16, trigg_ctx[i].stream);
         /* Set initial round variables */
-        ctx[i].next_cp[0] = nullcp;
+        trigg_ctx[i].next_cp[0] = nullcp;
     }
 
-    return nGPU;
+    return trigg_nGPU;
 }
 
-__host__ void trigg_free_cuda() {
+void trigg_free_cuda() {
     /* Free pinned host memory */
-    cudaFreeHost(diff);
-    cudaFreeHost(bnum);
+    cudaFreeHost(trigg_found);
+    cudaFreeHost(trigg_diff);
+    cudaFreeHost(trigg_bnum);
 
     int i = 0;
-    for ( ; i<nGPU; i++) {
+    for ( ; i<trigg_nGPU; i++) {
         cudaSetDevice(i);
         /* Destroy Stream */
-        cudaStreamDestroy(ctx[i].stream);
+        cudaStreamDestroy(trigg_ctx[i].stream);
         /* Free device memory */
-        cudaFree(ctx[i].d_found);
-        cudaFree(ctx[i].d_seed);
+        cudaFree(trigg_ctx[i].d_found);
+        cudaFree(trigg_ctx[i].d_seed);
         /* Free associated device-host memory */
-        cudaFreeHost(ctx[i].found);
-        cudaFreeHost(ctx[i].seed);
-        cudaFreeHost(ctx[i].midstate);
-        cudaFreeHost(ctx[i].input);
+        cudaFreeHost(trigg_ctx[i].found);
+        cudaFreeHost(trigg_ctx[i].seed);
+        cudaFreeHost(trigg_ctx[i].midstate);
+        cudaFreeHost(trigg_ctx[i].input);
     }
 }
 
@@ -818,56 +824,66 @@ extern byte *trigg_gen(byte *in);
 extern char *trigg_expand(byte *in);
 extern char *trigg_check(byte *in, byte d, byte *bnum);
 
-__host__ char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku)
+__host__ void trigg_generate_cuda(byte *mroot, word32 *hps, byte *runflag)
 {
     int i;
-    for (i=0; i<nGPU; i++) {
-        /* Prepare next seed for GPU... */
-        if(ctx[i].next_cp[0] == nullcp) {
-            /* ... generate first GPU seed (and expand as Haiku) */
-            trigg_gen(ctx[i].next_seed);
-            strcpy(ctx[i].next_cp, trigg_expand(ctx[i].next_seed));
+    uint64_t lastnHaiku, nHaiku = 0;
+    time_t seconds = time(NULL);
+    for( ; *runflag && *trigg_found == 0; ) {
+       for(i=0; i<trigg_nGPU; i++) {
+           /* Prepare next seed for GPU... */
+           if(trigg_ctx[i].next_cp[0] == nullcp) {
+               /* ... generate first GPU seed (and expand as Haiku) */
+               trigg_gen(trigg_ctx[i].next_seed);
+               strcpy(trigg_ctx[i].next_cp, trigg_expand(trigg_ctx[i].next_seed));
 
-            /* ... copy mroot to Tchain */
-            memcpy(Tchain, mroot, 32);
+               /* ... copy mroot to Tchain */
+               memcpy(Tchain, mroot, 32);
 
-            /* ... and prepare sha256 midstate for next round */
-            SHA256_CTX sha256;
-            sha256_init(&sha256);
-            sha256_update(&sha256, Tchain, 256);
-            memcpy(ctx[i].midstate, sha256.state, 32);
-            memcpy(ctx[i].input, Tchain + 256, 32);
-        }
-        /* Check if GPU has finished */
-        cudaSetDevice(i);
-        if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
-            cudaMemcpy(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
-            if(*ctx[i].found==1) { /* SOLVED A BLOCK! */
-                cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
-                memcpy(mroot + 32, ctx[i].curr_seed, 16);
-                memcpy(mroot + 32 + 16, ctx[i].seed, 16);
-                return ctx[i].cp;
-            }
-            /* Send new GPU round Data */
-            cudaMemcpyToSymbolAsync(c_midstate256, ctx[i].midstate, 32, 0,
-                                    cudaMemcpyHostToDevice, ctx[i].stream);
-            cudaMemcpyToSymbolAsync(c_input32, ctx[i].input, 32, 0,
-                                    cudaMemcpyHostToDevice, ctx[i].stream);
-            /* Start GPU round */
-            trigg<<<grid, block, 0, ctx[i].stream>>>
-                (threads, ctx[i].d_found, ctx[i].d_seed);
+               /* ... and prepare sha256 midstate for next round */
+               SHA256_CTX sha256;
+               sha256_init(&sha256);
+               sha256_update(&sha256, Tchain, 256);
+               memcpy(trigg_ctx[i].midstate, sha256.state, 32);
+               memcpy(trigg_ctx[i].input, Tchain + 256, 32);
+           }
+           /* Check if GPU has finished */
+           cudaSetDevice(i);
+           if(cudaStreamQuery(trigg_ctx[i].stream) == cudaSuccess) {
+               cudaMemcpy(trigg_found, trigg_ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+               if(*trigg_found==1) { /* SOLVED A BLOCK! */
+                   cudaMemcpy(trigg_ctx[i].seed, trigg_ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
+                   memcpy(mroot + 32, trigg_ctx[i].curr_seed, 16);
+                   memcpy(mroot + 32 + 16, trigg_ctx[i].seed, 16);
+               }
+               /* Send new GPU round Data */
+               cudaMemcpyToSymbolAsync(c_midstate256, trigg_ctx[i].midstate, 32, 0,
+                                       cudaMemcpyHostToDevice, trigg_ctx[i].stream);
+               cudaMemcpyToSymbolAsync(c_input32, trigg_ctx[i].input, 32, 0,
+                                       cudaMemcpyHostToDevice, trigg_ctx[i].stream);
+               /* Start GPU round */
+               trigg<<<trigg_grid, trigg_block, 0, trigg_ctx[i].stream>>>
+                   (trigg_threads, trigg_ctx[i].d_found, trigg_ctx[i].d_seed);
 
-            /* Add to haiku count */
-            *nHaiku += threads;
+               /* Add to haiku count */
+               nHaiku += trigg_threads;
 
-            /* Store round vars aside for checks next loop */
-            memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
-            strcpy(ctx[i].cp,ctx[i].next_cp);
-            ctx[i].next_cp[0] = nullcp;
-        } else continue;  /* Waiting on GPU ... */
+               /* Store round vars aside for checks next loop */
+               memcpy(trigg_ctx[i].curr_seed,trigg_ctx[i].next_seed,16);
+               strcpy(trigg_ctx[i].cp,trigg_ctx[i].next_cp);
+               trigg_ctx[i].next_cp[0] = nullcp;
+           }
+       }
+      
+      /* Chill a bit if nothing is happening */
+      if(lastnHaiku == nHaiku) usleep(1000);
+      else lastnHaiku = nHaiku;
     }
     
-    return NULL;
+   seconds = time(NULL) - seconds;
+   if(seconds == 0) seconds = 1;
+   nHaiku /= seconds;
+   *hps = (word32) nHaiku;
 }
 
 }

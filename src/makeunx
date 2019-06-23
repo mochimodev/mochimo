@@ -173,10 +173,6 @@ export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib:${LIBCUDA_DIR} $2 $3 $4 $5 $6 $
 
 fnCHECKERRORS
 
-echo "LD_FLAGS=$LD_FLAGS"
-echo "NVCC=$NVCC"
-echo "CC=$CC"
-
 ##########
 # Command
 
@@ -190,24 +186,24 @@ case "$1" in
       if test $MINER -eq 1
       then # CUDA Code
          printf "Make cuda objects... "
-         $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log
+         $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log # Make Peach CUDA
+         $NVCC -c algo/trigg/cuda_trigg.cu $LD_FLAGS 2>>ccerror.log # Make Trigg CUDA
          fnCHECKERRORS
          printf "Building Mochimo server... "
-         $CC -o mochimo mochimo.c sha256.o wots.o trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
-         $CC -o bval    bval.c    sha256.o wots.o trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
+         $CC -o mochimo mochimo.c sha256.o wots.o trigg.o cuda_trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
          fnCHECKERRORS
       else # CPU Code
          printf "Building Mochimo server... "
          $CC -o mochimo mochimo.c sha256.o wots.o trigg.o 2>>ccerror.log
-         $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
          fnCHECKERRORS
       fi
       printf "Building helper programs... "
-      $CC -o bcon    bcon.c    sha256.o        2>>ccerror.log
-      $CC -o bup     bup.c     sha256.o        2>>ccerror.log
-      $CC -o sortlt  sortlt.c  sha256.o        2>>ccerror.log
-      $CC -o neogen  neogen.c  sha256.o        2>>ccerror.log
-      $CC -o wallet  wallet.c  sha256.o wots.o 2>>ccerror.log
+      $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
+      $CC -o bcon    bcon.c    sha256.o                2>>ccerror.log
+      $CC -o bup     bup.c     sha256.o                2>>ccerror.log
+      $CC -o sortlt  sortlt.c  sha256.o                2>>ccerror.log
+      $CC -o neogen  neogen.c  sha256.o                2>>ccerror.log
+      $CC -o wallet  wallet.c  sha256.o wots.o         2>>ccerror.log
       fnCHECKERRORS
       if test $BX_MYSQL -eq 1
       then
@@ -226,7 +222,7 @@ case "$1" in
       $CC -c crypto/wots/wots.c       2>>ccerror.log # Make WOTS+
       fnCHECKERRORS
       printf "Building wallet binary..."
-      $CC -o wallet  wallet.c  sha256.o wots.o 2>>ccerror.log
+      $CC -o wallet wallet.c sha256.o wots.o 2>>ccerror.log
       fnCHECKERRORS
       # Display error stats
       fnCHECKERRORS "full"

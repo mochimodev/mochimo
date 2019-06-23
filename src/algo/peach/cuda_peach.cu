@@ -227,7 +227,7 @@ typedef struct __peach_cuda_ctx {
 } PeachCudaCTX;
 
 /* Max 63 GPUs Supported */
-PeachCudaCTX ctx[63];
+PeachCudaCTX ctx[64];
 dim3 grid(512);
 dim3 block(256);
 uint32_t threads = 131072;
@@ -242,8 +242,9 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
    int i;
    
    /* Obtain and check system GPU count */
+   nGPU = 0;
    cudaGetDeviceCount(&nGPU);
-   if(nGPU<1 || nGPU>63) return nGPU;
+   if(nGPU<1 || nGPU>64) return nGPU;
    
    /* Allocate pinned host memory */
    cudaMallocHost(&found, 4);
@@ -339,6 +340,7 @@ void free_cuda_peach() {
       /* Free device memory */
       cudaFree(ctx[i].d_found);
       cudaFree(ctx[i].d_seed);
+      cudaFree(ctx[i].d_map);
       
       /* Free associated device-host memory */
       cudaFreeHost(ctx[i].seed);
