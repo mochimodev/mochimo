@@ -165,7 +165,7 @@ typedef struct {
 
 /* for mtx */
 /* takes TX * or TXQENTRY pointer */
-#define ismtx(tx) ((tx)->dst_addr[2096] == 0 && (tx)->dst_addr[2097] == 1)
+#define ismtx(tx) ((tx)->dst_addr[2196] == 0 && (tx)->dst_addr[2197] == 1)
 
 typedef struct {
    byte tag[12];    /* Tag value for MTX multi-destination. */
