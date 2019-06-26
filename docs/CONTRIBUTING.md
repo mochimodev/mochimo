@@ -9,10 +9,10 @@ Publicly exposed security vulnerabilities can be damaging to the Mochimo Cryptoc
 
 **DO NOT submit questions as GitHub issues**  
 Submitting a question as an issue is basically "noise" in a constructive development workspace.  
-There are other, more appropriate methods of getting answers to your questions. If you cannot find your answer in the [Mochimo Wiki](http://www.mochiwiki.com), try our Twitter (@mochimocrypto), Reddit (r/Mochimo), or our Official Discord which is where you'll find our most active community of Developers and Beta Testers to help out if they can.
+There are other, more appropriate methods of getting answers to your questions. If you cannot find your answer in the [Mochimo Wiki](http://www.mochiwiki.com), try our Twitter (@mochimocrypto), Reddit (r/Mochimo), or our Official Discord, which is where you'll find our most active community of Developers and Beta Testers to help out if they can.
 
 **Provide steps taken to reproduce your issue**  
-This includes things like the compilation process you used, your Operating System and machine resources, Terminal output (a log file is beautiful), Pictures (pictures are so good), etc.
+This includes documenting things like the compilation process you used, your Operating System and machine resources, Terminal output (a log file is beautiful), Pictures (pictures are so good), etc.
 
 **If submitting a suggestion, make a note of it in the issue title**  
 This helps us prioritize and assign issues appropriately. A simple "SUGGESTION: This is my suggestion" will do fine.
@@ -41,12 +41,13 @@ for(something) {
    [Line 1 - 25]
 } /* end for(something)...*/
 ```
-In other words if you can't see the top of the loop on one page, then let people know what that lonely brace at the bottom is actually closing out.
+In other words, if you can't see the top of the loop on one page, then let people know what that lonely brace at the bottom is actually closing out.
 
-Indirection (`*`) and address of (`&`) operators should always be immediately adjacent to a variable name:  
+Indirection (`*`), address of (`&`), pre and post fix (`++`)(`--`) operators should always be immediately adjacent to a variable name:  
 ```c
-   *var	   /* Correct */
-   &var	   /* Correct */
+   var++   /* Correct */
+   *var    /* Correct */
+   &var    /* Correct */
    * var   /* Incorrect */
    & var   /* Incorrect */
 ```
@@ -72,13 +73,13 @@ When using a de-reference operation on any variable, if you are doing anything a
 ```
 
 #### Globals
-In the mochimo code base (c only, not Cuda), a variable is a GLOBAL and defined in data.c if the first letter is Capitalized.
+In the Mochimo code base (c only, not Cuda), a variable is a GLOBAL and defined in data.c if the first letter is Capitalized.
 ```c
 byte Running;   /* GLOBAL */
 ```
 
 #### Declarations and Initializations
-In a function definition, variables are declared, and then initialized at the top:
+In a function definition, variables are declared and then initialized at the top:
 ```c
 void my_function()
 {
@@ -89,9 +90,9 @@ void my_function()
    /* Initialization Here */
    var1 = 10;
    var2 = 20;
-   
+ 
    ...
-   
+
 } /* end my_func... */
 ```
 Please don't mix declarations and initializations. If you only have one variable of a type, you can declare and initialize it at the same time. But something like this is just hard on the eyes:  
