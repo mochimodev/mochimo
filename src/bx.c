@@ -377,7 +377,7 @@ char *tgets(char *buff, int len)
 
 void banner(void)
 {
-   printf("The Mochimo Block Explorer version 1.0\n\n");
+   printf("The Mochimo Block Explorer version 1.1\n\n");
 }
 
 
@@ -765,6 +765,18 @@ readb:
    }  /* end for */
 }  /* end findmenu(); */
 
+
+/* Check if buff is all zeros */
+int iszero(void *buff, int len)
+{
+   byte *bp;
+
+   for(bp = buff; len; bp++, len--)
+      if(*bp) return 0;
+
+   return 1;
+}
+
 #ifdef BX_MYSQL
 #include "bx-mysql/bx_mysql_export.c"
 #endif
@@ -773,7 +785,9 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
 {
    char buff[80];
    TXQENTRY txq;
-   word32 j;
+   word32 j, k;
+   word32 tcount;
+   MTX *mtx;
 
    CLEARSCR();
    banner();
@@ -786,7 +800,12 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
    if(bt->bnum[0] == 0)
       return lx(Bfp, 4);
 
-   if(Txidx >= get32(bt->tcount)) Txidx = 0;
+   tcount = get32(bt->tcount);
+   if(tcount == 0) {
+      printf("No transactions are in this block.\n");
+      return 1;
+   }
+   if(Txidx >= tcount) Txidx = 0;
 
    for( ;; ) {
       CLEARSCR();
@@ -797,7 +816,26 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
       printf("Tx index:   %d\n", Txidx);
       printf("Tx id:      0x");  bytes2hex(txq.tx_id, 32);
       printf("src_addr:   0x");  disp_taddr(txq.src_addr);
-      printf("dst_addr:   0x");  disp_taddr(txq.dst_addr);
+
+      if(ismtx(&txq)) {
+         mtx = (MTX *) &txq;
+         for(j = k = 0; j < NR_DST; j++) {
+            if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break;
+            if(++k >= 10) {
+               k = 0;
+               printf("Press RETURN or 'q': ");
+               tgets(buff, 10);
+               if(*buff == 'q') break;
+            }
+            printf("dst[%d] amount: %s",
+                   j, itoa64(mtx->dst[j].amount, NULL, 9, 1));
+            printf("  tag: 0x");
+            bytes2hex(mtx->dst[j].tag, ADDR_TAG_LEN);
+         }  /* end for j */
+      } else {
+         printf("dst_addr:   0x");  disp_taddr(txq.dst_addr);
+      }
+
       printf("chg_addr:   0x");  disp_taddr(txq.chg_addr);
       printf("send total:   %s", itoa64lj(txq.send_total, NULL, 9, 1));
       printf("  [0x%s]\n", b2hex8(txq.send_total));
@@ -889,7 +927,7 @@ void usage(void)
    printf("\nUsage: bx [-option] [file]\n"
       "options:\n"
       "           -l  file is a ledger to explore.\n"
-      "           -t  file is a tfile to explore.\n"
+      "           -t  file is a tfile to explore.\n\n"
 #ifdef BX_MYSQL
       "           -e  export path for block files.\n"
 #endif
