@@ -165,21 +165,26 @@ typedef struct {
 
 /* for mtx */
 /* takes TX * or TXQENTRY pointer */
-#define ismtx(tx) ((tx)->dst_addr[2196] == 0 && (tx)->dst_addr[2197] == 1)
+#define ismtx(tx) ((tx)->dst_addr[2196] == 0x00 \
+                    && (tx)->dst_addr[2197] == 0x01)
+
+#define ADDR_TAG_LEN 12
+#define NR_DST 100       /* number of tags (MDST) in MTX dst[] */
+#define NR_DZEROS 208    /* length of MTX zeros[] */
 
 typedef struct {
-   byte tag[12];    /* Tag value for MTX multi-destination. */
-   byte amount[8];  /* MTX Send Amount, to this tag. */
+   byte tag[ADDR_TAG_LEN];    /* Tag value for MTX multi-destination. */
+   byte amount[8];            /* MTX Send Amount, to this tag. */
 } MDST;
 
-/* Structure for multi-tx is same size as TXQENTRY. */
+/* Structure for multi-tx is padded to same size as TXQENTRY. */
 typedef struct {
    /* start transaction buffer (These fields are order dependent) */
    byte src_addr[TXADDRLEN];     /*  2208 */
 
    /* dst[] plus zeros[] is same size as TX dst_addr[]. */
-   MDST dst[100];
-   byte zeros[208];  /* reserved - must follow dst[] */
+   MDST dst[NR_DST];
+   byte zeros[NR_DZEROS];  /* padding - reserved - must follow dst[] */
 
    byte chg_addr[TXADDRLEN];
    byte send_total[TXAMOUNT];    /* 8 */
