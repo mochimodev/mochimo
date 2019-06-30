@@ -5,11 +5,11 @@ We're excited to see what the community does to further the development of Mochi
 
 ## Submitting Issues
 **DO NOT submit issues regarding security vulnerabilities.**  
-Publicly exposed security vulnerabilities can be damaging to the Mochimo Cryptocurrency Network, so we provide generous and appropriate bounties for those who bring such vulnerabilities to our attention discretely. If you have found what you believe to be a security vulnerability, please contact us privately via email (support@mochimo.org) or via Discord DM (@Core Contributor).
+Publicly exposed security vulnerabilities can be damaging to the Mochimo Cryptocurrency Network, so we provide generous and appropriate bounties for those who bring such vulnerabilities to our attention discreetly. If you have found what you believe to be a security vulnerability, please contact us privately via email (support@mochimo.org) or via Discord DM (@Core Contributor).
 
 **DO NOT submit questions as GitHub issues**  
 Submitting a question as an issue is basically "noise" in a constructive development workspace.  
-There are other, more appropriate methods of getting answers to your questions. If you cannot find your answer in the [Mochimo Wiki](http://www.mochiwiki.com), try our Twitter (@mochimocrypto), Reddit (r/Mochimo), or our Official Discord, which is where you'll find our most active community of Developers and Beta Testers to help out if they can.
+There are other, more appropriate methods of getting answers to your questions. If you cannot find your answer in the [Mochimo Wiki](http://www.mochiwiki.com), try our Twitter [(@mochimocrypto)](https://twitter.com/mochimocrypto?lang=en), [Reddit (r/Mochimo)](https://www.reddit.com/r/mochimo/), or our [Official Discord](https://discord.gg/J3qCEqb), which is where you'll find our most active community of Developers and Beta Testers to help out if they can.
 
 **Provide steps taken to reproduce your issue**  
 This includes documenting things like the compilation process you used, your Operating System and machine resources, Terminal output (a log file is beautiful), Pictures (pictures are so good), etc.
