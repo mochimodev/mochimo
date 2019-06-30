@@ -1,6 +1,6 @@
 /* wots.h  WOTS+ Public address, Signature, and Verification
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -12,6 +12,15 @@
 
 #ifndef WOTS_H
 #define WOTS_H
+
+#ifndef WORD32
+#define WORD32
+typedef unsigned char byte;      /* 8-bit byte */
+typedef unsigned short word16;   /* 16-bit word */
+typedef unsigned int word32;     /* 32-bit word  */
+/* for 16-bit machines: */
+/* typedef unsigned long word32;  */
+#endif  /* WORD32 */
 
 
 /* Parameters */

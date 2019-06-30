@@ -1,7 +1,7 @@
 /* str2ip.c  Char string to ip address lookup.
  *           (can use domain names and 1.2.3.4)
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 12 February 2018

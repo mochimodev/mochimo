@@ -1,6 +1,6 @@
 /* bcon.c  Block Constructor
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -41,7 +41,6 @@ void bail(char *message)
    exit(1);
 }
 
-
 /*
  * Clean-up on SIGTERM
  */
@@ -50,6 +49,7 @@ void sigterm2(int sig)
    unlink("cblock.tmp");
    unlink("cblock.dat");
    unlink("bctx.dat");
+   if(Trace) plog("sigterm() received signal %i", sig);
    exit(1);
 }
 

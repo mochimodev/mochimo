@@ -1,7 +1,7 @@
 /*
  * trigg.c  Trigg's Algorithm
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 13 October 2018
@@ -19,17 +19,17 @@
 
 
 /*
-      Trigg's Algorithm uses classic AI techniques to establish 
-      proof of work.  By expanding a semantic grammar through 
-      heuristic search and combining that with material from the 
-      transaction array, we build the TRIGG chain and solve the 
-      block as evidenced by the output of haiku with the vibe of 
+      Trigg's Algorithm uses classic AI techniques to establish
+      proof of work.  By expanding a semantic grammar through
+      heuristic search and combining that with material from the
+      transaction array, we build the TRIGG chain and solve the
+      block as evidenced by the output of haiku with the vibe of
       Basho...
 */
 
 
-#include "../config.h"
-#include "../crypto/sha256.h"
+#include "../../config.h"
+#include "../../crypto/hash/cpu/sha256.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -109,8 +109,8 @@ byte Tchain[32+256+16+8];  /* the TRIGG chain */
 static FE Frame[][MAXH] = {
 
 /*
-         on a quiet moor 
-         raindrops 
+         on a quiet moor
+         raindrops
          fall
 */
    { F_PREP, F_ADJ, F_MASS, S_NL,
@@ -131,9 +131,9 @@ static FE Frame[][MAXH] = {
    },
 
 /*
-     morning mist 
+     morning mist
      on a worn field--
-     red 
+     red
 */
    { F_TIME, F_AMB, S_NL,
      F_PREP, S_A, F_ADJ, F_NS, S_MD, S_NL,
@@ -155,13 +155,13 @@ static FE Frame[][MAXH] = {
    },
 
 /*
-     arriving at a parched gate 
+     arriving at a parched gate
      mist rises--
      a moonlit sandal
 
-     pausing under a hot tomb 
-     firelight shining-- 
-     a beautiful bon fire 
+     pausing under a hot tomb
+     firelight shining--
+     a beautiful bon fire
 */
    { F_ING, F_PREP, S_A, F_ADJ, F_NS, S_NL,
      F_MASS, F_ING, S_MD, S_NL,
@@ -173,7 +173,7 @@ static FE Frame[][MAXH] = {
    },
 
 /*
-     a wife 
+     a wife
      in afternoon mist--
      sad
 */
@@ -204,13 +204,9 @@ static FE Frame[][MAXH] = {
 #define REMQ(fe, set) ((~(fe)) & (set))
 #define FQ(fe, set) ((fe) | (set))
 
-static char Trigg_check[] = "Trigg!";
-#define TRIGG_CHECK Trigg_check;
-
 void put16(void *buff, word16 val);
 word32 rand16(void);
 word32 rand2(void);
-
 
 /**
  * Create a new TRIGG chain for the solution state-space
@@ -235,7 +231,7 @@ void trigg_solve(byte *link, int diff, byte *bnum)
  * Evaluate the TRIGG chain...
  *
  * Evaluate the search chain by using a heuristic estimate of
- * the final solution cost (Nilsson, 1971).  Evaluate the 
+ * the final solution cost (Nilsson, 1971).  Evaluate the
  * relative distance within the TRIGG chain to validate proof
  * of work.
  *
@@ -255,11 +251,10 @@ int trigg_eval(byte *h, byte d)
    return T;
 }  /* end trigg_eval() */
 
-
 /**
  * Follow the TRIGG chain...
  *
- * If the current link EVAL returns NIL, move to the 
+ * If the current link EVAL returns NIL, move to the
  * next plausible solution state on the chain...
  * We can backtrack later if the whole goal TRIGG_FAIL's.
 */
@@ -279,11 +274,10 @@ int trigg_step(byte *in, int n)
  * Expand a haiku inside the TRIGG chain.
  * It must have the correct syntax and vibe.
  */
-char *trigg_expand(byte *in, int diff)
+char *trigg_expand(byte *in)
 {
    int j;
    byte *bp, *w;
-   DICT *dp;
 
    bp = &Tchain[32];
    memset(bp, 0, 256);
@@ -296,6 +290,24 @@ char *trigg_expand(byte *in, int diff)
    return (char *) &Tchain[32];
 }  /* end trigg_expand() */
 
+/**
+ * Expand a haiku.
+ * It must have the correct syntax and vibe.
+ */
+void trigg_expand2(byte *in, char *out)
+{
+   int j;
+   byte *w;
+
+   memset(out, 0, 256);
+
+   for(j = 0; j < 16; j++, in++) {
+      if(*in == NIL) break;
+      w = TPTR(*in);
+      while(*w) *out++ = *w++;
+      if(out[-1] != '\n') *out++ = ' ';
+   }
+}  /* end trigg_expand2() */
 
 byte *trigg_gen(byte *in)
 {
@@ -328,10 +340,10 @@ byte *trigg_gen(byte *in)
 
 /**
  * Generate the haiku output as proof of work.
- * Create the haiku inside the TRIGG chain using a 
- * semantic grammar (Burton, 1976).  The output must 
- * pass syntax checks, the entropy check, and have 
- * the right vibe.  Entropy is always preserved at high 
+ * Create the haiku inside the TRIGG chain using a
+ * semantic grammar (Burton, 1976).  The output must
+ * pass syntax checks, the entropy check, and have
+ * the right vibe.  Entropy is always preserved at high
  * difficulty levels.  Backtrack on failure and return NULL,
  * otherwise return a pointer to the generated string.
  */
@@ -339,14 +351,13 @@ char *trigg_generate(byte *in, int diff)
 {
    byte h[32];
    char *cp;
-   SHA256_CTX ctx;
 
    trigg_gen(in + 32);
    trigg_gen(&Tchain[32+256]);
    /*
     * Expand tokenised haiku in to the TRIGG chain!
     */
-   cp = trigg_expand(in+32, diff);
+   cp = trigg_expand(in+32);
    sha256(Tchain, (32+256+16+8), h);
    if(trigg_eval(h, diff) == NIL) {
       /* Entropy test failed, so backtrack... */
@@ -403,10 +414,9 @@ char *trigg_check(byte *in, byte d, byte *bnum)
 {
    byte h[32];
    char *cp;
-   SHA256_CTX ctx;
 
    /* Re-linearise the haiku first. */
-   cp = trigg_expand(in+32, d);
+   cp = trigg_expand(in+32);
    /* check syntax, semantics, and vibe... */
    if(trigg_syntax(in+32) == NIL) return NULL;
    if(trigg_syntax(in+(32+16)) == NIL) return NULL;

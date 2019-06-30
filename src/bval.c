@@ -1,6 +1,6 @@
 /* bval.c  Block Validator
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -26,6 +26,7 @@
 #include "mochimo.h"
 #define closesocket(_sd) close(_sd)
 char *trigg_check(byte *in, byte d, byte *bnum);
+void trigg_expand2(byte *in, char *out);
 
 #define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
@@ -40,6 +41,8 @@ char *trigg_check(byte *in, byte d, byte *bnum);
 
 #define EXCLUDE_RESOLVE
 #include "tag.c"
+#include "algo/peach/peach.c"
+#include "mtxval.c"  /* for mtx */
 
 word32 Tnum = -1;    /* transaction sequence number */
 char *Bvaldelfname;  /* set == argv[1] to delete input file on failure */
@@ -51,6 +54,7 @@ void cleanup(int ecode)
    if(Q2 != NULL) free(Q2);
    unlink("ltran.tmp");
    if(Bvaldelfname) unlink(Bvaldelfname);
+   if(Trace) plog("cleanup() with ecode %i", ecode);
    exit(1);  /* no pink-list */
 }
 
@@ -94,8 +98,7 @@ int main(int argc, char **argv)
    FILE *ltfp;             /* ledger transaction output file ltran.tmp */
    word32 hdrlen, tcount;  /* header length and transaction count */
    int cond;
-   static LENTRY src_le, chg_le;    /* source and change ledger entries */
-   static LENTRY dst_le;            /* destination ledger entry */
+   static LENTRY src_le;            /* source and change ledger entries */
    word32 total[2];                 /* for 64-bit maths */
    static byte mroot[HASHLEN];      /* computed Merkel root */
    static byte bhash[HASHLEN];      /* computed block hash */
@@ -110,11 +113,18 @@ int main(int argc, char **argv)
    static byte do_rename = 1;
    static byte pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
    static char *haiku;
+   static char haikufull[256];
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
+   MTX *mtx;
+   static byte addr[TXADDRLEN];  /* for mtx scan 4 */
+   int j;  /* mtx */
 
+   
+   
    ticks = clock();
    fix_signals();
    close_extra();
@@ -125,6 +135,8 @@ int main(int argc, char **argv)
              "This program is spawned from server.c\n\n");
       exit(1);
    }
+
+   if(sizeof(MTX) != sizeof(TXQENTRY)) bail("bad MTX size");
 
    if(argc > 2 && argv[2][0] == '-') {
       if(argv[2][1] == 'n') do_rename = 0;
@@ -190,10 +202,21 @@ badread:
    if(memcmp(Cblockhash, bt.phash, HASHLEN) != 0)
       drop("previous hash mismatch");
 
-   /* check enforced delay */
-   if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL)
+   /* check enforced delay, collect haiku from block */
+   if(cmp64(bnum, v24trigger) > 0) {
+      if(peach(&bt, get32(bt.difficulty), NULL, 1)){
+         drop("peach validation failed!");
+      }
+
+      trigg_expand2(bt.nonce, haikufull);
+      if(!Bgflag) printf("\n%s\n\n", haikufull);
+   }
+   if(cmp64(bnum, v24trigger) <= 0) {
+      if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL) {
       drop("trigg_check() failed!");
-   if(!Bgflag) printf("\n%s\n\n", haiku);
+      }
+      if(!Bgflag) printf("\n%s\n\n", haiku);
+   }
 
    /* Read block header */
    if(fseek(fp, 0, SEEK_SET)) goto badread;
@@ -234,9 +257,10 @@ badread:
          drop("too many TX's");
       if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY))
          drop("bad TX read");
-      if(   memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0
-         || memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0)
-               drop("src_addr matched dst or chg");
+      if(memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0)
+         drop("src == chg");
+      if(!ismtx(&tx) && memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0)
+         drop("src == dst");
 
       if(cmp64(tx.tx_fee, Mfee) < 0) drop("tx_fee is bad");
 
@@ -278,8 +302,12 @@ badread:
 
       if(cmp64(src_le.balance, total) != 0)
          drop("bad transaction total");
-      if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, 0, bt.bnum) != VEOK)
-         drop("tag not valid");
+      if(!ismtx(&tx)) {
+         if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, 0, bt.bnum)
+            != VEOK) drop("tag not valid");
+      } else {
+         if(mtx_val((MTX *) &tx, Mfee) != 0) drop("bad mtx_val()");
+      }
 
       memcpy(&Q2[Tnum], &tx, sizeof(TXQENTRY));  /* copy TX to tag queue */
 
@@ -309,6 +337,8 @@ fee_overflow:
                    ADDR_TAG_LEN) != 0) continue;
       /* Step 2: Start another big-O n squared, nested loop here... */
       for(qp2 = Q2; qp2 < qlimit; qp2++) {
+         if(qp1 == qp2) continue;  /* added -trg */
+         if(ismtx(qp2)) continue;  /* skip multi-dst's for now */
          /* if src1 == dst2, then copy chg1 to dst2 -- 32-bit for DSL -trg */
          if(   *((word32 *) ADDR_TAG_PTR(qp1->src_addr))
             == *((word32 *) ADDR_TAG_PTR(qp2->dst_addr))
@@ -330,14 +360,15 @@ fee_overflow:
       cond += add64(qp1->tx_fee, total, total);
       if(cond) bail("scan3 total overflow");
 
-      /* Write tcount * 3 ledger transactions to ltran.tmp
+      /* Write ledger transactions to ltran.tmp for all src and chg,
+       * but only non-mtx dst
        * that will have to be sorted, read again, and applied by bup...
        */
       fwrite(qp1->src_addr,  1, TXADDRLEN, ltfp);
       fwrite("-",            1,         1, ltfp);  /* debit src addr */
       fwrite(total,          1,         8, ltfp);
-      /* add to or create dst address */
-      if(!iszero(qp1->send_total, 8)) {
+      /* add to or create non-multi dst address */
+      if(!ismtx(qp1) && !iszero(qp1->send_total, 8)) {
          fwrite(qp1->dst_addr,   1, TXADDRLEN, ltfp);
          fwrite("A",             1,         1, ltfp);
          fwrite(qp1->send_total, 1,         8, ltfp);
@@ -349,7 +380,54 @@ fee_overflow:
          fwrite(qp1->change_total, 1,         8, ltfp);
       }
    }  /* end for Tnum -- scan 3 */
+
+   
    if(Tnum != tcount) bail("scan 3");
+   /* mtx tag search  Begin scan 4 ...
+    *
+    * Write out the multi-dst trans using tag scan logic @
+    * that more or less repeats the above big-O n-squared loops, and
+    * expands the tags, and copies addresses around.
+    */
+   for(qp1 = Q2; qp1 < qlimit; qp1++) {
+      if(!ismtx(qp1)) continue;  /* only multi-dst's this time */
+      mtx = (MTX *) qp1;  /* poor man's union */
+      /* For each dst[] tag... */
+      for(j = 0; j < 100; j++) {
+         if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break; /* end of dst[] */
+         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
+         /* If dst[j] tag not found, write money back to chg addr. */
+         if(tag_find(addr, addr, NULL) != VEOK) {
+            count =  fwrite(mtx->chg_addr, TXADDRLEN, 1, ltfp);
+            count += fwrite("A", 1, 1, ltfp);
+            count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
+            if(count != 3) bail("bad I/O dst-->chg write");
+            continue;  /* next dst[j] */
+         }
+         /* Start another big-O n-squared, nested loop here... scan 5 */
+         for(qp2 = Q2; qp2 < qlimit; qp2++) {
+            if(qp1 == qp2) continue;
+            /* if dst[j] tag == any other src addr tag and chg addr tag,
+             * copy other chg addr to dst[] addr.
+             */
+            if(!HAS_TAG(qp2->src_addr)) continue;
+            if(memcmp(ADDR_TAG_PTR(qp2->src_addr),
+                      ADDR_TAG_PTR(qp2->chg_addr), ADDR_TAG_LEN) != 0)
+                         continue;
+            if(memcmp(ADDR_TAG_PTR(qp2->src_addr), ADDR_TAG_PTR(addr), 
+                      ADDR_TAG_LEN) == 0) {
+                         memcpy(addr, qp2->chg_addr, TXADDRLEN);
+                         break;
+            }
+         }  /* end for qp2 scan 5 */
+         /* write out the dst transaction */
+         count =  fwrite(addr, TXADDRLEN, 1, ltfp);
+         count += fwrite("A", 1, 1, ltfp);
+         count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
+         if(count != 3) bail("bad I/O scan 4");
+      }  /* end for j */
+   }  /* end for qp1 */
+   /* end mtx scan 4 */
 
    /* Create a transaction amount = mreward + mfees
     * address = bh.maddr

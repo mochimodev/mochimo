@@ -1,6 +1,6 @@
 /* types.h   Structure definitions: NODE, block, ledger, transactions, etc.
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018
@@ -161,3 +161,35 @@ typedef struct {
    byte trancode[1];        /* '-' = debit, 'A' = credit (sorts last!) */
    byte amount[TXAMOUNT];   /* 8 */
 } LTRAN;
+
+
+/* for mtx */
+/* takes TX * or TXQENTRY pointer */
+#define ismtx(tx) ((tx)->dst_addr[2196] == 0x00 \
+                    && (tx)->dst_addr[2197] == 0x01)
+
+#define ADDR_TAG_LEN 12
+#define NR_DST 100       /* number of tags (MDST) in MTX dst[] */
+#define NR_DZEROS 208    /* length of MTX zeros[] */
+
+typedef struct {
+   byte tag[ADDR_TAG_LEN];    /* Tag value for MTX multi-destination. */
+   byte amount[8];            /* MTX Send Amount, to this tag. */
+} MDST;
+
+/* Structure for multi-tx is padded to same size as TXQENTRY. */
+typedef struct {
+   /* start transaction buffer (These fields are order dependent) */
+   byte src_addr[TXADDRLEN];     /*  2208 */
+
+   /* dst[] plus zeros[] is same size as TX dst_addr[]. */
+   MDST dst[NR_DST];
+   byte zeros[NR_DZEROS];  /* padding - reserved - must follow dst[] */
+
+   byte chg_addr[TXADDRLEN];
+   byte send_total[TXAMOUNT];    /* 8 */
+   byte change_total[TXAMOUNT];
+   byte tx_fee[TXAMOUNT];
+   byte tx_sig[TXSIGLEN];        /* 2144 */
+   byte tx_id[HASHLEN];          /* 32 */
+} MTX;

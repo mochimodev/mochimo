@@ -1,6 +1,6 @@
 /* wots.c  WOTS+ Public address, Signature, and Verification
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -19,7 +19,7 @@
 
 #define core_hash(out, in, inlen) sha256(in, inlen, out)
 
-#include "../sha256.h"  /* defines byte and word32 */
+#include "../hash/cpu/sha256.h"  /* defines byte and word32 */
 #include "wots.h"
 
 /**

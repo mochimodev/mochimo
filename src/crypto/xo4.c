@@ -1,12 +1,13 @@
 /* xo4.c  Crypto for shylock.c
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 17 February 2018
  *
 */
 
+#include "hash/cpu/sha256.h"
 
 /* --------  XO4 Cipher package  --------
  * Courtesy Patrick Cargill -- EYES ONLY!

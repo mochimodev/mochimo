@@ -1,6 +1,6 @@
 /* server.c   The Mochimo Server  (code name: VERONICA)
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018
@@ -25,7 +25,7 @@ int server(void)
    static int status;   /* child return status */
    static pid_t pid;    /* child pid */
    static int lfd;      /* for lock() */
-   static unsigned long hps;  /* same as Hps in monitor.c */
+   static word32 hps;  /* same as Hps in monitor.c */
    static word32 bigwait;
 
    Running = 1;          /* globals are in data.c */
@@ -156,7 +156,7 @@ int server(void)
                /* parent puts valid child pid in parent table */
                if(pid != -1) np->pid = pid;
                else {
-                  /* fork() failed so freeslot() removes child data from 
+                  /* fork() failed so freeslot() removes child data from
                    * parent Node[] table.
                    */
                   freeslot(np);

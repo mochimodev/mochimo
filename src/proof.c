@@ -41,11 +41,13 @@ int loadproof(TX *tx)
  */
 int checkproof(TX *tx)
 {
-   int j, count, match, message = 0;
+   unsigned int j; 
+   int count, match, message = 0;
    BTRAILER *bt, bts;
    word32 diff = 200;  /* big number */
    word32 stime, time0, now, difficulty, highblock, prevnum = 0;
    static word32 tnum[2];
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    if(get32(Cblocknum) < V23TRIGGER) return VERROR;
    /* Un-comment next line to disable function. */
@@ -86,13 +88,22 @@ int checkproof(TX *tx)
       if(bt->bnum[0] == 0) continue;  /* skip NG block */
       /* stime must increase */
       if(stime <= get32((bt - 1)->stime)) BAIL(6);
-      if(get32(bt->tcount)  /* not p-block */
-         && trigg_check(bt->mroot, diff, bt->bnum) == NULL) BAIL(7);
+      if(!get32(bt->tcount)) continue;  /* skip p-block */
+      if(cmp64(bt->bnum, v24trigger) > 0) { /* v2.4 */
+         if(peach(bt, diff, NULL, 1)){
+            BAIL(7);
+         }
+      }
+      if(cmp64(bt->bnum, v24trigger) <= 0) { /* v2.3 and prior */           
+         if(trigg_check(bt->mroot, diff, bt->bnum) == NULL) {
+            BAIL(8);
+         }
+      }
 setdiff:
       /* update difficulty from proof and get next trailer */
       diff = set_difficulty(difficulty, stime - time0, stime,
                             (byte *) tnum);
-      if(!Running) BAIL(7);
+      if(!Running) BAIL(9);
    }  /* end for j, bt */
    /* We were on the same chain, but not now... */
 allow:

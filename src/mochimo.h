@@ -1,6 +1,6 @@
 /* mochimo.h   Master Header
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 2 January 2018
@@ -31,7 +31,7 @@
 #define NSIG 23
 #endif
 
-#include "crypto/sha256.h"
+#include "crypto/hash/cpu/sha256.h"
 
 #ifdef DEBUG
 #define debug(_x) if(Trace > 1) plog(_x)

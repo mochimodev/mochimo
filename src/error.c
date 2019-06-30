@@ -1,6 +1,6 @@
 /* error.c  Error logging, trace, and fatal()
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018
@@ -145,8 +145,6 @@ void restart(char *mess)
 
 char *show(char *state)
 {
-   char *cp, *sp;
-
    if(state == NULL) state = "(null)";
    if(Statusarg) strncpy(Statusarg, state, 8);
    return state;

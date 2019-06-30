@@ -1,29 +1,112 @@
 #!/bin/sh
 # Master makefile for Mochimo
 #
-# Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+# Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
 # Date: 25 December 2017
-# Revised 13 February 2019
+# Revised 20 June 2019
 #
+#
+
+echo
+
+# Setup Error Checking
+ERRSIZE=0
+fnCHECKERRORS()
+{
+   newerrs=$(( $(stat --printf="%s" ccerror.log) - $ERRSIZE))
+   if test -z $1
+   then
+      if test $newerrs -eq 0
+      then
+         echo "Done"
+      else
+         echo "Errors"
+      fi
+   else
+      echo
+      if test -s ccerror.log
+      then
+         echo "ccerror.log contains:"
+         if test $MINER -eq 1
+         then
+            echo "  $(grep -c cuda_peach.o: ccerror.log) CUDA Errors"
+         fi
+         echo "  $(grep -c error: ccerror.log) Errors"
+         echo "  $(grep -c warning: ccerror.log) Warnings"
+         echo "  check the log for details - mochimo/src/ccerror.log"
+         ls -l ccerror.log
+      else
+         echo "Done. No errors."
+      fi
+   fi
+   ERRSIZE=$newerrs
+}
+
+case "$1" in
+   bin|wallet|clean|install|uninstall) # Supported Commands
+      ;;
+   *)
+      echo "Usage: makeunx <command> [-D<miner>] [options]"
+      echo
+      echo "   command: bin -DCPU     make all binary programs (CPU Miner)"
+      echo "            bin -DCUDA    make all binary programs (CUDA Miner)"
+      echo "            wallet        make only the wallet binary program"
+      echo "            clean         remove object files and log files"
+      echo "            install       copy binaries and run scripts to ../bin"
+      echo "            uninstall     remove files from mochi/bin directory tree"
+      echo "   options: -DBX_MYSQL    include block explorer MySQL export feature"
+      echo
+      exit 1
+      ;;
+esac
+
+################
+# Sanity checks
+
+printf "Sanity checks... "
+
+if test ! -f mochimo.c
+then
+   echo "Error"
+   echo "You need to be in mochi/src"
+   echo
+   exit 1
+fi
+if test "$1" = "uninstall"
+then
+   if test ! -d ../bin
+   then
+      echo "Error"
+      echo "Cannot find installation directory mochimo/bin"
+      echo
+      exit 1
+   elif test ! -d ../bin/d
+   then
+      echo "Error"
+      echo "Cannot find working directory mochimo/bin/d"
+      echo
+      exit 1
+   fi
+fi
+
+echo "Done"
+
 ###################
 # Preconfiguration
 
+printf "Preconfiguration... "
+
+##
+# Reset error log
+rm -f ccerror.log
+
+##
 # Detect miner type
-MINER=0
-# Default
-# MINER 0 = CPU
+# MINER 0 = CPU (default)
 # MINER 1 = CUDA
 # MINER 2 = AMD
-
-# Optional: Block Explorer MySQL Export Feature
-BX_MYSQL=0
-
-if test x$2 = x-DCPU
-then
-   MINER=0
-fi
 if test x$2 = x-DCUDA
 then
    MINER=1
@@ -32,24 +115,34 @@ if test x$2 = x-DAMD
 then
    MINER=2
 fi
+MINER=${MINER:-0}
 
+##
+# Optional: Block Explorer MySQL Export Feature
 if test x$3 = x-DBX_MYSQL
 then
    BX_MYSQL=1
 fi
+BX_MYSQL=${BX_MYSQL:-0}
 
+##
 # Autodetect CUDA Installation
-CUDA_VERSION=$(pkg-config --list-all | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
-CUDART_VERSION=$(pkg-config --list-all | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
+CUDA_VERSION=$(pkg-config --list-all 2>/dev/null | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
+CUDART_VERSION=$(pkg-config --list-all 2>/dev/null | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
+#CUDA_VERSION=10
+#CUDART_VERSION=10
 if test ! -z "${CUDA_VERSION}"
 then
    LIBCUDA="$(pkg-config ${CUDA_VERSION} --libs-only-l --silence-errors)"
    LIBCUDA_DIR="$(pkg-config ${CUDA_VERSION} --libs-only-L --silence-errors)"
    CUDAROOT="$(pkg-config ${CUDA_VERSION} --variable=cudaroot --silence-errors)"
+   #LIBCUDA="/usr/local/cuda/lib64/stubs/libcuda.so"
+   #LIBCUDA_DIR="/usr/local/cuda/lib64/"
+   #CUDAROOT="/usr/bin/"
 fi
 if test ! -z "${CUDART_VERSION}"
 then
-   LIBCUDART="$(pkg-config ${CUDART_VERSION} --libs-only-l --silence-errors)"
+   LIBCUDART="/usr/local/cuda/lib64/libcudart.so"
 fi
 if test ! -z "$CUDAROOT"
 then
@@ -62,124 +155,85 @@ LIBCUDART="${LIBCUDART:--lcudart}"
 LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
 NVCC_DIR="${NVCC_DIR:-/usr/bin/}"
 
+##
+# Get CUDA Compute Capabilities
+if ${NVCC_DIR}nvcc --version >/dev/null 2>&1
+then
+   ${NVCC_DIR}nvcc -o getcudacompute getcudacompute.cu 2>>ccerror.log
+   CUDA_GENCODE="$(./getcudacompute 2>>ccerror.log)"
+   rm -f getcudacompute
+fi
+
+##
 # Set compiler command
 #  - Edit config.h and edit CC variable to suit your system:
 export set LD_FLAGS="${LIBCUDA} ${LIBCUDART} -lstdc++"
-export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib ${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
-export set NVCC="${NVCC_DIR}nvcc -DLONG64 --generate-code arch=compute_37,code=\"sm_37,compute_37\""
+export set NVCC="${NVCC_DIR}nvcc -DLONG64 ${CUDA_GENCODE}"
+export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib:${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
 
-################
-# Sanity checks
-
-echo
-if test ! -f mochimo.c
-then
-   echo "You need to be in mochi/src"
-   echo
-   exit 1
-fi
-if test "$1" = "uninstall"
-then
-   if test ! -d ../bin
-   then
-      echo "Cannot find installation directory mochimo/bin"
-      echo
-      exit 1
-   elif test ! -d ../bin/d
-   then
-      echo "Cannot find working directory mochimo/bin/d"
-      echo
-      exit 1
-   fi
-fi
+fnCHECKERRORS
 
 ##########
 # Command
 
 case "$1" in
    "bin") # Compile binaries
-      rm -f ccerror.log
-      echo "Make dependencies..."
-      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
-      $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
-      $CC -c trigg/trigg.c       2>>ccerror.log # Make Trigg CPU
+      printf "Make dependencies... "
+      $CC -c crypto/hash/cpu/sha256.c 2>>ccerror.log # SHA256
+      $CC -c crypto/wots/wots.c       2>>ccerror.log # WOTS+
+      $CC -c algo/trigg/trigg.c       2>>ccerror.log # Trigg CPU
+      fnCHECKERRORS
       if test $MINER -eq 1
-      then
-         $NVCC -c trigg/cuda_trigg.cu 2>>ccerror.log # Make Trigg CUDA
+      then # CUDA Code
+         printf "Make cuda objects... "
+         $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log # Make Peach CUDA
+         $NVCC -c algo/trigg/cuda_trigg.cu $LD_FLAGS 2>>ccerror.log # Make Trigg CUDA
+         fnCHECKERRORS
+         printf "Building Mochimo server... "
+         $CC -o mochimo mochimo.c sha256.o wots.o trigg.o cuda_trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
+         fnCHECKERRORS
+      else # CPU Code
+         printf "Building Mochimo server... "
+         $CC -o mochimo mochimo.c sha256.o wots.o trigg.o 2>>ccerror.log
+         fnCHECKERRORS
       fi
-      echo "Building Mochimo server..."
-      if test $MINER -eq 1
-      then
-         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o cuda_trigg.o $LD_FLAGS 2>>ccerror.log
-      else
-         $CC -o mochimo mochimo.c trigg.o wots.o sha256.o              2>>ccerror.log
-      fi
-      echo "Building helper programs..."
+      printf "Building helper programs... "
       $CC -o bval    bval.c    sha256.o wots.o trigg.o 2>>ccerror.log
       $CC -o bcon    bcon.c    sha256.o                2>>ccerror.log
       $CC -o bup     bup.c     sha256.o                2>>ccerror.log
       $CC -o sortlt  sortlt.c  sha256.o                2>>ccerror.log
       $CC -o neogen  neogen.c  sha256.o                2>>ccerror.log
       $CC -o wallet  wallet.c  sha256.o wots.o         2>>ccerror.log
+      fnCHECKERRORS
       if test $BX_MYSQL -eq 1
       then
+          printf "Building block explorer MySQL export feature... "
           $CC -o bx bx.c trigg.o sha256.o -I/usr/include/mysql -lmysqlclient 2>>ccerror.log
-	  echo "Including block explorer MySQL export feature"
+          fnCHECKERRORS
       fi
-      # Show the errors:
-      echo
-      if test -s ccerror.log
-      then
-         echo "ccerror.log contains:"
-         if test $MINER -eq 1
-         then
-            echo " $(grep -c cuda_trigg.o: ccerror.log) CUDA Errors"
-         fi
-         echo "  $(grep -c error: ccerror.log) Errors"
-         echo "  $(grep -c warning: ccerror.log) Warnings"
-         echo "  check the log for details - mochimo/src/ccerror.log"
-         ls -l ccerror.log
-      else
-         echo "Done. No errors."
-      fi
+      # Display error stats
+      fnCHECKERRORS "full"
       # Cleanup object files
-      rm sha256.o wots.o trigg.o
-      if test $MINER -eq 1
-      then
-         rm cuda_trigg.o
-      fi
+      rm -f sha256.o wots.o trigg.o cuda_peach.o
       ;;
    "wallet") # Compile only the wallet binary
-      rm -f ccerror.log
-      echo "Make dependencies..."
-      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
-      $CC -c crypto/wots/wots.c  2>>ccerror.log # Make WOTS+
-      echo "Building wallet binary..."
-      $CC -o wallet  wallet.c  sha256.o wots.o 2>>ccerror.log
-      # Show the errors:
-      echo
-      if test -s ccerror.log
-      then
-         echo "ccerror.log contains:"
-         echo "  $(grep -c error: ccerror.log) Errors"
-         echo "  $(grep -c warning: ccerror.log) Warnings"
-         echo "  check the log for details - mochimo/src/ccerror.log"
-         ls -l ccerror.log
-      else
-         echo "Done. No errors."
-      fi
+      printf "Make dependencies..."
+      $CC -c crypto/hash/cpu/sha256.c 2>>ccerror.log # Make SHA256
+      $CC -c crypto/wots/wots.c       2>>ccerror.log # Make WOTS+
+      fnCHECKERRORS
+      printf "Building wallet binary..."
+      $CC -o wallet wallet.c sha256.o wots.o 2>>ccerror.log
+      fnCHECKERRORS
+      # Display error stats
+      fnCHECKERRORS "full"
       # Cleanup object files
       rm sha256.o wots.o
       ;;
    "clean") # Remove binaries and *.log files
       echo "Remove executable modules..."
-      rm bcon bup bval mochimo sortlt
-      rm wallet neogen
-      if [ -f bx ]; then
-        rm bx
-      fi
+      rm -f bcon bup bval mochimo sortlt wallet neogen bx
       echo "Remove log files..."
-      rm *.log
+      rm -f *.log
       echo
       echo "Done."
       ;;
@@ -194,8 +248,9 @@ case "$1" in
       echo "Moving binaries to ../bin"
       cp _init/* ../bin
       mv mochimo bval bcon bup sortlt neogen wallet ../bin
-      if [ -f bx ]; then
-        mv bx ../bin
+      if test -f bx
+      then
+         mv bx ../bin
       fi
       echo
       echo "Done."
@@ -203,26 +258,13 @@ case "$1" in
    "uninstall") # Uninstall Mochimo system software
       echo "Uninstalling The Mochimo System Software..."
       cd ../bin
-      rm genblock.bc tfile.dat maddr.dat maddr.mat coreip.lst startnodes.lst startnodes.bak
+      rm genblock.bc tfile.dat maddr.dat maddr.mat coreip.lst
       rm mochimo bval bcon bup sortlt neogen wallet
-      rm gomochi resume
+      rm gomochi resume startnodes.lst startnodes.bak
       rm d/bc/* d/ng/* d/*
       du -d 3
       echo
       echo "Done."
-      ;;
-   *) # Unsupported command - print usage
-      echo "Usage: makeunx <command> [-D<miner>] [options]"
-      echo
-      echo "   command: bin -DCPU     make all binary programs (CPU Miner)"
-      echo "            bin -DCUDA    make all binary programs (CUDA Miner)"
-      echo "            wallet        make only the wallet binary program"
-      echo "            clean         remove object files and log files"
-      echo "            install       copy binaries and run scripts to ../bin"
-      echo "            uninstall     remove files from mochi/bin directory tree"
-      echo "   options: -DBX_MYSQL    include block explorer MySQL export feature"
-      echo
-      exit 1
       ;;
 esac
 echo

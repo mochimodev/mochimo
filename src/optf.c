@@ -38,7 +38,6 @@ int send_tf(NODE *np)
  */
 int send_hash(NODE *np)
 {
-   int status;
    BTRAILER bt;
    char fname[128];
 

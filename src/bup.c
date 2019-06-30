@@ -1,6 +1,6 @@
 /* bup.c  Block Updater
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -42,6 +42,7 @@ void cleanup(int ecode)
    unlink("ledger.tmp");
    unlink("txq.tmp");
    unlink("ltran.dat");
+   if(Trace) plog("cleanup() exiting with ecode %i", ecode);
    exit(1);
 }
 
@@ -70,7 +71,7 @@ int main(int argc, char **argv)
    FILE *bfp;              /* to read the new block */
    FILE *lfp;              /* ledger.dat */
    word32 hdrlen;          /* for block header length */
-   int count;
+   unsigned int count;
    word32 *idx;
    int cond;
    LENTRY oldle;     /* input ledger entry  */

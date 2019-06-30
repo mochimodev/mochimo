@@ -1,6 +1,6 @@
 /* neogen.c  Neo-Genesis Block Generator
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -42,7 +42,7 @@ int main(int argc, char **argv)
    FILE *nfp, *lfp;
    word32 neobnum[2];
    static byte buff[IOBUFFLEN];
-   int count;
+   unsigned int count;
    word32 total;
 
    fix_signals();

@@ -4,7 +4,7 @@
  *
  * \author Tim Cotten <tcotten@mochimo.org> <tim@cotten.io>
  * \date 2018-06-20
- * \copyright Copyright (c) 2018-2019 by Adequate Systems, LLC.  All Rights Reserved.
+ * \copyright Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  */
 
 #define MYSQL_CONF_NUM 4

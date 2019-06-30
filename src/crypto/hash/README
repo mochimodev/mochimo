@@ -1,0 +1,8 @@
+standard hash functions: MD2, MD5, SHA1, SHA256
+
+sudo apt-get install cmake
+mkdir build
+cd build
+cmake ..
+make -j4
+

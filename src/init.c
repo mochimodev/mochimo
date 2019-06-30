@@ -1,12 +1,11 @@
 /* init.c  High-level Initialisation functions (included from mochimo.c)
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 11 February 2018
  *
 */
-
 
 int hex2bnum(byte *bnum, char *hex)
 {
@@ -98,7 +97,7 @@ int read_coreipl(char *fname)
    char buff[128];
    int j;
    char *addrstr;
-   word32 ip, *ipp;
+   word32 ip;
 
    if(Trace) plog("Entering read_coreipl()");
    if(fname == NULL || *fname == '\0') return VERROR;
@@ -158,7 +157,6 @@ word32 init_coreipl(NODE *np, char *fname)
 {
    word32 *ipp, ip, return_ip;
    int j;
-   int len;
    word32 rplistidx, rplist[RPLISTLEN];
 
    show("coreipl");
@@ -348,6 +346,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    word32 now;
    word32 tcount;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    *result = 100;                 /* I/O high error code */
    memset(highblock, 0, 8);       /* start from genesis block */
@@ -425,8 +424,16 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       ecode++;
       /* check enforced delay 9 */
       if(highblock[0] && tcount) {
-         if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
+         if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
+            if(peach(&bt, get32(bt.difficulty), NULL, 1)){
             break;
+            }
+         }
+         if(cmp64(bt.bnum, v24trigger) <= 0) { /* v2.3 and prior */ 
+            if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL) {
+            break;
+            }
+         }
       }
       ecode = 10;
       if(cmp64(highblock, tottrigger) > 0 &&
@@ -655,7 +662,6 @@ int get_eon(NODE *np, word32 peerip)
    char cpbuff[NGBUFFLEN];    /* neo-gen transfer */
    char fname[128], tofname[128];
    time_t timeout;
-   BTRAILER bt;
    static byte val256[8] = { 0x0, 0x1 };
 
    plog("Entering get_eon()");
@@ -933,7 +939,6 @@ try_again:
 int init(void)
 {
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
-   char fname[128];
    int result;
    byte diff[8], highblock[8], *wp;
    word32 solved;
