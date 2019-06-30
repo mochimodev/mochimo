@@ -80,7 +80,7 @@
 #define RTRIGGER31 17185  /* for v2.0 new get_mreward() */
 #define FIXTRIGGER 17697  /* for v2.0 difficulty patch */
 #define V23TRIGGER 54321  /* for v2.3 pseudoblocks */
-#define V24TRIGGER 0x1284c /* for v2.4 new FPGA Tough algo */
+#define V24TRIGGER 0x12851 /* for v2.4 new FPGA Tough algo */
 #define MFEE 500
 
 /* NEWYEAR trigger */
