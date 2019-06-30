@@ -37,7 +37,7 @@
 
 /* Version checking */
 #ifndef PVERSION
-#define PVERSION      3      /* protocol version number (short) */
+#define PVERSION      4      /* protocol version number (short) */
 #endif
 
 /* Node type */
