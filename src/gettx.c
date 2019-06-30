@@ -40,7 +40,19 @@ int sendtx(NODE *np)
    time_t timeout;
    byte *buff;
 
+   /* Remove below code after v2.4 migration */
+   word32 tmpv24[2];
+   tmpv24[1] = 0;
+   tmpv24[0] = V24TRIGGER;
+   if(cmp64(Cblocknum, tmpv24) >= 0){
+      np->tx.version[0] = PVERSION;
+   } else {
+      np->tx.version[0] = PVERSION - 1;
+   }   
+   
+   /* Add below back in after v2.4 Trigger:
    np->tx.version[0] = PVERSION;
+   */
    np->tx.version[1] = Cbits;
    put16(np->tx.network, TXNETWORK);
    put16(np->tx.trailer, TXEOT);
