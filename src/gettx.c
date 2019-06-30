@@ -295,11 +295,23 @@ int gettx(NODE *np, SOCKET sd)
             if(Trace) plog("gettx(): bad packet");
             return 1;  /* BAD packet */
    }
+   /* Remove below code after v2.4 migration */
+   word32 tempv24[2];
+   tempv24[1] = 0;
+   tempv24[0] = V24TRIGGER;
+   if(cmp64(Cblocknum, tempv24) >= 0){
+      if(tx->version[0] != PVERSION) {
+         if(Trace) plog("gettx(): bad version");
+         return 1;
+      }
+   }
+   /* Add below code back in after v2.4 migration:
    if(tx->version[0] != PVERSION) {
       if(Trace) plog("gettx(): bad version");
       return 1;
    }
-
+   */
+   
    if(Trace) plog("gettx(): crc16 good");
    if(opcode != OP_HELLO) goto bad1;
    np->id1 = get16(tx->id1);
