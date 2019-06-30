@@ -139,6 +139,7 @@ int main(int argc, char **argv)
                        Logfp = fopen(&argv[j][2], "a");
                     else
                        Logfp = fopen(LOGFNAME, "a");
+                    Cbits |= C_LOGGING;
                     break;
          case 'e':  Errorlog = 1;  /* enable "error.log" file */
                     break;
