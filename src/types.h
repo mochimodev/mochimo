@@ -63,6 +63,7 @@
 #define C_WALLET    2
 #define C_SANCTUARY 4
 #define C_MFEE      8
+#define C_LOGGING   16
 
 /* Multi-byte numbers are little-endian.
  * Structure is checked on start-up for byte-alignment.
