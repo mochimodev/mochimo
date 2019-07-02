@@ -86,7 +86,7 @@
 /* NEWYEAR trigger */
 #define NEWYEAR(bnum) (get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0)
 
-#define WATCHTIME  (BRIDGE*2+1)  /* Default minimum watchdog time for -w switch */
+#define WATCHTIME  (BRIDGE*12+1)  /* Default minimum watchdog time for -w switch */
 #define BRIDGE     949           /* Trouble time -- Edit for testing */
 #define TIMES_OF_TROUBLE() (Ltime >= Bridgetime                \
                             && Cblocknum[0] != 0xfe            \
