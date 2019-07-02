@@ -40,19 +40,7 @@ int sendtx(NODE *np)
    time_t timeout;
    byte *buff;
 
-   /* Remove below code after v2.4 migration */
-   word32 tmpv24[2];
-   tmpv24[1] = 0;
-   tmpv24[0] = V24TRIGGER;
-   if(cmp64(Cblocknum, tmpv24) >= 0){
-      np->tx.version[0] = PVERSION;
-   } else {
-      np->tx.version[0] = PVERSION - 1;
-   }   
-   
-   /* Add below back in after v2.4 Trigger:
    np->tx.version[0] = PVERSION;
-   */
    np->tx.version[1] = Cbits;
    put16(np->tx.network, TXNETWORK);
    put16(np->tx.trailer, TXEOT);
@@ -307,22 +295,10 @@ int gettx(NODE *np, SOCKET sd)
             if(Trace) plog("gettx(): bad packet");
             return 1;  /* BAD packet */
    }
-   /* Remove below code after v2.4 migration */
-   word32 tempv24[2];
-   tempv24[1] = 0;
-   tempv24[0] = V24TRIGGER;
-   if(cmp64(Cblocknum, tempv24) >= 0){
-      if(tx->version[0] != PVERSION) {
-         if(Trace) plog("gettx(): bad version");
-         return 1;
-      }
-   }
-   /* Add below code back in after v2.4 migration:
    if(tx->version[0] != PVERSION) {
       if(Trace) plog("gettx(): bad version");
       return 1;
    }
-   */
    
    if(Trace) plog("gettx(): crc16 good");
    if(opcode != OP_HELLO) goto bad1;
