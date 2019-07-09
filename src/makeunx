@@ -150,7 +150,7 @@ then
 fi
 
 # Set defaults
-LIBCUDA="${LIBCUDA:--lcuda}"
+LIBCUDA="${LIBCUDA:--lcuda -lnvidia-ml}"
 LIBCUDART="${LIBCUDART:--lcudart}"
 LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
 NVCC_DIR="${NVCC_DIR:-/usr/bin/}"

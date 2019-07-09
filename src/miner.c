@@ -20,10 +20,10 @@ int trigg_init_cuda(byte difficulty, byte *blockNumber);
 void trigg_free_cuda();
 void trigg_generate_cuda(byte *mroot, word32 *hps, byte *runflag);
 /* peach algo prototypes */
-int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber);
-void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
-void free_cuda_peach();
+#include "algo/peach/cuda_peach.h"
 #endif
+
+uint8_t nvml_init = 0;
 
 /* miner blockin blockout -- child process */
 int miner(char *blockin, char *blockout)
@@ -38,6 +38,13 @@ int miner(char *blockin, char *blockout)
    time_t htime;
    word32 temp[3], hcount, hps;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
+
+#ifdef CUDANODE
+   if (!nvml_init) {
+      init_nvml();
+      nvml_init = 1;
+   }
+#endif
 
    /* Keep a separate rand2() sequence for miner child */
    if(read_data(&temp, 12, "mseed.dat") == 12)
