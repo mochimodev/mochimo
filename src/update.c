@@ -62,6 +62,14 @@ bad:
       send_op(&node, OP_FOUND);
       closesocket(node.sd);
    }
+   /* Send found message to local peers */
+   for(ipp = Lplist; ipp < &Lplist[LPLISTLEN] && Running; ipp++) {
+      if(*ipp == 0) continue;
+      if(callserver(&node, *ipp) != VEOK) continue;
+      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      send_op(&node, OP_FOUND);
+      closesocket(node.sd);
+   }
    exit(0);
 }  /* end send_found() */
 

@@ -66,6 +66,7 @@ void usage(void)
           "         -qN        set Quorum to N (default 4)\n"
           "         -vN        set virtual mode: N = 1 or 2\n"
           "         -cFNAME    read core ip list from FNAME\n"
+          "         -LFNAME    read local peer ip list from FNAME\n"
           "         -c         disable read core ip list\n"
           "         -d         disable pink lists\n"
           "         -pN        set port to N\n"
@@ -144,6 +145,8 @@ int main(int argc, char **argv)
          case 'e':  Errorlog = 1;  /* enable "error.log" file */
                     break;
          case 'c':  Corefname = &argv[j][2];  /* master network */
+                    break;
+         case 'L':  Lpfname = &argv[j][2];  /* local peer network */
                     break;
          case 'd':  Disable_pink = 1;  /* disable pink lists */
                     break;
