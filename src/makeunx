@@ -129,6 +129,7 @@ BX_MYSQL=${BX_MYSQL:-0}
 # Autodetect CUDA Installation
 CUDA_VERSION=$(pkg-config --list-all 2>/dev/null | awk '/^cuda-/ {print $1}' | sort -V | tail -n1)
 CUDART_VERSION=$(pkg-config --list-all 2>/dev/null | awk '/^cudart-/ {print $1}' | sort -V | tail -n1)
+NVML_VERSION=$(pkg-config --list-all 2>/dev/null | awk '/^nvidia-ml-/ {print $1}' | sort -V | tail -n1)
 #CUDA_VERSION=10
 #CUDART_VERSION=10
 if test ! -z "${CUDA_VERSION}"
@@ -136,6 +137,9 @@ then
    LIBCUDA="$(pkg-config ${CUDA_VERSION} --libs-only-l --silence-errors)"
    LIBCUDA_DIR="$(pkg-config ${CUDA_VERSION} --libs-only-L --silence-errors)"
    CUDAROOT="$(pkg-config ${CUDA_VERSION} --variable=cudaroot --silence-errors)"
+   CUDA_CFLAGS="$(pkg-config ${CUDA_VERSION} --cflags --silence-errors)"
+   NVML_CFLAGS="$(pkg-config ${NVML_VERSION} --cflags --silence-errors)"
+   NVML_LDFLAGS="$(pkg-config ${NVML_VERSION} --libs --silence-errors)"
    #LIBCUDA="/usr/local/cuda/lib64/stubs/libcuda.so"
    #LIBCUDA_DIR="/usr/local/cuda/lib64/"
    #CUDAROOT="/usr/bin/"
@@ -150,9 +154,12 @@ then
 fi
 
 # Set defaults
-LIBCUDA="${LIBCUDA:--lcuda -lnvidia-ml}"
+LIBCUDA="${LIBCUDA:--lcuda}"
 LIBCUDART="${LIBCUDART:--lcudart}"
 LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
+CUDA_CFLAGS="${CUDA_CFLAGS:--I/usr/local/cuda/include}"
+NVML_CFLAGS="${NVML_CFLAGS:--I/usr/local/cuda/include}"
+NVML_LDFLAGS="${NVML_LDFLAGS:--L/usr/local/cuda/lib64 -lnvidia-ml}"
 NVCC_DIR="${NVCC_DIR:-/usr/bin/}"
 
 ##
@@ -163,13 +170,18 @@ then
    CUDA_GENCODE="$(./getcudacompute 2>>ccerror.log)"
    rm -f getcudacompute
 fi
+if test -z $CUDA_GENCODE; then
+   echo "Unable to automatically determining GPU compute level, using defaults."
+   CUDA_GENCODE="-gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75"
+fi
+
 
 ##
 # Set compiler command
 #  - Edit config.h and edit CC variable to suit your system:
-export set LD_FLAGS="${LIBCUDA} ${LIBCUDART} -lstdc++"
+export set LD_FLAGS="${LIBCUDA} ${LIBCUDART} ${NVML_LDFLAGS} -lstdc++"
 export set NVCC="${NVCC_DIR}nvcc -DLONG64 ${CUDA_GENCODE}"
-export set CC="cc -DUNIXLIKE -DLONG64 -I/usr/lib:${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
+export set CC="cc -DUNIXLIKE -DLONG64 ${CUDA_CFLAGS} ${NVML_CFLAGS} ${LIBCUDA_DIR} $2 $3 $4 $5 $6 $7 $8 $9"
 
 fnCHECKERRORS
 
