@@ -155,10 +155,26 @@ byte Frisky;  /* command line switch */
  */
 pid_t mirror(void)
 {
-   if(Frisky)
-      return mirror1(Rplist, RPLISTLEN);
-   else
-      return mirror1(Cplist, CPLISTLEN);
+   int i;
+   int num_lan = 0;
+   for (i = 0; i < LPLISTLEN; i++) {
+      if (Lplist[i] == 0) break; /* no more local peers in list */
+      Splist[i] = Lplist[i];
+      num_lan++;
+   }
+   if(Frisky) {
+      for (i = 0; i < RPLISTLEN; i++) {
+         Splist[i+num_lan] = Rplist[i];
+      }
+      //return mirror1(Rplist, RPLISTLEN);
+      return mirror1(Splist, RPLISTLEN+num_lan);
+   } else {
+      for (i = 0; i < CPLISTLEN; i++) {
+         Splist[i+num_lan] = Cplist[i];
+      }
+      //return mirror1(Cplist, CPLISTLEN);
+      return mirror1(Splist, CPLISTLEN+num_lan);
+   }
 }
 
 

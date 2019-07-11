@@ -120,6 +120,40 @@ int read_coreipl(char *fname)
    return j;
 }  /* end read_coreipl() */
 
+/* Read-in the local ip list text file
+ * each line:
+ * 1.2.3.4  or
+ * host.domain.name
+ */
+int read_localipl(char *fname)
+{
+   FILE *fp;
+   char buff[128];
+   int j;
+   char *addrstr;
+   word32 ip;
+
+   if(Trace) plog("Entering read_localipl()");
+   if(fname == NULL || *fname == '\0') return VERROR;
+   fp = fopen(fname, "rb");
+   if(fp == NULL) return VERROR;
+
+   for(j = 0; j < LPLISTLEN; ) {
+      if(fgets(buff, 128, fp) == NULL) break;
+      if(*buff == '#') continue;
+      addrstr = strtok(buff, " \r\n\t");
+      if(Trace > 1) plog("   parse: %s", addrstr);  /* debug */
+      if(addrstr == NULL) break;
+      ip = str2ip(addrstr);
+      if(!ip) continue;
+      /* put ip in Lplist[j] */
+      Lplist[j++] = ip;
+      if(Trace) plog("Added 0x%08x to Lplist", ip);  /* debug */
+   }
+   fclose(fp);
+   return j;
+}  /* end read_localipl() */
+
 
 /* Get an ip list from ip and copy it into np,
  * also call addrecent() on the list.
@@ -974,6 +1008,10 @@ int init(void)
       fatal("init(): bad tfile.dat -- gomochi!");
    }
    memcpy(Weight, wp, HASHLEN);
+
+   /* read local nodes into Lplist */
+   read_localipl(Lpfname);
+
 
    /* read into Coreplist[], shuffle, and get IPL */
    if(*Corefname)
