@@ -13,10 +13,12 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include <cuda_runtime.h>
+#include <nvml.h>
 
 #include "../../config.h"
 #include "peach.h"
 #include "nighthash.cu"
+#include "cuda_peach.h"
 
 __constant__ static uint8_t __align__(8) c_phash[32];
 __constant__ static uint8_t __align__(8) c_input[108];
@@ -218,16 +220,13 @@ __global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map,
 
 extern "C" {
 
-typedef struct __peach_cuda_ctx {
-   byte init, curr_seed[16], next_seed[16];
-   byte *seed, *d_seed;
-   byte *input, *d_map;
-   int32_t *d_found;
-   cudaStream_t stream;
-} PeachCudaCTX;
 
+uint8_t enable_nvml = 0;
+GPU_t gpus[MAX_GPUS] = { 0 };
+uint32_t num_gpus = 0;
 /* Max 63 GPUs Supported */
-PeachCudaCTX ctx[64];
+PeachCudaCTX peach_ctx[64];
+PeachCudaCTX *ctx = peach_ctx;
 dim3 grid(512);
 dim3 block(256);
 uint32_t threads = 131072;
@@ -237,6 +236,74 @@ byte gpuInit = 0;
 byte bnum[8] = {0};
 byte *diff;
 byte *phash;
+
+int init_nvml() {
+   int32_t num_cuda = 0;
+   cudaError_t cr = cudaGetDeviceCount(&num_cuda);
+   if (num_cuda > MAX_GPUS) num_cuda = MAX_GPUS;
+
+   for (int i = 0; i < num_cuda; i++) {
+      struct cudaDeviceProp p = { 0 };
+      cudaError_t cr = cudaGetDeviceProperties(&p, i);
+      printf("CUDA pciDomainID: %x, pciBusID: %x, pciDeviceID: %x\n", p.pciDomainID, p.pciBusID, p.pciDeviceID);
+      gpus[i].pciDomainId = p.pciDomainID;
+      gpus[i].pciBusId = p.pciBusID;
+      gpus[i].pciDeviceId = p.pciDeviceID;
+      gpus[i].cudaNum = i;
+      num_gpus++;
+   }
+
+
+   nvmlReturn_t r = nvmlInit();
+   if (r != NVML_SUCCESS) {
+      printf("Failed to initialize NVML: %s\n", nvmlErrorString(r));
+      enable_nvml = 0;
+      return 0;
+   }
+   uint32_t nvml_device_count;
+   r = nvmlDeviceGetCount(&nvml_device_count);
+   if (r != NVML_SUCCESS) {
+      printf("Failed to get NVML device count: %s\n", nvmlErrorString(r));
+      enable_nvml = 0;
+      return 0;
+   }
+   printf("NVML Devices: %d\n", nvml_device_count);
+   for (int i = 0; i < nvml_device_count; i++) {
+      nvmlDevice_t dev;
+      r = nvmlDeviceGetHandleByIndex(i, &dev);
+      if (r != NVML_SUCCESS) {
+         printf("nvmlDeviceGetHandleByIndex failed: %s\n", nvmlErrorString(r));
+         nvml_device_count = i;
+         break;
+      }
+      nvmlPciInfo_t pci;
+      r = nvmlDeviceGetPciInfo(dev, &pci);
+      if (r != NVML_SUCCESS) {
+         printf("nvmlDeviceGetPciInfo failed: %s\n", nvmlErrorString(r));
+         continue;
+      }
+      printf("NVML PCI: pciDeviceId: %x, pciSubSystemId: %x, domain: %x, device: %x, bus: %x\n", pci.pciDeviceId, pci.pciSubSystemId, pci.domain, pci.device, pci.bus);
+
+      for (int j = 0; j < num_cuda; j++) {
+         if (gpus[j].pciDomainId == pci.domain && gpus[j].pciBusId == pci.bus && gpus[i].pciDeviceId == pci.device) {
+            printf("NVML device is CUDA Device: %d\n", gpus[j].cudaNum);
+            gpus[j].nvml_dev = dev;
+            break;
+         }
+      }
+
+      char device_name[128];
+      r = nvmlDeviceGetName(dev, device_name, 128);
+      if (r != NVML_SUCCESS) {
+         printf("nvmlDeviceGetName failed: %s\n", nvmlErrorString(r));
+      }
+      else {
+         printf("Device: %d, Name: %s\n", i, device_name);
+      }
+   }
+   enable_nvml = 1;
+   return 1;
+}
 
 int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
    int i;
@@ -352,9 +419,10 @@ extern byte *trigg_gen(byte *in);
 
 __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
 {
-   int i;
+   int i, j;
    uint64_t lastnHaiku, nHaiku = 0;
    time_t seconds = time(NULL);
+   time_t gpu_stats_time = time(NULL);
    for( ; *runflag && *found == 0; ) {
       for (i=0; i<nGPU; i++) {
          /* Prepare next seed for GPU... */
@@ -376,6 +444,24 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
                memcpy(bt + 92 + 16, ctx[i].seed, 16);
                break;
             }
+            // Calculate per GPU HPS
+            gettimeofday(&(ctx[i].t_end), NULL);
+            uint64_t ustart = 1000000 * ctx[i].t_start.tv_sec + ctx[i].t_start.tv_usec;
+            if (ustart > 0) {
+               uint64_t uend = 1000000 * ctx[i].t_end.tv_sec + ctx[i].t_end.tv_usec;
+               double tdiff = (uend - ustart) / 1000.0 / 1000.0;
+               ctx[i].hps_index = (ctx[i].hps_index + 1) % 3;
+               ctx[i].hps[ctx[i].hps_index] = threads / tdiff;
+               uint32_t shps = 0;
+               for (int j = 0; j < 3; j++) {
+                  shps += ctx[i].hps[j];
+               }
+               ctx[i].ahps = shps / 3;
+            }
+            // End per GPU HPS
+
+            gettimeofday(&(ctx[i].t_start), NULL);
+
             /* Send new GPU round Data */
             cudaMemcpyToSymbolAsync(c_input, ctx[i].input, 108, 0,
                                     cudaMemcpyHostToDevice, ctx[i].stream);
@@ -396,6 +482,33 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
             *runflag = 0;
             return;
          }
+      }
+
+      // Print GPU stats every 5 seconds
+      if ( (time(NULL) - gpu_stats_time) > 5 ) {
+         for (j = 0; j < nGPU; j++) {
+            if (enable_nvml) {
+               uint32_t temp = 0;
+               uint32_t power = 0;
+               nvmlReturn_t r = nvmlDeviceGetTemperature(gpus[j].nvml_dev, NVML_TEMPERATURE_GPU, &temp);
+               if (r != NVML_SUCCESS) {
+                  printf("nvmlDeviceGetTemperature failed: %s\n", nvmlErrorString(r));
+               }
+
+               r = nvmlDeviceGetPowerUsage(gpus[j].nvml_dev, &power);
+               if (r != NVML_SUCCESS) {
+                  printf("nvmlDeviceGetPowerUsage Failed: %s\n", nvmlErrorString(r));
+               }
+               gpus[j].temp = temp;
+               gpus[j].power = power;
+
+               printf("GPU %d: %7d H/s, Temperature: %d C, Power: %6.2f W\n", j,
+                     ctx[j].ahps, gpus[j].temp, gpus[j].power / 1000.0);
+            } else {
+               printf("GPU %d: %7d H/s\n", j, ctx[j].ahps);
+            }
+         }
+         gpu_stats_time = time(NULL);
       }
       
       /* Chill a bit if nothing is happening */
