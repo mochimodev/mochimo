@@ -140,6 +140,12 @@ then
    CUDA_CFLAGS="$(pkg-config ${CUDA_VERSION} --cflags --silence-errors)"
    NVML_CFLAGS="$(pkg-config ${NVML_VERSION} --cflags --silence-errors)"
    NVML_LDFLAGS="$(pkg-config ${NVML_VERSION} --libs --silence-errors)"
+   NVML_LIBDIR="$(pkg-config ${NVML_VERSION} --libs-only-L --silence-errors)"
+   if test ! -z "${NVML_LIBDIR}"
+   then
+	   NVML_LDFLAGS="${NVML_LIBDIR}/stubs ${NVML_LDFLAGS}"
+   fi
+
    #LIBCUDA="/usr/local/cuda/lib64/stubs/libcuda.so"
    #LIBCUDA_DIR="/usr/local/cuda/lib64/"
    #CUDAROOT="/usr/bin/"
@@ -159,7 +165,7 @@ LIBCUDART="${LIBCUDART:--lcudart}"
 LIBCUDA_DIR="${LIBCUDA_DIR:--L/usr/local/cuda/lib64}"
 CUDA_CFLAGS="${CUDA_CFLAGS:--I/usr/local/cuda/include}"
 NVML_CFLAGS="${NVML_CFLAGS:--I/usr/local/cuda/include}"
-NVML_LDFLAGS="${NVML_LDFLAGS:--L/usr/local/cuda/lib64 -lnvidia-ml}"
+NVML_LDFLAGS="${NVML_LDFLAGS:--L/usr/local/cuda/lib64 -L/usr/local/cuda/lib64/stubs -lnvidia-ml}"
 NVCC_DIR="${NVCC_DIR:-/usr/bin/}"
 
 ##
@@ -170,7 +176,7 @@ then
    CUDA_GENCODE="$(./getcudacompute 2>>ccerror.log)"
    rm -f getcudacompute
 fi
-if test -z $CUDA_GENCODE; then
+if test -z "$CUDA_GENCODE"; then
    echo "Unable to automatically determining GPU compute level, using defaults."
    CUDA_GENCODE="-gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75"
 fi
