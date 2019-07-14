@@ -86,12 +86,12 @@ int reset_difficulty(char *lastfname, char *bcdir)
 }  /* end reset_difficulty() */
 
 
-/* Read-in the core ip list text file
+/* Read-in the ip list text file
  * each line:
  * 1.2.3.4  or
  * host.domain.name
  */
-int read_coreipl(char *fname)
+int read_ipl(char *fname, word32 *plist, uint32_t plist_len)
 {
    FILE *fp;
    char buff[128];
@@ -99,12 +99,12 @@ int read_coreipl(char *fname)
    char *addrstr;
    word32 ip;
 
-   if(Trace) plog("Entering read_coreipl()");
+   if(Trace) plog("Entering read_ipl()");
    if(fname == NULL || *fname == '\0') return VERROR;
    fp = fopen(fname, "rb");
    if(fp == NULL) return VERROR;
 
-   for(j = 0; j < CORELISTLEN; ) {
+   for(j = 0; j < plist_len; ) {
       if(fgets(buff, 128, fp) == NULL) break;
       if(*buff == '#') continue;
       addrstr = strtok(buff, " \r\n\t");
@@ -112,47 +112,23 @@ int read_coreipl(char *fname)
       if(addrstr == NULL) break;
       ip = str2ip(addrstr);
       if(!ip) continue;
-      /* put ip in Coreplist[j] */
-      Coreplist[j++] = ip;
-      if(Trace) plog("Added 0x%08x to Coreplist", ip);  /* debug */
+      /* put ip in plist[j] */
+      plist[j++] = ip;
+      if(Trace) plog("Added 0x%08x to plist", ip);  /* debug */
    }
    fclose(fp);
    return j;
 }  /* end read_coreipl() */
 
-/* Read-in the local ip list text file
- * each line:
- * 1.2.3.4  or
- * host.domain.name
- */
-int read_localipl(char *fname)
-{
-   FILE *fp;
-   char buff[128];
-   int j;
-   char *addrstr;
-   word32 ip;
+/* Read in the core ip list text file */
+int read_coreipl(char *fname) {
+	return read_ipl(fname, Coreplist, CORELISTLEN);
+}
 
-   if(Trace) plog("Entering read_localipl()");
-   if(fname == NULL || *fname == '\0') return VERROR;
-   fp = fopen(fname, "rb");
-   if(fp == NULL) return VERROR;
-
-   for(j = 0; j < LPLISTLEN; ) {
-      if(fgets(buff, 128, fp) == NULL) break;
-      if(*buff == '#') continue;
-      addrstr = strtok(buff, " \r\n\t");
-      if(Trace > 1) plog("   parse: %s", addrstr);  /* debug */
-      if(addrstr == NULL) break;
-      ip = str2ip(addrstr);
-      if(!ip) continue;
-      /* put ip in Lplist[j] */
-      Lplist[j++] = ip;
-      if(Trace) plog("Added 0x%08x to Lplist", ip);  /* debug */
-   }
-   fclose(fp);
-   return j;
-}  /* end read_localipl() */
+/* Read in the local ip list text file */
+int read_localipl(char *fname) {
+	return read_ipl(fname, Lplist, LPLISTLEN);
+}
 
 
 /* Get an ip list from ip and copy it into np,
