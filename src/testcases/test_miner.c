@@ -83,12 +83,12 @@ int test_miner(byte nsolve)
    /* Output intro and notes */
    if(nsolve < 16 || Difficulty < 22) {
       printf(
-      "*Please note... For a more accurate test, it is recommended\n"
-      "to use at least 16 iterations in combination with a difficulty\n"
-      "that solves at least every 30 seconds, on average, on your machine.\n");
-      printf("Run  ./test_miner -h  for usage information\n\n");
+      "*Please note... For a more accurate test, it is recommended to\n"
+      "use at least 16 iterations in combination with a difficulty\n"
+      "that solves at least every 30 seconds on your machine.\n");
+      printf("Run  ./test_miner -h  for usage information.\n\n");
    }
-   printf("Enter test_miner loop - %d iterations @ Difficulty %d\n",
+   printf("Entering test_miner loop - %d iterations @ Difficulty %d\n",
           (int) nsolve, Difficulty);
    
    /* Begin miner loop */
@@ -151,7 +151,7 @@ int test_miner(byte nsolve)
       
       /* Validate GPU solve on the CPU */
       if(!Running) {
-         printf("\nMiner not running. An error may have occurred.\n");
+         printf("\ntest_miner ended unexpectedly...\n");
       } else if(peach(&bt, Difficulty, NULL, 1)) {
          printf("Solve FAILED on the CPU!!!\n");
          printf("Last Block Trailer Data:\n");
@@ -189,11 +189,11 @@ int test_miner(byte nsolve)
    avgtime /= j;
    avghps /= j;
    /* Calculate actual hps */
-   actualhps = (1 << 20) / avgtime;
+   actualhps = (1 << Difficulty) / avgtime;
    /* Calculate hps efficiency*/
    efficiency = ( ((float) actualhps) / ((float) avghps) ) * 100;
    
-   printf("\nMiner Test Ended...\n");
+   printf("\ntest_miner statistics...\n");
    printf("%d Valid mining iterations performed.\n", j);
    printf("Total test runtime: %li seconds\n", time(NULL) - Ltime);
    printf("Average init time:  %li seconds\n", avginit);
@@ -251,6 +251,12 @@ int main(int argc, char **argv)
                     return 1;
       }  /* end switch */
    }  /* end for j */
+   
+   /* Set Running=0 on ctrl+c and terminate signals */
+   for(j = 0; j <= NSIG; j++)
+      signal(j, SIG_IGN);
+   signal(SIGINT, sigterm);   /* ctrl+c    */
+   signal(SIGTERM, sigterm);  /* terminate */
    
    test_miner(iterations);
    return 0;
