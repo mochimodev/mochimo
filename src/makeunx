@@ -45,18 +45,20 @@ fnCHECKERRORS()
 }
 
 case "$1" in
-   bin|wallet|clean|install|uninstall) # Supported Commands
+   bin|wallet|clean|install|test_miner|uninstall) # Supported Commands
       ;;
    *)
-      echo "Usage: makeunx <command> [-D<miner>] [options]"
+      echo "Usage: makeunx <command> [options]"
       echo
-      echo "   command: bin -DCPU     make all binary programs (CPU Miner)"
-      echo "            bin -DCUDA    make all binary programs (CUDA Miner)"
+      echo "   command: bin           make all binary programs"
       echo "            wallet        make only the wallet binary program"
+      echo "            test_*        make only a test case specified by *"
       echo "            clean         remove object files and log files"
       echo "            install       copy binaries and run scripts to ../bin"
       echo "            uninstall     remove files from mochi/bin directory tree"
-      echo "   options: -DBX_MYSQL    include block explorer MySQL export feature"
+      echo "   options: -DCPU         force mochimo to use CPU miner"
+      echo "            -DCUDA        force mochimo to use CUDA miner"
+      echo "            -DBX_MYSQL    include block explorer MySQL export feature"
       echo
       exit 1
       ;;
@@ -177,7 +179,7 @@ then
    rm -f getcudacompute
 fi
 if test -z "$CUDA_GENCODE"; then
-   echo "Unable to automatically determining GPU compute level, using defaults."
+   printf "\nUnable to automatically determine GPU compute level.\nUsing defaults... "
    CUDA_GENCODE="-gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75"
 fi
 
@@ -205,10 +207,9 @@ case "$1" in
       then # CUDA Code
          printf "Make cuda objects... "
          $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log # Make Peach CUDA
-         $NVCC -c algo/trigg/cuda_trigg.cu $LD_FLAGS 2>>ccerror.log # Make Trigg CUDA
          fnCHECKERRORS
          printf "Building Mochimo server... "
-         $CC -o mochimo mochimo.c sha256.o wots.o trigg.o cuda_trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
+         $CC -o mochimo mochimo.c sha256.o wots.o trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
          fnCHECKERRORS
       else # CPU Code
          printf "Building Mochimo server... "
@@ -247,9 +248,28 @@ case "$1" in
       # Cleanup object files
       rm sha256.o wots.o
       ;;
+   "test_miner") # Compile test_gpu binary
+      printf "Make dependencies... "
+      $CC -c crypto/hash/cpu/sha256.c 2>>ccerror.log # SHA256
+      $CC -c crypto/wots/wots.c       2>>ccerror.log # WOTS+
+      $CC -c algo/trigg/trigg.c       2>>ccerror.log # Trigg CPU
+      fnCHECKERRORS
+      printf "Make cuda objects... "
+      $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log # Make Peach CUDA
+      fnCHECKERRORS
+      printf "Building test_miner... "
+      $CC -o test_miner testcases/test_miner.c sha256.o wots.o trigg.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
+      fnCHECKERRORS
+      # Display error stats
+      fnCHECKERRORS "full"
+      # Cleanup object files
+      rm -f sha256.o wots.o trigg.o cuda_peach.o
+      ;;
    "clean") # Remove binaries and *.log files
       echo "Remove executable modules..."
-      rm -f bcon bup bval mochimo sortlt wallet neogen bx
+      rm -f bcon bup bval mochimo sortlt wallet neogen bx test_miner
+      echo "Remove object files..."
+      rm -f *.o *.obj
       echo "Remove log files..."
       rm -f *.log
       echo
