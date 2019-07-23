@@ -15,10 +15,6 @@
 #include "algo/peach/peach.c"
 
 #ifdef CUDANODE
-/* trigg algo prototypes */
-int trigg_init_cuda(byte difficulty, byte *blockNumber);
-void trigg_free_cuda();
-void trigg_generate_cuda(byte *mroot, word32 *hps, byte *runflag);
 /* peach algo prototypes */
 #include "algo/peach/cuda_peach.h"
 #endif
@@ -89,7 +85,7 @@ int miner(char *blockin, char *blockout)
       
 #ifdef CUDANODE
          /* Allocate and initialize necessary memory on CUDA devices */
-         if (init_cuda_peach(Difficulty, bt.phash, bt.bnum) < 1) {
+         if (init_cuda_peach(Difficulty, bt.phash, (byte *) &bt) < 1) {
             error("Miner failed to initilize CUDA devices\n");
             break;
          }
@@ -116,47 +112,6 @@ int miner(char *blockin, char *blockout)
 #endif
 
       } /* end if(cmp64(bt.bnum... */
-
-
-/* Legacy handler is CPU Only for all v2.3 and earlier blocks */
-
-      if(cmp64(bt.bnum, v24trigger) <= 0)
-      {
-         /* Create the solution state-space beginning with
-          * the first plausible link on the TRIGG chain.
-          */
-         trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
-         
-#ifdef CUDANODE
-         /* Initialize CUDA specific memory allocations
-          * and check for obvious errors */
-         if(trigg_init_cuda(bt.difficulty[0], bt.bnum) < 1) {
-            error("Cuda initialization failed. Check nvidia-smi");
-            trigg_free_cuda();
-            break;
-         }
-         /* Run the trigg cuda miner */
-         trigg_generate_cuda(bt.mroot, &hps, &Running);
-         /* Free CUDA specific memory allocations */
-         trigg_free_cuda();
-#endif
-#ifdef CPUNODE
-         for(hcount = 0, htime = time(NULL); Running; hcount++)
-            if(trigg_generate(bt.mroot, bt.difficulty[0]) != NULL)
-               break;
-         
-         /* Calculate and write Haiku/s to disk */
-         htime = time(NULL) - htime;
-         if(htime == 0) htime = 1;
-         hps = hcount / htime;
-#endif
-
-         /* Block validation check */
-         if (Running && !trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
-            printf("ERROR - Block is not valid\n");
-            break;
-         }
-      } /* end legacy handler */
 
       write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second */
       if(!Running) break;

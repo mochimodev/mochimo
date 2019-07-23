@@ -1,11 +1,14 @@
-/*
- * cuda_trigg.cu  Multi-GPU CUDA Mining
+/* cuda_peach.cu   Multi-GPU CUDA Mining
  *
  * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
- * Date: 10 August 2018
- * Revision: 31
+ * Date: 10 July 2019
+ * Revised: 22 July 2019
+ * Revision: 3
+ *
+ * Optimized version, cloning from cuda_peach.cu.
+ *
  */
 
 #include <stdio.h>
@@ -15,24 +18,17 @@
 #include <cuda_runtime.h>
 #include <nvml.h>
 
+#include "../../crypto/hash/cpu/sha256.c"
 #include "../../config.h"
 #include "peach.h"
 #include "nighthash.cu"
 #include "cuda_peach.h"
 
+__constant__ static CUDA_SHA256_CTX __align__(8) c_precomputed_sha256;
 __constant__ static uint8_t __align__(8) c_phash[32];
-__constant__ static uint8_t __align__(8) c_input[108];
+__constant__ static uint8_t __align__(8) c_input[16384];
 __constant__ static uint8_t __align__(8) c_difficulty;
-__constant__ static int Z_MASS[4] = {238,239,240,242};
-__constant__ static int Z_ING[2]  = {42,43};
-__constant__ static int Z_TIME[16] =
-   {82,83,84,85,86,87,88,243,249,250,251,252,253,254,255,253};
-__constant__ static int Z_AMB[16] =
-   {77,94,95,96,126,214,217,218,220,222,223,224,225,226,227,228};
-__constant__ static int Z_ADJ[64] =
-   {61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,
-    88,89,90,91,92,94,95,96,97,98,99,100,101,102,103,104,105,107,108,109,110,112,114,
-    115,116,117,118,119,120,121,122,123,124,125,126,127,128};
+
 
 inline int cudaCheckError( const char *msg, uint32_t gpu, const char *file)
 {
@@ -46,7 +42,8 @@ inline int cudaCheckError( const char *msg, uint32_t gpu, const char *file)
 }
 
 
-__device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map, uint8_t *nonce)
+__device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map,
+                                    uint8_t *first_seed, uint8_t *last_seed)
 {
    CUDA_NIGHTHASH_CTX nighthash;
    byte seed[HASHLEN + 4 + TILE_LENGTH];
@@ -55,10 +52,12 @@ __device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map, uint8_t *non
 
    /* Create nighthash seed for this index on the map */
    seedlen = HASHLEN + 4 + TILE_LENGTH;
-   memcpy(seed, nonce, HASHLEN);
-   memcpy(seed + HASHLEN, (byte *) &index, 4);
-   memcpy(seed + HASHLEN + 4, &g_map[index * TILE_LENGTH], TILE_LENGTH);
    
+   memcpy(seed, first_seed, 16);
+   memcpy(seed + 16, last_seed, 16);
+   memcpy(seed + HASHLEN, &index, 4);
+   memcpy(seed + 36, &g_map[index * TILE_LENGTH], TILE_LENGTH);
+
    /* Setup nighthash the seed, NO TRANSFORM */
    cuda_nighthash_init(&nighthash, seed, seedlen, index, 0);
 
@@ -72,7 +71,7 @@ __device__ uint32_t cuda_next_index(uint32_t index, uint8_t *g_map, uint8_t *non
    for(i = 0, index = 0; i < 8; i++)
       index += ((uint32_t *) hash)[i];
 
-   return index % MAP;
+   return index & (MAP-1);
 }
 
 
@@ -88,8 +87,9 @@ __device__ void cuda_gen_tile(uint32_t index, uint8_t *g_map)
 
    /* Create nighthash seed for this index on the map */
    seedlen = 4 + HASHLEN;
-   memcpy(seed, (byte *) &index, 4);
-   memcpy(seed + 4, c_phash, HASHLEN);
+   
+   memcpy(seed, &index, 4);
+   memcpy(seed + 4, c_phash, 32);
 
    /* Setup nighthash with a transform of the seed */
    cuda_nighthash_init(&nighthash, seed, seedlen, index, 1);
@@ -129,92 +129,63 @@ __global__ void cuda_build_map(uint8_t *g_map)
 }
 
 
-__global__ void cuda_find_peach(uint32_t threads, uint8_t *g_map,
-                                int32_t *g_found, uint8_t *g_seed)
+__global__ void cuda_find_peach(uint32_t offset, uint8_t *g_map,
+                                int32_t *g_found, uint8_t *g_nonce)
 {
-   const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
-
+   __shared__
+      uint8_t first_seed[16];
+      uint8_t last_seed[16], hash[32];
    CUDA_SHA256_CTX ictx;
-   uint8_t seed[16] = {0}, nonce[32] = {0};
-   uint8_t bt_hash[32], fhash[32];
-   int32_t i, j, n, x;
+   int32_t i, j, n;
    uint32_t sm;
+   
+   /******************/
+   /* Assemble seeds */
+   if(threadIdx.x < 16)
+      first_seed[threadIdx.x] = c_input[((offset + blockIdx.x) << 4) + threadIdx.x];
+   
+   __syncthreads();
+   
+   memcpy(last_seed, &c_input[threadIdx.x << 4], 16);
+   
+   /*********************************************************/
+   /* Hash 124 bytes of Block Trailer, including both seeds */
+   memcpy(&ictx, &c_precomputed_sha256, sizeof(CUDA_SHA256_CTX));
+   
+   cuda_sha256_update(&ictx, first_seed, 16);
+   cuda_sha256_update(&ictx, last_seed, 16);
+   cuda_sha256_final(&ictx, hash);
+   
+   /****************************************************/
+   /* Follow the tile path based on the selected nonce */
+   sm = hash[0];
+   #pragma unroll
+   for(i = 1; i < HASHLEN; i++)
+       sm *= hash[i];
+   sm = (sm & (MAP - 1));
+   
+   /* make <JUMP> tile jumps to find the final tile */
+   #pragma unroll
+   for(j = 0; j < JUMP; j++)
+      sm = cuda_next_index(sm, g_map, first_seed, last_seed);
+   
+   /****************************************************************/
+   /* Check the hash of the final tile produces the desired result */
+   cuda_sha256_init(&ictx);
+   cuda_sha256_update(&ictx, hash, HASHLEN);
+   cuda_sha256_update(&ictx, &g_map[sm * TILE_LENGTH], TILE_LENGTH);
+   cuda_sha256_final(&ictx, hash);
+   
+   /* Evaluate hash */
+   for(i = j = n = 0; i < 8 && n == j; i++, j += 32)
+      n = __clz( __byte_perm( ((int32_t *) hash)[i], 0, 0x0123 ) );
 
-   if (thread < threads) {
-      /* Determine second seed */
-      if(thread < 131072) { /* This frame permutations: 131,072 */
-         seed[ 0] = Z_TIME[(thread & 15)];
-         seed[ 1] = Z_AMB[(thread >> 4) & 15];
-         seed[ 2] = 1;
-         seed[ 3] = Z_ADJ[(thread >> 8) & 63];
-         seed[ 4] = Z_MASS[(thread >> 14) & 3];
-         seed[ 5] = 1;
-         seed[ 6] = Z_ING[(thread >> 16) & 1];
-      }
-
-      /* store full nonce */
-      #pragma unroll
-      for (i = 0; i < 16; i++)
-         nonce[i] = c_input[i + 92];
-
-      #pragma unroll
-      for (i = 0; i < 16; i++)
-         nonce[i+16] = seed[i];
-
-      /*********************************************************/
-      /* Hash 124 bytes of Block Trailer, including both seeds */
-
-      cuda_sha256_init(&ictx);
-      cuda_sha256_update(&ictx, c_input, 108);
-      cuda_sha256_update(&ictx, seed, 16);
-      cuda_sha256_final(&ictx, bt_hash);
-
-      /****************************************************/
-      /* Follow the tile path based on the selected nonce */
-      
-      sm = bt_hash[0];
-      #pragma unroll
-      for(i = 1; i < HASHLEN; i++)
-         sm *= bt_hash[i];
-      sm %= MAP;
-
-      /* make <JUMP> tile jumps to find the final tile */
-      #pragma unroll
-      for(j = 0; j < JUMP; j++)
-        sm = cuda_next_index(sm, g_map, nonce);
-
-      /****************************************************************/
-      /* Check the hash of the final tile produces the desired result */
-
-      cuda_sha256_init(&ictx);
-      cuda_sha256_update(&ictx, bt_hash, HASHLEN);
-      cuda_sha256_update(&ictx, &g_map[sm * TILE_LENGTH], TILE_LENGTH);
-      cuda_sha256_final(&ictx, fhash);
-
-      /* Evaluate hash */
-      for (x = i = j = n = 0; i < HASHLEN; i++) {
-         x = fhash[i];
-         if (x != 0) {
-            for(j = 7; j > 0; j--) {
-               x >>= 1;
-               if(x == 0) {
-                  n += j;
-                  break;
-               }
-            }
-            break;
-         }
-         n += 8;
-      }
-
-      if(n >= c_difficulty && !atomicExch(g_found, 1)) {
-         /* PRINCESS FOUND! */
-         #pragma unroll
-         for (i = 0; i < 16; i++)
-            g_seed[i] = seed[i];
-      }
-      /* Our princess is in another castle ! */
+   if(n >= c_difficulty && !atomicExch(g_found, 1)) {
+      /* PRINCESS FOUND! */
+      memcpy(g_nonce, first_seed, 16);
+      memcpy(g_nonce + 16, last_seed, 16);
    }
+   /* Our princess is in another castle ! */
 }
 
 
@@ -227,13 +198,9 @@ uint32_t num_gpus = 0;
 /* Max 63 GPUs Supported */
 PeachCudaCTX peach_ctx[64];
 PeachCudaCTX *ctx = peach_ctx;
-dim3 grid(512);
-dim3 block(256);
-uint32_t threads = 131072;
 int32_t nGPU = 0;
+SHA256_CTX *precompute_ctx;
 int32_t *found;
-byte gpuInit = 0;
-byte bnum[8] = {0};
 byte *diff;
 byte *phash;
 
@@ -305,7 +272,7 @@ int init_nvml() {
    return 1;
 }
 
-int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
+int init_cuda_peach(byte difficulty, byte *prevhash, byte *bt) {
    int i;
    
    /* Obtain and check system GPU count */
@@ -317,62 +284,57 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
    cudaMallocHost(&found, 4);
    cudaMallocHost(&diff, 1);
    cudaMallocHost(&phash, 32);
+   cudaMallocHost(&precompute_ctx, sizeof(SHA256_CTX));
    
    /* Copy immediate block data to pinned memory */
    *found = 0;
    *diff = difficulty;
    memcpy(phash, prevhash, 32);
    
-   /* Initialize GPU context init variable incase
-    * it holds a random number from memory */
-   if(gpuInit == 0) {
-      gpuInit = 1;
-      for (i = 0; i < nGPU; i++)
-         ctx[i].init = 0;
-   }
+   /* Precompute SHA256 */
+   sha256_init(precompute_ctx);
+   sha256_update(precompute_ctx, bt, 92);
    
    /* Initialize GPU data asynchronously */
    for (i = 0; i < nGPU; i++) {
       cudaSetDevice(i);
+      
+      /* Get the best block/thread configs */
+      cudaOccupancyMaxPotentialBlockSize(&ctx[i].nblock, &ctx[i].nthread,
+                                         cuda_find_peach, 16, 1024);
+      ctx[i].total_threads = ctx[i].nblock * ctx[i].nthread;
       
       /* Create Stream */
       cudaStreamCreate(&ctx[i].stream);
       
       /* Allocate device memory */
       cudaMalloc(&ctx[i].d_found, 4);
-      cudaMalloc(&ctx[i].d_seed, 16);
+      cudaMalloc(&ctx[i].d_nonce, 32);
       
       /* Allocate associated device-host memory */
-      cudaMallocHost(&ctx[i].seed, 16);
-      cudaMallocHost(&ctx[i].input, 108);
+      cudaMallocHost(&ctx[i].found, 4);
+      cudaMallocHost(&ctx[i].nonce, 32);
+      cudaMallocHost(&ctx[i].input, ctx[i].nthread * 16);
       
       /* Copy immediate block data to device memory */
       cudaMemcpyToSymbolAsync(c_difficulty, diff, 1, 0,
                               cudaMemcpyHostToDevice, ctx[i].stream);
       cudaMemcpyToSymbolAsync(c_phash, phash, 32, 0,
                               cudaMemcpyHostToDevice, ctx[i].stream);
+      cudaMemcpyToSymbolAsync(c_precomputed_sha256, precompute_ctx,
+                              sizeof(SHA256_CTX), 0, cudaMemcpyHostToDevice,
+                              ctx[i].stream);
       
       /* Set remaining device memory */
       cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
-      cudaMemsetAsync(ctx[i].d_seed, 0, 16, ctx[i].stream);
+      memset(ctx[i].found, 0, 4);
       
-      /* Set initial round variables */
-      ctx[i].next_seed[0] = 0;
+      /* Set scan offset to 1024*/
+      ctx[i].scan_offset = ctx[i].nthread;
       
-      /* If first init, setup map and cache */
-      if(ctx[i].init == 0) {
-         /* NOTE: The device MAP that holds the data of a map DOES NOT
-          * explicitly get free()'d. The reason behind this is because
-          * we reuse the map variable between blocks, and just rebuild
-          * the map once every block. The GPU free's the MAP when the
-          * program ends by default. This can be adjusted later. */
-         cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
-         ctx[i].init = 1;
-      }
-      
-      /* (re)Build map if new block */
-      if(memcmp(bnum, blocknumber, 8) != 0)
-         cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>(ctx[i].d_map);
+      /* Setup map and cache */
+      cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
+      cuda_build_map<<<4096, 256, 16, ctx[i].stream>>>(ctx[i].d_map);
    }
    
    /* Check for any GPU initialization errors */
@@ -382,9 +344,6 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber) {
       if(cudaCheckError("init_cuda_peach()", i, __FILE__))
          return -1;
    }
-   
-   /* Update block number */
-   memcpy(bnum, blocknumber, 8);
 
    return nGPU;
 }
@@ -396,6 +355,7 @@ void free_cuda_peach() {
    cudaFreeHost(diff);
    cudaFreeHost(found);
    cudaFreeHost(phash);
+   cudaFreeHost(precompute_ctx);
    
    /* Free GPU data */
    for (i = 0; i<nGPU; i++) {
@@ -406,11 +366,12 @@ void free_cuda_peach() {
       
       /* Free device memory */
       cudaFree(ctx[i].d_found);
-      cudaFree(ctx[i].d_seed);
+      cudaFree(ctx[i].d_nonce);
       cudaFree(ctx[i].d_map);
       
       /* Free associated device-host memory */
-      cudaFreeHost(ctx[i].seed);
+      cudaFreeHost(ctx[i].found);
+      cudaFreeHost(ctx[i].nonce);
       cudaFreeHost(ctx[i].input);
    }
 }
@@ -419,62 +380,67 @@ extern byte *trigg_gen(byte *in);
 
 __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
 {
-   int i, j;
-   uint64_t lastnHaiku, nHaiku = 0;
-   time_t seconds = time(NULL);
+   int i, j, k;
+   double tdiff;
+   uint32_t shps;
+   uint64_t lastnHaiku, nHaiku, ustart, uend;
+   timeval nSeconds;
    time_t gpu_stats_time = time(NULL);
-   for( ; *runflag && *found == 0; ) {
+   
+   gettimeofday(&nSeconds, NULL);
+   for(nHaiku = 0; *runflag && *found == 0; ) {
       for (i=0; i<nGPU; i++) {
-         /* Prepare next seed for GPU... */
-         if(ctx[i].next_seed[0] == 0) {
-            /* ... generate first GPU seed (and expand as Haiku) */
-            trigg_gen(ctx[i].next_seed);
-
-            /* ... and prepare round data */
-            memcpy(ctx[i].input, bt, 92);
-            memcpy(ctx[i].input+92, ctx[i].next_seed, 16);
-         }
          /* Check if GPU has finished */
          cudaSetDevice(i);
          if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
-            cudaMemcpy(found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
-            if(*found==1) { /* SOLVED A BLOCK! */
-               cudaMemcpy(ctx[i].seed, ctx[i].d_seed, 16, cudaMemcpyDeviceToHost);
-               memcpy(bt + 92, ctx[i].curr_seed, 16);
-               memcpy(bt + 92 + 16, ctx[i].seed, 16);
+            /* Obtain haiku/s calc data */
+            gettimeofday(&(ctx[i].t_end), NULL);
+            ustart = 1000000 * ctx[i].t_start.tv_sec + ctx[i].t_start.tv_usec;
+            if (ustart > 0) {
+               uend = 1000000 * ctx[i].t_end.tv_sec + ctx[i].t_end.tv_usec;
+               tdiff = (uend - ustart) / 1000.0 / 1000.0;
+            }
+            gettimeofday(&(ctx[i].t_start), NULL);
+            
+            /* Check for a solved block */
+            if(*ctx[i].found==1) { /* SOLVED A BLOCK! */
+               cudaMemcpy(ctx[i].nonce, ctx[i].d_nonce, 32, cudaMemcpyDeviceToHost);
+               memcpy(bt + 92, ctx[i].nonce, 32);
+               *found = 1;
                break;
             }
-            // Calculate per GPU HPS
-            gettimeofday(&(ctx[i].t_end), NULL);
-            uint64_t ustart = 1000000 * ctx[i].t_start.tv_sec + ctx[i].t_start.tv_usec;
+            
+            /* Init GPU data if necessary */
+            if (ctx[i].scan_offset + ctx[i].nblock >= ctx[i].nthread) {
+               /* Reset offset */
+               ctx[i].scan_offset = 0;
+               /* Generate random seed array data */
+               for(j = 0, k = ctx[i].nthread * 16; j < k; j += 16)
+                  trigg_gen(ctx[i].input + j);
+               /* Send new seed array data */
+               cudaMemcpyToSymbolAsync(c_input, ctx[i].input, k, 0,
+                                       cudaMemcpyHostToDevice, ctx[i].stream);
+            }
+            /* Start GPU round */
+            cuda_find_peach<<<ctx[i].nblock,ctx[i].nthread,0,ctx[i].stream>>>
+            (ctx[i].scan_offset, ctx[i].d_map, ctx[i].d_found, ctx[i].d_nonce);
+            /* Retrieve GPU found status */
+            cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+
+            /* Add to haiku count */
+            nHaiku += ctx[i].total_threads;
+            ctx[i].scan_offset += ctx[i].nblock;
+            
+            /* Perform per GPU Haiku/s cacluation */
             if (ustart > 0) {
-               uint64_t uend = 1000000 * ctx[i].t_end.tv_sec + ctx[i].t_end.tv_usec;
-               double tdiff = (uend - ustart) / 1000.0 / 1000.0;
                ctx[i].hps_index = (ctx[i].hps_index + 1) % 3;
-               ctx[i].hps[ctx[i].hps_index] = threads / tdiff;
-               uint32_t shps = 0;
-               for (int j = 0; j < 3; j++) {
+               ctx[i].hps[ctx[i].hps_index] = ctx[i].total_threads / tdiff;
+               shps = 0;
+               for (j = 0; j < 3; j++) {
                   shps += ctx[i].hps[j];
                }
                ctx[i].ahps = shps / 3;
             }
-            // End per GPU HPS
-
-            gettimeofday(&(ctx[i].t_start), NULL);
-
-            /* Send new GPU round Data */
-            cudaMemcpyToSymbolAsync(c_input, ctx[i].input, 108, 0,
-                                    cudaMemcpyHostToDevice, ctx[i].stream);
-            /* Start GPU round */
-            cuda_find_peach<<<grid, block, 0, ctx[i].stream>>>(threads,
-                                 ctx[i].d_map, ctx[i].d_found, ctx[i].d_seed);
-
-            /* Add to haiku count */
-            nHaiku += threads;
-
-            /* Store round vars aside for checks next loop */
-            memcpy(ctx[i].curr_seed,ctx[i].next_seed,16);
-            ctx[i].next_seed[0] = 0;
          }
          
          /* Waiting on GPU? ... */
@@ -483,43 +449,56 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
             return;
          }
       }
-
-      // Print GPU stats every 5 seconds
-      if ( (time(NULL) - gpu_stats_time) > 5 ) {
-         for (j = 0; j < nGPU; j++) {
-            if (enable_nvml) {
-               uint32_t temp = 0;
-               uint32_t power = 0;
-               nvmlReturn_t r = nvmlDeviceGetTemperature(gpus[j].nvml_dev, NVML_TEMPERATURE_GPU, &temp);
-               if (r != NVML_SUCCESS) {
-                  printf("nvmlDeviceGetTemperature failed: %s\n", nvmlErrorString(r));
-               }
-
-               r = nvmlDeviceGetPowerUsage(gpus[j].nvml_dev, &power);
-               if (r != NVML_SUCCESS) {
-                  printf("nvmlDeviceGetPowerUsage Failed: %s\n", nvmlErrorString(r));
-               }
-               gpus[j].temp = temp;
-               gpus[j].power = power;
-
-               printf("GPU %d: %7d H/s, Temperature: %d C, Power: %6.2f W\n", j,
-                     ctx[j].ahps, gpus[j].temp, gpus[j].power / 1000.0);
-            } else {
-               printf("GPU %d: %7d H/s\n", j, ctx[j].ahps);
-            }
-         }
-         gpu_stats_time = time(NULL);
-      }
       
-      /* Chill a bit if nothing is happening */
-      if(lastnHaiku == nHaiku) usleep(1000);
+      /* Print GPU stats and chill if waiting on all GPUs */
+      if(lastnHaiku == nHaiku) {
+         /* Print GPU stats every 5 seconds */
+         if ( (time(NULL) - gpu_stats_time) > 5 ) {
+            for (j = 0; j < nGPU; j++) {
+               if (enable_nvml) {
+                  uint32_t temp = 0;
+                  uint32_t power = 0;
+                  nvmlReturn_t r = nvmlDeviceGetTemperature(gpus[j].nvml_dev, NVML_TEMPERATURE_GPU, &temp);
+                  if (r != NVML_SUCCESS) {
+                     printf("nvmlDeviceGetTemperature failed: %s\n", nvmlErrorString(r));
+                  }
+
+                  r = nvmlDeviceGetPowerUsage(gpus[j].nvml_dev, &power);
+                  if (r != NVML_SUCCESS) {
+                     printf("nvmlDeviceGetPowerUsage Failed: %s\n", nvmlErrorString(r));
+                  }
+                  gpus[j].temp = temp;
+                  gpus[j].power = power;
+
+                  printf("GPU %d: %7d H/s, Temperature: %d C, Power: %6.2f W\n", j,
+                        ctx[j].ahps, gpus[j].temp, gpus[j].power / 1000.0);
+               } /* else {
+                  printf("GPU %d: %7d H/s\n", j, ctx[j].ahps);
+               } */
+            }
+            gpu_stats_time = time(NULL);
+         }
+         /* Chill for 1ms */
+         usleep(1000);
+      }
       else lastnHaiku = nHaiku;
    }
-    
-   seconds = time(NULL) - seconds;
-   if(seconds == 0) seconds = 1;
-   nHaiku /= seconds;
-   *hps = (uint32_t) nHaiku;
+   
+   /* Calculate Final Haiku/s */
+   ustart = 1000000 * nSeconds.tv_sec + nSeconds.tv_usec;
+   gettimeofday(&nSeconds, NULL);
+   uend = 1000000 * nSeconds.tv_sec + nSeconds.tv_usec;
+   tdiff = (uend - ustart) / 1000.0 / 1000.0;
+   *hps = (uint32_t) (nHaiku / tdiff);
+   
+   /* Reset Miner Data */
+   *found = 0;
+   for (i=0; i<nGPU; i++) {
+      cudaSetDevice(i);
+      memset(ctx[i].found, 0, 4);
+      cudaMemset(ctx[i].d_found, 0, 4);
+      ctx[i].scan_offset = ctx[i].nthread;
+   }
 }
 
 
