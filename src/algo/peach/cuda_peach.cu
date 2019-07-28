@@ -334,7 +334,7 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *bt) {
       
       /* Setup map and cache */
       cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
-      cuda_build_map<<<4096, 256, 16, ctx[i].stream>>>(ctx[i].d_map);
+      cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>(ctx[i].d_map);
    }
    
    /* Check for any GPU initialization errors */
@@ -422,7 +422,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
                                        cudaMemcpyHostToDevice, ctx[i].stream);
             }
             /* Start GPU round */
-            cuda_find_peach<<<ctx[i].nblock,ctx[i].nthread,0,ctx[i].stream>>>
+            cuda_find_peach<<<ctx[i].nblock,ctx[i].nthread,16,ctx[i].stream>>>
             (ctx[i].scan_offset, ctx[i].d_map, ctx[i].d_found, ctx[i].d_nonce);
             /* Retrieve GPU found status */
             cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
