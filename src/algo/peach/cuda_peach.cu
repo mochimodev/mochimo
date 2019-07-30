@@ -136,7 +136,7 @@ __global__ void cuda_find_peach(uint32_t offset, uint8_t *g_map,
       uint8_t first_seed[16];
       uint8_t last_seed[16], hash[32];
    CUDA_SHA256_CTX ictx;
-   int32_t i, j, n;
+   int32_t i, j, *x;
    uint32_t sm;
    
    /******************/
@@ -177,15 +177,21 @@ __global__ void cuda_find_peach(uint32_t offset, uint8_t *g_map,
    cuda_sha256_final(&ictx, hash);
    
    /* Evaluate hash */
-   for(i = j = n = 0; i < 8 && n == j; i++, j += 32)
-      n = __clz( __byte_perm( ((int32_t *) hash)[i], 0, 0x0123 ) );
-
-   if(n >= c_difficulty && !atomicExch(g_found, 1)) {
-      /* PRINCESS FOUND! */
+   x = (int32_t *) hash;
+   /* Coarse check */
+   for(i = c_difficulty >> 5; i; i--) 
+       if(*x++ != 0)
+          return; /* Our princess is in another castle ! */
+   /* Fine check */
+   if(__clz( __byte_perm(*x, 0, 0x0123) ) < (c_difficulty & 31) )
+      return; /* Our princess is in another castle ! */
+      
+   /* PRINCESS FOUND! */
+   /* Check for duplicate solves */
+   if(!atomicExch(g_found, 1)) {
       memcpy(g_nonce, first_seed, 16);
       memcpy(g_nonce + 16, last_seed, 16);
    }
-   /* Our princess is in another castle ! */
 }
 
 
