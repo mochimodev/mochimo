@@ -178,7 +178,10 @@ int update(char *fname, int mode)
    le_close();      /* close server ledger reference */
 
    if(Trace) plog("   About to call bval and bup...");
-
+   
+   /* Hotfix for critical bug identified on 09/26/19 */
+   if(exists("cblock.lck")) unlink("cblock.lck");
+   
    sprintf(cmd, "../bval %s", fname);  /* call validator on fname */
    system(cmd);
    if(!exists("vblock.dat")) {      /* validation failed */
