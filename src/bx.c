@@ -830,7 +830,9 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
             printf("dst[%d] amount: %s",
                    j, itoa64(mtx->dst[j].amount, NULL, 9, 1));
             printf("  tag: 0x");
-            bytes2hex(mtx->dst[j].tag, ADDR_TAG_LEN);
+            b2hexch(mtx->dst[j].tag, ADDR_TAG_LEN, ' ');
+            if(mtx->zeros[j]) printf("*");  /* tag was not found in ledger */
+            printf("\n");
          }  /* end for j */
       } else {
          printf("dst_addr:   0x");  disp_taddr(txq.dst_addr);

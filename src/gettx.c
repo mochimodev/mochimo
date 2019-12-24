@@ -93,35 +93,50 @@ int bval2(char *fname, byte *bnum, byte diff)
    word32 now;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
-   if(Trace) plog("bval2()");
+   if(Trace) plog("bval2() entered");
 
-   if(readtrailer(&bt, fname) != VEOK) return VERROR;
-   if(cmp64(bnum, bt.bnum) != 0) return VEBAD;
-   if(get32(bt.difficulty) != diff) return VERROR;
+   if(readtrailer(&bt, fname) != VEOK) {
+      if(Trace) plog("bval2() readtrailer() failed!");
+      return VERROR;
+   }
+   if(cmp64(bnum, bt.bnum) != 0) {
+      if(Trace) plog("bval2() bnum != bt.bnum (VEBAD)");
+      return VEBAD;
+   }
+   if(get32(bt.difficulty) != diff) {
+      if(Trace) plog("bval2() bt.difficulty != diff, likely split chain");
+   }
    /* Time Checks */
-   if(get32(bt.stime) <= Time0) return VERROR; /* bad time sequence */
+   if(get32(bt.stime) <= get32(bt.time0)) {
+      if(Trace) plog("bval2() bt.stime <= bt.time0!");
+      return VEBAD; /* bad time sequence */
+   }
    now = time(NULL);
-   if(get32(bt.stime) > (now + BCONFREQ)) return VERROR;  /* future */
+   if(get32(bt.stime) > (now + BCONFREQ)) {
+      if(Trace) plog("bval2() bt.stime in future!");
+      return VERROR;  /* future */
+   }
 
    /* Solution Check */
-
    if(cmp64(bnum, v24trigger) > 0) { /* v2.4 Algo */
-      if(peach(&bt, get32(bt.difficulty), NULL, 1)){
+      if(peach(&bt, get32(bt.difficulty), NULL, 1)) {
+         if(Trace) plog("bval2() peach() (VEBAD)");
          return VEBAD; /* block didn't validate */
       }
    }
    if(cmp64(bnum, v24trigger) <= 0) { /* v2.3 and prior */
       if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL) {
+         if(Trace) plog("bval2() trigg_check() (VEBAD)");
          return VEBAD;
       }
    }
-
+   if(Trace) plog("bval2() returns VEOK");
    return VEOK;
 }  /* end bval2() */
 
 
 /* Catch up by getting blocks: all else waits...
- * Return VERROR if contention, else VEOK.
+ * Returns VEOK if updates made, VEBAD if peer is Evil, else VERROR.
  */
 int catchup(word32 peerip)
 {
@@ -137,58 +152,74 @@ int catchup(word32 peerip)
       if(get_block2(peerip, bnum, "rblock.dat", OP_GETBLOCK) != VEOK) break;
       status = bval2("rblock.dat", bnum, Difficulty);
       if(status != VEOK) {
-         if(status == VEBAD) epinklist(peerip);
+         if(status == VEBAD) { epinklist(peerip); goto done; }
          break;
       }
-      if(update("rblock.dat", 0) != VEOK) {
-         if(count == 0) return VERROR;  /* contention */
-         break;  /* ignore */
-      }
+      if(update("rblock.dat", 0) != VEOK) break;
       count++;
    }  /* end for count */
-   return VEOK;
+   status = VEOK;
+   if(count == 0) status = VERROR;  /* no updates made */
+done:
+   if(Trace) plog("catchup() returns %d", status);
+   return status;
 }  /* end catchup() */
 
 
+/* Count of trailers that fit in a TX: */
+#define NTFTX (TRANLEN / sizeof(BTRAILER))
+
 /* Handle contention
- * Returns:  0 = ignore
+ * Returns:  0 = nothing else to do
  *           1 = do fetch block with child
- *           On Contention, calls restart().
  */
 int contention(NODE *np)
 {
-   byte diff[8];
-   int result;
+   word32 splitblock;
    TX *tx;
+   int result, j;
+   BTRAILER *bt;
 
-   if(Trace) plog("contention(?)");
+   if(Trace) plog("contention(): IP: %s", ntoa((byte *) &np->src_ip));
 
    tx = &np->tx;
-   /* ignore low block num */
-   if(cmp64(tx->cblock, Cblocknum) <= 0) return 0;
    /* ignore low weight */
-   if(cmp_weight(tx->weight, Weight) <= 0) return 0;
-
+   if(cmp_weight(tx->weight, Weight) <= 0) {
+      if(Trace) plog("contention(): Ignoring low weight");
+      return 0;
+   }
+   /* ignore NG blocks */
    if(tx->cblock[0] == 0) {
-      epinklist(np->src_ip);  /* protocol error */
-      return 0;  /* ignore block */
+      epinklist(np->src_ip);
+      return 0;
    }
 
-   sub64(tx->cblock, Cblocknum, diff);
-   result = cmp64(diff, One);
-   if(result ==  0) {  /* check if one block ahead */
-      if(memcmp(Cblockhash, tx->pblockhash, HASHLEN) == 0) {
-            if(Trace) plog("   found!");
-            return 1;  /* get block */
-      }
-   }  /* end if result == 0 -- one block ahead */
-
-   /* more than one block ahead or bad hash */
-   if(catchup(np->src_ip) != VEOK && checkproof(tx) != VEOK) {
-      write_data(&np->src_ip, 4, "rplist.lst");
-      restart("contend");  /* Contention - RESTART */
+   if(memcmp(Cblockhash, tx->pblockhash, HASHLEN) == 0) {
+      if(Trace) plog("contention(): get the expected block");
+      return 1;  /* get block */
    }
-   return 0;
+
+   /* Try to do a simple catchup() of more than 1 block on our own chain. */
+   j = get32(tx->cblock) - get32(Cblocknum);
+   if(j > 1 && j <= NTFTX) {
+        bt = (BTRAILER *) TRANBUFF(tx);  /* top of tx proof array */
+        /* Check for matching previous hash in the array. */
+        if(memcmp(Cblockhash, bt[NTFTX - j].phash, HASHLEN) == 0) {
+           result = catchup(np->src_ip);
+           if(result == VEOK) goto done;  /* we updated */
+           if(result == VEBAD) return 0;  /* EVIL: ignore bad bval2() */
+        }
+   }
+   /* Catchup failed so check the tx proof and chain weight. */
+   if(checkproof(tx, &splitblock) != VEOK) return 0;  /* ignore bad proof */
+   /* Proof is good so try to re-sync to peer */
+   if(syncup(splitblock, tx->cblock, np->src_ip) != VEOK) return 0;
+done:
+   /* send_found on good catchup or syncup */
+   send_found();  /* start send_found() child */
+   addcurrent(np->src_ip);
+   addrecent(np->src_ip);
+   return 0;  /* nothing else to do */
 }  /* end contention() */
 
 
@@ -338,9 +369,10 @@ int gettx(NODE *np, SOCKET sd)
       }
       return 1;  /* no child */
    } else if(opcode == OP_FOUND) {
+      /* getblock child, catchup, re-sync, or ignore */
       if(Blockfound) return 1;  /* Already found one so ignore.  */
       status = contention(np);  /* Do we want this block? */
-      if(status != 1) return 1; /* ignore: low block or weight */
+      if(status != 1) return 1; /* nothing to do: contention() fixed it */
 
       /* Get block */
       /* Check if bcon is running and if so stop her. */

@@ -39,10 +39,9 @@ int tx_val(TX *tx)
    static byte rnd2[32];            /* for WOTS addr[] */
    byte bnum[8] = {0}; 
    MTX *mtx;
-
+   static TX txs;
 
    if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
-
       if(Trace) plog("tx_val(): src == chg");  /* also mtx */
       return 2;
    }
@@ -64,7 +63,15 @@ int tx_val(TX *tx)
    }
 
    /* check WTOS signature */
-   sha256(tx->src_addr, SIG_HASH_COUNT, message);
+   if(ismtx(tx) && get32(Cblocknum) >= MTXTRIGGER) {
+      memcpy(&txs, tx, sizeof(txs));
+      mtx = (MTX *) TRANBUFF(&txs);  /* poor man's union */
+      memset(mtx->zeros, 0, NR_DZEROS);
+      sha256(txs.src_addr, SIG_HASH_COUNT, message);
+   } else {
+      sha256(tx->src_addr, SIG_HASH_COUNT, message);
+   }
+
    memcpy(rnd2, &tx->src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
    wots_pk_from_sig(pk2, tx->tx_sig, message, &tx->src_addr[TXSIGLEN],
                     (word32 *) rnd2);
@@ -100,4 +107,3 @@ int tx_val(TX *tx)
    }
    return 0;  /* tx valid */
 }  /* end tx_val() */
-

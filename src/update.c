@@ -17,8 +17,12 @@ int send_found(void)
    int ecode;
    TX tx;
 
-   if(Sendfound_pid)
-      return error("send_found() already running!");
+   if(Sendfound_pid) {
+      plog("send_found() is already running -- rerun it.");
+      kill(Sendfound_pid, SIGTERM);
+      waitpid(Sendfound_pid, NULL, 0);
+      Sendfound_pid = 0;
+   }
 
    Sendfound_pid = fork();
    if(Sendfound_pid == -1) {
@@ -241,7 +245,8 @@ after_bup:
    }
    Stime = Ltime + 20;  /* hold status display */
    if(!Ininit) {
-      if(exists("../update.sh")) system("../update.sh");  /* synchronous */
+      /* synchronous */
+      if(exists("../update-external.sh")) system("../update-external.sh");
    }
    if(mode != 2) {
       if(!Ininit) {

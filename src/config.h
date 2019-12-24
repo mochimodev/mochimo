@@ -81,6 +81,7 @@
 #define FIXTRIGGER 17697  /* for v2.0 difficulty patch */
 #define V23TRIGGER 54321  /* for v2.3 pseudoblocks */
 #define V24TRIGGER 0x12851 /* for v2.4 new FPGA Tough algo */
+#define MTXTRIGGER 133333 /* MTX flag activation block */
 #define MFEE 500
 
 /* NEWYEAR trigger */
@@ -92,8 +93,9 @@
                             && Cblocknum[0] != 0xfe            \
                             && (get32(Cblocknum) >= V23TRIGGER \
                             || get32(Cblocknum+4) != 0))
-
+#ifndef UBANDWIDTH
 #define UBANDWIDTH 14300   /* Dynamic upload bandwidth -- not zero */
+#endif
 
 /* ------ end Dev Section  -----*/
 

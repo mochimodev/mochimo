@@ -49,6 +49,7 @@ void trigg_solve(byte *link, int diff, byte *bnum);
 char *trigg_generate(byte *in, int diff);
 char *trigg_check(byte *in, byte d, byte *bnum);
 int get_ipl(NODE *np, word32 ip);
+void add_weight2(byte *weight, byte difficulty);
 
 void stop_mirror(void);
 int send_balance(NODE *np);
@@ -60,7 +61,10 @@ int send_hash(NODE *np);
 /* Source file: proof.c */
 int readtf(void *buff, word32 bnum, word32 count);
 int loadproof(TX *tx);
-int checkproof(TX *tx);
+int checkproof(TX *tx, word32 *matchblock);
+
+/* Source file: syncup.c */
+int syncup(word32 matchblock, byte *txcblock, word32 peerip);
 
 /* Source file: renew.c */
 int renew(void);

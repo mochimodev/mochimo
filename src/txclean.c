@@ -25,11 +25,11 @@ int txclean(void)
    static TXQENTRY tx;     /* Holds one transaction in the array */
    FILE *fp, *fpout;       /* txclean.dat */
    static LENTRY src_le;   /* for le_find() */
-   int count;
+   int count, message, tnum, j;
    word32 nout;            /* temp file output record counter */
    word32 total[2];
-   int message;            /* for BAIL() */
-   int tnum;
+   static byte addr[TXADDRLEN];
+   MTX *mtx;
 
    /* open the clean TX queue (txclean.dat) to read */
    fp = fpout = NULL;
@@ -57,6 +57,16 @@ int txclean(void)
       if(add64(tx.send_total, tx.change_total, total)) continue;
       if(add64(tx.tx_fee, total, total)) continue;
       if(cmp64(src_le.balance, total) != 0) continue;  /* bad balance */
+      if(ismtx(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+         mtx = (MTX *) &tx;
+         for(j = 0; j < NR_DST; j++) {
+            if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break;
+            memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
+            mtx->zeros[j] = 0;
+            /* If dst[j] tag not found, put error code in zeros[] array. */
+            if(tag_find(addr, addr, NULL) != VEOK) mtx->zeros[j] = 1;
+         }
+      }
       count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout);
       if(count != sizeof(TXQENTRY)) BAIL(4);
       nout++;

@@ -122,9 +122,9 @@ int main(int argc, char **argv)
    MTX *mtx;
    static byte addr[TXADDRLEN];  /* for mtx scan 4 */
    int j;  /* mtx */
+   static TXQENTRY txs;     /* for mtx sig check */
 
-   
-   
+
    ticks = clock();
    fix_signals();
    close_extra();
@@ -283,7 +283,14 @@ badread:
       memcpy(prev_tx_id, tx_id, HASHLEN);
 
       /* check WTOS signature */
-      sha256(tx.src_addr, SIG_HASH_COUNT, message);
+      if(ismtx(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+         memcpy(&txs, &tx, sizeof(txs));
+         mtx = (MTX *) &txs;
+         memset(mtx->zeros, 0, NR_DZEROS);  /* always signed when zero */
+         sha256(txs.src_addr, SIG_HASH_COUNT, message);
+      } else {
+         sha256(tx.src_addr, SIG_HASH_COUNT, message);
+      }
       memcpy(rnd2, &tx.src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
       wots_pk_from_sig(pk2, tx.tx_sig, message, &tx.src_addr[TXSIGLEN],
                        (word32 *) rnd2);
@@ -393,7 +400,7 @@ fee_overflow:
       if(!ismtx(qp1)) continue;  /* only multi-dst's this time */
       mtx = (MTX *) qp1;  /* poor man's union */
       /* For each dst[] tag... */
-      for(j = 0; j < 100; j++) {
+      for(j = 0; j < NR_DST; j++) {
          if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break; /* end of dst[] */
          memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
          /* If dst[j] tag not found, write money back to chg addr. */

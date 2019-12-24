@@ -10,8 +10,8 @@
 */
 
 /* build sequence */
-#define PATCHLEVEL 34
-#define VERSIONSTR  "34"   /*   as printable string */
+#define PATCHLEVEL 36
+#define VERSIONSTR  "36"   /*   as printable string */
 
 /* Include everything that we need */
 #include "config.h"
@@ -53,6 +53,7 @@
 #include "renew.c"
 #include "update.c"
 #include "init.c"       /* read Coreplist[] and get_eon()  */
+#include "syncup.c"     /* Resync Node on Inferior Chain   */
 #include "server.c"     /* tcp server                      */
 
 

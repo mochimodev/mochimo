@@ -54,7 +54,7 @@ bail:
 }  /* end renew() */
 
 
-/* Refresh the ip list and catch up if needed.
+/* Refresh the ip list and send_found() to low-weight peer if needed.
  * Called from server().
  * Returns result code.
  */
@@ -63,24 +63,20 @@ int refresh_ipl(void)
    NODE node;
    int j, message = 0;
    word32 ip;
-   byte bnum[8];
+   TX tx;
 
    for(j = ip = 0; j < 1000 && ip == 0; j++)
       ip = Rplist[rand16() % RPLISTLEN];
    if(ip == 0) BAIL(1);
    if(get_ipl(&node, ip) != VEOK) BAIL(2);
-   /* ignore low block num */
-   if(cmp64(node.tx.cblock, Cblocknum) <= 0) BAIL(3);
-   /* ignore low weight */
-   if(cmp_weight(node.tx.weight, Weight) <= 0) BAIL(4);
-
-   /* catchup loop */
-   put64(bnum, Cblocknum);
-   for( ; Running; ) {
-      add64(bnum, One, bnum);
-      if(bnum[0] == 0) continue;  /* do not fetch NG blocks */
-      if(get_block2(ip, bnum, "refresh.tmp", OP_GETBLOCK) != VEOK) BAIL(5);
-      if(update("refresh.tmp", 0) != VEOK) BAIL(6);
+   /* Check peer's chain weight against ours. */
+   if(cmp_weight(node.tx.weight, Weight) < 0) {
+      /* Send found message to low weight peer */
+      loadproof(&tx);  /* get proof from tfile.dat */
+      if(callserver(&node, ip) != VEOK) BAIL(3);
+      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      send_op(&node, OP_FOUND);
+      closesocket(node.sd);
    }
 bail:
    if(Trace) plog("refresh_ipl(): %d", message);

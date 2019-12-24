@@ -3,14 +3,52 @@
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  */
+
+Patch Level 37 (Mochimo v2.4.1)
+      Added Syncup Function, Removing Contention
+      made mochimo/bin/d/split
+      modified bx.c to indicate tags not found in MTX.
+      replaced 100 with NR_DST in bval.c mtxval.c txclean.c
+      proof.c changed comments
+      syncup.c changed fprintf's to plog's
+      server.c changed ipltime from 600 to 300.
+      rewrote checkproof() in proof.c
+      changed comments and plog's in gettx.c
+      fixed missing error return lines in bval2() in gettx.c:
+      put back V23TRIGGER check in checkproof() in proof.c
+      tried to improve comments and plog() messages.
+      removed FILE *rlog from syncup().
+      added send_found() to syncup.c.
+      added Send found message to low weight peer in refresh_ipl()
+         in renew.c.
+      added MTXTRIGGER to bval.c mtxval.c txclean.c txval.c config.h.
+      added support for third-party utility integration, with:
+      added system call to init-external.sh on initial system sync
+      added system call to update-external.sh on successful block update
+      added advanced support for block-explorer export functionality
+      Added support for third-party utility triggered system restart()
+      Added directories mochimo/src/test and mochimo/src/old for testing this build
+      Added weight checks to contention() and checkproof()
+      Bugs fixed in checkproof()
+      Added functions sub_weight(), and past_weight() to proof.c
+      Added return code to send_found() in update.c
+      Added sftimer for send_found() in server.c
+      Added vstart.lck restart trigger (Verisimility) to server.c
+      Updated comments
+      Fixed bug in past_weight() to skip NG blocks
+      Fixed bug in checkproof() to skip Difficulty check on init.
+      Fixed bug in syncup() w/first previous NG block
+      Swapped Bail(1) and Bail(2) to avoid recomputing past_weight() if
+         first trailer doesn't match.
+      Improved Code readability / comments for checkproof() bail conditions 6 & 7
+      Fixed bug in syncup() to skip NG blocks
+
 Patch Level 34
 added FPGA-Resistant Algorithm
   -Extensible High-Memory Algo v24()
 added Multi-Destination Transactions
   -Scales up high volume third-party payment systems.
-added security fixes and networking tweaks
- 
- 
+added security fixes and networking tweaks 
  
 Patch Level 33 (Mochimo Version 2.3)
 

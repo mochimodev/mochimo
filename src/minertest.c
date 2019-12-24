@@ -1,6 +1,6 @@
 
-#define PATCHLEVEL 33
-#define VERSIONSTR  "33"   /*   as printable string */
+#define PATCHLEVEL 36
+#define VERSIONSTR  "36"   /*   as printable string */
 
 /* Include everything that we need */
 #include "config.h"

@@ -305,7 +305,7 @@ void add_weight(byte *weight, int difficulty, byte *bnum)
    else add_weight2(weight, difficulty);
 
    if(Trace)
-      plog("add_weight(): + %d --> %d", difficulty, get32(weight));
+      plog("add_weight(): + %d --> %u", difficulty, get32(weight));
 }  /* end add_weight() */
 
 
@@ -893,13 +893,14 @@ top:
          goto try_again;
       }
    }  /* end for block download-update */
-#ifdef BX_MYSQL
-   // Post-sync hook for database export
-   if (Exportflag) {
-     printf("Exporting to database.\n");
-     system("../bx -e");
+
+   /* Post-sync hook for external SQL database export */
+   /* Shell script in /bin directory */
+   if(Exportflag && exists("../init-external.sh")) {
+     plog("Calling ../init-external.sh\n");  /* first time call */
+     system("../init-external.sh");
    }
-#endif
+
    if(!Running) resign("quorum update");
 
    /* ****************

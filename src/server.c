@@ -17,7 +17,7 @@
 int server(void)
 {
    static time_t nsd_time;  /* event timers */
-   static time_t bctime, mwtime, mqtime;
+   static time_t bctime, mwtime, mqtime, sftime;
    static time_t ipltime;
    static SOCKET lsd, nsd;
    static NODE *np, node;
@@ -39,8 +39,9 @@ int server(void)
    Utime = Ltime;           /* for watchdog timer */
    Watchdog = WATCHTIME + (rand2() % 600);
    Bridgetime = Time0 + BRIDGE;  /* pseudo-block timer */
-   bigwait = (60*60*24) + (rand2() % 10800);  /* 1 day + ~ 3 hours */
-   ipltime = Ltime + (rand2() % 600) + 10;  /* ip list fetch time */
+   bigwait = (60*60*3) + (rand2() % 10800);  /* between 3 and 6 hours */
+   ipltime = Ltime + (rand2() % 300) + 10;  /* ip list fetch time */
+   sftime = Ltime + (rand2() % 300) + 300;  /* send_found() time */
 
    if((lsd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
       fatal("Cannot open listening socket.");
@@ -69,6 +70,8 @@ int server(void)
       send_found();
    }
    else plog("Listening...");
+
+   unlink("vstart.lck");  /* signal Verisimility that we are up. */
 
    /*
     * Main server loop.
@@ -101,13 +104,6 @@ int server(void)
                   send_found();  /* start send_found() child */
                   addcurrent(np->src_ip);  /* v.28 */
                   addrecent(np->src_ip);   /* v.28 */
-#ifdef BX_MYSQL
-                  // If we've received a new block from peers update the database
-                  if (Exportflag) {
-                    printf("Exporting to database.\n");
-                    system("../bx -e");
-                  }
-#endif
                }
                Blockfound = 0;
             }
@@ -291,10 +287,20 @@ int server(void)
          }
       }
 
+      /* Check for restart signal from Verisimility every 4 seconds */
+      if((Ltime & 3) == 0 && exists("vstart.tmp")) restart("Verisimility");
+
       if(Ltime >= ipltime) {
-         refresh_ipl();
-         ipltime = Ltime + (rand2() % 600) + 10;
+         refresh_ipl();  /* refresh ip list */
+         ipltime = Ltime + (rand2() % 300) + 10;
       }
+
+      /* Check random send_found() timer */
+      if(Ltime >= sftime) {
+         if(Sendfound_pid == 0) send_found();
+         sftime = Ltime + (rand2() % 300) + 300;
+      }
+
 
       /* dynamic sleep function */
       if(Dynasleep != 0 && Nonline < 1) usleep(Dynasleep);

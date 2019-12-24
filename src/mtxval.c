@@ -19,6 +19,7 @@ int mtx_val(MTX *mtx, word32 *fee)
 {
    int j, message;
    byte total[8], mfees[8], *bp, *limit;
+   static byte addr[TXADDRLEN];
 
    limit = &mtx->zeros[0];
 
@@ -35,7 +36,7 @@ int mtx_val(MTX *mtx, word32 *fee)
    memset(total, 0, 8);
    memset(mfees, 0, 8);
    /* Tally each dst[] amount and mfees... */
-   for(j = 0; j < 100; j++) {
+   for(j = 0; j < NR_DST; j++) {
       /* zero dst[] tag marks end of list.  */
       if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) {
          for(bp = mtx->dst[j].amount; bp < limit; bp++) {
@@ -50,6 +51,12 @@ int mtx_val(MTX *mtx, word32 *fee)
       /* tally fees and send_total */
       if(add64(total, mtx->dst[j].amount, total)) BAIL(7);
       if(add64(mfees, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
+      if(get32(Cblocknum) >= MTXTRIGGER) {
+         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
+         mtx->zeros[j] = 0;
+         /* If dst[j] tag not found, put error code in zeros[] array. */
+         if(tag_find(addr, addr, NULL) != VEOK) mtx->zeros[j] = 1;
+      }
    }  /* end for j */
    /* Check tallies... */
    if(cmp64(total, mtx->send_total) != 0) BAIL(9);

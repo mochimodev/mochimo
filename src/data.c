@@ -35,9 +35,7 @@ word32 Time0;        /* for set_difficulty()                      */
 word32 Bridgetime;   /* for Pseudoblock Trigger                   */
 word32 Sanctuary;
 word32 Lastday;
-#ifdef BX_MYSQL
-byte Exportflag;     /* allow database export if compiled         */
-#endif
+byte Exportflag;     /* enable database export if BX_MYSQL defined */
 
 
 /*
