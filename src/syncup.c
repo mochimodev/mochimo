@@ -27,6 +27,7 @@ int syncup(word32 splitblock, byte *txcblock, word32 peerip)
    show("syncup");
    if(Bcpid) { /* Wait for block constructor to exit... */
       if(Trace) plog("syncup(): Waiting for bcon to exit...");
+      kill(Bcpid, SIGTERM);
       waitpid(Bcpid, NULL, 0);
       Bcpid = 0;
    }
