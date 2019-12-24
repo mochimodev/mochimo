@@ -63,7 +63,7 @@ int past_weight(byte *weight, word32 lownum)
    if(lownum >= cbnum) BAIL(1);
    memcpy(weight, Weight, 32);
    for( ; cbnum > lownum; cbnum--) {
-      if((cbnum & 0xff) == 0) continue;
+      if((cbnum & 0xff) == 0) continue;  /* skip NG blocks */
       if(readtf(&bts, cbnum, 1) != 1) BAIL(2);
       sub_weight(weight, bts.difficulty[0]);
    }
@@ -74,7 +74,8 @@ bail:
    return message;
 }  /* end past_weight() */
 
-#define INVALID_DIFFICULTY 256
+
+#define INVALID_DIFF 256
 
 /* Check the proof given from peer's tfile.dat in an OP_FOUND message.
  * Return VEOK to run syncup(), else error code to ignore peer.
@@ -89,8 +90,6 @@ int checkproof(TX *tx, word32 *splitblock)
    static word32 tnum[2];
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
    byte weight[32];
-
-   diff = INVALID_DIFFICULTY;
 
    /* Check preconditions for proof scan: */
    *splitblock = 0;  /* invalid syncup() block */
@@ -108,13 +107,12 @@ int checkproof(TX *tx, word32 *splitblock)
    count = readtf(&bts, tnum[0], 1);  /* so read our tfile */
    /* and compare it to theirs. */
    if(count != 1 || memcmp(bt, &bts, sizeof(BTRAILER)) != 0) BAIL(1);
-   /* Compute our weight at their low block number. */
+   /* If we get here, our weights must also match at the first trailer. */
+   /* Compute our weight at their low block number less one. */
    if(past_weight(weight, tnum[0] - 1) != VEOK) BAIL(2);
-   /* If we get here, our weights must also match at the first trailer
-    * and that weight is now in weight[].
-    */
 
    /* Verify peer's proof trailers in OP_FOUND TX. */
+   diff = INVALID_DIFF;
    now = time(NULL);
    prevnum = highblock - 1;
    bt = (BTRAILER *) TRANBUFF(tx);
@@ -126,34 +124,35 @@ int checkproof(TX *tx, word32 *splitblock)
       stime = get32(bt->stime);
       time0 = get32(bt->time0);
       difficulty = get32(bt->difficulty);
-      if(stime <= time0) BAIL(4);  /* bad solve time sequence */
-      if(stime > (now + BCONFREQ)) BAIL(5);  /* a future block is bad */
+      if(difficulty > 255) BAIL(4);
+      if(stime <= time0) BAIL(5);  /* bad solve time sequence */
+      if(stime > (now + BCONFREQ)) BAIL(6);  /* a future block is bad */
+      if(j != 0 && memcmp(bt->phash, (bt - 1)->bhash, HASHLEN)) BAIL(7);
       if(bt->bnum[0] == 0) continue;  /* skip NG block */
-      if(diff != INVALID_DIFFICULTY) {
-         if(difficulty != diff) BAIL(6);  /* bad difficulty sequence */
-         if(memcmp(bt->phash, (bt - 1)->bhash, HASHLEN)) BAIL(7);
+      if(diff != INVALID_DIFF) {
+         if(difficulty != diff) BAIL(8);  /* bad difficulty sequence */
       }
-      /* stime must increase */
       if(j != 0) {
-         if(stime <= (s = get32((bt - 1)->stime))) BAIL(8);
-         if(time0 != s) BAIL(9);  /* time0 must == the previous stime */
+         /* stime must increase */
+         if(stime <= (s = get32((bt - 1)->stime))) BAIL(9);
+         if(time0 != s) BAIL(10);  /* time0 must == the previous stime */
       }
       if(get32(bt->tcount) != 0) {
          /* bt is not a pseudoblock so check work: */
          if(cmp64(bt->bnum, v24trigger) > 0) {  /* v2.4 */
-            if(peach(bt, difficulty, NULL, 1)) BAIL(10);
+            if(peach(bt, difficulty, NULL, 1)) BAIL(11);
          } else {  /* v2.3 and prior */
-            if(trigg_check(bt->mroot, difficulty, bt->bnum) == NULL) BAIL(11);
+            if(trigg_check(bt->mroot, difficulty, bt->bnum) == NULL) BAIL(12);
          }
       }
       add_weight2(weight, difficulty);  /* tally peer's chain weight */
       /* Compute diff = next difficulty to check next peer trailer. */
       diff = set_difficulty(difficulty, stime - time0, stime,
                             (byte *) tnum);
-      if(!Running) BAIL(12);
+      if(!Running) BAIL(13);
    }  /* end for j, bt -- proof trailers check */
 
-   if(memcmp(weight, tx->weight, 32)) BAIL(13);  /* their weight is bad */
+   if(memcmp(weight, tx->weight, 32)) BAIL(14);  /* their weight is bad */
 
    /* Scan through trailer array to find where chain splits: splitblock */
    bt = (BTRAILER *) TRANBUFF(tx);
@@ -166,11 +165,11 @@ int checkproof(TX *tx, word32 *splitblock)
          *splitblock = tnum[0];  /* return first non-matching block number */
          break;
       }
-      if(!Running) BAIL(14);
+      if(!Running) BAIL(15);
       /* trailers match -- continue scan */
    }  /* end for j, bt -- split detection */
-   if(j == 0) BAIL(15);  /* never matched -- should not happen */
-   if(j >= NTFTX) BAIL(16);  /* no split found -- should not happen */
+   if(j == 0) BAIL(16);  /* never matched -- should not happen */
+   if(j >= NTFTX) BAIL(17);  /* no split found -- should not happen */
 allow:
    if(Trace) plog("checkproof() splitblock = 0x%x", *splitblock);
    return VEOK;  /* allow syncup() to run */

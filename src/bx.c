@@ -432,15 +432,27 @@ void disp_bh(BHEADER *bh, BTRAILER *bt)
 /* Hex converter */
 void hexcon(void)
 {
-   char buff[81];
+   char buff[81], *cp;
    unsigned long val;
+   int n;
 
    for(;;) {
-      printf("Enter value (e.g. decimal 123, or hex 0123, p=previous): ");
+      printf("Enter value (e.g. 'string, or decimal 123, or hex 0123,"
+             " p=previous):\n");
       tgets(buff, 80);
+      if(*buff == '\'') {
+         printf("0x");
+         for(cp = buff + 1; *cp; cp++) printf("%02x", *cp);
+         printf("\n");
+         continue;
+      }
       if(buff[0] < '0' || buff[0] > '9') break;
       val = getval(buff);
-      printf("%lu  (0x%lx)  [0x%s]\n", val, val, b2hex8((byte *) &val));
+      printf("%lu  (0x%lx)  [0x%s]    ", val, val, b2hex8((byte *) &val));
+      for(cp = (char *) &val, n = sizeof(val); n; n--, cp++) {
+         if(*cp >= ' ' && *cp < 127) printf("%c", *cp); else printf(".");
+      }
+      printf("\n");
    }  /* end for */
 }
 

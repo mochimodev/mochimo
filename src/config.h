@@ -87,13 +87,13 @@
 /* NEWYEAR trigger */
 #define NEWYEAR(bnum) (get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0)
 
-#define WATCHTIME  (BRIDGE*4+1)  /* Default minimum watchdog time for -w switch */
+#define WATCHTIME  (BRIDGE*4+1)  /* minimum watchdog time */
 #define BRIDGE     949           /* Trouble time -- Edit for testing */
 #define TIMES_OF_TROUBLE() (Ltime >= Bridgetime                \
-                            && Cblocknum[0] != 0xfe            \
                             && (get32(Cblocknum) >= V23TRIGGER \
                             || get32(Cblocknum+4) != 0))
-#ifndef UBANDWIDTH
+
+#ifndef UBANDWIDTH 
 #define UBANDWIDTH 14300   /* Dynamic upload bandwidth -- not zero */
 #endif
 

@@ -4,7 +4,7 @@
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 25 April 2018
- * Updated: 10 May 2019
+ * Updated: 15 December 2019
 */
 
 /* Creates child to send OP_FOUND to all recent peers */
@@ -143,10 +143,12 @@ word32 gethdrlen(char *fname)
 int update(char *fname, int mode)
 {
    char cmd[100];
+   char *solvestr;
 
    if(Trace) plog("Entering update()");
    if(!exists(fname)) return VERROR;
    show("update");
+   solvestr = NULL;
 
    if(Bcpid) {
       if(Trace) plog("   Waiting for bcon to exit...");
@@ -182,10 +184,14 @@ int update(char *fname, int mode)
    le_close();      /* close server ledger reference */
 
    if(Trace) plog("   About to call bval and bup...");
-   
+
    /* Hotfix for critical bug identified on 09/26/19 */
-   if(exists("cblock.lck")) unlink("cblock.lck");
-   
+   if(exists("cblock.lck")) {
+      unlink("cblock.lck");
+      solvestr = "pushed";
+   }
+
+   tag_free(); /* Erase Tagidx[] to be rebuilt on next tag_find() call. */
    sprintf(cmd, "../bval %s", fname);  /* call validator on fname */
    system(cmd);
    if(!exists("vblock.dat")) {      /* validation failed */
@@ -229,36 +235,37 @@ after_bup:
               bnum2hex(Cblocknum));
       }
       if(CAROUSEL(Cblocknum)) {
+         tag_free();  /* Erase old in-memory Tagidx[] */
          if(renew()) goto err;
+         txclean();  /* clean the tx queue */
          if(le_open("ledger.dat", "rb") != VEOK) goto err;  /* reopen */
       }
    }
-   if(mode == 1) {
-      if(exists("cblock.lck")) {
-         unlink("cblock.lck");
-         if(Trace) plog("updated pushed block 0x%s", bnum2hex(Cblocknum));
-      }
-      else {
-         Nsolved++;  /* our block */
-         write_data(&Nsolved, 4, "solved.dat");
-      }
+   if(mode == 1 && Insyncup == 0 && solvestr == NULL) { /* not "pushed" */
+      solvestr = "solved";
+      Nsolved++;  /* our block */
+      write_data(&Nsolved, 4, "solved.dat");
    }
    Stime = Ltime + 20;  /* hold status display */
    if(!Ininit) {
       /* synchronous */
       if(exists("../update-external.sh")) system("../update-external.sh");
    }
-   if(mode != 2) {
+   if(mode != 2) {  /* not a pseudo-block */
       if(!Ininit) {
-         plog("Block %s: 0x%s", mode ? "solved" : "updated",
-              bnum2hex(Cblocknum));
-         if(!Bgflag) printf("Solved: %u  Haiku/second: %lu  Difficulty: %d\n",
-                            Nsolved, (unsigned long) Hps, Difficulty);
-         Nupdated++;
+         if(Insyncup) plog("Syncing Block: 0x%s", bnum2hex(Cblocknum));
+         else {
+            if(solvestr == NULL) solvestr = "updated";
+            plog("Block %s: 0x%s", solvestr, bnum2hex(Cblocknum));
+            if(!Bgflag)
+               printf("Solved: %u  Haiku/second: %lu  Difficulty: %d\n",
+                      Nsolved, (unsigned long) Hps, Difficulty);
+            Nupdated++;
+         }  /* end if !Insyncup */
          Utime = time(NULL);  /* update time for watchdog */
-      }
-   }
-   Bridgetime = Time0 + BRIDGE;
+      }  /* end if !Ininit */
+   }  /* end if not-pseudo-block */
+   Bridgetime = Time0 + BRIDGE;  /* advance pseudo-block timer */
    return VEOK;
 err:
    restart("update error!");

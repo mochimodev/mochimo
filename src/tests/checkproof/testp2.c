@@ -3,6 +3,8 @@
    int sub_weight(byte *weight, byte difficulty);
    int past_weight(byte *weight, word32 lownum);
 
+   See LICENSE.PDF
+
    Date: 23 November 2019
 */
 

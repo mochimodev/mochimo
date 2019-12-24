@@ -37,7 +37,6 @@ int tx_val(TX *tx)
    static byte message[HASHLEN];    /* transaction hash for WOTS */
    static byte pk2[TXSIGLEN];       /* more WOTS */
    static byte rnd2[32];            /* for WOTS addr[] */
-   byte bnum[8] = {0}; 
    MTX *mtx;
    static TX txs;
 
@@ -102,8 +101,7 @@ int tx_val(TX *tx)
       if(mtx_val(mtx, Myfee)) return 1;  /* bad mtx */
    } else {
       if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr,
-                   1, &bnum[0]) != VEOK) return 1;  /* bad tag */
-
+                   NULL) != VEOK) return 1;  /* bad tag */
    }
    return 0;  /* tx valid */
 }  /* end tx_val() */

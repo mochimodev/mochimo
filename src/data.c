@@ -72,6 +72,7 @@ word32 Coreplist[CORELISTLEN] = {  /* ip's of the Core Network */
 
 int Quorum = 4;         /* Number of peers in get_eon() gang[MAXQUORUM] */
 byte Ininit;            /* non-zero when init() runs */
+byte Insyncup;          /* non-zero when syncup() runs */
 byte Safemode;          /* Safe mode enable */
 byte Nominer;           /* Do not start miner if true -n */
 word32 Watchdog;        /* enable watchdog timeout -wN */

@@ -5,6 +5,22 @@
  */
 
 Patch Level 37 (Mochimo v2.4.1)
+
+      Changed PATCHLEVEL to 37 in mochimo.c and minertest.c
+      Changed VERSIONSTR to "37" in mochimo.c and minertest.c
+      Fixed previous hash check in checkproof() in proof.c
+      Added byte Insyncup;  /* non-zero when syncup() runs */ to data.c
+      Added Insyncup to syncup() in syncup.c
+      Added addrlen to le_find() in ledger.c
+      Added Tagidx[] to tag.c
+      Changed tag_find() in tag.c, txclean.c, and mtxval.c
+      Added tag_free() to tag.c, update.c
+      Changed pval.c server.c, and config.h to allow 0xff pseudo-blocks
+      Removed bigwait from server.c
+      Added proper time_t vtime for vstart.lck check in server.c
+      Added Insyncup to update() in update.c to help plog()'s
+      Added char *solvestr to update() to reckon pushed, solved, and updated blocks.
+      Simplified parameter logic in tag_valid() and calls from bval and txval.c.
       Added Syncup Function, Removing Contention
       made mochimo/bin/d/split
       modified bx.c to indicate tags not found in MTX.

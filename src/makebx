@@ -1,0 +1,6 @@
+#!/bin/sh
+echo Making bx...
+cc -DUNIXLIKE -DLONG64 -c crypto/hash/cpu/sha256.c
+cc -DUNIXLIKE -DLONG64 -c algo/trigg/trigg.c
+cc -DUNIXLIKE -DLONG64 -o bx bx.c trigg.o sha256.o
+rm trigg.o sha256.o

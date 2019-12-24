@@ -310,7 +310,7 @@ badread:
       if(cmp64(src_le.balance, total) != 0)
          drop("bad transaction total");
       if(!ismtx(&tx)) {
-         if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, 0, bt.bnum)
+         if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, bt.bnum)
             != VEOK) drop("tag not valid");
       } else {
          if(mtx_val((MTX *) &tx, Mfee) != 0) drop("bad mtx_val()");

@@ -17,7 +17,7 @@
 int server(void)
 {
    static time_t nsd_time;  /* event timers */
-   static time_t bctime, mwtime, mqtime, sftime;
+   static time_t bctime, mwtime, mqtime, sftime, vtime;
    static time_t ipltime;
    static SOCKET lsd, nsd;
    static NODE *np, node;
@@ -26,7 +26,6 @@ int server(void)
    static pid_t pid;    /* child pid */
    static int lfd;      /* for lock() */
    static word32 hps;  /* same as Hps in monitor.c */
-   static word32 bigwait;
 
    Running = 1;          /* globals are in data.c */
 
@@ -39,9 +38,9 @@ int server(void)
    Utime = Ltime;           /* for watchdog timer */
    Watchdog = WATCHTIME + (rand2() % 600);
    Bridgetime = Time0 + BRIDGE;  /* pseudo-block timer */
-   bigwait = (60*60*3) + (rand2() % 10800);  /* between 3 and 6 hours */
    ipltime = Ltime + (rand2() % 300) + 10;  /* ip list fetch time */
    sftime = Ltime + (rand2() % 300) + 300;  /* send_found() time */
+   vtime = Ltime + 4;  /* Verisimility restart check time */
 
    if((lsd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
       fatal("Cannot open listening socket.");
@@ -282,13 +281,14 @@ int server(void)
       if(Monitor && !Bgflag) monitor();
 
       if(Watchdog && (Ltime - Utime) >= Watchdog) {
-         if(Cblocknum[0] != 0xfe || (Ltime - Utime) >= bigwait) {
-            restart("watchdog");
-         }
+         restart("watchdog");
       }
 
       /* Check for restart signal from Verisimility every 4 seconds */
-      if((Ltime & 3) == 0 && exists("vstart.tmp")) restart("Verisimility");
+      if(Ltime >= vtime) {
+         if(exists("vstart.lck")) restart("Verisimility");
+         vtime += 4;
+      }
 
       if(Ltime >= ipltime) {
          refresh_ipl();  /* refresh ip list */

@@ -1,4 +1,4 @@
-/* ledger.c  Search, read, and write to ledger.dat
+/* ledger.c  Open, close, and search ledger.dat
  *
  * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
@@ -55,6 +55,7 @@ void le_close(void)
 int le_find(byte *addr, LENTRY *le, long *position, int mode)
 {
    long cond, mid, hi, low;
+   size_t addrlen;
 
    if(Lefp == NULL) {
       Lerror = error("le_find(): use le_open() first!");
@@ -63,6 +64,7 @@ int le_find(byte *addr, LENTRY *le, long *position, int mode)
 
    low = 0;
    hi = Nledger - 1;
+   if(mode == 1) addrlen = TXADDRLEN-12; else addrlen = TXADDRLEN;
 
    while(low <= hi) {
       mid = (hi + low) / 2;
@@ -70,11 +72,7 @@ int le_find(byte *addr, LENTRY *le, long *position, int mode)
          { Lerror = error("le_find(): fseek");  break; }
       if(fread(le, 1, sizeof(LENTRY), Lefp) != sizeof(LENTRY))
          { Lerror = error("le_find(): fread");  break; }
-      if(mode == 1) {
-         cond = memcmp(addr, le->addr, TXADDRLEN-12);
-      } else {
-         cond = memcmp(addr, le->addr, TXADDRLEN);
-      }
+      cond = memcmp(addr, le->addr, addrlen);
       if(cond == 0) {
          if(position) *position = mid;
          return 1;  /* found target addr */

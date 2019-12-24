@@ -55,7 +55,7 @@ int mtx_val(MTX *mtx, word32 *fee)
          memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
          mtx->zeros[j] = 0;
          /* If dst[j] tag not found, put error code in zeros[] array. */
-         if(tag_find(addr, addr, NULL) != VEOK) mtx->zeros[j] = 1;
+         if(tag_find(addr, NULL, NULL) != VEOK) mtx->zeros[j] = 1;
       }
    }  /* end for j */
    /* Check tallies... */

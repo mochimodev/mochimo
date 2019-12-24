@@ -23,6 +23,7 @@ int syncup(word32 splitblock, byte *txcblock, word32 peerip)
    NODE *np2;
    time_t lasttime;
 
+   Insyncup = 1;
    show("syncup");
    if(Bcpid) { /* Wait for block constructor to exit... */
       if(Trace) plog("syncup(): Waiting for bcon to exit...");
@@ -116,7 +117,7 @@ int syncup(word32 splitblock, byte *txcblock, word32 peerip)
    if(Trace) plog("Download and update missing blocks from peer...");
    put64(bnum, sblock);
    for(j = 0; ; ) {
-      if(bnum[0] == 0) add64(bnum, One, bnum); /* don't get NG block */
+      if(bnum[0] == 0) add64(bnum, One, bnum);  /* skip NG blocks */
       sprintf(buff, "b%s.bc", bnum2hex(bnum));
       if(j == 60) {
          if(Trace) plog("syncup(): failed while downloading %s from %s",
@@ -143,6 +144,7 @@ int syncup(word32 splitblock, byte *txcblock, word32 peerip)
    if(result) plog("syncup(): tfval() error: %d", result);
    memcpy(Weight, tfweight, HASHLEN);
    if(result == 0) plog("syncup() is good!");
+   Insyncup = 0;
    return VEOK;
 
 badsyncup:
@@ -156,5 +158,6 @@ badsyncup:
    reset_difficulty(NULL, Bcdir);  /* reset Difficulty and others */
    memcpy(Weight, saveweight, HASHLEN);
    le_open("ledger.dat", "rb");
+   Insyncup = 0;
    return VEOK;
 }  /* end syncup() */

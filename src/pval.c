@@ -34,7 +34,7 @@ int pval(char *fname)
    /* read trailer */
    if(fseek(fp, -(sizeof(BTRAILER)), SEEK_END)) BAIL(6);
    if(fread(&bt, sizeof(BTRAILER), 1, fp) != 1) BAIL(7);
-   fclose(fp);  /* was opened by bval() */
+   fclose(fp);
    fp = NULL;
 
    /* check zeros */
@@ -79,8 +79,6 @@ int bridge(void)
    word32 temp;
    FILE *fp = NULL;
    int message;
-
-   if(Cblocknum[0] == 0xfe) BAIL(1);  /* internal error */
 
    if(Trace) plog("Making pblock.dat...");
 
