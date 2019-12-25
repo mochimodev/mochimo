@@ -4,7 +4,7 @@
 # Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
-# Revised: 29 June 2019
+# Revised: 12 December 2019
 #
 ###################
 # Preconfiguration
@@ -67,7 +67,7 @@ fi
 # Splash screen
 clear
 echo
-echo "Mochimo Cryptocurrency Engine v2.4 PATCHLEVEL 34"
+echo "Mochimo Cryptocurrency Engine v2.4.1 PATCHLEVEL 37"
 echo "Original v2 Release: October 27, 2018"
 echo
 sleep 1
