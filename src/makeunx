@@ -263,6 +263,7 @@ case "$1" in
       mkdir -p ../bin/d
       mkdir -p ../bin/d/bc
       mkdir -p ../bin/d/ng
+      mkdir -p ../bin/d/split
       echo "Moving binaries to ../bin"
       cp _init/* ../bin
       mv mochimo bval bcon bup sortlt neogen wallet ../bin
