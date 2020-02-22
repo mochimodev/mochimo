@@ -433,7 +433,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       if(memcmp(prevhash, bt.phash, HASHLEN) != 0) break;
       ecode++;
       /* check enforced delay 9 */
-      if(highblock[0] && tcount) {
+      if(highblock[0] && tcount && get32(Cblocknum) >= Trustblock) {
          if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
             if(peach(&bt, get32(bt.difficulty), NULL, 1)){
             break;
