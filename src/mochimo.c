@@ -81,6 +81,7 @@ void usage(void)
           "         -n         Do not solve blocks\n"
           "         -Mn        set transaction fee to n\n"
           "         -Sanctuary=N,Lastday\n"
+          "         -Tn        set Trustblock to n for tfval() speedup\n"
    );
 #ifdef BX_MYSQL
    printf("         -X         Export to MySQL database on block update\n");
@@ -191,6 +192,8 @@ int main(int argc, char **argv)
                     if(argv[j][2] == '2') {
                        Dstport = PORT1;  Port = PORT2;
                     }
+                    break;
+         case 'T':  Trustblock = atoi(&argv[j][2]);
                     break;
 #ifdef BX_MYSQL
          case 'X':  Exportflag = 1;
