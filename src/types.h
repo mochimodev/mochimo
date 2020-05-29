@@ -167,7 +167,11 @@ typedef struct {
 /* for mtx */
 /* takes TX * or TXQENTRY pointer */
 #define ismtx(tx) ((tx)->dst_addr[2196] == 0x00 \
-                    && (tx)->dst_addr[2197] == 0x01)
+                    && ((tx)->dst_addr[2197] == 0x01 \
+                        || (tx)->dst_addr[2197] == 0x02))
+/* identifies mtx/memo combination mtx */
+#define ismtxmemo  ((tx)->dst_addr[2196] == 0x00 \
+                      && (tx)->dst_addr[2197] == 0x02 )
 
 #define ADDR_TAG_LEN 12
 #define NR_DST 100       /* number of tags (MDST) in MTX dst[] */

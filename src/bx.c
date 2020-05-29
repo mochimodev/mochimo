@@ -795,7 +795,7 @@ int iszero(void *buff, int len)
 
 int txmenu(BHEADER *bh, BTRAILER *bt)
 {
-   char buff[80];
+   char buff[80], *memo;
    TXQENTRY txq;
    word32 j, k;
    word32 tcount;
@@ -833,6 +833,10 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
          mtx = (MTX *) &txq;
          for(j = k = 0; j < NR_DST; j++) {
             if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break;
+            if(ismtxmemo(&txq) && *(mtx->dst[j].tag) == 0x00) {
+               memo = &(mtx->dst[j].tag[1]);
+               break;
+            }
             if(++k >= 10) {
                k = 0;
                printf("Press RETURN or 'q': ");
@@ -857,6 +861,9 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
       printf("  [0x%s]\n", b2hex8(txq.change_total));
       printf("fee:          %s\n", itoa64lj(txq.tx_fee, NULL, 9, 1));
       printf("sig:        0x");  bytes2hex(txq.tx_sig, 32);
+
+      if(ismtxmemo(&txq))
+         printf("\nmemo: %s", memo);
 
       printf("\nq=quit, g=goto TX, RETURN=next, b=back, "
              "p=previous menu: "

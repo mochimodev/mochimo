@@ -15,13 +15,17 @@
  * tx_val() sets fee parameter to Myfee and bval.c sets fee to Mfee.
  * Returns 0 on valid, else error code.
  */
-int mtx_val(MTX *mtx, word32 *fee)
+int mtx_val(MTX *mtx, word32 *fee, char *outmemo)
 {
    int j, message;
    byte total[8], mfees[8], *bp, *limit;
    static byte addr[TXADDRLEN];
+   size_t memolen;
+   word32 memofees[2];
+   char *memo;  /* temporary memo incase outmemo is NULL */
 
    limit = &mtx->zeros[0];
+   memo = NULL;
 
    /* Check that src and chg have tags.
     * Check that src and chg have same tag.
@@ -44,6 +48,32 @@ int mtx_val(MTX *mtx, word32 *fee)
          }
          break;
       }
+      /* dst[] tag with initial byte zero marks beginning of memo. */
+      if(ismtxmemo(mtx) && *(mtx->dst[j].tag) == 0x00) {
+         /* memo MUST have a null termination */
+         if(limit[-1] != 0) BAIL(11);
+         /* skip first byte, obtain and count memo */
+         memo = &(mtx->dst[j].tag[1]);
+         memolen = strlen(memo);
+         /* ensure memo exists, otherwise the wrong mtx type was used */
+         if(memolen == 0) BAIL(12);
+         /* check all message characters are printable characters */
+         for(bp = (byte *) memo; bp < limit; bp++) {
+            if(*bp == 0) break;  /* a zero byte marks memo end */
+            if(isprint((int) *bp) == 0) BAIL(13);
+         }
+         /* ensure all bytes after the end of memo are zero */
+         for(bp++; bp < limit; bp++) if(*bp) BAIL(14);
+         /* count memofees and add to mfees */
+         memofees[1] = 0;
+         memofees[0] = 1 + ((memolen + 1) / sizeof(MDST));
+         if(mult64(fee, memofees, memofees)) BAIL(15);  /* Mfee or Myfee */
+         if(add64(mfees, memofees, mfees)) BAIL(16);
+         /* pass memo pointer to outmemo */
+         outmemo = memo;
+         break;
+      }
+
       if(iszero(mtx->dst[j].amount, 8)) BAIL(5);  /* bad send amount */
       /* no dst to src */
       if(memcmp(mtx->dst[j].tag,
@@ -58,6 +88,8 @@ int mtx_val(MTX *mtx, word32 *fee)
          if(tag_find(addr, NULL, NULL) != VEOK) mtx->zeros[j] = 1;
       }
    }  /* end for j */
+   /* if the mtxmemo tx type was used, memo MUST exist */
+   if(ismtxmemo(mtx) && memo == NULL) BAIL(17);
    /* Check tallies... */
    if(cmp64(total, mtx->send_total) != 0) BAIL(9);
    if(cmp64(mtx->tx_fee, mfees) < 0) BAIL(10);
