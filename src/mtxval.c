@@ -6,6 +6,7 @@
  * Date: 6 May 2019
 */
 
+#include <ctype.h>  /* for isprint() */
 
 #define BAIL(m) { message = m; goto bail; }
 
