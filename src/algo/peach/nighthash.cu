@@ -1,11 +1,11 @@
-/*
- * nighthash.c  FPGA-Confuddling Hash Algo
+/* nighthash.c  FPGA-Confuddling Hash Algo
  *
  * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 12 June 2019
- * Revision: 1
+ * Revised: 22 July 2019
+ * Revision: 2
  *
  * This file is subject to the license as found in LICENSE.PDF
  *
@@ -45,104 +45,66 @@ typedef struct {
 __device__ void cuda_fp_operation(uint8_t *data, uint32_t len, uint32_t index,
                                   uint32_t *op, uint8_t transform)
 {
-   uint8_t *temp;
-   uint32_t adjustedlen;
-   int32_t i, j, operand;
    float floatv, floatv1, *floatp;
-   
-   /* Adjust the length to a multiple of 4 */
-   adjustedlen = (len >> 2) << 2;
+   uint8_t *temp, *datap, shift;
+   int32_t i, j, operand;
 
    /* Work on data 4 bytes at a time */
-   for(i = 0; i < adjustedlen; i += 4)
+   len &= 0xfffffffc;
+   for(i = 0; i < len; i += 4)
    {
       /* Cast 4 byte piece to float pointer */
+      datap = &data[i];
       if(transform)
-         floatp = (float *) &data[i];
+         floatp = (float *) datap;
       else {
-         floatv1 = *(float *) &data[i];
+         floatv1 = *((float *) datap);
          floatp = &floatv1;
       }
+
+      shift = ((*datap & 7) + 1) << 1;
 
       /* 4 byte separation order depends on initial byte:
        * #1) *op = data... determine floating point operation type
        * #2) operand = ... determine the value of the operand
        * #3) if(data[i ... determine the sign of the operand
-       *                   ^must always be performed after #2) */
-      switch(data[i] & 7)
-      {
-         case 0:
-            *op += data[i + 1];
-            operand = data[i + 2];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-         case 1:
-            operand = data[i + 1];
-            if(data[i + 2] & 1) operand ^= 0x80000000;
-            *op += data[i + 3];
-            break;
-         case 2:
-            *op += data[i];
-            operand = data[i + 2];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-         case 3:
-            *op += data[i];
-            operand = data[i + 1];
-            if(data[i + 2] & 1) operand ^= 0x80000000;
-            break;
-         case 4:
-            operand = data[i];
-            if(data[i + 1] & 1) operand ^= 0x80000000;
-            *op += data[i + 3];
-            break;
-         case 5:
-            operand = data[i];
-            if(data[i + 1] & 1) operand ^= 0x80000000;
-            *op += data[i + 2];
-            break;
-         case 6:
-            *op += data[i + 1];
-            operand = data[i + 1];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-         case 7:
-            operand = data[i + 1];
-            *op += data[i + 2];
-            if(data[i + 3] & 1) operand ^= 0x80000000;
-            break;
-      } /* end switch(data[j] & 31... */
-
+       * *Operation #3 must always be performed after #2 */
+      *op += datap[((0x26C34 >> shift) & 3)];
+      operand = datap[((0x14198 >> shift) & 3)];
+      if(datap[((0x3D6EC >> shift) & 3)] & 1)
+         operand ^= 0x80000000;
       /* Cast operand to float */
-      floatv = operand;
+      floatv = __int2float_rn(operand);
 
       /* Replace pre-operation NaN with index */
-      if(isnan(*floatp)) *floatp = index;
+      if(isnan(*floatp))
+         *floatp = __uint2float_rn(index);
 
       /* Perform predetermined floating point operation */
       switch(*op & 3) {
          case 0:
-            *floatp += floatv;
+            *floatp = __fadd_rn(*floatp, floatv);
             break;
          case 1:
-            *floatp -= floatv;
+            *floatp = __fsub_rn(*floatp, floatv);
             break;
          case 2:
-            *floatp *= floatv;
+            *floatp = __fmul_rn(*floatp, floatv);
             break;
          case 3:
-            *floatp /= floatv;
+            *floatp = __fdiv_rn(*floatp, floatv);
             break;
       }
 
       /* Replace post-operation NaN with index */
-      if(isnan(*floatp)) *floatp = index;
+      if(isnan(*floatp))
+         *floatp = __uint2float_rn(index);
 
       /* Add result of floating point operation to op */
       temp = (uint8_t *) floatp;
-      for(j = 0; j < 4; j++) {
+      #pragma unroll
+      for(j = 0; j < 4; j++)
          *op += temp[j];
-      }
    } /* end for(*op = 0... */
 }
 
@@ -156,11 +118,15 @@ __device__ void cuda_fp_operation(uint8_t *data, uint32_t len, uint32_t index,
 __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op)
 {
    int32_t i, z;
-   uint32_t len2;
-   uint8_t temp, _104, _72;
+   uint32_t len2, len4, *data32;
+   uint8_t temp;
+   
+   len2 = len >> 1;
+   len4 = len >> 2;
+   data32 = (uint32_t *) data;
 
    /* Perform <TILE_TRANSFORMS> number of bit/byte manipulations */
-   for(i = 0, _104 = 104, _72 = 72, len2 = len/2; i < TILE_TRANSFORMS; i++)
+   for(i = 0; i < TILE_TRANSFORMS; i++)
    {
       /* Determine operation to use this iteration */
       *op += data[i & 31];
@@ -168,8 +134,8 @@ __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op
       /* Perform random operation */
       switch(*op & 7) {
          case 0: /* Swap the first and last bit in each byte. */
-            for(z = 0; z < len; z++)
-               data[z] ^= 0x81;
+            for(z = 0; z < len4; z++)
+               data32[z] ^= 0x81818181;
             break;
          case 1: /* Swap bytes */
             for(z = 0; z < len2; z++) {
@@ -179,8 +145,8 @@ __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op
             }
             break;
          case 2: /* Complement One, all bytes */
-            for(z = 0; z < len; z++)
-               data[z] = ~data[z];
+            for(z = 0; z < len4; z++)
+               data32[z] = ~data32[z];
             break;
          case 3: /* Alternate +1 and -1 on all bytes */
             for(z = 0; z < len; z++)
@@ -192,7 +158,7 @@ __device__ void cuda_bitbyte_transform(uint8_t *data, uint32_t len, uint32_t *op
             break;
          case 5: /* Replace every occurrence of _104 with _72 */ 
             for(z = 0; z < len; z++)
-               if(data[z] == _104) data[z] = _72;
+               if(data[z] == 104) data[z] = 72;
             break;
          case 6: /* If byte a is > byte b, swap them. */
             for(z = 0; z < len2; z++) {
