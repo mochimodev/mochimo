@@ -269,7 +269,7 @@ int tag_resolve(NODE *np)
    int status, ecode = VERROR;
 
    put64(np->tx.send_total, zeros);
-   status = tag_find(np->tx.dst_addr, foundaddr, balance);  /* in legger.dat */
+   status = tag_find(np->tx.dst_addr, foundaddr, balance);  /* in ledger.dat */
    if(status == VEOK) {
       memcpy(np->tx.dst_addr, foundaddr, TXADDRLEN);
       memcpy(np->tx.change_total, balance, TXAMOUNT);

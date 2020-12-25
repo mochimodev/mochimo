@@ -53,9 +53,8 @@ else
    echo "You must create a mining address before starting a mining node."
    echo "Please see README.TXT for instructions on how to create a mining address."
    echo
-   echo "If you are trying to run the node in no mining mode (-n switch), 
-   echo "trying copying the default mining address to maddr.dat
-   echo " before starting:"
+   echo "If you are attempting to run the node in no mining mode (-n switch),"
+   echo "try copying the default mining address to maddr.dat before starting:"
    echo "   cp maddr.mat maddr.dat"
    echo 
    exit 1
