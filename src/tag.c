@@ -271,6 +271,7 @@ int tag_resolve(NODE *np)
    int status, ecode = VERROR;
 
    put64(np->tx.send_total, zeros);
+   put64(np->tx.change_total, zeros);
    /* find tag in leger.dat */
    status = tag_find(np->tx.dst_addr, foundaddr, balance, get16(np->tx.len));
    if(status == VEOK) {
