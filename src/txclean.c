@@ -64,7 +64,9 @@ int txclean(void)
             memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
             mtx->zeros[j] = 0;
             /* If dst[j] tag not found, put error code in zeros[] array. */
-            if(tag_find(addr, NULL, NULL) != VEOK) mtx->zeros[j] = 1;
+            if(tag_find(addr, NULL, NULL, ADDR_TAG_LEN) != VEOK) {
+               mtx->zeros[j] = 1;
+            }
          }
       }
       count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout);

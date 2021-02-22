@@ -404,7 +404,7 @@ fee_overflow:
          if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break; /* end of dst[] */
          memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
          /* If dst[j] tag not found, write money back to chg addr. */
-         if(tag_find(addr, addr, NULL) != VEOK) {
+         if(tag_find(addr, addr, NULL, ADDR_TAG_LEN) != VEOK) {
             count =  fwrite(mtx->chg_addr, TXADDRLEN, 1, ltfp);
             count += fwrite("A", 1, 1, ltfp);
             count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
