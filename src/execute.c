@@ -25,7 +25,7 @@ int send_balance(NODE *np)
    put64(np->tx.send_total, zeros);
    len = get16(np->tx.len);
    /* look up source address in ledger */
-   if(le_find(np->tx.srcaddr, &le, NULL, len) == TRUE) {
+   if(le_find(np->tx.src_addr, &le, NULL, len) == TRUE) {
      put64(np->tx.send_total, le.balance);
      /* return found address on partial search */
      if(len != TXADDRLEN) {
