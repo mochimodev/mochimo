@@ -24,6 +24,10 @@ int send_balance(NODE *np)
 
    put64(np->tx.send_total, zeros);
    len = get16(np->tx.len);
+   /* check for old OP_BALANCE Request with ZEROED Tag */
+   if(len == 0 && ((byte *) (np->tx.src_addr))[2196] == 0x00) {
+     len = TXADDRLEN - 12;
+   }
    /* look up source address in ledger */
    if(le_find(np->tx.src_addr, &le, NULL, len) == TRUE) {
      put64(np->tx.send_total, le.balance);
