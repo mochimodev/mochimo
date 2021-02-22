@@ -298,7 +298,7 @@ badread:
          baddrop("WOTS signature failed!");
 
       /* look up source address in ledger */
-      if(le_find(tx.src_addr, &src_le, NULL, 0) == FALSE)
+      if(le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE)
          drop("src_addr not in ledger");
 
       total[0] = total[1] = 0;
@@ -357,7 +357,7 @@ fee_overflow:
       }  /* end for qp2 */
    }  /* end for qp1 */
 
-   /* 
+   /*
     * Three times is the charm...
     */
    for(Tnum = 0, qp1 = Q2; qp1 < qlimit; qp1++, Tnum++) {
@@ -388,7 +388,7 @@ fee_overflow:
       }
    }  /* end for Tnum -- scan 3 */
 
-   
+
    if(Tnum != tcount) bail("scan 3");
    /* mtx tag search  Begin scan 4 ...
     *
@@ -421,7 +421,7 @@ fee_overflow:
             if(memcmp(ADDR_TAG_PTR(qp2->src_addr),
                       ADDR_TAG_PTR(qp2->chg_addr), ADDR_TAG_LEN) != 0)
                          continue;
-            if(memcmp(ADDR_TAG_PTR(qp2->src_addr), ADDR_TAG_PTR(addr), 
+            if(memcmp(ADDR_TAG_PTR(qp2->src_addr), ADDR_TAG_PTR(addr),
                       ADDR_TAG_LEN) == 0) {
                          memcpy(addr, qp2->chg_addr, TXADDRLEN);
                          break;

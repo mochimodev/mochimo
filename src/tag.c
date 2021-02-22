@@ -203,7 +203,7 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, byte *bnum)
          /* If there is a dst_tag, and its full address is not
           * already in ledger.dat, tx is not valid.
           */
-         if(le_find(dst_addr, &le, NULL, 0) == FALSE) {
+         if(le_find(dst_addr, &le, NULL, TXADDRLEN) == FALSE) {
             plog("DST_ADDR Tagged, but Tag is not in ledger!");
             goto bad;
          }
@@ -217,7 +217,7 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, byte *bnum)
 
    /* If tags are not the same and the src is not default, tx invalid. */
    if(HAS_TAG(src_addr)) {
-      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!"); 
+      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!");
       goto bad;
    }
    /* Otherwise, check all queues and ledger.dat for change tag.

@@ -51,7 +51,7 @@ int txclean(void)
       count = fread(&tx, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) break;  /* EOF */
       /* if src not in ledger continue; */
-      if(le_find(tx.src_addr, &src_le, NULL, 0) == FALSE) continue;
+      if(le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) continue;
       if(cmp64(tx.tx_fee, Myfee) < 0) continue;  /* bad tx fee */
       /* check total overflow and balance */
       if(add64(tx.send_total, tx.change_total, total)) continue;
