@@ -338,7 +338,7 @@ void resign(char *mess)
  *          of last good tfile record is left in highblock,
  *          otherwise *result is set to non-zero error code.
  *
- * Error codes 1-10 are validation errors; codes >= 100 are I/O, 
+ * Error codes 1-10 are validation errors; codes >= 100 are I/O,
  * codes >= 200 are (errno + 200).
  */
 byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
@@ -439,7 +439,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
             break;
             }
          }
-         if(cmp64(bt.bnum, v24trigger) <= 0) { /* v2.3 and prior */ 
+         if(cmp64(bt.bnum, v24trigger) <= 0) { /* v2.3 and prior */
             if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL) {
             break;
             }
@@ -457,7 +457,7 @@ skipval:
       if(Trace) plog("block: 0x%s difficulty: %d  seconds: %d",
            bnum2hex(bt.bnum), difficulty, time1 - get32(bt.time0));
       /*
-       * Let the neo-genesis (not the 0xff) block change the 
+       * Let the neo-genesis (not the 0xff) block change the
        * difficulty for the next 0x01 block.
        */
       if(highblock[0] != 0xff) {
@@ -689,7 +689,7 @@ top:
    memcpy(highweight, np->tx.weight, HASHLEN);
 
    /* ****************
-    * Fill gang[] with a list of ip's that all have 
+    * Fill gang[] with a list of ip's that all have
     * the highest block in the network such that
     * all the block numbers and block hashes are the same!
     */
@@ -750,24 +750,33 @@ top:
    /* trim the tfile back to the neo-genesis block and close the ledger */
    if(trim_tfile(ngnum) != VEOK) restart("trim_tfile()");  /* panic */
    le_close();
-   /* transfer neo-genesis backup if available */
+   /* copy neo-genesis backup to working directory, if available */
    sprintf(fname, "%s/b%s.bc", Ngdir, bnum2hex(ngnum));
    sprintf(tofname, "%s/b%s.bc", Bcdir, bnum2hex(ngnum));
    if(exists(fname)) {
       fp = fopen(fname, "rb");
-      tofp = fopen(tofname, "wb");
-      if(!fp || !tofp) unlink(tofname);
-      else {
-         while (0 < (cpbytes = fread(cpbuff, 1, sizeof(cpbuff), fp)))
+      tofp = fopen("ngblock.dat", "wb");
+      if(!fp || !tofp) {
+         error("init: neo-genesis backup copy failed to open files!");
+      } else {
+         while (0 < (cpbytes = fread(cpbuff, 1, sizeof(cpbuff), fp))) {
             if(fwrite(cpbuff, 1, cpbytes, tofp) != cpbytes) {
-               unlink(tofname);
+               error("init: neo-genesis backup copy write failure!");
+               unlink("ngblock.dat");
                break;
             }
-         if(exists(tofname)) unlink(fname);
+         }
+         /* transfer neo-genesis copy to bcdir */
+         if(exists("ngblock.dat") && rename("ngblock.dat", tofname) != 0) {
+            error("init: cannot rename backup copy neo-genesis to %s", tofname);
+         }
       }
       if(fp) fclose(fp);
       if(tofp) fclose(tofp);
    }
+   /* cleanup stray files */
+   if(exists(tofname)) unlink(fname); /* ensures full resync on failure */
+   else unlink("ngblock.dat");
 
    /* ****************
     * Get peer's neo-genesis block for new ledger.dat, set
@@ -786,9 +795,15 @@ top:
       sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
       for( ; Running; ) {
          if(Monitor && Bgflag == 0) resign("user break 3");  /* DSL */
-         if(get_block2(peerip, bnum, fname, OP_GETBLOCK) == VEOK) break;
+         if(get_block2(peerip, bnum, "ngblock.dat", OP_GETBLOCK) == VEOK) break;
          if(k >= Quorum) goto try_again;
          peerip = gang[k++];
+      }
+      /* transfer neo-genesis download to bcdir */
+      if(exists("ngblock.dat") && rename("ngblock.dat", fname) != 0) {
+         error("init: cannot rename downloaded neo-genesis to %s", fname);
+         unlink("ngblock.dat");
+         exit(VERROR);
       }
    }  /* end if neo-genesis download */
    if(!iszero(bnum, 8)) {
@@ -809,7 +824,7 @@ top:
    if(!iszero(bnum, 8)) {
       result = check_ng(fname, bnum);
       if(result != 0) {
-         plog("get_eon(): Bad NG block! ecode: %d", result); 
+         plog("get_eon(): Bad NG block! ecode: %d", result);
          unlink(fname);
          goto try_again;
       }
@@ -868,7 +883,7 @@ top:
                result = get_block2(peerip, dlbnum, fname, OP_GETBLOCK);
                if(result != VEOK) unlink(fname);
                else if(rename(fname, tofname) != 0) {
-                  if(Trace) plog("init: cannot rename %s",fname);
+                  error("init: cannot rename %s",fname);
                   unlink(fname);
                   exit(VERROR);
                }
@@ -944,7 +959,7 @@ try_again:
 }  /* end get_eon() */
 
 
-/* Bring the server/client up from a cold start 
+/* Bring the server/client up from a cold start
  * after gomochi script runs
  */
 int init(void)

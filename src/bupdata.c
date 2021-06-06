@@ -26,8 +26,8 @@ word32 set_difficulty(word32 difficulty, int seconds, word32 stime, byte *bnum)
    static word32 trigger_block[2] = { DTRIGGER31, 0 };
    static word32 fix_trigger[2] = { FIXTRIGGER, 0 };
    if(seconds < 0) return difficulty;
-   if(cmp64(bnum, trigger_block) < 0){ 
-      hash = 0; 
+   if(cmp64(bnum, trigger_block) < 0){
+      hash = 0;
       highsolve = 506;
       lowsolve = 253;
    }
@@ -80,7 +80,6 @@ int bupdata(void)
 int do_neogen(void)
 {
    char cmd[1024];
-   int len;
    word32 newnum[2];
    char *cp;
    int ecode;
@@ -88,17 +87,17 @@ int do_neogen(void)
 
    unlink("neofail.lck");
    cp = bnum2hex(Cblocknum);
-   sprintf(cmd, "../neogen %s/b%s.bc", Bcdir, cp);
-   len = strlen(cmd);
-   add64(Cblocknum, One, newnum);
-   cp = bnum2hex((byte *) newnum);
-   sprintf(&cmd[len], " %s/b%s.bc", Bcdir, cp);
+   sprintf(cmd, "../neogen %s/b%s.bc ngblock.dat", Bcdir, cp);
    if(Trace) plog("Creating neo-genesis block:\n '%s'", cmd);
    ecode = system(cmd);
    if(Trace) plog("do_neogen(): system():  ecode = %d", ecode);
    if(exists("neofail.lck"))
       return error("do_neogen failed");
+   add64(Cblocknum, One, newnum);
+   cp = bnum2hex((byte *) newnum);
    sprintf(cmd, "%s/b%s.bc", Bcdir, cp);
+   if(rename("ngblock.dat", cmd) != 0)
+      return error("do_neogen failed to rename ngblock.dat to %s", cmd);
 
    add64(Cblocknum, One, Cblocknum);
    /* Update block hashes */
