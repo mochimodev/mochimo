@@ -134,7 +134,7 @@ int tag_qfind(byte *addr)
  * Return VEOK if tag found, VERROR if not found, or
  * some other internal error code.
  */
-int tag_find(byte *addr, byte *foundaddr, byte *balance)
+int tag_find(byte *addr, byte *foundaddr, byte *balance, size_t len)
 {
    FILE *fp;
    byte *tag, *tp;
@@ -149,10 +149,12 @@ int tag_find(byte *addr, byte *foundaddr, byte *balance)
    tag = ADDR_TAG_PTR(addr);
    /* Search tag index, Tagidx[] for tag. */
    for(tp = Tagidx, n = 0; n < Ntagidx; n++, tp += ADDR_TAG_LEN) {
-      /* compare tag in Tagidx[] to tag: (about 9 instructions in asm) */
-      if(   *((word32 *) tp)       == *((word32 *) tag)
+      /* compare tag in Tagidx[] to tag */
+      if((len != 0 && memcmp(tp, tag, len) == 0) /* partial tag len search */
+         || (len == 0 /* full tag len search (about 9 instructions in asm) */
+         && *((word32 *) tp)       == *((word32 *) tag)
          && *((word32 *) (tp + 4)) == *((word32 *) (tag + 4))
-         && *((word32 *) (tp + 8)) == *((word32 *) (tag + 8)) ) {
+         && *((word32 *) (tp + 8)) == *((word32 *) (tag + 8))) ) {
          /* tag found */
          if(foundaddr != NULL || balance != NULL) {
             /* and caller wants ledger entry... */
@@ -161,7 +163,7 @@ int tag_find(byte *addr, byte *foundaddr, byte *balance)
             /* n is record number in ledger.dat */
             if(fseek(fp, n * sizeof(le), SEEK_SET)) BAIL(4);
             if(fread(&le, sizeof(le), 1, fp) != 1) BAIL(5);
-            if(memcmp(ADDR_TAG_PTR(le.addr), tag, ADDR_TAG_LEN)) BAIL(6);
+            if(memcmp(ADDR_TAG_PTR(le.addr), tag, len)) BAIL(6);
             fclose(fp);
             if(foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
             if(balance != NULL) memcpy(balance, le.balance, TXAMOUNT);
@@ -203,7 +205,7 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, byte *bnum)
          /* If there is a dst_tag, and its full address is not
           * already in ledger.dat, tx is not valid.
           */
-         if(le_find(dst_addr, &le, NULL, 0) == FALSE) {
+         if(le_find(dst_addr, &le, NULL, TXADDRLEN) == FALSE) {
             plog("DST_ADDR Tagged, but Tag is not in ledger!");
             goto bad;
          }
@@ -217,13 +219,13 @@ int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, byte *bnum)
 
    /* If tags are not the same and the src is not default, tx invalid. */
    if(HAS_TAG(src_addr)) {
-      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!"); 
+      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!");
       goto bad;
    }
    /* Otherwise, check all queues and ledger.dat for change tag.
     * First, if change tag is in ledger.dat, tx is invalid.
     */
-   if(tag_find(chg_addr, NULL, NULL) == VEOK) {
+   if(tag_find(chg_addr, NULL, NULL, ADDR_TAG_LEN) == VEOK) {
       plog("New CHG_TAG Already Exists in Ledger!");
       goto bad;
    }
@@ -269,7 +271,9 @@ int tag_resolve(NODE *np)
    int status, ecode = VERROR;
 
    put64(np->tx.send_total, zeros);
-   status = tag_find(np->tx.dst_addr, foundaddr, balance);  /* in legger.dat */
+   put64(np->tx.change_total, zeros);
+   /* find tag in leger.dat */
+   status = tag_find(np->tx.dst_addr, foundaddr, balance, get16(np->tx.len));
    if(status == VEOK) {
       memcpy(np->tx.dst_addr, foundaddr, TXADDRLEN);
       memcpy(np->tx.change_total, balance, TXAMOUNT);

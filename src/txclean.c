@@ -51,7 +51,7 @@ int txclean(void)
       count = fread(&tx, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) break;  /* EOF */
       /* if src not in ledger continue; */
-      if(le_find(tx.src_addr, &src_le, NULL, 0) == FALSE) continue;
+      if(le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) continue;
       if(cmp64(tx.tx_fee, Myfee) < 0) continue;  /* bad tx fee */
       /* check total overflow and balance */
       if(add64(tx.send_total, tx.change_total, total)) continue;
@@ -64,7 +64,9 @@ int txclean(void)
             memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
             mtx->zeros[j] = 0;
             /* If dst[j] tag not found, put error code in zeros[] array. */
-            if(tag_find(addr, NULL, NULL) != VEOK) mtx->zeros[j] = 1;
+            if(tag_find(addr, NULL, NULL, ADDR_TAG_LEN) != VEOK) {
+               mtx->zeros[j] = 1;
+            }
          }
       }
       count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout);

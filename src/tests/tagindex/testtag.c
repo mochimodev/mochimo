@@ -41,7 +41,7 @@ int main()
    printf("sizeof(LENTRY) = %u\n", (int) sizeof(LENTRY));
    strcpy((char *) ADDR_TAG_PTR(le.addr), "badtag");
    printf("tag_find('%-12.12s')\n", (char *) ADDR_TAG_PTR(le.addr));
-   status = tag_find(le.addr, le.addr, le.balance);
+   status = tag_find(le.addr, le.addr, le.balance, ADDR_TAG_LEN);
    printf("tag_find() returned %d  S/B 1\n", status);
 
    printf("Tags:\n");
@@ -52,7 +52,7 @@ int main()
    memset(ADDR_TAG_PTR(le.addr), 0, ADDR_TAG_LEN);
    strcpy((char *) ADDR_TAG_PTR(le.addr), "123");
    printf("tag_find('%-12.12s')\n", (char *) ADDR_TAG_PTR(le.addr));
-   status = tag_find(le.addr, le.addr, le.balance);
+   status = tag_find(le.addr, le.addr, le.balance, ADDR_TAG_LEN);
    printf("tag_find() returned %d  S/B 0\n", status);
    printf("le.addr = %-20.20s...\n", le.addr);
    printf("le.balance = %u\n", get32(le.balance));
@@ -60,7 +60,7 @@ int main()
    tag_free();
    tag_free();
    printf("tag_find('%-12.12s')\n", (char *) ADDR_TAG_PTR(le.addr));
-   status = tag_find(le.addr, le.addr, le.balance);
+   status = tag_find(le.addr, le.addr, le.balance, ADDR_TAG_LEN);
    printf("tag_find() returned %d  S/B 0\n", status);
    tag_buildidx();
 
