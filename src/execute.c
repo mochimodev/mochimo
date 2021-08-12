@@ -19,21 +19,21 @@
 int send_balance(NODE *np)
 {
    LENTRY le;
+   word16 len;
    static byte zeros[8];
 
+   len = get16(np->tx.len);
    put64(np->tx.send_total, zeros);
+   put64(np->tx.change_total, zeros);
+   /* check for old OP_BALANCE Request with ZEROED Tag */
+   if(len == 0 && ((byte *) (np->tx.src_addr))[2196] == 0x00) {
+     len = TXADDRLEN - 12;
+   }
    /* look up source address in ledger */
-   if(((byte *) (np->tx.src_addr))[2196] == 0x00) {
-      /* OP_BALANCE Request Passed ZEROED Tag */
-      /* Finding an address in ledger without matching the tag */
-      if(le_find(np->tx.src_addr, &le, NULL, 1) == TRUE) {
-         put64(np->tx.send_total, le.balance);
-         memcpy(np->tx.src_addr, le.addr, TXADDRLEN);
-      }
-   } else {
-      if(le_find(np->tx.src_addr, &le, NULL, 0) == TRUE) {
-         put64(np->tx.send_total, le.balance);
-     }
+   if(le_find(np->tx.src_addr, &le, NULL, len) == TRUE) {
+     put64(np->tx.send_total, le.balance);
+     put64(np->tx.change_total, One); /* indicate address was found */
+     memcpy(np->tx.src_addr, le.addr, TXADDRLEN); /* return found address */
    }
    send_op(np, OP_SEND_BAL);
    return 0;  /* success */
@@ -169,7 +169,7 @@ int get_block3(NODE *np, char *fname)
 
    for(;;) {
       if((ecode = rx2(np, 1, 10)) != VEOK) goto bad;
-      if(get16(np->tx.opcode) != OP_SEND_BL) goto bad; 
+      if(get16(np->tx.opcode) != OP_SEND_BL) goto bad;
       len = get16(np->tx.len);
       if(len > TRANLEN) goto bad;
       if(len) {
