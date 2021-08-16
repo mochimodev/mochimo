@@ -2,7 +2,8 @@
 ![Made with C](https://img.shields.io/badge/Made%20with-C-%23.svg?color=%230059ff&style=for-the-badge)
 ![Release](https://img.shields.io/github/release/mochimodev/mochimo.svg?color=%230059ff&style=for-the-badge)
 [![License](https://img.shields.io/badge/license-Modified%20MPL%202.0-%23.svg?color=%230059ff&style=for-the-badge)](LICENSE.PDF)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?color=%230059ff&style=for-the-badge)](http://makeapullrequest.com)  
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?color=%230059ff&style=for-the-badge)](http://makeapullrequest.com) [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmochimodev%2Fmochimo.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmochimodev%2Fmochimo?ref=badge_shield)
+ 
 <sup>*You must read and agree to the [LICENSE.PDF](LICENSE.PDF) file prior to running our code.*</sup>
 
 ### Mochimo Project - Main Net Development Repository
@@ -30,3 +31,5 @@ The Mochimo Main Net Package is copyright 2019 Adequate Systems, LLC.
 Please read the license file in the package for additional restrictions.
 
 Contact: support@mochimo.org
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmochimodev%2Fmochimo.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmochimodev%2Fmochimo?ref=badge_large)
