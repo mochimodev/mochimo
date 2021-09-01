@@ -51,10 +51,10 @@ LIBRARYNAME:= \
  $(notdir $(realpath $(dir $(lastword $(MAKEFILE_LIST)))$(ROOTDIR)))
 
 # required dependencies
-EXTERNALLIBS:= $(LIBRARYNAME) hash
+EXTERNALLIBS:= $(LIBRARYNAME)
 INTERNALLIBS:=
 DEPENDENCIES:= $(EXTERNALLIBS) $(INTERNALLIBS)
-SYSTEMLIBS:= m
+SYSTEMLIBS:=
 
 #
 ## END DEVELOPER DEFINITIONS CONFIGURATION
@@ -66,8 +66,12 @@ OBJECTS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SOURCES))
 DEPENDS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.d,$(SOURCES))
 
 # dependency paths (for includes and libraries)
-INCLUDEPATHS:= $(patsubst %,-I$(PARENTDIR)/%/src,$(DEPENDENCIES))
-LIBRARYPATHS:= $(patsubst %,-L$(PARENTDIR)/%/lib,$(DEPENDENCIES))
+INCLUDEPATHS:= \
+ $(patsubst %,-I$(PARENTDIR)/%/src,$(EXTERNALLIBS)) \
+ $(patsubst %,-I%/src,$(INTERNALLIBS))
+LIBRARYPATHS:= \
+ $(patsubst %,-L$(PARENTDIR)/%/lib,$(EXTERNALLIBS)) \
+ $(patsubst %,-L%/lib,$(INTERNALLIBS))
 
 # compiler macros
 WARNINGS:= -Werror -Wall -Wextra
@@ -133,8 +137,12 @@ test/%: $(wildcard $(TESTDIR)/%*)
 $(BUILDDIR)/test-%: $(BUILDDIR)/test-%.o $(BUILDDIR) $(DEPENDENCIES)
 	$(CC) $< -o $@ $(LDFLAGS)
 
-# build dependency libraries, within their respective directories
-$(DEPENDENCIES): %: $(PARENTDIR)/%/
+# build external dependency libraries, within their respective directories
+$(EXTERNALLIBS): %: $(PARENTDIR)/%/src
+	@make library -C $<
+
+# build internal dependency libraries, within their respective directories
+$(INTERNALLIBS): %: %/src
 	@make library -C $<
 
 # build test object files, within build directory
