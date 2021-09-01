@@ -38,7 +38,7 @@ MKDIR:= mkdir -vp
 SHELL:= bash
 
 # directory macros
-ROOTDIR = .
+ROOTDIR = ..
 BINDIR = $(ROOTDIR)/bin
 BUILDDIR = $(ROOTDIR)/build
 LIBDIR = $(ROOTDIR)/lib
