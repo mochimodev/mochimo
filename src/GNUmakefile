@@ -103,10 +103,10 @@ $(LIBDIR)/lib$(LIBRARYNAME).a: $(OBJECTS) $(LIBDIR)
 
 # build and run all tests
 test: $(wildcard $(TESTDIR)/*.c)
-	@export COMPS=$$(ls $^ | sed -E 's/.*\/([^-]*)-.*/\1/g' | sort -u); \
+	@export COMPS=$$(ls $^ | sed -E 's/.*\/([^-]*)[-.]+.*/\1/g' | sort -u); \
 	 export NCOMPS=$$(wc -l <<< "$$COMPS"); \
 	 export NTESTS=$$(wc -w <<< "$^"); \
-	 printf "[========] Performing all tests.\n"; \
+	 printf "[========] Performing all tests in \"$(LIBRARYNAME)\".\n"; \
 	 printf "[========] Found $$NTESTS tests for $$NCOMPS components.\n"; \
 	 for COMP in $$COMPS; do make test/$$COMP --no-print-directory; done; \
 	 export FAILS=$$(ls -l $(BUILDDIR)/*.fail 2>/dev/null | wc -l); \
@@ -116,12 +116,14 @@ test: $(wildcard $(TESTDIR)/*.c)
 	 exit $$FAILS;
 
 # build and run specific tests
-test/%: $(wildcard $(TESTDIR)/%*)
+test/%: $(wildcard $(TESTDIR)/%*.c)
 	@export TIMEFORMAT=" (%Es)"; \
 	 export TESTS=$$(ls $(TESTDIR)/$** | sed -E 's/\S*\/(.*)\.c/test-\1/g'); \
 	 export NUMTESTS=$$(wc -l <<< "$$TESTS"); \
-	 printf "[--------] Remove previous test failures.\n"; \
-	 $(RM) $(BUILDDIR)/test-$**.fail; \
+	 if $$(ls $(BUILDDIR)/*.fail 1>/dev/null 2>&1); then \
+		printf "[--------] Remove previous test failures.\n"; \
+		 $(RM) $(BUILDDIR)/test-$**.fail; \
+	 fi; \
 	 printf "[--------] Making $$NUMTESTS tests matching \"$*\".\n"; \
 	 for TEST in $$TESTS; do printf "[ MAKE   ] $$TEST...\n"; \
 		time { make $(BUILDDIR)/$$TEST -s && printf "[   DONE ] $$TEST" || \
@@ -137,11 +139,10 @@ test/%: $(wildcard $(TESTDIR)/%*)
 $(BUILDDIR)/test-%: $(BUILDDIR)/test-%.o $(BUILDDIR) $(DEPENDENCIES)
 	$(CC) $< -o $@ $(LDFLAGS)
 
-# build external dependency libraries, within their respective directories
+# build dependency libraries, within their respective directories
 $(EXTERNALLIBS): %: $(PARENTDIR)/%/src
 	@make library -C $<
 
-# build internal dependency libraries, within their respective directories
 $(INTERNALLIBS): %: %/src
 	@make library -C $<
 
