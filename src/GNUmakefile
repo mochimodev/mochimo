@@ -28,50 +28,73 @@
 #   to acquire said dependencies to their respective location (i.e. ../<dep>)
 #
 
-########################################
-## DEVELOPER DEFINITIONS CONFIGURATION
-#
 
-# command macros
+########################################
+# vv OPTIONAL DEVELOPER CONFIGURATION vv
+
+SHELL:= bash
+
+# command macros (verbose by default)
 RM:= rm -vrf
 MKDIR:= mkdir -vp
-SHELL:= bash
 
 # directory macros
 ROOTDIR = ..
 BINDIR = $(ROOTDIR)/bin
 BUILDDIR = $(ROOTDIR)/build
 LIBDIR = $(ROOTDIR)/lib
+OUTDIR = $(ROOTDIR)/out
 PARENTDIR = $(ROOTDIR)/..
 SRCDIR = $(ROOTDIR)/src
-TESTDIR = $(ROOTDIR)/src/test
 
-# library name (by default, the name of the root directory)
-LIBRARYNAME:= \
- $(notdir $(realpath $(dir $(lastword $(MAKEFILE_LIST)))$(ROOTDIR)))
+# file macros
+COVERAGEFILE:= $(BUILDDIR)/coverage.info
 
-# required dependencies
-EXTERNALLIBS:= $(LIBRARYNAME)
-INTERNALLIBS:=
-DEPENDENCIES:= $(EXTERNALLIBS) $(INTERNALLIBS)
-SYSTEMLIBS:=
-
-#
-## END DEVELOPER DEFINITIONS CONFIGURATION
+# ^^ END OPTIONAL DEVELOPER CONFIGURATION ^^
 ############################################
 
-# sources, objects, depends and libraries
-SOURCES:= $(wildcard $(SRCDIR)/*.c)
-OBJECTS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SOURCES))
-DEPENDS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.d,$(SOURCES))
+# module name (by default, the name of the root directory)
+MODULE:= $(notdir $(realpath $(dir $(lastword $(MAKEFILE_LIST)))$(ROOTDIR)))
 
-# dependency paths (for includes and libraries)
-INCLUDEPATHS:= \
+# test sources, objects, depends, infos, names and components
+TESTSOURCES:= $(sort $(wildcard $(SRCDIR)/test/*.c))
+TESTOBJECTS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(TESTSOURCES))
+TESTDEPENDS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.d,$(TESTSOURCES))
+TESTINFOS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.info,$(TESTSOURCES))
+TESTNAMES:= $(patsubst $(SRCDIR)/test/%.c,%,$(TESTSOURCES))
+TESTCOMPS:= $(shell echo $(TESTSOURCES) | sed 's/\s/\n/g' | \
+	sed -E 's/\S*\/([^-]*)[-.]+\S*/\1/g' | sort -u)
+# base sources, objects and depends
+BASESOURCES:= $(sort $(wildcard $(SRCDIR)/*.c))
+BASEOBJECTS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(BASESOURCES))
+BASEDEPENDS:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.d,$(BASESOURCES))
+# all sources, objects and depends
+SOURCES:= $(BASESOURCES) $(TESTSOURCES)
+OBJECTS:= $(BASEOBJECTS) $(TESTOBJECTS)
+DEPENDS:= $(BASEDEPENDS) $(TESTDEPENDS)
+
+#########################################
+## vv REQUIRED DEVELOPER CONFIGURATION vv
+
+# binaries
+BINARIES:= $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%,$(TESTSOURCES))
+
+# external, internal and system libraries required to compile binaries
+EXTERNALLIBS:= # e.g. "math64" for "$(PARENTDIR)/math64" library al "-lmath64"
+INTERNALLIBS:= # e.g. "math64" for "$(SRCDIR)/math64" library as "-lmath64"
+SYSTEMLIBS:= # e.g. "m" for gcc math library as "-lm"
+
+## ^^ END REQUIRED DEVELOPER CONFIGURATION ^^
+#############################################
+
+# dependencies and associated paths (for includes and libraries)
+DEPENDENCIES:= $(MODULE) $(EXTERNALLIBS) $(INTERNALLIBS)
+INCLUDEPATHS:= -I$(SRCDIR) \
  $(patsubst %,-I$(PARENTDIR)/%/src,$(EXTERNALLIBS)) \
- $(patsubst %,-I%/src,$(INTERNALLIBS))
-LIBRARYPATHS:= \
+ $(patsubst %,-I$(SRCDIR)%/src,$(INTERNALLIBS))
+LIBRARYPATHS:= -L$(LIBDIR) \
  $(patsubst %,-L$(PARENTDIR)/%/lib,$(EXTERNALLIBS)) \
- $(patsubst %,-L%/lib,$(INTERNALLIBS))
+ $(patsubst %,-L$(SRCDIR)%/lib,$(INTERNALLIBS))
 
 # compiler macros
 WARNINGS:= -Werror -Wall -Wextra
@@ -80,81 +103,96 @@ LDFLAGS:= $(LIBRARYPATHS) $(LIBFLAGS)
 CC:= gcc $(WARNINGS) $(CFLAGS) $(INCLUDEPATHS)
 
 # .PHONY defines rules that should execute, even if they exist as files
-.PHONY: all clean coverage library test $(DEPENDENCIES)
+.PHONY: library clean coverage report test
 .SUFFIXES: # disables predefined rules
 
-# default rule: "make all" and "make", makes all objects
-all: $(OBJECTS)
+# first rule is default: runs on "make" command
+library: # redirect
+	@make $(LIBDIR)/lib$(MODULE).a --no-print-directory
+$(MODULE): # redirect
+	@make $(LIBDIR)/lib$(MODULE).a --no-print-directory
+$(LIBDIR)/lib$(MODULE).a: $(BASEOBJECTS) $(LIBDIR)
+	ar rcs $(LIBDIR)/lib$(MODULE).a $(BASEOBJECTS)
 
-# remove bin, build and out directories and their contents
+# remove build, lib and out directories
 clean:
-	$(RM) $(BINFILES) $(BUILDDIR) $(LIBDIR)
+	@$(RM) $(BUILDDIR) $(LIBDIR) $(OUTDIR)
 
-# build hash test coverage binary and generate coverage.info file
+# build all test coverage reports
 coverage:
-	@make test CFLAGS=-coverage
-	@cd $(DIR_BUILD) && gcov -d -o $(DIR_BUILD) -s $(DIR_SRC) $(DIR_BIN)/hash-test
-	lcov -c --directory $(DIR_BUILD) --output-file $(DIR_BUILD)/coverage.info
-#	genhtml $(DIR_BUILD)/coverage.info --output-directory $(DIR_OUT)
+	@echo "[========] Generating test coverage reports for \"$(MODULE)\"..."
+	@$(foreach INFO,$(sort $(TESTINFOS)),make $(INFO) --no-print-directory; )
 
-library: $(LIBDIR)/lib$(LIBRARYNAME).a
-$(LIBDIR)/lib$(LIBRARYNAME).a: $(OBJECTS) $(LIBDIR)
-	ar rcs $(LIBDIR)/lib$(LIBRARYNAME).a $(OBJECTS)
+# combine all test coverage reports
+report: $(OUTDIR)
+	@echo "[========] Combining coverage reports..."
+	@lcov $$(find $(BUILDDIR) -name *.info -printf " -a %p") -o $(COVERAGEFILE)
+#	@genhtml $(COVERAGEFILE) -o $(OUTDIR)
 
 # build and run all tests
-test: $(wildcard $(TESTDIR)/*.c)
-	@export COMPS=$$(ls $^ | sed -E 's/.*\/([^-]*)[-.]+.*/\1/g' | sort -u); \
-	 export NCOMPS=$$(wc -l <<< "$$COMPS"); \
-	 export NTESTS=$$(wc -w <<< "$^"); \
-	 printf "[========] Performing all tests in \"$(LIBRARYNAME)\".\n"; \
-	 printf "[========] Found $$NTESTS tests for $$NCOMPS components.\n"; \
-	 for COMP in $$COMPS; do make test/$$COMP --no-print-directory; done; \
-	 export FAILS=$$(ls -l $(BUILDDIR)/*.fail 2>/dev/null | wc -l); \
-	 printf "[ FINISH ] Completed $$NTESTS tests for $$NCOMPS components.\n"; \
-	 printf "[ PASSED ] $$((NTESTS-FAILS)) tests passed.\n"; \
-	 printf "[ FAILED ] $$FAILS tests failed.\n"; \
-	 exit $$FAILS;
+test: $(OBJECTS) $(DEPENDENCIES) $(BUILDDIR)
+	@echo "[--------] Cleanup previous failures..."
+	@find $(BUILDDIR) -name *.fail -delete
+	@echo "[========] Found $(words $(TESTNAMES)) tests" \
+		"for $(words $(TESTCOMPS)) components in \"$(MODULE)\"."
+	@echo "[========] Perform all tests in \"$(MODULE)\" by component."
+	@$(foreach COMP,$(TESTCOMPS),make test-$(COMP) --no-print-directory; )
+	@export FAILS=$$(find $(BUILDDIR) -name *.fail -delete -print | wc -l); \
+	 echo -e "\n[========] Testing completed. Analysing results..."; \
+	 echo -e "[ PASSED ] $$(($(words $(TESTNAMES))-FAILS)) tests passed."; \
+	 echo -e "[ FAILED ] $$FAILS tests failed.\n"; \
+	 exit $$FAILS
 
-# build and run specific tests
-test/%: $(wildcard $(TESTDIR)/%*.c)
+# build and run specific tests matching pattern
+test-%:
 	@export TIMEFORMAT=" (%Es)"; \
-	 export TESTS=$$(ls $(TESTDIR)/$** | sed -E 's/\S*\/(.*)\.c/test-\1/g'); \
-	 export NUMTESTS=$$(wc -l <<< "$$TESTS"); \
-	 if $$(ls $(BUILDDIR)/*.fail 1>/dev/null 2>&1); then \
-		printf "[--------] Remove previous test failures.\n"; \
-		 $(RM) $(BUILDDIR)/test-$**.fail; \
-	 fi; \
-	 printf "[--------] Making $$NUMTESTS tests matching \"$*\".\n"; \
-	 for TEST in $$TESTS; do printf "[ MAKE   ] $$TEST...\n"; \
-		time { make $(BUILDDIR)/$$TEST -s && printf "[   DONE ] $$TEST" || \
-		 printf "[  ERROR ] $$TEST"; }; \
-	 done; \
-	 printf "[--------] Running $$NUMTESTS tests matching \"$*\".\n"; \
-	 for TEST in $$TESTS; do printf "[ RUN    ] $$TEST...\n"; \
-		time { $(BUILDDIR)/$$TEST && printf "[   PASS ] $$TEST" || \
-		 ( touch $(BUILDDIR)/$$TEST.fail && printf "[   FAIL ] $$TEST" ); }; \
+	 export TESTS="$(addprefix $(BUILDDIR)/test/,$(filter $*%,$(TESTNAMES)))"; \
+	 export NTESTS="$(words $(filter $*%,$(TESTNAMES)))"; \
+	 echo "[--------] Performing $$NTESTS tests matching \"$*\"."; \
+	 for TEST in $$TESTS; do \
+		printf "[ MAKING ] $$TEST..." && make $$TEST -s && \
+		printf "\33[2K\r[ RUNING ] $$TEST..." && \
+		time { $$TEST && printf "\33[2K\r[ ✔ PASS ] $$TEST" || \
+			( touch $$TEST.fail && printf "\33[2K\r[ ✖ FAIL ] $$TEST" ); } || \
+		printf "\33[2K\r[  ERROR ] Could not test $$TEST, ecode=$$?\n"; \
 	 done;
 
-# build test binaries, within build directory, from associated objects
-$(BUILDDIR)/test-%: $(BUILDDIR)/test-%.o $(BUILDDIR) $(DEPENDENCIES)
+# build individual test coverage reports, within out directory
+%.info: %.c # redirect
+	@make $(BUILDDIR)/$@ --no-print-directory && \
+		echo -e "\n  NOTE: $@ can be found at $(BUILDDIR)/$@\n"
+$(TESTINFOS): $(BUILDDIR)/%.info: $(SRCDIR)/%.c
+	@$(MKDIR) $(dir $@)
+	@echo "[--------] Clean directories of interfering coverage data..."
+	@find $(BUILDDIR) -type f -name *.gcda -delete -print
+	@echo "[--------] Making coverage test for \"$*\"."
+	@make $(BUILDDIR)/$* --no-print-directory CFLAGS=--coverage
+	@echo "[--------] Running coverage test for \"$*\"."
+	@$(BUILDDIR)/$*
+	@echo "[--------] Building coverage report for \"$*\"."
+	@cd $(BUILDDIR) && gcov -d -o $(dir $@) -s $(SRCDIR) $(BUILDDIR)/$*
+	@lcov -c --directory $(BUILDDIR) --output-file $(BUILDDIR)/$*.info
+
+# build binaries, within build directory, from associated objects
+$(patsubst $(BUILDDIR)/%,%,$(BINARIES)): %: # redirect
+	@make $(BUILDDIR)/$@ --no-print-directory && \
+		echo -e "\n  NOTE: $@ can be found at $(BUILDDIR)/$@\n"
+$(BINARIES): $(BUILDDIR)/%: $(BUILDDIR)/%.o $(DEPENDENCIES)
+	@$(MKDIR) $(dir $@)
 	$(CC) $< -o $@ $(LDFLAGS)
 
 # build dependency libraries, within their respective directories
 $(EXTERNALLIBS): %: $(PARENTDIR)/%/src
 	@make library -C $<
-
-$(INTERNALLIBS): %: %/src
+$(INTERNALLIBS): %: $(SRCDIR)/%/src
 	@make library -C $<
 
-# build test object files, within build directory
-test-%.o: $(BUILDDIR)/test-%.o # redirect
-$(BUILDDIR)/test-%.o: $(TESTDIR)/%.c $(SRCDIR)/GNUmakefile $(BUILDDIR)
-	$(CC) -MMD -MP -c $< -o $@
-
-# build object file, within build directory
-%.o: $(BUILDDIR)/%.o # redirect
-	@echo -e "  $@ can be found at $<\n"
-$(BUILDDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/GNUmakefile $(BUILDDIR)
+# build object files, within build directory
+%.o: %.c # redirect
+	@make $(BUILDDIR)/$@ --no-print-directory && \
+		echo -e "\n  NOTE: $@ can be found at $(BUILDDIR)/$@\n"
+$(OBJECTS): $(BUILDDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/GNUmakefile
+	@$(MKDIR) $(dir $@)
 	$(CC) -MMD -MP -c $< -o $@
 
 # include depends rules created during "build object file" process
@@ -162,11 +200,13 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/GNUmakefile $(BUILDDIR)
 
 # directory creation
 $(BINDIR):
-	@$(MKDIR) $(BINDIR)
+	$(MKDIR) $(BINDIR)
 $(BUILDDIR):
-	@$(MKDIR) $(BUILDDIR)
+	$(MKDIR) $(BUILDDIR)
 $(LIBDIR):
-	@$(MKDIR) $(LIBDIR)
+	$(MKDIR) $(LIBDIR)
+$(OUTDIR):
+	$(MKDIR) $(OUTDIR)
 
 ####################################
 ## DEVELOPER RECIPES CONFIGURATION
@@ -174,12 +214,13 @@ $(LIBDIR):
 
 help:
 	@echo "Usage:"
-	@echo " make                 build all objects"
+	@echo " make                 build a library file containing all objects"
 	@echo " make <component>.o   build <component> object"
-	@echo " make library         build a library file containing all objects"
 	@echo " make test            build and run all tests"
-	@echo " make test/<test>     build and run tests matching <test>*"
-	@echo " make coverage        perform test coverage analysis"
-	@echo " make clean           removes build directories"
+	@echo " make test-<test>     build and run tests matching <test>*"
+	@echo " make <test>.info     build coverage report for <test>"
+	@echo " make coverage        build coverage reports for all tests"
+	@echo " make report          combine coverage reports into single file"
 	@echo " make help            prints this usage information"
+	@echo " make clean           removes build directories"
 	@echo ""
