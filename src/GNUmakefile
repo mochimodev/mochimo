@@ -48,7 +48,7 @@ PARENTDIR = $(ROOTDIR)/..
 SRCDIR = $(ROOTDIR)/src
 
 # file macros
-COVERAGEFILE:= $(BUILDDIR)/coverage.info
+COVERAGEFILE:= $(OUTDIR)/coverage.info
 
 # ^^ END OPTIONAL DEVELOPER CONFIGURATION ^^
 ############################################
