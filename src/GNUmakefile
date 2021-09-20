@@ -91,10 +91,10 @@ SYSTEMLIBS:= # e.g. "m" for gcc math library as "-lm"
 DEPENDENCIES:= $(MODULE) $(EXTERNALLIBS) $(INTERNALLIBS)
 INCLUDEPATHS:= -I$(SRCDIR) \
  $(patsubst %,-I$(PARENTDIR)/%/src,$(EXTERNALLIBS)) \
- $(patsubst %,-I$(SRCDIR)%/src,$(INTERNALLIBS))
+ $(patsubst %,-I$(SRCDIR)/%/src,$(INTERNALLIBS))
 LIBRARYPATHS:= -L$(LIBDIR) \
  $(patsubst %,-L$(PARENTDIR)/%/lib,$(EXTERNALLIBS)) \
- $(patsubst %,-L$(SRCDIR)%/lib,$(INTERNALLIBS))
+ $(patsubst %,-L$(SRCDIR)/%/lib,$(INTERNALLIBS))
 
 # compiler macros
 WARNINGS:= -Werror -Wall -Wextra
