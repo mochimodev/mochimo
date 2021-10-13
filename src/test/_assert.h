@@ -4,7 +4,6 @@
  * For more information, please refer to ../../LICENSE
  *
  * Date: 8 October 2021
- * Revised: 11 October 2021
  *
 */
 
@@ -70,10 +69,10 @@
          unsigned long long a = (unsigned long long) A; \
          unsigned long long b = (unsigned long long) B; \
          unsigned long long c = (unsigned long long) C; \
-         PRINT("DEBUG: a = %*s = %llu;\n", _LEN, #A, a); \
-         PRINT("DEBUG: b = %*s = %llu;\n", _LEN, #B, b); \
-         PRINT("DEBUG: c = %*s = %llu;\n", _LEN, #C, c); \
-         PRINT(" TEST: assert(a " #OP " b  && b " #OP " c)\n"); \
+         PRINT("ASSERT: a = %*s = %llu;\n", _LEN, #A, a); \
+         PRINT("ASSERT: b = %*s = %llu;\n", _LEN, #B, b); \
+         PRINT("ASSERT: c = %*s = %llu;\n", _LEN, #C, c); \
+         PRINT("ASSERT: assert(a " #OP " b  && b " #OP " c); %s\n\n", MSG); \
          ASSERT(a OP b && b OP c && MSG); \
       } while (0)
    #define ASSERT_OP_MSG(OP,A,B,MSG) \
@@ -82,9 +81,9 @@
          if ((int) strlen(#B) > _LEN) _LEN = (int) strlen(#B); \
          unsigned long long a = (unsigned long long) A; \
          unsigned long long b = (unsigned long long) B; \
-         PRINT("DEBUG: a = %*s = %llu;\n", _LEN, #A, a); \
-         PRINT("DEBUG: b = %*s = %llu;\n", _LEN, #B, b); \
-         PRINT(" TEST: assert(a " #OP " b)\n"); \
+         PRINT("ASSERT: a = %*s = %llu;\n", _LEN, #A, a); \
+         PRINT("ASSERT: b = %*s = %llu;\n", _LEN, #B, b); \
+         PRINT("ASSERT: assert(a " #OP " b); %s\n\n", MSG); \
          ASSERT(a OP b && MSG); \
       } while (0)
    #define ASSERT_STR_MSG(A,B,LEN,MSG) \
@@ -93,25 +92,26 @@
          char *b = (char *) B; \
          int _LEN = (int) strlen(#A); \
          if ((int) strlen(#B) > _LEN) _LEN = (int) strlen(#B); \
-         PRINT("DEBUG: a = %*s = \"%.*s\";\n", _LEN, #A, (int) LEN, a); \
-         PRINT("DEBUG: b = %*s = \"%.*s\";\n", _LEN, #B, (int) LEN, b); \
-         PRINT(" TEST: assert(strcmp(a, b) == 0);\n"); \
+         PRINT("ASSERT: a = %*s = \"%.*s\";\n", _LEN, #A, (int) LEN, a); \
+         PRINT("ASSERT: b = %*s = \"%.*s\";\n", _LEN, #B, (int) LEN, b); \
+         PRINT("ASSERT: assert(strcmp(a, b) == 0); %s\n\n", MSG); \
          ASSERT(strncmp(a, b, LEN) == 0 && MSG); \
       } while (0)
    #define ASSERT_CMP_MSG(A,B,LEN,MSG) \
       do { \
          int _LEN = (int) strlen(#A); \
          if ((int) strlen(#B) > _LEN) _LEN = (int) strlen(#B); \
-         PRINT_ARRAY("DEBUG: A = %*s = ", A, LEN, _LEN, #A); \
-         PRINT_ARRAY("DEBUG: B = %*s = ", B, LEN, _LEN, #B); \
-         PRINT(" TEST: assert(memcmp(A, B, %d) == 0)\n", (int) LEN); \
+         PRINT_ARRAY("ASSERT: A = %*s = ", A, LEN, _LEN, #A); \
+         PRINT_ARRAY("ASSERT: B = %*s = ", B, LEN, _LEN, #B); \
+         PRINT("ASSERT: assert(memcmp(A, B, %d) == 0); %s\n\n", \
+            (int) LEN, MSG); \
          ASSERT(memcmp(A, B, LEN) == 0 && MSG); \
       } while (0)
    #define ASSERT_ASC_MSG(A,LEN,MSG) \
       do { \
-         PRINT_ARRAY("DEBUG: A = %*s = ", A, LEN, (int) strlen(#A), #A); \
-         PRINT(" TEST: for (i = 0; i < %zu; i++) ", (size_t) (LEN - 2)); \
-         PRINT("assert(A[i] < A[i+1]);\n"); \
+         PRINT_ARRAY("ASSERT: A = %*s = ", A, LEN, (int) strlen(#A), #A); \
+         PRINT("ASSERT: for (i = 0; i < %zu; i++) ", (size_t) (LEN - 2)); \
+         PRINT("assert(A[i] < A[i+1]); %s\n\n", MSG); \
          for (int _i = 0; _i < (LEN-2); _i++) ASSERT(A[_i] < A[_i+1] && MSG); \
       } while (0)
 #else  /* end DEBUG */
