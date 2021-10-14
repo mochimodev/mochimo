@@ -5,7 +5,7 @@
 # For more information, please refer to ../LICENSE
 #
 # Date: 11 August 2021
-# Revised: 7 October 2021
+# Revised: 15 October 2021
 #
 ##
 # NOTES: PLEASE READ AND DELETE THE FOLLOWING NOTES BEFORE PRODUCTION USE !!!
@@ -17,8 +17,9 @@
 # THIS MAKEFILE is mostly drop-in, requiring very little adjustments.
 # DEFAULT MACROS can be changed within the "Developer Configuration Section";
 #
-# Coverage integration was implemented using the guide at:
+# Coverage integration was implemented using a combination of guides:
 # https://about.codecov.io/blog/how-to-set-up-codecov-with-c-and-github-actions/
+# https://wiki.documentfoundation.org/Development/Lcov
 #
 
 
@@ -80,7 +81,7 @@ CC:= gcc $(CFLAGS) # CFLAGS is reserved for the user; make "CFLAGS=-DDEBUG -O3"
 ####################################
 
 .SUFFIXES: # disables predefined rules
-.PHONY: all clean covempty coverage library test help # ALWAYS execute
+.PHONY: all clean coverage library test help # ALWAYS execute
 
 # DEFAULT RULE: build all objects, within build directory
 all: $(BASEOBJECTS)
@@ -88,18 +89,22 @@ all: $(BASEOBJECTS)
 # remove build, lib and out directories
 clean:
 	@$(RM) $(BUILDDIR) $(INCLUDEDIR) $(LIBDIR) $(OUTDIR)
+	@$(foreach DIR,$(INCLUDEDIRS),if test $(DEPTH) -gt 0; then \
+		make clean -C $(DIR) DEPTH=$$(($(DEPTH) - 1)); fi; )
 
-# build all (empty) coverage files
-covempty:
-	@make clean all --no-print-directory "CFLAGS=--coverage -O0"
-	@cd $(BUILDDIR) && gcov -abcfu -o $(abspath $(BUILDDIR)) $(BASESOURCES)
-	@echo -e "\n  NOTE: Empty coverage files can be found in $(BUILDIR)/\n"
-
-# build all coverage files
+# build test coverage
 coverage:
+	@make clean all --no-print-directory "CFLAGS=--coverage -O0"
+	@lcov -c -i -d $(BUILDDIR) -o coverage_base.info
 	@make clean test --no-print-directory "CFLAGS=--coverage -O0"
-	@cd $(BUILDDIR) && gcov -abcfu -o  $(abspath $(BUILDDIR)) $(BASESOURCES)
-	@echo -e "\n  NOTE: Coverage files can be found in $(BUILDIR)/\n"
+	@lcov -c -d $(BUILDDIR) -o coverage_test.info
+	@make clean --no-print-directory
+	@lcov -a coverage_base.info -a coverage_test.info -o coverage.info || \
+		cp coverage_base.info coverage.info
+	@lcov -r coverage.info '*/test/*' -o coverage.info
+	@$(RM) coverage_base.info coverage_test.info
+	@$(foreach DIR,$(INCLUDEDIRS),if test $(DEPTH) -gt 0; then \
+		make coverage -C $(DIR) DEPTH=$$(($(DEPTH) - 1)); fi; )
 
 # build module library, within lib directory
 library:
