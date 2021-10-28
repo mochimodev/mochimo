@@ -27,6 +27,7 @@
 # vv DEVELOPER CONFIGURATION vv
 
 SHELL:= bash
+DEPTH:= 0
 
 # command macros (verbose by default)
 RM:= rm -rf
@@ -70,7 +71,7 @@ BINARYNAMES:= $(patsubst $(BUILDDIR)/%,%,$(BINARIES))
 DEPENDENCIES:= # e.g. ../../path/to/include/dirs
 INCLUDEDIRS:= # e.g. ../../path/to/library/libfile.a
 LIBRARYDIRS:= $(LIBDIR) $(dir $(DEPENDENCIES))
-LIBRARYFLAGS:= -l$(MODULE) $(patsubst lib%.a,-l%,$(notdir $(DEPENDENCIES))) -lm
+LIBRARYFLAGS:= -l$(MODULE) $(patsubst lib%.a,-l%,$(notdir $(DEPENDENCIES)))
 
 # compiler macros
 LDFLAGS:= $(addprefix -L,$(LIBRARYDIRS)) $(LIBRARYFLAGS)
@@ -130,7 +131,7 @@ test-%: $(LIBRARY) $(DEPENDENCIES)
 	@$(foreach TEST,$(addprefix $(BUILDDIR)/test/,$(filter $*%,$(TESTNAMES))), \
 	 make $(TEST) -s && ( $(TEST) && echo "[ ✔ PASS ] $(TEST)" || \
 		( touch $(TEST).fail && echo "[ ✖ FAIL ] $(TEST)" ) \
-	 ) || echo "[  ERROR ] Could not make $(TEST), ecode=$$?"; )
+	 ) || ( touch $(TEST).fail && \ echo "[  ERROR ] $(TEST), ecode=$$?" ); )
 
 # build module library, within lib directory
 lib$(MODULE).a: $(BASEOBJECTS) # redirect

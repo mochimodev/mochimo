@@ -4,6 +4,7 @@
  * For more information, please refer to ../../LICENSE
  *
  * Date: 8 October 2021
+ * Revised: 28 October 2021
  *
 */
 
@@ -55,12 +56,13 @@
    #define PRINT(FMT, ...)  printf(FMT, ##__VA_ARGS__)
    #define PRINT_ARRAY(FMT, ARRAY, BYTES, ...) \
       do { \
-         int _TYPESIZE = (int) sizeof(ARRAY[0]); \
+         int _TYPESIZE = (int) sizeof((ARRAY)[0]); \
          printf(FMT "{ ", ##__VA_ARGS__); \
          for (int _i = 0; _i < (int) (BYTES / _TYPESIZE); _i++) { \
-            printf("0x%llx, ", (unsigned long long) ARRAY[_i]); } \
+            printf("0x%llx, ", (unsigned long long) (ARRAY)[_i]); } \
          printf("}\n"); \
       } while (0)
+   #define ASSERT_DEBUG(...)  PRINT(__VA_ARGS__)
    #define ASSERT_OP2_MSG(OP,A,B,C,MSG) \
       do { \
          int _LEN = (int) strlen(#A); \
@@ -109,10 +111,11 @@
       } while (0)
    #define ASSERT_ASC_MSG(A,LEN,MSG) \
       do { \
-         PRINT_ARRAY("ASSERT: A = %*s = ", A, LEN, (int) strlen(#A), #A); \
+         PRINT_ARRAY("ASSERT: A = %*s = ", (A), LEN, (int) strlen(#A), #A); \
          PRINT("ASSERT: for (i = 0; i < %zu; i++) ", (size_t) (LEN - 2)); \
          PRINT("assert(A[i] < A[i+1]); %s\n\n", MSG); \
-         for (int _i = 0; _i < (LEN-2); _i++) ASSERT(A[_i] < A[_i+1] && MSG); \
+         for (int _i = 0; _i < (LEN-2); _i++) { \
+            ASSERT((A)[_i] < (A)[_i+1] && MSG); } \
       } while (0)
 #else  /* end DEBUG */
    #include <assert.h>
@@ -122,7 +125,8 @@
    #define ASSERT_STR_MSG(A,B,LEN,MSG)  ASSERT(strncmp(A, B, LEN) == 0 && MSG)
    #define ASSERT_CMP_MSG(A,B,LEN,MSG)  ASSERT(memcmp(A, B, LEN) == 0 && MSG)
    #define ASSERT_ASC_MSG(A,LEN,MSG) \
-      for (int _i = 0; _i < (LEN-2); _i++) ASSERT(A[_i] < A[_i+1] && MSG)
+      for (int _i = 0; _i < (LEN-2); _i++) ASSERT((A)[_i] < (A)[_i+1] && MSG)
+   static inline void ASSERT_DEBUG(char *fmt, ...) { (void)fmt; }
 #endif
 
 
