@@ -8,6 +8,9 @@
 # Date: 1 November 2021
 #
 
+### Update/Install dependencies
+apt update && apt install -y build-essential git-all curl; fi
+
 ### Create Mochimo Relaynode Service
 cat <<EOF >/etc/systemd/system/mochimo.service
 # Contents of /etc/systemd/system/mochimo.service
@@ -30,9 +33,6 @@ systemctl enable mochimo.service
 
 ### Create mochimo user
 useradd -m -d /home/mochimo-node -s /bin/bash mochimo-node
-
-### Install git if not installed
-if ! $(git --version); then apt install -y git-all; fi
 
 ### Switch to mochimo-node user
 su mochimo-node
