@@ -21,6 +21,7 @@ After=network.target
 [Service]
 User=mochimo-node
 Group=mochimo-node
+WorkingDirectory=/home/mochimo-node/mochimo/bin/
 ExecStart=/bin/bash /home/mochimo-node/mochimo/bin/gomochi d -n -D
 
 [Install]
