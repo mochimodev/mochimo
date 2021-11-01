@@ -9,7 +9,7 @@
 #
 
 ### Update/Install dependencies
-apt update && apt install -y build-essential git-all curl; fi
+apt update && apt install -y build-essential git-all
 
 ### Create Mochimo Relaynode Service
 cat <<EOF >/etc/systemd/system/mochimo.service
