@@ -150,9 +150,10 @@ int tag_find(byte *addr, byte *foundaddr, byte *balance, size_t len)
    /* Search tag index, Tagidx[] for tag. */
    for(tp = Tagidx, n = 0; n < Ntagidx; n++, tp += ADDR_TAG_LEN) {
       /* compare tag in Tagidx[] to tag */
-      if((len != 0 && memcmp(tp, tag, len) == 0) /* partial tag len search */
-         || (len == 0 /* full tag len search (about 9 instructions in asm) */
-         && *((word32 *) tp)       == *((word32 *) tag)
+      if(  /* partial tag len search */
+         (len > 1 && len < ADDR_TAG_LEN && memcmp(tp, tag, len) == 0)
+         || (  /* full tag len search (about 9 instructions in asm) */
+            *((word32 *) tp)       == *((word32 *) tag)
          && *((word32 *) (tp + 4)) == *((word32 *) (tag + 4))
          && *((word32 *) (tp + 8)) == *((word32 *) (tag + 8))) ) {
          /* tag found */

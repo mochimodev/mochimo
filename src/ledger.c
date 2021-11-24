@@ -64,7 +64,7 @@ int le_find(byte *addr, LENTRY *le, long *position, word16 len)
 
    low = 0;
    hi = Nledger - 1;
-   addrlen = len;
+   addrlen = len < 2 ? TXADDRLEN : len;
 
    while(low <= hi) {
       mid = (hi + low) / 2;
