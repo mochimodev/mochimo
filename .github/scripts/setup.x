@@ -48,12 +48,16 @@ su mochimo-node
 
 ### Change directory to $HOME and download Mochimo Software
 if test -d ~/mochimo; then
-   echo "EXISTING MOCHIMO DIRECTORY DETECTED. Updating..."
+   echo -e "\nEXISTING MOCHIMO DIRECTORY DETECTED. Updating instead...\n"
    cd ~/mochimo && git pull
 else
    cd ~ && git clone --single-branch https://github.com/mochimodev/mochimo.git
 fi
 
-### After successful compile and install, switch user back and reboot
+### After successful compile and install, switch user back
 cd ~/mochimo/src && ./makeunx bin -DCPU && ./makeunx install && \
-   cp ~/mochimo/bin/maddr.mat ~/mochimo/bin/maddr.dat && exit && reboot
+   cp ~/mochimo/bin/maddr.mat ~/mochimo/bin/maddr.dat && exit
+
+### (Re)Start Mochimo Service
+service mochimo restart
+
