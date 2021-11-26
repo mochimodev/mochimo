@@ -12,7 +12,7 @@
 apt update && apt install -y build-essential git-all
 
 ### Check existence of service
-if test ! -f "/etc/systemd/system/mochimo.service"; then
+if test ! -f /etc/systemd/system/mochimo.service; then
 
 ### Create Mochimo Relaynode Service
 cat <<EOF >/etc/systemd/system/mochimo.service
@@ -39,7 +39,7 @@ systemctl enable mochimo.service
 fi
 
 ### Create mochimo user
-if test -z "$(getent passwd mochimo-node); then
+if test -z "$(getent passwd mochimo-node)"; then
    useradd -m -d /home/mochimo-node -s /bin/bash mochimo-node
 fi
 
@@ -47,7 +47,7 @@ fi
 su mochimo-node
 
 ### Change directory to $HOME and download Mochimo Software
-if test -d "~/mochimo"; then
+if test -d ~/mochimo; then
    echo "EXISTING MOCHIMO DIRECTORY DETECTED. Updating..."
    cd ~/mochimo && git pull
 else
