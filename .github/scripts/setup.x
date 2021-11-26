@@ -59,5 +59,8 @@ cd ~/mochimo/src && ./makeunx bin -DCPU && ./makeunx install && \
    cp ~/mochimo/bin/maddr.mat ~/mochimo/bin/maddr.dat && exit
 
 ### (Re)Start Mochimo Service
+echo -e "\n(re)Starting Mochimo service.\nThis can take up to 90 seconds\n"
 service mochimo restart
 
+echo Mochimo Installation complete.
+echo
