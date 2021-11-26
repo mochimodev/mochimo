@@ -11,6 +11,9 @@
 ### Update/Install dependencies
 apt update && apt install -y build-essential git-all
 
+### Check existence of service
+if test ! -f "/etc/systemd/system/mochimo.service"; then
+
 ### Create Mochimo Relaynode Service
 cat <<EOF >/etc/systemd/system/mochimo.service
 # Contents of /etc/systemd/system/mochimo.service
@@ -32,18 +35,25 @@ EOF
 systemctl daemon-reload
 systemctl enable mochimo.service
 
+### End existence of service
+fi
+
 ### Create mochimo user
-useradd -m -d /home/mochimo-node -s /bin/bash mochimo-node
+if test -z "$(getent passwd mochimo-node); then
+   useradd -m -d /home/mochimo-node -s /bin/bash mochimo-node
+fi
 
 ### Switch to mochimo-node user
 su mochimo-node
 
 ### Change directory to $HOME and download Mochimo Software
-cd ~ && git clone --single-branch https://github.com/mochimodev/mochimo.git
-cd ~/mochimo/src && ./makeunx bin -DCPU && ./makeunx install
-cd ~ && cp ~/mochimo/bin/maddr.mat ~/mochimo/bin/maddr.dat
+if test -d "~/mochimo"; then
+   echo "EXISTING MOCHIMO DIRECTORY DETECTED. Updating..."
+   cd ~/mochimo && git pull
+else
+   cd ~ && git clone --single-branch https://github.com/mochimodev/mochimo.git
+fi
 
-### Switch user back to original and reboot
-exit
-reboot
-
+### After successful compile and install, switch user back and reboot
+cd ~/mochimo/src && ./makeunx bin -DCPU && ./makeunx install && \
+   cp ~/mochimo/bin/maddr.mat ~/mochimo/bin/maddr.dat && exit && reboot
