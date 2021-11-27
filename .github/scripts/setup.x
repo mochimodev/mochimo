@@ -13,7 +13,7 @@
 ### Update/Install Dependencies
 while
    DEBIAN_FRONTEND=noninteractive apt update && apt install -y build-essential git-all
-do echo -e "\n   Retrying dependency install in 3 seconds...\n" && sleep 3; done
+do test $? -eq 0 && break || (echo -e "\n   Retry in 3 seconds...\n" && sleep 3); done
 
 ### Ensure latest service file is installed
 cat <<EOF >/etc/systemd/system/mochimo.service
