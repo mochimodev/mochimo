@@ -358,6 +358,17 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
+   /* Adding constants to skip validation on BoxingDay corrupt block
+    * provided the blockhash matches.  See "Boxing Day Anomaly" write
+    * up on the Wiki or on [ REDACTED ] for more details. */
+   static word32 boxingday[2] = { 0x52d3c, 0 };
+   static char boxdayhash[32] = {
+      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
+      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
+      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
+      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
+   };
+
    *result = 100;                 /* I/O high error code */
    memset(highblock, 0, 8);       /* start from genesis block */
    memset(weight, 0, HASHLEN);
@@ -435,6 +446,12 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       /* check enforced delay 9 */
       if(highblock[0] && tcount && get32(Cblocknum) >= Trustblock) {
          if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
+            if(cmp64(bt.bnum, boxingday) == 0) { /* Boxing Day Anomaly -- Bugfix */
+               if(memcmp(bt.bhash, boxdayhash, 32)) {
+                  if (Trace) plog("Boxing Day Bugfix Bhash Failure!");
+                  break;
+               }
+            } else
             if(peach(&bt, get32(bt.difficulty), NULL, 1)){
             break;
             }

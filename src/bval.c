@@ -124,6 +124,16 @@ int main(int argc, char **argv)
    int j;  /* mtx */
    static TXQENTRY txs;     /* for mtx sig check */
 
+   /* Adding constants to skip validation on BoxingDay corrupt block
+    * provided the blockhash matches.  See "Boxing Day Anomaly" write
+    * up on the Wiki or on [ REDACTED ] for more details. */
+   static word32 boxingday[2] = { 0x52d3c, 0 };
+   static char boxdayhash[32] = {
+      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
+      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
+      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
+      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
+   };
 
    ticks = clock();
    fix_signals();
@@ -204,6 +214,12 @@ badread:
 
    /* check enforced delay, collect haiku from block */
    if(cmp64(bnum, v24trigger) > 0) {
+      if(cmp64(bt.bnum, boxingday) == 0) { /* Boxing Day Anomaly -- Bugfix */
+         if(memcmp(bt.bhash, boxdayhash, 32) != 0) {
+            if (Trace) plog("bval(): Boxing Day Bugfix Block Bhash Failure");
+            drop("bval(): Boxing Day Bugfix Block Bhash Failure");
+         }
+      } else
       if(peach(&bt, get32(bt.difficulty), NULL, 1)){
          drop("peach validation failed!");
       }
