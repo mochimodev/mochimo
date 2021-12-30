@@ -136,10 +136,10 @@ int send_cblock(NODE *np)
    pid_t pid;
 
    show("sendcb");
-   if(exists("miner.tmp")) {
+   if(exists("cblock.dat")) {
       pid = getpid();
       sprintf(fname, "cb%u.tmp", (int) pid);
-      sprintf(cmd, "cp miner.tmp %s", fname);
+      sprintf(cmd, "cp cblock.dat %s", fname);
       system(cmd);
       send_file(np, fname);
       unlink(fname);

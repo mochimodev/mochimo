@@ -399,7 +399,7 @@ int gettx(NODE *np, SOCKET sd)
       tag_resolve(np);
       return 1;
    } else if(opcode == OP_GET_CBLOCK) {
-      if(!Allowpush || !exists("miner.tmp")) return 1;
+      if(!Allowpush || !exists("cblock.dat")) return 1;
    } else if(opcode == OP_MBLOCK) {
       if(!Allowpush || (time(NULL) - Pushtime) < 150) return 1;
       Pushtime = time(NULL);
