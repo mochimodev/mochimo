@@ -36,7 +36,7 @@ word32 Bridgetime;   /* for Pseudoblock Trigger                   */
 word32 Sanctuary;
 word32 Lastday;
 byte Exportflag;     /* enable database export if BX_MYSQL defined */
-word32 Trustblock;
+int Trustblock;
 
 /*
  * real time of current server loop - set by server()
