@@ -193,8 +193,14 @@ int main(int argc, char **argv)
                        Dstport = PORT1;  Port = PORT2;
                     }
                     break;
-         case 'T':  Trustblock = atoi(&argv[j][2]);
-                    break;
+         case 'T':  if(argv[j][2] == '\0') {
+                       Trustblock = -1;
+                       break;
+                    }
+                    else {
+                       Trustblock = atoi(&argv[j][2]);
+                       break;
+                    }
 #ifdef BX_MYSQL
          case 'X':  Exportflag = 1;
                     break;
