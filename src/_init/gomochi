@@ -96,8 +96,8 @@ do
    fi
    # Obtain fresh list
    echo "Downloading a fresh startnode.lst file."
-   echo "   Trying mochimap.net..."
-   wget -O ../startnodes.lst https://www.mochimap.net/startnodes.lst >/dev/null 2>&1
+   echo "   Trying api.mochimap.com..."
+   wget -O ../startnodes.lst https://api.mochimap.com/network/peers/start >/dev/null 2>&1
    if test ! -f ../startnodes.lst
    then
       echo "   Trying mochimo.org..."
