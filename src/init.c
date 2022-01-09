@@ -444,7 +444,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       if(memcmp(prevhash, bt.phash, HASHLEN) != 0) break;
       ecode++;
       /* check enforced delay 9 */
-      if(highblock[0] && tcount && get32(Cblocknum) >= Trustblock) {
+      if(highblock[0] && tcount && get32(bt.bnum) > Trustblock && Trustblock >= 0) {
          if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
             if(cmp64(bt.bnum, boxingday) == 0) { /* Boxing Day Anomaly -- Bugfix */
                if(memcmp(bt.bhash, boxdayhash, 32)) {
@@ -1012,10 +1012,12 @@ int init(void)
 
    /* Read and validate our own tfile.dat to compute Weight */
    wp = tfval("tfile.dat", highblock, 0, &result);
-   if(result || cmp64(Cblocknum, highblock) != 0) {
-      plog("init(): %d %d", Cblocknum[0], highblock[0]);
-      fatal("init(): bad tfile.dat -- gomochi!");
-   }
+   if(Trustblock != -1){
+      if(result || cmp64(Cblocknum, highblock) != 0) {
+         plog("init(): %d %d", Cblocknum[0], highblock[0]);
+         fatal("init(): bad tfile.dat -- gomochi!");
+      }
+   }   
    memcpy(Weight, wp, HASHLEN);
 
    /* read local nodes into Lplist */
