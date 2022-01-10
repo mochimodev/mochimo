@@ -7,7 +7,6 @@
 # For more information, please refer to ../LICENSE
 #
 # Date: 1 November 2021
-# Revised: 10 December 2021
 #
 
 export DEBIAN_FRONTEND=noninteractive
@@ -44,10 +43,15 @@ if test -z "$(getent passwd mochimo-node)"; then
    fi
 fi
 
-### Switch to mochimo-node user and change directory to $HOME
-### Download or Update Mochimo Software
+### Ensure correct ownership of existing mochimo directory
+if test -d /homa/mochimo-node/mochimo; then
+   chown -R mochimo-node:mochimo-node /home/mochimo-node/mochimo
+fi
+
+### Switch to mochimo-node user
 sudo -u mochimo-node sh<<EOC
 
+### Download or Update Mochimo Software
 if test -d ~/mochimo; then
    printf "\n   MOCHIMO DIRECTORY DETECTED."
    printf "\n   Performing mochimo update...\n\n"
