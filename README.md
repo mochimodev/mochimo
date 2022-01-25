@@ -6,13 +6,17 @@
 
 This repository is designed for inclusion in C/C++ projects for easy build and workflow integration, intended for use in ongoing projects at Adequate Systems, LLC.
 
-## Recommended Usage
-To include or update, it makes no difference; add this repository as a remote and pull the latest (or desired) revision, specifying to "allow unrelated histories"...
+## Instructions
+**NOTE: This repository contains it's own LICENSE.md and README.md files that may introduce artifacts in existing files of the target repostiory. Please ensure the LICENSE.md and README.md files are appropriate and/or correct for your target repostiory pulling this repository.**
+
+To include or update, it makes no difference; add this repository as a remote and pull the latest (or desired) revision, specifying to "allow unrelated histories"...<br/>
+<sup><i>Adding the repository as a remote may be omitted if previously performed</i></sup>
 ```sh
 git remote add build-c https://github.com/adequatesystems/build-c.git
 git pull build-c main --allow-unrelated-histories
 ```
-If you are presented with merge conflicts, you will need to manually edit the files with conflicts and then finalize the merge with...
+Fix merge conflicts and commit with...<br/>
+<sup><i>Commit may also be performed selectively</i></sup>
 ```sh
 git commit -am "merge latest build-c repository files"
 ```
@@ -31,11 +35,9 @@ git commit -am "merge latest build-c repository files"
 # │   │   ├── config
 # │   │   ├── layout.xml
 # │   │   └── style.css
-# │   ├── workflows
-# │   │   ├── codeql.yaml
-# │   │   └── tests.yaml
-# │   ├── LICENSE.md
-# │   └── README.md
+# │   └── workflows
+# │       ├── codeql.yaml
+# │       └── tests.yaml
 - ├── build
 - │   ├── test
 - │   │   ├── sourcetest.d
@@ -55,8 +57,8 @@ git commit -am "merge latest build-c repository files"
 + │   └── source.h
 # ├── .gitignore
 # ├── GNUmakefile
-+ ├── LICENSE.md
-+ └── README.md
+# ├── LICENSE.md
+# └── README.md
 ```
 
 ## Makefile usage
