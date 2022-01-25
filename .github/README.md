@@ -11,7 +11,10 @@ To include or update, it makes no difference; add this repository as a remote an
 ```sh
 git remote add build-c https://github.com/adequatesystems/build-c.git
 git pull build-c main --allow-unrelated-histories
-# fix merge conflicts as necessary
+```
+If you are presented with merge conflicts, you will need to manually edit the files with conflicts and then finalize the merge with...
+```sh
+git commit -am "merge latest build-c repository files"
 ```
 
 ## Typical active project directory structure
