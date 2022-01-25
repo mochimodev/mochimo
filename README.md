@@ -116,6 +116,27 @@ Test coverage is also generated automatically by the `tests.yaml` github workflo
 
 **On the rare chance that test coverage remains in a failed state,** you may need to manually "activate" a repository on the CodeCov dashboard (website) and "re-run" all jobs again.
 
+## Submodule support
+Support for submodules is automatically built into the Makefile, provided that:
+* the submodules use the same build and workflow structure
+* the submodules are added to the `include/` directory
+
+### Add a submodule
+Adding a submodule can be done as part of a larger commit if desired.
+```sh
+cd project-repo
+git submodule add <submodule-repo> include/<submodule-name>
+git commit -m "add submodule to repostory"
+```
+
+### Update a submodule
+**Operating the Makefile between any of the steps for updating a submodule may result in a misconfigured submodule.** It is recommended to complete steps below before operating the makefile. Updating a submodule can be done as part of a larger commit if desired.
+```sh
+cd project-repo
+git -C include/<submodule-name> pull origin main
+git commit -m "update submodule to latest revision"
+```
+
 ## CUDA support
 CUDA compilation of `*.c` source files is enabled by the Makefile for systems with appropriately installed CUDA Toolkit. The Makefile uses the NVCC compiler in place of the normal compiler (normally gcc) to compile identical object files. By default, the NVCC compiler is assumed to be accessible at the standard cuda toolkit install location `/usr/local/cuda/bin/nvcc`, however this is configurable via the command line using the `NVCC` flag like so:
 ```sh
