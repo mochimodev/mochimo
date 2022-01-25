@@ -1,0 +1,46 @@
+##
+# codeql.yaml - CodeQL workflow for static code analysis.
+# Copyright 2021-2022 Adequate Systems, LLC. All Rights Reserved.
+#
+
+name: CodeQL
+defaults:
+  run:
+    shell: bash
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # pull_request branches MUST be a subset of push branches
+    branches: [main]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      # actions and contents are only required for private repo
+      #actions: read
+      #contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v1
+      with:
+        languages: 'cpp'
+        # If necessary, multiple languages can be setup with a matrix strategy.
+        # Support: [ 'cpp', 'csharp', 'go', 'java', 'javascript', 'python' ]
+    - name: Make project files
+      run: |
+        make all -C ${{ github.workspace }}
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v1
+    - name: Check CodeQL Analysis
+      run: |
+        results="${{ github.workspace }}/../results/cpp.sarif"
+        resultsArray=($(cat $results | jq -r '.runs[].results[].ruleId'))
+        if test ${#resultsArray[@]} -gt 0; then
+            echo -e "\nCodeQL Analysis found problems that need addressing..."
+            echo -e "Details in Repository->Security->Code scanning alerts.\n"
+            exit -1
+        fi
