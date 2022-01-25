@@ -81,7 +81,7 @@ Usage:  make [options] [FLAGS=FLAGVALUES]
 Most parameters used by the Makefile can be configured, either directly in the Makefile itself or on the command line by appending the flag and its value to the call to `make`. For a complete list of FLAGS it is recommended to peruse the GNUmakefile source.
 
 ## Integrated Documentation
-*Requires `doxygen` to be installed`
+*Requires at least `doxygen` v1.9.x (unavailable through `apt` on Ubuntu 20.04)*
 
 C/C++ Documentation is made available with the help of Doxygen, using special comment style blocks before functions and definitions for automatic recognition and compilation into an easy to navigate html documentation front-end. 
 
