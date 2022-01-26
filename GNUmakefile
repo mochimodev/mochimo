@@ -152,8 +152,7 @@ $(COVERAGE):
 		cp $(COVERAGE)_base $(COVERAGE)
 	rm -rf $(COVERAGE)_base $(COVERAGE)_test
 	lcov -r $(COVERAGE) '*/$(TESTSOURCEDIR)/*' -o $(COVERAGE)
-	@$(foreach INC,$(INCLUDEDIRS),if test $(DEPTH) -gt 0; then \
-		make coverage -C $(INC) DEPTH=$$(($(DEPTH) - 1)); fi; )
+	lcov -r $(COVERAGE) '*/$(INCLUDEDIR)/*' -o $(COVERAGE)
 
 # build binaries, within build directory, from associated objects
 $(BUILDDIR)/%: $(LIBRARIES) $(LIBRARY) $(BUILDDIR)/%.o
