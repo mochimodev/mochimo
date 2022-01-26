@@ -48,7 +48,7 @@ NVINCLUDEDIR:= /usr/local/cuda/include
 
 # compiler macros
 LFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES))
-LDFLAGS:= $(addprefix -L,$(LIBRARYDIRS)) -Wl,-\( $(LFLAGS) -Wl,-\) -pthread
+LDFLAGS:= $(addprefix -L,$(LIBRARYDIRS)) -Wl,-\( $(LFLAGS) -Wl,-\) -lm -pthread
 CCFLAGS:= -Werror -Wall -Wextra $(addprefix -I,$(INCLUDEDIRS))
 NVFLAGS:= -Werror all-warnings $(addprefix -I,$(INCLUDEDIRS) $(NVINCLUDEDIR))
 NVCC:= /usr/local/cuda/bin/nvcc $(CFLAGS)
