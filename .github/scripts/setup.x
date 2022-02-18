@@ -9,10 +9,12 @@
 # Date: 1 November 2021
 #
 
-### Update/Install Dependencies
-while
-   apt update && apt install -y build-essential git-all
-do test $? -eq 0 && break || (printf "\n   Retrying...\n\n" && sleep 2); done
+### Update/Install Dependencies (ONLY on first install)
+if test ! -d /home/mochimo-node/mochimo; then
+   while
+      apt update && apt install -y build-essential git-all
+   do test $? -eq 0 && break || (printf "\n   Retrying...\n\n" && sleep 2); done
+fi
 
 ### Ensure latest service file is installed
 cat <<EOF >/etc/systemd/system/mochimo.service
