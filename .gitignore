@@ -1,21 +1,13 @@
-/bin/
-
-/src/**/ccerror.log
-/src/**/*.o
-
-/src/bcon
-/src/bup
-/src/bval
-/src/mochimo
-/src/neogen
-/src/sortlt
-/src/txclean
-/src/wallet
-/src/bx
 
 #eclipse cpp
-/.cproject
-/.project
-/src/.cproject
-/src/.project
+.cproject
+.project
+src/.cproject
+src/.project
 
+# Visual Studio Code
+.vscode
+
+# Build directories
+bin
+build
