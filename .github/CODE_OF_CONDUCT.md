@@ -2,11 +2,11 @@
 
 ## Contributors
 
-As a condition of contributing to this repository you must first read and agree to the license (found in LICENSE.PDF).  You further agree to abide by the Terms of Service of Github when contributing.
+As a condition of contributing to this repository you must first read and agree to the [License](LICENSE.PDF).  You further agree to abide by Github's [Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) when contributing.
 
 ## Everyone
 
-If you think any contributor might be violating the Github Terms of Service, please provide a detailed explanation to support@mochimo.org and we'll attempt to address it (in order to avoid the potential deplatforming of the repo).
+If you think any contributor might be violating the Github Terms of Service, please provide a detailed explanation to [support@mochimo.org](mailto:support@mochimo.org) and we'll attempt to address it (in order to avoid the potential deplatforming of the repo).
 
 ### Additional Notes
 
