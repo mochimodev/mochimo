@@ -1,0 +1,3 @@
+[submodule "include/crypto-c"]
+	path = include/crypto-c
+	url = https://github.com/adequatesystems/crypto-c
