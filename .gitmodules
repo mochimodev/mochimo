@@ -1,3 +1,6 @@
 [submodule "include/crypto-c"]
 	path = include/crypto-c
 	url = https://github.com/adequatesystems/crypto-c
+[submodule "include/extended-c"]
+	path = include/extended-c
+	url = https://github.com/adequatesystems/extended-c
