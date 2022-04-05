@@ -148,15 +148,15 @@ for(something) {
 } /* end for(something)...*/
 ```
 
-If the visual length of any line (including indentation) exceeds 72 characters and it is impractical to reduce the length of a statement, wrap the statement to the next line and apply a single additional level of hierarchy per statement.
+If the visual length of any line (including indentation) exceeds 76 characters and it is impractical to reduce the length of a statement, wrap the statement to the next line and apply a single additional level of hierarchy per statement.
 
 ```c
 #define REALLY_LONG_PRE_PROCESSOR_STR_LITERAL \
    "Really long pre-processor string literal. " \
    "Impractically long but sometimes necessary."
 
-int really_long_function_and_parameters
-   (int parameter1, int parameter2, int parameter3)
+int really_long_function_and_parameters(
+   int parameter1, int parameter2, int parameter3)
 {
    char *really_long_variable_initialization =
       "really long variable initialization...";
