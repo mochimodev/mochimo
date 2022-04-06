@@ -63,6 +63,7 @@ git commit -am "merge latest build-c repository files"
 + │   ├── source.cuh
 + │   └── source.h
 # ├── .gitignore
+# ├── CHANGELOG.md
 # ├── GNUmakefile
 # ├── LICENSE.md
 # ├── README.md
