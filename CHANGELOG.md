@@ -25,6 +25,6 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/olivierlacan/keep-a-changelog/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/olivierlacan/keep-a-changelog/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/olivierlacan/keep-a-changelog/releases/tag/v1.0.0
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/adequatesystems/build-c/compare/1.0.0...1.1.0
+[1.0.0]: https://github.com/adequatesystems/build-c/releases/tag/1.0.0
