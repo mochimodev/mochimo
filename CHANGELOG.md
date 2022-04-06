@@ -1,3 +1,10 @@
+# Changelog
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+
 
 # Changelog
 
@@ -14,7 +21,7 @@
 Repository restructure and implementation of the Adequate Systems Build-C repository for streamlined CI/CD processes and updated build utilities.
 
 ### Added
-- merged "adequatesystems/build-c" (latest) for automated CI/CD processes
+- build-c utilities (build-c-1.1.1) for automated building testing and coverage
   - includes LICENSE.md (so Github detects the existance of a license)
 ### Changed
 - moved/revised github specific templates and standards
@@ -187,9 +194,17 @@ October 27th, 2018
 - data.c: #define CORELISTLEN 16
 - gettx.c: added contention(), catchup(), and bval2()
 - server.c: removed LULL timer
-- txclean.c: fixed unlink(argv[1]) bug
+- txclean.c: fixed unlink(argv parameter 1) bug
 - util.c: new get_mreward() on block trigger
 
 ### Removed
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
+
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/adequatesystems/build-c/compare/v2.4...v2.4.1
+[2.4.0]: https://github.com/adequatesystems/build-c/compare/v2.3...v2.4
+[2.3.0]: https://github.com/adequatesystems/build-c/compare/v2.2...v2.3
+[2.2.0]: https://github.com/adequatesystems/build-c/compare/v2.1...v2.2
+[2.1.0]: https://github.com/adequatesystems/build-c/compare/v2.0...v2.1
+[2.0.0]: https://github.com/adequatesystems/build-c/releases/tag/v2.0
