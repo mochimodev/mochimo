@@ -23,7 +23,7 @@ git commit -am "merge latest build-c repository files"
 
 ## Typical active project directory structure
 ```diff
-# Base files
+# Configuration / Static
 + Manually managed
 - Automatically managed
 ! Automatically generated only
@@ -40,10 +40,14 @@ git commit -am "merge latest build-c repository files"
 # │       └── tests.yaml
 - ├── build
 - │   ├── test
+- │   │   ├── sourcetest-cu.d
+- │   │   ├── sourcetest-cu.o
+- │   │   ├── sourcetest-cu
 - │   │   ├── sourcetest.d
 - │   │   ├── sourcetest.o
 - │   │   └── sourcetest
 - │   ├── source
+- │   └── source.cu.o
 - │   ├── source.d
 - │   └── source.o
 ! ├── docs
@@ -52,31 +56,47 @@ git commit -am "merge latest build-c repository files"
 ! │   └── submoduledirs...
 + ├── src
 + │   ├── test
++ │   │   ├── sourcetest-cu.c
 + │   │   └── sourcetest.c
 + │   ├── source.c
++ │   ├── source.cu
++ │   ├── source.cuh
 + │   └── source.h
 # ├── .gitignore
 # ├── GNUmakefile
 # ├── LICENSE.md
-# └── README.md
+# ├── README.md
+# └── VERSION
 ```
+
+## Automatically configured filename/extension support
+By default, the GNUMakefile is automatically configured to operate with the following filenames and extensions:
+- `src/*.c:` C source file, compiled with `$(CC)`
+- `src/*.h:` C header file, for inclusion by other source files
+- `src/*.cu:` CUDA source file, compiled with `$(NVCC)`
+- `src/*.cuh:` CUDA header file, for inclusion ONLY by other CUDA source files
+- `src/test/component-*.c:` C source file for testing C functions
+- `src/test/component-*-cu.c:` C source file for testing CUDA functions, compiled with `$(CC)` ONLY if `$(CFLAGS)` contains the `"-DCUDA"` definition
 
 ## Makefile usage
 CLI usage information is revealed with the use of `make` or `make help` in the project's root directory.
 ```
 Usage:  make [options] [FLAGS=FLAGVALUES]
-   make               prints this usage information
-   make all           build all object files
-   make clean         removes build directory and files
-   make cleanall      removes (all) build directories and files
-   make coverage      build test coverage file
-   make cuda          build cuda compatible object files
-   make docs          build documentation files
-   make library       build a library file containing all objects
-   make libraries     build all library files required for binaries
-   make report        build html report from test coverage
-   make test          build and run all tests
-   make test-<test>   build and run tests matching <test>*
+
+	make               prints this usage information
+	make all           build all object files
+	make allcuda       build all CUDA object files
+	make clean         removes build directory and files
+	make cleanall      removes (all) build directories and files
+	make coverage      build test coverage file
+	make docs          build documentation files
+	make library       build a library file containing all objects
+	make libraries     build all library files required for binaries
+	make report        build html report from test coverage
+	make subtest-*     build and run sub tests matching *
+	make test          build and run tests
+	make testcuda      build and run *-cu.c tests
+	make testopencl    build and run *-cl.c tests
 ```
 
 ## Configurable Flags
