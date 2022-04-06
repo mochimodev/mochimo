@@ -15,6 +15,7 @@ CUDA Device compilation and testing support.
 - Auto-recognised file extensions for targeted compilation and testing
 - VERSION file, supporting auto-documentation version numbers
 - CHANGELOG.md for chronological changes to the repository
+- (re)Integrate testing assertion header as a testing utility
 
 ## [1.0.0] - 2022-01-26
 Initial repository release.
