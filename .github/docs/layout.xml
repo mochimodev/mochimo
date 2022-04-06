@@ -40,8 +40,8 @@
 
   <!-- Layout definition for a class page -->
   <class>
-    <briefdescription visible="yes"/>
     <includes visible="$SHOW_HEADERFILE"/>
+    <briefdescription visible="yes"/>
     <detaileddescription title=""/>
     <inheritancegraph visible="$CLASS_GRAPH"/>
     <collaborationgraph visible="$COLLABORATION_GRAPH"/>
@@ -141,11 +141,13 @@
   <!-- Layout definition for a file page -->
   <file>
     <sourcelink visible="yes"/>
-    <detaileddescription title=""/>
     <includes visible="$SHOW_INCLUDE_FILES"/>
     <includegraph visible="$INCLUDE_GRAPH"/>
     <includedbygraph visible="$INCLUDED_BY_GRAPH"/>
+    <detaileddescription title=""/>
     <memberdecl>
+      <defines title=""/>
+      <typedefs title=""/>
       <interfaces visible="yes" title=""/>
       <classes visible="yes" title=""/>
       <structs visible="yes" title=""/>
@@ -153,8 +155,6 @@
       <namespaces visible="yes" title=""/>
       <concepts visible="yes" title=""/>
       <constantgroups visible="yes" title=""/>
-      <defines title=""/>
-      <typedefs title=""/>
       <sequences title=""/>
       <dictionaries title=""/>
       <enums title=""/>
