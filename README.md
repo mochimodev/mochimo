@@ -2,6 +2,10 @@
    <a href="http://adequate.biz">
       <img alt="Adequate Systems" src="https://raw.githubusercontent.com/adequatesystems/.github/main/media/adqlogo_banner.svg" /></a>
    <br/>C/C++ Build and Workflow Support<br/>
+   <a href="https://github.com/adequatesystems/build-c/tags">
+      <img src="https://img.shields.io/github/v/tag/adequatesystems/build-c?color=0059ff&label=Latest&labelColor=2d3339&logo=github&logoColor=lightgray" alt="GitHub tag (latest by date)"></a>
+   <a href="LICENSE.md">
+      <img src="https://img.shields.io/badge/_License-MPL_2.0_Derivative-%23.svg?logoColor=lightgreen&logo=open%20source%20initiative&labelColor=2d3339&color=0059ff" alt="MPL 2.0 Derivative" /></a>
 </h1>
 
 This repository is designed for inclusion in C/C++ projects for easy build and workflow integration, intended for use in ongoing projects at Adequate Systems, LLC.
