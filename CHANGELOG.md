@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2022-04-06
+Visual fixes and change of tag scheme to `build-c-<version>` to avoid conflict with dependency projects version numbers.
+
 ## [1.1.0] - 2022-04-06
 CUDA Device compilation and testing support.
 
@@ -25,6 +28,7 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/1.1.0...HEAD
-[1.1.0]: https://github.com/adequatesystems/build-c/compare/1.0.0...1.1.0
-[1.0.0]: https://github.com/adequatesystems/build-c/releases/tag/1.0.0
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.0...HEAD
+[1.1.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.0...build-c-1.1.1
+[1.1.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.0.0...build-c-1.1.0
+[1.0.0]: https://github.com/adequatesystems/build-c/releases/tag/build-c-1.0.0

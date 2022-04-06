@@ -24,6 +24,12 @@ Fix merge conflicts and commit with...<br/>
 ```sh
 git commit -am "merge latest build-c repository files"
 ```
+To upgrade/downgrade at a later date...<br/>
+<sup><i>Recommend using version tags like "build-c-<version>"</i></sup>
+```sh
+git pull build-c build-c-1.1.0 --allow-unrelated-histories
+git commit -am "merge build-c v1.1.0 repository files"
+```
 
 ## Typical active project directory structure
 ```diff
@@ -120,7 +126,7 @@ Test files should be placed in the `src/test/` directory as `*.c` source files. 
 
 Use:
 * `make test` to run all tests, OR
-* `make test-<pattern>` to run all tests matching `pattern*`
+* `make subtest-*` to run all tests matching `*`
 
 ## Test coverage (local)
 <sup><i>Note: Local test coverage may be incomplete if tests fail</i></sup>
@@ -160,7 +166,7 @@ git commit -m "add submodule to repostory"
 **Operating the Makefile between any of the steps for updating a submodule may result in a misconfigured submodule.** It is recommended to complete steps below before operating the makefile. Updating a submodule can be done as part of a larger commit if desired.
 ```sh
 cd project-repo
-git -C include/<submodule-name> pull origin main
+git -C include/<submodule-name> pull origin <main|tag|commit>
 git commit -m "update submodule to latest revision"
 ```
 
