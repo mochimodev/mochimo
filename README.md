@@ -98,7 +98,6 @@ Usage:  make [options] [FLAGS=FLAGVALUES]
 	make subtest-*     build and run sub tests matching *
 	make test          build and run tests
 	make testcuda      build and run *-cu.c tests
-	make testopencl    build and run *-cl.c tests
 ```
 
 ## Configurable Flags
