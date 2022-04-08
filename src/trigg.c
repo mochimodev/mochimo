@@ -461,7 +461,7 @@ void *trigg_generate_fast(void *out)
    if (rnd16[2] == 0x480) rnd16[1] %= 0x23C4;
 
    /* determine frame type from rnd value */
-   if (rnd32[1] > 0x80 || rnd32[1] == 0x80 && rnd32[0] >= 0x23C40000) {
+   if (rnd32[1] > 0x80 || (rnd32[1] == 0x80 && rnd32[0] >= 0x23C40000)) {
       /* Permutations remaining: 4,948,402,372,608 (4.9 Trillion) */
       /* Permutations this frame: 4,398,046,511,104 (1 << 42) */
 	   seed[ 0] = Z_ING[(rnd32[0] & 31)];
