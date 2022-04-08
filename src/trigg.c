@@ -453,7 +453,7 @@ void *trigg_generate_fast(void *out)
    word32 rnd32[2] = { 0, 0 };
    word16 *rnd16 = (word16 *) rnd32;
    word8 *seed = (word8 *) out;
-   int j, zero_from;
+   int zero_from;
 
    /* generate random value < 0x48023C40000 (4,948,402,372,608) */
    rnd16[0] = rand16(); rnd16[1] = rand16(); rnd16[2] = rand16();
