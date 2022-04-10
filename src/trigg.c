@@ -760,14 +760,20 @@ void trigg_init(TRIGG_CTX *T, BTRAILER *bt)
 int trigg_solve(TRIGG_CTX *T, void *out)
 {
    word8 hash[SHA256LEN];
+   SHA256_CTX ctx;
 
    /* generate (full) nonce */
    trigg_generate(T->nonce2);
    trigg_generate(T->nonce1);
    /* expand shifted nonce into the TRIGG chain! */
    trigg_expand(T->nonce1, T->haiku);
-   /* perform SHA256 hash on TRIGG chain */
-   sha256(T, TCHAINLEN, hash);
+   /* perform SHA256 hash on TRIGG chain elements */
+   sha256_init(&ctx);
+   sha256_update(&ctx, T->mroot, SHA256LEN);
+   sha256_update(&ctx, T->haiku, 256);
+   sha256_update(&ctx, T->nonce2, 16);
+   sha256_update(&ctx, T->bnum, 8);
+   sha256_final(&ctx, hash);
    /* evaluate result against required difficulty */
    if (trigg_eval(hash, T->diff) == VEOK) {
       /* copy successful (full) nonce to `out` */
