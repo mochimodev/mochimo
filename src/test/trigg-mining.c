@@ -1,6 +1,6 @@
 
-#include "extint.h"
 #include "_assert.h"
+#include "extint.h"
 #include "trigg.h"
 #include <string.h>
 #include <time.h>
@@ -35,7 +35,6 @@ static word8 Block1[BTSIZE] = {
 
 int main()
 {
-   TRIGG_CTX T;
    BTRAILER bt;
    clock_t solve;
    word8 diff, digest[SHA256LEN];
@@ -47,10 +46,10 @@ int main()
    memcpy(&bt, Block1, BTSIZE);
    /* increment difficulty until solve time hits 1 second */
    for (diff = 1; diff < MAXDIFF && delta < MAXDELTA; diff++) {
-      bt.difficulty[0] = T.diff = diff; /* update block trailer with diff */
+      bt.difficulty[0] = diff; /* update block trailer with diff */
       solve = clock(); /* record solve timestamp */
       /* initialize Trigg context, adjust diff; solve Trigg; increment hash */
-      for(trigg_init(&T, &bt); trigg_solve(&T, bt.nonce); n++);
+      for(; trigg_solve(&bt, diff, bt.nonce); n++);
       /* calculate time taken to produce solve */
       delta = (float) (clock() - solve) / (float) CLOCKS_PER_SEC;
       /* calculate performance of algorithm */
@@ -61,8 +60,10 @@ int main()
          ASSERT_DEBUG("Diff(%d) perf: ~%.02f %sH/s\n", diff, hps, Metric[n]);
       }
       /* ensure solution is correct */
-      ASSERT_EQ(trigg_checkhash(&bt, digest), 0);
+      ASSERT_EQ(trigg_checkhash(&bt, diff, digest), 0);
    }
    /* check difficulty met requirement */
    ASSERT_GE_MSG(diff, MINDIFF, "should meet minimum diff requirement");
+   /* output final performance on success */
+   printf("Trigg mining performance: ~%.02f %sH/s\n", hps, Metric[n]);
 }

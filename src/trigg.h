@@ -88,20 +88,8 @@ typedef struct {
   word32 fe;      /**< semantic features */
 } DICT;  /**< Dictionary entry with semantic grammar features */
 
-typedef struct {
-   /* TRIGG chain... */
-   word8 mroot[SHA256LEN];    /**< merkle root from block trailer */
-   word8 haiku[HAIKUCHARLEN]; /**< expanded haiku */
-   word8 nonce2[16];          /**< tokenized haiku (secondary): */
-   word8 bnum[8];             /**< block number */
-   /* ... end TRIGG chain */
-   word8 nonce1[16];          /**< tokenized haiku (primary): */
-   word32 work[2];            /**< iterations of work performed */
-   word8 diff;                /**< the block diff */
-} TRIGG_CTX;   /**< Trigg algorithm context */
-
 /* Check Trigg's Proof of Work without passing the final hash */
-#define trigg_check(btp)  trigg_checkhash(btp, NULL)
+#define trigg_check(btp, diff)  trigg_checkhash(btp, diff, NULL)
 
 /* C/C++ compatible function prototypes for wots.c */
 #ifdef __cplusplus
@@ -113,9 +101,8 @@ void *trigg_generate_fast(void *out);
 char *trigg_expand(void *nonce, void *haiku);
 int trigg_eval(void *hash, word8 diff);
 int trigg_syntax(void *nonce);
-int trigg_checkhash(BTRAILER *bt, void *out);
-void trigg_init(TRIGG_CTX *T, BTRAILER *bt);
-int trigg_solve(TRIGG_CTX *T, void *out);
+int trigg_checkhash(BTRAILER *bt, word8 diff, void *out);
+int trigg_solve(BTRAILER *bt, word8 diff, void *out);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus

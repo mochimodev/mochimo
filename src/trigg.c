@@ -710,7 +710,7 @@ int trigg_syntax(void *nonce)
  * @param out Pointer to byte array to place the final hash (if non-NULL)
  * @returns Hash evaluation result as; VEOK on success, else VERROR
 */
-int trigg_checkhash(BTRAILER *bt, void *out)
+int trigg_checkhash(BTRAILER *bt, word8 diff, void *out)
 {
    SHA256_CTX ictx;
    word8 haiku[HAIKUCHARLEN], hash[SHA256LEN];
@@ -730,22 +730,8 @@ int trigg_checkhash(BTRAILER *bt, void *out)
    /* pass final hash to `out` if not NULL */
    if (out != NULL) memcpy(out, hash, SHA256LEN);
    /* return evaluation */
-   return trigg_eval(hash, bt->difficulty[0]);
+   return trigg_eval(hash, diff);
 }  /* end trigg_checkhash() */
-
-/**
- * Prepare a TRIGG context for solving.
- * @param T Pointer to Trigg solving context
- * @param bt Pointer to block trailer with data to be solved
-*/
-void trigg_init(TRIGG_CTX *T, BTRAILER *bt)
-{
-   /* add merkle root and bnum to Tchain */
-   memcpy(T->mroot, bt->mroot, SHA256LEN);
-   memcpy(T->bnum, bt->bnum, 8);
-   /* place required difficulty in diff */
-   T->diff = bt->difficulty[0];
-}  /* end trigg_init() */
 
 /**
  * Try to solve proof of work with a tokenized haiku as nonce output.
@@ -757,29 +743,34 @@ void trigg_init(TRIGG_CTX *T, BTRAILER *bt)
  * @param out Pointer to byte array to place nonce (on solve)
  * @returns VEOK on success, else VERROR
 */
-int trigg_solve(TRIGG_CTX *T, void *out)
+int trigg_solve(BTRAILER *bt, word8 diff, void *out)
 {
+   word8 haiku[256];
    word8 hash[SHA256LEN];
+   word8 nonce[HASHLEN];
    SHA256_CTX ctx;
 
-   /* generate (full) nonce */
-   trigg_generate(T->nonce2);
-   trigg_generate(T->nonce1);
-   /* expand shifted nonce into the TRIGG chain! */
-   trigg_expand(T->nonce1, T->haiku);
-   /* perform SHA256 hash on TRIGG chain elements */
+   /* generate nonce */
+   trigg_generate_fast(nonce);
+   trigg_generate_fast(nonce + 16);
+   /* expand shifted nonce into the haiku "TRIGG chain" element */
+   trigg_expand(nonce, haiku);
+   /* perform SHA256 hash on "TRIGG chain" elements
+      - mroot[32]
+      - haiku[256]
+      - (nonce + 16)[16]
+      - bnum[8]
+   */
    sha256_init(&ctx);
-   sha256_update(&ctx, T->mroot, SHA256LEN);
-   sha256_update(&ctx, T->haiku, 256);
-   sha256_update(&ctx, T->nonce2, 16);
-   sha256_update(&ctx, T->bnum, 8);
+   sha256_update(&ctx, bt->mroot, SHA256LEN);
+   sha256_update(&ctx, haiku, 256);
+   sha256_update(&ctx, nonce + 16, 16);
+   sha256_update(&ctx, bt->bnum, 8);
    sha256_final(&ctx, hash);
    /* evaluate result against required difficulty */
-   if (trigg_eval(hash, T->diff) == VEOK) {
-      /* copy successful (full) nonce to `out` */
-      word8 *bp = (word8 *) out;
-      memcpy(bp, T->nonce1, 16);
-      memcpy(bp + 16, T->nonce2, 16);
+   if (trigg_eval(hash, diff) == VEOK) {
+      /* copy successful nonce to `out` */
+      memcpy(out, nonce, HASHLEN);
       return VEOK;
    }
 

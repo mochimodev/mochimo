@@ -134,7 +134,7 @@ int main()
    for (j = 0; j < NUMVECTORS; j++) {
       memset(digest, 0 , SHA256LEN);
       memcpy(&bt, Tvector[j], BTSIZE);
-      ASSERT_EQ(trigg_checkhash(&bt, digest), 0);
+      ASSERT_EQ(trigg_checkhash(&bt, bt.difficulty[0], digest), 0);
       ASSERT_CMP(digest, Texpect[j], SHA256LEN);
    }
 }
