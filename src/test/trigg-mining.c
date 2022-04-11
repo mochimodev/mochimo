@@ -56,7 +56,7 @@ int main()
       if (delta > 0) {
          hps = (float) n / delta;
          n = hps ? (log10f(hps) / 3) : 0;
-         if (n > 0) hps /= powf(2, 10) * n;
+         hps /= powf(1000, n);
          ASSERT_DEBUG("Diff(%d) perf: ~%.02f %sH/s\n", diff, hps, Metric[n]);
       }
       /* ensure solution is correct */

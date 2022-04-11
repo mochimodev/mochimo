@@ -89,7 +89,7 @@ typedef struct {
 } DICT;  /**< Dictionary entry with semantic grammar features */
 
 /* Check Trigg's Proof of Work without passing the final hash */
-#define trigg_check(btp, diff)  trigg_checkhash(btp, diff, NULL)
+#define trigg_check(btp)  trigg_checkhash(btp, btp->difficulty[0], NULL)
 
 /* C/C++ compatible function prototypes for wots.c */
 #ifdef __cplusplus
