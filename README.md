@@ -22,13 +22,15 @@ git pull build-c main --allow-unrelated-histories
 Fix merge conflicts and commit with...<br/>
 <sup><i>Commit may also be performed selectively</i></sup>
 ```sh
-git commit -am "merge latest build-c repository files"
+git add <any files with merge conflicts>
+git commit -m "merge latest build-c repository files"
 ```
 To upgrade/downgrade at a later date...<br/>
 <sup><i>Recommend using version tags like "build-c-<version>"</i></sup>
 ```sh
-git pull build-c build-c-1.1.0 --allow-unrelated-histories
-git commit -am "merge build-c v1.1.0 repository files"
+git pull build-c build-c-1.1.2
+git add <any files with merge conflicts>
+git commit -m "merge build-c v1.1.2 repository files"
 ```
 
 ## Typical active project directory structure
@@ -105,9 +107,8 @@ Usage:  make [options] [FLAGS=FLAGVALUES]
 	make library       build a library file containing all objects
 	make libraries     build all library files required for binaries
 	make report        build html report from test coverage
-	make subtest-*     build and run sub tests matching *
 	make test          build and run tests
-	make testcuda      build and run *-cu.c tests
+	make test-*        build and run sub tests matching *
 ```
 
 ## Configurable Flags
@@ -126,7 +127,7 @@ Test files should be placed in the `src/test/` directory as `*.c` source files. 
 
 Use:
 * `make test` to run all tests, OR
-* `make subtest-*` to run all tests matching `*`
+* `make test-*` to run all tests matching `*`
 
 ## Test coverage (local)
 <sup><i>Note: Local test coverage may be incomplete if tests fail</i></sup>
