@@ -13,7 +13,7 @@ BINDIR:= bin
 BUILDDIR:= build
 INCLUDEDIR:= include
 NVINCLUDEDIR:= /usr/local/cuda/include
-NVLIBDIR:= /usr/local/cuda/lib64
+NVLIBDIR:= /usr/local/cuda/lib64 /usr/local/cuda/lib64/stubs
 SOURCEDIR:= src
 TESTBUILDDIR:= $(BUILDDIR)/test
 TESTSOURCEDIR:= $(SOURCEDIR)/test
@@ -41,17 +41,21 @@ CUOBJS:= $(patsubst $(SOURCEDIR)/%.cu,$(BUILDDIR)/%.cu.o,$(CUSRCS))
 TCOBJS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.o,$(TCSRCS))
 TCUOBJS:= $(patsubst $(SOURCEDIR)/%-cu.c,$(BUILDDIR)/%-cu.o,$(TCUSRCS))
 
+# cuda definition flag
+CUDEF:= $(filter -DCUDA,$(CFLAGS))
+# cuda device link code object (only where CUOBJS exists)
+CULINK:= $(if $(and $(CUDEF),$(CUOBJS)),$(BUILDDIR)/culink.o,)
+
 # dependency files; *.c only
 DEPENDS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.d, \
 	$(CSRCS) $(TCSRCS) $(TCUSRCS) $(TCLSRCS))
 
 # dynamic working set of objects
-OBJECTS:= $(COBJS) \
-	$(if $(filter -DCUDA,$(CFLAGS)),$(CUOBJS),)
+OBJECTS:= $(COBJS) $(if $(CUDEF),$(CUOBJS),)
 
 # dynamic test objects, names and components; eye candy during tests
 TESTOBJECTS:= $(TCOBJS) \
-	$(if $(filter -DCUDA,$(CFLAGS)),$(TCUOBJS),)
+	$(if $(CUDEF),$(TCUOBJS),)
 TESTNAMES:= $(basename $(patsubst $(TESTBUILDDIR)/%,%,$(TESTOBJECTS)))
 TESTCOMPS:= $(shell echo $(TESTOBJECTS) | sed 's/\s/\n/g' | \
 	sed -E 's/\S*\/([^-]*)[-.]+\S*/\1/g' | sort -u)
@@ -59,19 +63,19 @@ TESTCOMPS:= $(shell echo $(TESTOBJECTS) | sed 's/\s/\n/g' | \
 # includes and include/library directories
 INCLUDES:= $(wildcard $(INCLUDEDIR)/**)
 INCLUDEDIRS:= $(SOURCEDIR) $(addsuffix /$(SOURCEDIR),$(INCLUDES)) \
-	$(if $(filter -DCUDA,$(CFLAGS)),$(NVINCLUDEDIR),)
+	$(if $(CUDEF),$(NVINCLUDEDIR),)
 LIBDIRS:= $(BUILDDIR) $(addsuffix /$(BUILDDIR),$(INCLUDES)) \
-	$(if $(filter -DCUDA,$(CFLAGS)),$(NVLIBDIR),)
+	$(if $(CUDEF),$(NVLIBDIR),)
 SUBLIBS:= $(join $(INCLUDES),\
 	$(patsubst $(INCLUDEDIR)/%,/$(BUILDDIR)/lib%.a,$(INCLUDES)))
-LIBFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES)) \
-	$(if $(filter -DCUDA,$(CFLAGS)),-lcudart -lstdc++,)
+LIBFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES)) -lm \
+	$(if $(CUDEF),-lcudart -lcudadevrt -lnvidia-ml -lstdc++,)
 
 # compiler/linker flag macros
 LDFLAGS:= $(addprefix -L,$(LIBDIRS)) -Wl,-\( $(LIBFLAGS) -Wl,-\) -pthread
 CCFLAGS:= -Werror -Wall -Wextra $(addprefix -I,$(INCLUDEDIRS))
 NVLDFLAGS:= $(addprefix -L,$(LIBDIRS)) $(LIBFLAGS)
-NVCCFLAGS:= -Werror all-warnings $(addprefix -I,$(INCLUDEDIRS))
+NVCCFLAGS:= -Werror=all-warnings $(addprefix -I,$(INCLUDEDIRS))
 
 ## ^^ END CONFIGURATION ^^
 ##########################
@@ -91,11 +95,10 @@ help: # default rule prints help information
 	@echo "   make coverage      build test coverage file"
 	@echo "   make docs          build documentation files"
 	@echo "   make library       build a library file containing all objects"
-	@echo "   make libraries     build all library files required for binaries"
+	@echo "   make libraries     build all library files (incl. submodules)"
 	@echo "   make report        build html report from test coverage"
-	@echo "   make subtest-*     build and run sub tests matching *"
 	@echo "   make test          build and run tests"
-	@echo "   make testcuda      build and run *-cu.c tests"
+	@echo "   make test-*        build and run sub tests matching *"
 	@echo ""
 
 # build "all" base objects; redirect (DEFAULT RULE)
@@ -133,7 +136,7 @@ report: $(COVERAGE)
 	genhtml $(COVERAGE) --output-directory $(BUILDDIR)
 
 # build and run specific tests matching pattern
-subtest-%: $(SUBLIBS) $(MODLIB)
+test-%: $(SUBLIBS) $(MODLIB)
 	@echo -e "\n[--------] Performing $(words $(filter $*%,$(TESTNAMES)))" \
 		"tests matching \"$*\""
 	@$(foreach TEST,\
@@ -148,15 +151,20 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 	@echo -e "\n[========] Found $(words $(TESTNAMES)) tests" \
 		"for $(words $(TESTCOMPS)) components in \"$(MODULE)\""
 	@echo "[========] Performing all tests in \"$(MODULE)\" by component"
-	@-$(foreach COMP,$(TESTCOMPS),make subtest-$(COMP) --no-print-directory; )
+	@-$(foreach COMP,$(TESTCOMPS),make test-$(COMP) --no-print-directory; )
 	@export FAILS=$$(find $(BUILDDIR) -name *.fail -delete -print | wc -l); \
 	 echo -e "\n[========] Testing completed. Analysing results..."; \
 	 echo -e "[ PASSED ] $$(($(words $(TESTNAMES))-FAILS)) tests passed."; \
 	 echo -e "[ FAILED ] $$FAILS tests failed.\n"; \
 	 exit $$FAILS
 
-testcuda:
-	@make test "CFLAGS=-DCUDA" "OBJECTS=$(CUOBJS)" "TESTOBJECTS=$(TCUOBJS)"
+############################
+# vv RECIPE CONFIGURATION vv
+
+# include custom recipe configurations here
+
+## ^^ END RECIPE CONFIGURATION ^^
+#################################
 
 # build module library, within lib directory, from all base objects
 $(MODLIB): $(OBJECTS)
@@ -180,14 +188,19 @@ $(COVERAGE):
 	@$(foreach INC,$(INCLUDEDIRS),if test $(DEPTH) -gt 0; then \
 		make coverage -C $(INC) DEPTH=$$(($(DEPTH) - 1)); fi; )
 
-# build binaries, within build directory, from associated objects
-$(BUILDDIR)/%: $(SUBLIBS) $(MODLIB) $(BUILDDIR)/%.o
+# build cuda device link code object, within build directory
+$(CULINK): $(MODLIB)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(BUILDDIR)/$*.o -o $@ $(LDFLAGS)
+	$(NVCC) $(NVCFLAGS) -dlink $(MODLIB) -o $(CULINK) $(NVLDFLAGS)
+
+# build binaries, within build directory, from associated objects
+$(BUILDDIR)/%: $(SUBLIBS) $(MODLIB) $(CULINK) $(BUILDDIR)/%.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(BUILDDIR)/$*.o $(CULINK) -o $@ $(LDFLAGS)
 # build cuda objects, within build directory, from associated sources
 $(BUILDDIR)/%.cu.o: $(SOURCEDIR)/%.cu
 	@mkdir -p $(dir $@)
-	$(NVCC) $(NVCFLAGS) -c $(abspath $<) -o $@ $(NVCCFLAGS) $(NVLDFLAGS)
+	$(NVCC) $(NVCFLAGS) -dc $(abspath $<) -o $@ $(NVCCFLAGS)
 # build c objects, within build directory, from associated sources
 $(BUILDDIR)/%.o: $(SOURCEDIR)/%.c
 	@mkdir -p $(dir $@)
@@ -195,6 +208,3 @@ $(BUILDDIR)/%.o: $(SOURCEDIR)/%.c
 
 # include depends rules created during "build object file" process
 -include $(DEPENDS)
-
-##########################
-# vv ADDITIONAL RECIPES vv
