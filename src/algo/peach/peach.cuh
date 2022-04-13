@@ -1,48 +1,28 @@
-#pragma once
-#ifndef CUDA_PEACH_H
-#define CUDA_PEACH_H
+/**
+ * @file peach.cuh
+ * @brief Peach CUDA Proof-of-Work algorithm support.
+ * @details See peach.h for details on peach algorithm.
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
+*/
 
-#include <stdint.h>
-#include <sys/time.h>
-#include "../../config.h"
+/* include guard */
+#ifndef MOCHIMO_PEACH_CUH
+#define MOCHIMO_PEACH_CUH
+
+
 #include <cuda_runtime.h>
 #include <nvml.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-   int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber);
-   void free_cuda_peach();
-   void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
+#include <stdint.h>
+#include <time.h>
+#include "peach.h"
 
-   typedef struct __peach_cuda_ctx {
-      byte init, curr_seed[16], next_seed[16];
-      byte *seed, *d_seed;
-      byte *input, *d_map;
-      int32_t *d_found;
-      cudaStream_t stream;
-      struct timeval t_start, t_end;
-      uint32_t hps[3];
-      uint8_t hps_index;
-      uint32_t ahps;
-   } PeachCudaCTX;
+__global__ void kcu_peach_build(word8 *d_map, word32 offset);
+__global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
+   word8 *d_solve);
+__global__ void kcu_peach_checkhash(SHA256_CTX *ictx, word8 *out,
+   word8 *eval);
 
-   extern PeachCudaCTX peach_ctx[64];
-
-   int init_nvml();
-   typedef struct {
-      uint32_t pciDomainId;
-      uint32_t pciBusId;
-      uint32_t pciDeviceId;
-      nvmlDevice_t nvml_dev;
-      uint32_t cudaNum;
-      uint32_t temp;
-      uint32_t power;
-   } GPU_t;
-#define MAX_GPUS 64
-   extern GPU_t gpus[MAX_GPUS];
-#ifdef __cplusplus
-}
-#endif
-
+/* end include guard */
 #endif

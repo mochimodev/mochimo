@@ -1,23 +1,126 @@
-/*
- * peach.h  FPGA-Tough CPU Mining Algo Definitions
- *
- * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
- * See LICENSE.PDF   **** NO WARRANTY ****
- *
- * Date: 05 June 2019
- * Revision: 1
- *
- * This file is subject to the license as found in LICENSE.PDF
- *
- */
+/**
+ * @file peach.h
+ * @brief Peach Proof-of-Work algorithm support.
+ * @details The Peach algorithm was designed, specificaly, with the
+ * intention of permitting a "mining advantage" to modern GPUs with
+ * more than 1GiB VRAM where it can cache data faster than it would
+ * take to re-compute it.
+ * <br />
+ * The cache is made of 1048576 x 1KibiByte chunks (a.k.a tiles) of
+ * data, generated deterministically from the previous blocks hash,
+ * making it unique per block solve. The generation process, dubbed
+ * Nighthash, generates chunks using deterministic single precision
+ * floating point operations, a selection of eight different memory
+ * transformations, and finally a selection of eight different hash
+ * algorithms. The final digest is then placed within the first row
+ * of a tile. Subsequent rows are filled in the same manner, except
+ * they use the previous row as input until the chunk is completed.
+ * <br />
+ * Peach also utilizes the nonce restrictions designed for use with
+ * Trigg's algorithm, to retain the pleasantries of using haikus.
+ * ```
+ * a raindrop
+ * on sunrise air--
+ * drowned
+ * ```
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
+ * @note If compiled with `ENABLE_CPU_PEACH_CACHE`, peach_solve()
+ * generates and stores tiles in a statically aallocated Peach Map
+ * and cache taking up 1 Gibibyte and 1 Mibibyte, respectively,
+ * enabling a "mining advantage" with the reuse of generated tiles.
+*/
 
-#define HASHLENMID 	                   16
-#define HASHLEN                        32
-#define TILE_ROWS                      32
-#define TILE_LENGTH (TILE_ROWS * HASHLEN)
-#define TILE_TRANSFORMS                 8
-#define MAP                       1048576
-#define MAP_LENGTH    (TILE_LENGTH * MAP)
-#define JUMP                            8
+/* include guard */
+#ifndef MOCHIMO_PEACH_H
+#define MOCHIMO_PEACH_H
 
-#define PEACH_DEBUG                     0
+
+#include <string.h>  /* for mem handling */
+#include <time.h>    /* for clock() timing */
+#include "extint.h"  /* for word types */
+#include "types.h"   /* for Mochimo types */
+#include "trigg.h"   /* for BTRAILER, generation and evaluation */
+
+
+/**
+ * Number of rounds of Peach hashing (Nighthash) to arrive at a result.
+*/
+#define PEACHROUNDS      8
+
+/**
+ * The initial length of input data hashed when generating a tile.
+ * HASHLEN + 4
+*/
+#define PEACHGENLEN      36
+
+/**
+ * The initial length of input data hashed when jumping tiles.
+ * HASHLEN + 4 + PEACH_TILE
+*/
+#define PEACHJUMPLEN     1060
+
+/**
+ * Peach Map length (1 GiByte), in bytes.
+ * PEACHCACHELEN * PEACHTILELEN or 1048576 * 1024
+*/
+#define PEACHMAPLEN      1073741824
+
+/**
+ * Peach Map Cache length (1 MiByte), in bytes.
+ * PEACHTILELEN * PEACHTILELEN or 1024 * 1024.
+*/
+#define PEACHCACHELEN    1048576
+
+/**
+ * Peach Map Cache length, PEACHCACHELEN, minus 1. Used primarily for
+ * restricting results to the bounds of [0 - PEACHCACHELEN], without using
+ * a modulo operator. Example:
+ * @code int cache_idx = result & PEACHCACHELEN_M1; @endcode
+*/
+#define PEACHCACHELEN_M1 1048575
+
+/**
+ * 64-bit variant of Peach Map Cache length, PEACHCACHELEN. Used primarily
+ * for iterating through Peach Map Cache in 64-bit chunks.
+*/
+#define PEACHCACHELEN64  131072
+
+/**
+ * Peach Tile length (1 KiByte), in bytes.
+*/
+#define PEACHTILELEN     1024
+
+/**
+ * Check the Peach Proof of Work of a Block Trailer is valid. Checks Proof
+ * of Work against the difficulty within the block trailer and ignores the
+ * final hash
+*/
+#define peach_check(btp)  peach_checkhash(btp, btp->diffuclty[0], NULL)
+
+/* C/C++ compatible function prototypes */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int peach_checkhash(BTRAILER *bt, word8 diff, void *out);
+int peach_init(BTRAILER *bt);
+int peach_solve(BTRAILER *bt, word8 diff, void *out);
+
+/* CUDA functions */
+#ifdef CUDA
+   int peach_checkhash_cuda(BTRAILER *btp, word8 diff, void *out);
+   int peach_init_cuda_device(DEVICE_CTX *devp);
+   int peach_init_cuda(DEVICE_CTX devlist[], int max);
+   int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff,
+      void *out);
+
+#endif
+
+/* end extern "C" {} for C++ */
+#ifdef __cplusplus
+}
+#endif
+
+/* end include guard */
+#endif
