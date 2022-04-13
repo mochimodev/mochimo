@@ -131,7 +131,7 @@ int main()
    for (j = 2; j < NUMVECTORS; j++) {
       memset(digest, 0 , SHA256LEN);
       memcpy(&bt, Pvector[j], BTSIZE);
-      ASSERT_EQ(peach_checkhash_cuda(&bt, digest), 0);
+      ASSERT_EQ(peach_checkhash_cuda(&bt, bt.difficulty[0], digest), 0);
       ASSERT_CMP(digest, Pexpect[j], SHA256LEN);
    }
 }
