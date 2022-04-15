@@ -6,21 +6,29 @@
 #####################
 # vv CONFIGURATION vv
 
+# system utils
+CC:= /usr/bin/gcc
+NVCC:= /usr/local/cuda/bin/nvcc
 SHELL:= bash
 
-# directory macros
+# system directories
+CUDADIR:= /usr/local/cuda
+NVINCLUDEDIR:= /usr/local/cuda/include
+NVLIBDIR:= /usr/local/cuda/lib64 /usr/local/cuda/lib64/stubs
+
+# project directories
 BINDIR:= bin
 BUILDDIR:= build
 INCLUDEDIR:= include
-NVINCLUDEDIR:= /usr/local/cuda/include
-NVLIBDIR:= /usr/local/cuda/lib64 /usr/local/cuda/lib64/stubs
 SOURCEDIR:= src
 TESTBUILDDIR:= $(BUILDDIR)/test
 TESTSOURCEDIR:= $(SOURCEDIR)/test
 
-# compiler macros (CFLAGS is reserved for user input)
-NVCC:= /usr/local/cuda/bin/nvcc
-CC:= gcc
+# input flags
+CUDEF:= $(filter -DCUDA,$(CFLAGS))
+CFLAGS:= # RESERVED for user compile options
+LFLAGS:= # RESERVED for user linking options
+NVCFLAGS:= # RESERVED for user compilation options specific to NVCC
 
 # module name (by default, the name of the root directory)
 # NOTE: excessive makefile commands account for embedded make calls
@@ -35,27 +43,22 @@ CUSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.cu))
 CSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.c))
 TCUSRCS:= $(sort $(wildcard $(TESTSOURCEDIR)/*-cu.c))
 TCSRCS:= $(sort $(filter-out %-cu.c,$(wildcard $(TESTSOURCEDIR)/*.c)))
+
 # object files: extended filename derived from file ext
 COBJS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.o,$(CSRCS))
 CUOBJS:= $(patsubst $(SOURCEDIR)/%.cu,$(BUILDDIR)/%.cu.o,$(CUSRCS))
 TCOBJS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.o,$(TCSRCS))
 TCUOBJS:= $(patsubst $(SOURCEDIR)/%-cu.c,$(BUILDDIR)/%-cu.o,$(TCUSRCS))
 
-# cuda definition flag
-CUDEF:= $(filter -DCUDA,$(CFLAGS))
-# cuda device link code object (only where CUOBJS exists)
-CULINK:= $(if $(and $(CUDEF),$(CUOBJS)),$(BUILDDIR)/culink.o,)
-
-# dependency files; *.c only
+# dependency files; compatible onlywith *.c files
 DEPENDS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.d, \
 	$(CSRCS) $(TCSRCS) $(TCUSRCS) $(TCLSRCS))
 
-# dynamic working set of objects
+# dynamic working set of objects; dependant on compilation flags
 OBJECTS:= $(COBJS) $(if $(CUDEF),$(CUOBJS),)
 
 # dynamic test objects, names and components; eye candy during tests
-TESTOBJECTS:= $(TCOBJS) \
-	$(if $(CUDEF),$(TCUOBJS),)
+TESTOBJECTS:= $(TCOBJS) $(if $(CUDEF),$(TCUOBJS),)
 TESTNAMES:= $(basename $(patsubst $(TESTBUILDDIR)/%,%,$(TESTOBJECTS)))
 TESTCOMPS:= $(shell echo $(TESTOBJECTS) | sed 's/\s/\n/g' | \
 	sed -E 's/\S*\/([^-]*)[-.]+\S*/\1/g' | sort -u)
@@ -68,14 +71,13 @@ LIBDIRS:= $(BUILDDIR) $(addsuffix /$(BUILDDIR),$(INCLUDES)) \
 	$(if $(CUDEF),$(NVLIBDIR),)
 SUBLIBS:= $(join $(INCLUDES),\
 	$(patsubst $(INCLUDEDIR)/%,/$(BUILDDIR)/lib%.a,$(INCLUDES)))
-LIBFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES)) -lm \
-	$(if $(CUDEF),-lcudart -lcudadevrt -lnvidia-ml -lstdc++,)
+LIBFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES)) \
+	$(if $(CUDEF),-lcudart -lnvidia-ml -lstdc++,) -lm
 
 # compiler/linker flag macros
 LDFLAGS:= $(addprefix -L,$(LIBDIRS)) -Wl,-\( $(LIBFLAGS) -Wl,-\) -pthread
-CCFLAGS:= -Werror -Wall -Wextra $(addprefix -I,$(INCLUDEDIRS))
-NVLDFLAGS:= $(addprefix -L,$(LIBDIRS)) $(LIBFLAGS)
-NVCCFLAGS:= -Werror=all-warnings $(addprefix -I,$(INCLUDEDIRS))
+CCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Werror -Wall -Wextra -MMD -MP
+NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
 
 ## ^^ END CONFIGURATION ^^
 ##########################
@@ -99,13 +101,15 @@ help: # default rule prints help information
 	@echo "   make report        build html report from test coverage"
 	@echo "   make test          build and run tests"
 	@echo "   make test-*        build and run sub tests matching *"
+	@echo "   make variable-*    show the value of a variable matching *"
 	@echo ""
 
 # build "all" base objects; redirect (DEFAULT RULE)
 all: $(OBJECTS)
 
 # build all CUDA object files; redirect
-allcuda: $(CUOBJS)
+allcuda:
+	@make $(CUOBJS) "CFLAGS=-DCUDA $(CFLAGS)" --no-print-directory
 
 # remove build directory and files
 clean:
@@ -158,6 +162,10 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 	 echo -e "[ FAILED ] $$FAILS tests failed.\n"; \
 	 exit $$FAILS
 
+# echo the value of a variable matching pattern
+variable-%:
+	@echo $* = $($*)
+
 ############################
 # vv RECIPE CONFIGURATION vv
 
@@ -166,17 +174,19 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
 
-# build module library, within lib directory, from all base objects
+# build module library, within build directory, from dynamic object set
 $(MODLIB): $(OBJECTS)
 	@mkdir -p $(dir $@)
 	ar rcs $(MODLIB) $(OBJECTS)
 
+# build submodule libraries, within associated directories
 $(SUBLIBS): %:
 	git submodule update --init --recursive
 	@make library -C $(INCLUDEDIR)/$(word 2,$(subst /, ,$@))
 
 # build coverage file, within out directory
 $(COVERAGE):
+	@mkdir -p $(dir $@)
 	@make clean all --no-print-directory "CFLAGS=$(CFLAGS) --coverage -O0"
 	lcov -c -i -d $(BUILDDIR) -o $(COVERAGE)_base
 	@make test --no-print-directory "CFLAGS=$(CFLAGS) --coverage -O0"
@@ -188,23 +198,20 @@ $(COVERAGE):
 	@$(foreach INC,$(INCLUDEDIRS),if test $(DEPTH) -gt 0; then \
 		make coverage -C $(INC) DEPTH=$$(($(DEPTH) - 1)); fi; )
 
-# build cuda device link code object, within build directory
-$(CULINK): $(MODLIB)
-	@mkdir -p $(dir $@)
-	$(NVCC) $(NVCFLAGS) -dlink $(MODLIB) -o $(CULINK) $(NVLDFLAGS)
-
 # build binaries, within build directory, from associated objects
-$(BUILDDIR)/%: $(SUBLIBS) $(MODLIB) $(CULINK) $(BUILDDIR)/%.o
+$(BUILDDIR)/%: $(BUILDDIR)/%.o $(MODLIB) $(SUBLIBS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(BUILDDIR)/$*.o $(CULINK) -o $@ $(LDFLAGS)
-# build cuda objects, within build directory, from associated sources
+	$(CC) $< -o $@ $(LDFLAGS) $(LFLAGS) $(CFLAGS)
+
+# build cuda objects, within build directory, from *.cu files
 $(BUILDDIR)/%.cu.o: $(SOURCEDIR)/%.cu
 	@mkdir -p $(dir $@)
-	$(NVCC) $(NVCFLAGS) -dc $(abspath $<) -o $@ $(NVCCFLAGS)
-# build c objects, within build directory, from associated sources
+	$(NVCC) -c $< -o $@ $(NVCCFLAGS) $(NVCFLAGS)
+
+# build c objects, within build directory, from *.c files
 $(BUILDDIR)/%.o: $(SOURCEDIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -c $(abspath $<) -o $@ $(CCFLAGS)
+	$(CC) -c $< -o $@ $(CCFLAGS) $(CFLAGS)
 
 # include depends rules created during "build object file" process
 -include $(DEPENDS)
