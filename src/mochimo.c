@@ -96,6 +96,59 @@ void veronica(void)
    exit(0);
 }
 
+/* Kill the miner child */
+int stop_miner(void)
+{
+   int status;
+
+   if(Mpid == 0) return -1;
+   kill(Mpid, SIGTERM);
+   waitpid(Mpid, &status, 0);
+   Mpid = 0;
+   return status;
+}
+
+
+/* Display terminal error message
+ * and exit with exitcode after reaping zombies.
+ */
+void fatal2(int exitcode, char *message)
+{
+   stop_miner();
+   if(Sendfound_pid) kill(Sendfound_pid, SIGTERM);
+#ifndef EXCLUDE_NODES
+   stop_mirror();
+#endif
+   if(!Bgflag && message) {
+      error("%s", message);
+      fprintf(stdout, "fatal: %s\n", message);
+   }
+   /* wait for all children */
+   while(waitpid(-1, NULL, 0) != -1);
+   exit(exitcode);
+}
+
+/* Display terminal error message
+ * and exit with NO restart (code 0).
+ */
+#define fatal(mess) fatal2(0, mess)
+#define pause_server() fatal2(0, NULL);
+
+void restart(char *mess)
+{
+   unlink("epink.lst");
+   stop_miner();
+   if(Trace && mess != NULL) plog("restart: %s", mess);
+   fatal2(1, NULL);
+}
+
+char *show(char *state)
+{
+   if(state == NULL) state = "(null)";
+   if(Statusarg) strncpy(Statusarg, state, 8);
+   return state;
+}
+
 
 /* 
  * Initialise data and call the server.
