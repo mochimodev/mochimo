@@ -10,6 +10,8 @@
  * exit() with 1 on errors, else 0.
 */
 
+#include "extprint.h"   /* print/logging support */
+
 #include "config.h"
 #include "mochimo.h"
 #define closesocket(_sd) close(_sd)
@@ -24,7 +26,6 @@ word32 Trace = 1;
 word32 Nsolved;
 pid_t Mpid, Sendfound_pid;  /* in error.c */
 
-#include "error.c"
 #include "daemon.c"
 
 word32 Nlt;     /* number of transactions in ltran.dat */

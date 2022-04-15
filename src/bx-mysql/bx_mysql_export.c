@@ -11,6 +11,8 @@
  * Copyright (c) 2020 by Adequate Systems, LLC.  All Rights Reserved.
  */
 
+#include "extprint.h"   /* print/logging support */
+
 #include "../config.h"
 #include "../mochimo.h"
 
@@ -24,7 +26,6 @@ word32 Trace = 1;
 word32 Nsolved;
 pid_t Mpid, Sendfound_pid;  /* in error.c */
 
-#include "../error.c"
 #include "../algo/peach/peach.c"
 
 #define MYSQL_CONF_NUM 4

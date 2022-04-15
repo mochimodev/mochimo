@@ -22,6 +22,7 @@
 */
 
 #include "extmath.h"    /* 64-bit math support */
+#include "extprint.h"   /* print/logging support */
 
 #include "config.h"
 #include "mochimo.h"
@@ -32,7 +33,6 @@ void trigg_expand2(byte *in, char *out);
 #define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
 
-#include "error.c"
 #include "rand.c"
 #include "crypto/crc16.c"
 #include "util.c"

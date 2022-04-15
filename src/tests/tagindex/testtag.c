@@ -6,6 +6,7 @@
 */
 
 #include "extmath.h"    /* 64-bit math support */
+#include "extprint.h"   /* print/logging support */
 
 #include "../config.h"
 #include "../mochimo.h"
@@ -14,7 +15,6 @@
 #include "../data.c"
 #include "../crypto/crc16.c"
 #include "../rand.c"
-#include "../error.c"
 #include "../util.c"
 #include "../ledger.c"
 #define EXCLUDE_RESOLVE

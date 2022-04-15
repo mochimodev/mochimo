@@ -16,6 +16,7 @@
 */
 
 #include "extmath.h"    /* 64-bit math support */
+#include "extprint.h"   /* print/logging support */
 
 #include "config.h"
 #include "mochimo.h"
@@ -25,7 +26,6 @@
 #define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
 
-#include "error.c"
 #include "crypto/crc16.c"
 #include "rand.c"
 #include "util.c"

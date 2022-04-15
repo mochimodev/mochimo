@@ -4,6 +4,7 @@
 
 #include "extinet.h"    /* socket support */
 #include "extmath.h"    /* 64-bit math support */
+#include "extprint.h"   /* print/logging support */
 
 /* Include everything that we need */
 #include "config.h"
@@ -14,7 +15,6 @@
 #include "data.c"       /* System wide globals  */
 
 /* Support functions  */
-#include "error.c"      /* error logging etc.   */
 #include "crypto/crc16.c"
 #include "crypto/crc32.c"      /* for mirroring          */
 #include "rand.c"       /* fast random numbers    */
