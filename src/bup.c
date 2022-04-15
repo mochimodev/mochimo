@@ -19,6 +19,7 @@
  *          exit status 0=block update, or non-zero=error.
 */
 
+#include "extmath.h"    /* 64-bit math support */
 
 #include "config.h"
 #include "mochimo.h"
@@ -30,7 +31,6 @@
 #include "error.c"
 #include "crypto/crc16.c"
 #include "rand.c"
-#include "add64.c"
 #include "util.c"
 #include "sorttx.c"
 #include "daemon.c"

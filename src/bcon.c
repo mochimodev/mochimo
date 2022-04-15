@@ -15,6 +15,7 @@
  *          exit status 0=block make, or non-zero=no block.
 */
 
+#include "extmath.h"    /* 64-bit math support */
 
 #include "config.h"
 #include "mochimo.h"
@@ -27,7 +28,6 @@
 #include "error.c"
 #include "crypto/crc16.c"
 #include "rand.c"
-#include "add64.c"
 #include "util.c"
 #include "daemon.c"
 

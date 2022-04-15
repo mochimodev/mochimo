@@ -8,6 +8,8 @@
  * NOTE: compile with:  cc -o bx bx.c trigg.o sha256.o
 */
 
+#include "extmath.h"    /* 64-bit math support */
+
 #ifdef BX_MYSQL
 #include <mysql.h>
 #include <my_global.h>
@@ -16,7 +18,6 @@
 
 #include "config.h"
 #include "mochimo.h"
-#include "add64.c"
 #include "rand.c"
 
 #ifdef UNIXLIKE

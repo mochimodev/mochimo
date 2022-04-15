@@ -5,12 +5,13 @@
    Date: 15 December 2019
 */
 
+#include "extmath.h"    /* 64-bit math support */
+
 #include "../config.h"
 #include "../mochimo.h"
 #include "../proto.h"
 
 #include "../data.c"
-#include "../add64.c"
 #include "../crypto/crc16.c"
 #include "../rand.c"
 #include "../error.c"

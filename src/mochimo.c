@@ -13,6 +13,8 @@
 #define PATCHLEVEL 37
 #define VERSIONSTR  "37"   /*   as printable string */
 
+#include "extmath.h"    /* 64-bit math support */
+
 /* Include everything that we need */
 #include "config.h"
 #include "sock.h"     /* BSD sockets */
@@ -24,7 +26,6 @@
 
 /* Support functions  */
 #include "error.c"      /* error logging etc.   */
-#include "add64.c"      /* 64-bit assist        */
 #include "crypto/crc16.c"
 #include "crypto/crc32.c"      /* for mirroring          */
 #include "rand.c"       /* fast random numbers    */

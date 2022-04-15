@@ -21,6 +21,7 @@
  *          renames argv[1] to "vblock.dat" on good validation.
 */
 
+#include "extmath.h"    /* 64-bit math support */
 
 #include "config.h"
 #include "mochimo.h"
@@ -34,7 +35,6 @@ void trigg_expand2(byte *in, char *out);
 #include "error.c"
 #include "rand.c"
 #include "crypto/crc16.c"
-#include "add64.c"
 #include "util.c"
 #include "daemon.c"
 #include "ledger.c"

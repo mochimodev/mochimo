@@ -8,6 +8,7 @@
    Date: 23 November 2019
 */
 
+#include "extmath.h"    /* 64-bit math support */
 
 #include "../config.h"
 #include "../mochimo.h"
@@ -79,7 +80,6 @@ void b2hexch(byte *addr, int len, int lastchar)
 }
 
 
-#include "../add64.c"
 #include "../rand.c"
 
 

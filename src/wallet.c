@@ -19,6 +19,8 @@
  *                  Remove if your longs are not 64-bit.
 */
 
+#include "extmath.h"    /* 64-bit math support */
+
 #include "config.h"
 #include "sock.h"
 
@@ -220,7 +222,6 @@ word32 rand16(void)
 }
 
 #include "crypto/crc16.c"
-#include "add64.c"   /* multi-byte maths */
 #include "crypto/xo4.c"     /* crypto */
 
 void crctx(TX *tx)
