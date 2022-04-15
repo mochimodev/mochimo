@@ -19,10 +19,10 @@
  *                  Remove if your longs are not 64-bit.
 */
 
+#include "extinet.h"    /* socket support */
 #include "extmath.h"    /* 64-bit math support */
 
 #include "config.h"
-#include "sock.h"
 
 #include <stdio.h>
 #include <ctype.h>
