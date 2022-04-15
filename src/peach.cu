@@ -25,12 +25,12 @@
 #include "peach.cuh"
 
 /* hashing functions used by Peach's nighthash */
-#include "blake2b.cuh"
-#include "md2.cuh"
-#include "md5.cuh"
-#include "sha1.cuh"
-#include "sha256.cuh"
-#include "sha3.cuh"
+#include "blake2b.cu"
+#include "md2.cu"
+#include "md5.cu"
+#include "sha1.cu"
+#include "sha256.cu"
+#include "sha3.cu"
 
 /**
  * @private
@@ -699,7 +699,7 @@ int peach_init_cuda(DEVICE_CTX devlist[], int max)
  * @param dev Pointer to DEVICE_CTX to perform work with
  * @param bt Pointer to block trailer to solve for
  * @param diff Difficulty to test against entropy of final hash
- * @param out Pointer to location to place nonce on solve
+ * @param out Pointer to location to place solved block trailer
  * @returns VEOK on solve, else VERROR
 */
 int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
@@ -725,6 +725,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
       if (cudaStreamQuery(cudaStreamDefault) != cudaSuccess) return VERROR;
       /* set next action to build Peach map */
       dev->status = DEV_INIT;
+      dev->last_work = time(NULL);
       dev->total_work = 0;
       dev->work = 0;
    }

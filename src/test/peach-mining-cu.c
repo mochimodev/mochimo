@@ -11,6 +11,7 @@
 #include "_assert.h"
 #include "extint.h"
 #include "extprint.h"
+#include "exttime.h"
 #include "peach.h"
 
 #define MINDIFF     18
@@ -44,7 +45,6 @@ static word8 Block1[BTSIZE] = {
 int main()
 {
    BTRAILER bt, btout;
-   clock_t solve;
    word8 diff, digest[SHA256LEN];
    DEVICE_CTX D[GPUMAX] = { 0 };
    float delta, hps;
@@ -62,32 +62,27 @@ int main()
       /* update block trailer with diff */
       bt.difficulty[0] = diff;
       bt.phash[0] = diff;
-      solve = clock(); /* record solve timestamp */
       /* initialize Peach context, adjust diff; solve Peach; increment hash */
       while(peach_solve_cuda(&D[m], &bt, diff, &btout)) {
-         if (D[m].status < DEV_WORK) solve = clock(); /* record solve timestamp */
-         if (++m >= count) m = 0; /*
-         if (difftime(time(NULL), now)) {
-            time(&now);
-            psticky("CUDA#%d: progress: %" P64u ", "
-               "fan/pow/temp/util: %u/%u/%u/%u, "
-               "grid/block/threads: %d/%d/%d",
-               0, D->work, D->fan, D->pow, D->temp, D->util,
-               D->grid, D->block, D->threads);
-         } */
+         if (++m >= count) m = 0;
+         millisleep(1); /*
+         psticky("CUDA#%d: status: %d, progress: %" P64u ", "
+            "hps: %g H/s, "
+            "fan/pow/temp/util: %u/%u/%u/%u, "
+            "grid/block/threads: %d/%d/%d",
+            D->status, 0, (double) D->work / difftime(time(NULL), D->last_work),
+            D->work, D->fan, D->pow, D->temp, D->util,
+            D->grid, D->block, D->threads); */
       }
-      /* calculate time taken to produce solve */
-      delta = (float) (clock() - solve) / (float) CLOCKS_PER_SEC;
       /* calculate performance of algorithm */
-      if (delta > 0) {
-         for(hps = n = 0; n < count; n++) {
-            hps += (float) D[n].work;
-         }
-         hps /= delta;
-         n = hps ? (log10f(hps) / 3) : 0;
-         hps /= powf(1000, n);
-         ASSERT_DEBUG("Diff(%d) perf: ~%.02f %sH/s\n", diff, hps, Metric[n]);
+      for(hps = n = 0; n < count; n++) {
+         delta = difftime(time(NULL), D[n].last_work);
+         if (delta == 0) hps += (float) D->work;
+         else hps += (float) D->work / difftime(time(NULL), D[n].last_work);
       }
+      n = hps ? (log10f(hps) / 3) : 0;
+      hps /= powf(1000, n);
+      ASSERT_DEBUG("Diff(%d) perf: ~%g %sH/s", diff, hps, Metric[n]);
       /* ensure solution is correct */
       ASSERT_EQ(peach_checkhash(&btout, btout.difficulty[0], digest), VEOK);
       /*
