@@ -49,41 +49,6 @@ word16 Dstport;          /* Our send destination port */
 char *Bcdir = BCDIR;     /* block chain directory */
 char *Ngdir = NGDIR;     /* block chain directory */
 
-#ifndef EXCLUDE_NODES
-NODE Nodes[MAXNODES];  /* data structure for connected NODE's     */
-NODE *Hi_node = Nodes; /* points one beyond last logged in NODE   */
-
-word32 Rplist[RPLISTLEN];  /* recent peer list */
-word32 Rplistidx;
-word32 Cplist[CPLISTLEN];  /* current peer list */
-word32 Cplistidx;
-/* LAN peer list */
-#define LPLISTLEN 32
-word32 Lplist[LPLISTLEN] = { 0 };
-word32 Splist[RPLISTLEN+LPLISTLEN] = {0};
-
-#define CORELISTLEN 16
-#if CORELISTLEN > RPLISTLEN
-#error Fix CORELISTLEN
-#endif
-word32 Coreplist[CORELISTLEN] = {  /* ip's of the Core Network */
-   0x0100007f,    /* local host  debug */
-};
-
-int Quorum = 4;         /* Number of peers in get_eon() gang[MAXQUORUM] */
-byte Ininit;            /* non-zero when init() runs */
-byte Insyncup;          /* non-zero when syncup() runs */
-byte Safemode;          /* Safe mode enable */
-byte Nominer;           /* Do not start miner if true -n */
-word32 Watchdog;        /* enable watchdog timeout -wN */
-time_t Utime;           /* update time for watchdog */
-byte Betabait;          /* betabait() display */
-byte Cbits = CBITS;     /* 8 capability bits */
-time_t Pushtime;        /* time of last OP_MBLOCK */
-byte Allowpush;         /* set by -P flag in mochimo.c */
-
-#endif  /* !EXCLUDE_NODES Nodes[] and ip data */
-
 word32 Mfee[2] = { MFEE, 0 };  /* minimum transaction fee */
 word32 Myfee[2] = { MFEE, 0 };
 byte Maddr[TXADDRLEN];         /* mining address read by bcon and bval */
