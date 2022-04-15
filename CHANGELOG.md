@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2022-04-15
+Revert CUDA compilation type to Executable Device Code. Relocatable Device Code may still be used by adding `NVCFLAGS=-dc" however, a manually device linking step will be required before creating binaries. Reason:
+> CUDA code likes to be compiled as a whole so it can best optimize the execution of device code. Ignoring this, will almost certainly lead to performance penalties. Therefore, CUDA file includes shall use the "source" files instead of the "header" files, as is sometimes done in C.
+
+## Added
+- `make variable-*` for debugging the values of make variables
+
+## Changed
+- GNUmakefile cleanliness and clarity improvements
+
+## Removed
+- Relocatable Device Code compilation of CUDA files
+
 ## [1.1.2] - 2022-04-13
 Documentation configuration adjustments, fixes to the compilation of cuda code for inclusion in parent projects, and CUDA compilation detection when "CFLAGS=-DCUDA" is specified AND `*.cu` files exist.
 
@@ -45,7 +58,8 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.2...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.3...HEAD
+[1.1.3]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.2...build-c-1.1.3
 [1.1.2]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.1...build-c-1.1.2
 [1.1.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.0...build-c-1.1.1
 [1.1.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.0.0...build-c-1.1.0
