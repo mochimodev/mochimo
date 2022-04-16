@@ -40,7 +40,7 @@ COVERAGE:= $(BUILDDIR)/coverage.info
 
 # source files: test (base/cuda), base, cuda
 CUSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.cu))
-CSRCS:= src/peach.c src/trigg.c src/wots.c src/xo4.c # $(sort $(wildcard $(SOURCEDIR)/*.c))
+CSRCS:= src/peach.c src/trigg.c src/util.c src/wots.c src/xo4.c # $(sort $(wildcard $(SOURCEDIR)/*.c))
 TCUSRCS:= $(sort $(wildcard $(TESTSOURCEDIR)/*-cu.c))
 TCSRCS:= $(sort $(filter-out %-cu.c,$(wildcard $(TESTSOURCEDIR)/*.c)))
 
