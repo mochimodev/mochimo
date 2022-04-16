@@ -15,6 +15,8 @@
 #define MOCHIMO_TYPES_H
 
 
+#include <time.h>
+
 #include "extint.h"
 #include "extio.h"
 

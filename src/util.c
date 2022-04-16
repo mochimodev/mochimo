@@ -1,178 +1,39 @@
-/* util.c  Support functions
+/**
+ * util.c - Mochimo specific utilities support
  *
- * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
- * See LICENSE.PDF   **** NO WARRANTY ****
+ * Copyright (c) 2018-2021 Adequate Systems, LLC. All Rights Reserved.
+ * For more information, please refer to ../LICENSE
  *
  * Date: 2 January 2018
+ * Revised: 28 October 2021
  *
- * TCP support code.
 */
 
-
-void swap32(void *val)
-{
-   byte t, *bp;
-
-   bp = (byte *) val;
-   t = bp[0]; bp[0] = bp[3]; bp[3] = t;
-   t = bp[1]; bp[1] = bp[2]; bp[2] = t;
-}
-
-void swap64(void *val)
-{
-   byte t, *bp;
-
-   bp = (byte *) val;
-   t = bp[0]; bp[0] = bp[7]; bp[7] = t;
-   t = bp[1]; bp[1] = bp[6]; bp[6] = t;
-   t = bp[2]; bp[2] = bp[5]; bp[5] = t;
-   t = bp[3]; bp[3] = bp[4]; bp[4] = t;
-}
+/* include guard */
+#ifndef MOCHIMO_UTIL_C
+#define MOCHIMO_UTIL_C
 
 
-#ifndef SWAPBYTES
-/* little-endian compiler order */
+#include "util.h"
 
-word16 get16(void *buff)
-{
-   return *((word16 *) buff);
-}
+#ifndef _WIN32
+   #include <sys/file.h>  /* for flock() */
+   #include <unistd.h>  /* for open() & close() */
 
-void put16(void *buff, word16 val)
-{
-   *((word16 *) buff) = val;
-}
+#endif
 
-long getseekval(void *buff)
-{
-   return *((long *) buff);
-}
+#include <string.h>  /* for memory handling */
+#include <stdlib.h>  /* for system() */
+#include <time.h>    /* for time_t */
+#include <errno.h>   /* for errno */
 
-void putseekval(void *buff, long val)
-{
-   *((long *) buff) = val;
-}
+#include "extint.h"
+#include "extio.h"
+#include "extlib.h"
+#include "extmath.h"
+#include "extprint.h"
 
-word32 get32(void *buff)
-{
-   return *((word32 *) buff);
-}
-
-void put32(void *buff, word32 val)
-{
-   *((word32 *) buff) = val;
-}
-
-
-/* buff<--val */
-void put64(void *buff, void *val)
-{
-   ((word32 *) buff)[0] = ((word32 *) val)[0];
-   ((word32 *) buff)[1] = ((word32 *) val)[1];
-}
-
-
-#else
-/* big-endian */
-
-word16 get16(void *buff)
-{
-   word16 val;
-
-   ((byte *) &val)[0] = buff[1];
-   ((byte *) &val)[1] = buff[0];
-   return val;
-}
-
-void put16(void *buff, word16 val)
-{
-   buff[0] = ((byte *) &val)[1];
-   buff[1] = ((byte *) &val)[0];
-}
-
-#ifdef LONG64
-/* for 8-byte longs */
-long getseekval(byte *buff)
-{
-   long val;
-
-   ((byte *) &val)[0] = buff[3];
-   ((byte *) &val)[1] = buff[2];
-   ((byte *) &val)[2] = buff[1];
-   ((byte *) &val)[3] = buff[0];
-   return val;
-}
-
-void putseekval(byte *buff, long val)
-{
-   buff[0] = ((byte *) &val)[3];
-   buff[1] = ((byte *) &val)[2];
-   buff[2] = ((byte *) &val)[1];
-   buff[3] = ((byte *) &val)[0];
-}
-#endif /* LONG64 */
-
-#endif  /* SWAPBYTES (big endian) */
-
-
-/* Network order word32 as byte a[4] to static alpha string like 127.0.0.1 */
-char *ntoa(byte *a)
-{
-   static char s[24];
-
-   sprintf(s, "%d.%d.%d.%d", a[0], a[1], a[2], a[3]);
-   return s;
-}
-
-
-
-
-int exists(char *fname)
-{
-   FILE *fp;
-
-   fp = fopen(fname, "rb");
-   if(!fp) return 0;
-   fclose(fp);
-   return 1;
-}
-
-
-/* Returns VEOK or
- * or error code.
- */
-int write_data(void *buff, int len, char *fname)
-{
-   FILE *fp;
-   int count;
-
-   fp = fopen(fname, "wb");
-   if(!fp) {
-bad:
-      return error("write_data(): cannot write %s", fname);
-   }
-   count = 0;
-   if(len) count = fwrite(buff, 1, len, fp);
-   fclose(fp);
-   if(count != len) goto bad;
-   return VEOK;
-}
-
-
-/* Returns read count or -1 if fopen() error */
-int read_data(void *buff, int len, char *fname)
-{
-   FILE *fp;
-   int count;
-
-   if(len == 0) return 0;
-   fp = fopen(fname, "rb");
-   if(fp == NULL) return 0;
-   count = fread(buff, 1, len, fp);
-   fclose(fp);
-   return count;
-}
-
+#include "data.c"
 
 /* Seek to end of fname and read block trailer.
  * Return VEOK on success, else error code.
@@ -180,48 +41,94 @@ int read_data(void *buff, int len, char *fname)
 int readtrailer(BTRAILER *trailer, char *fname)
 {
    FILE *fp;
+   size_t count;
+   int seekerr;
 
    fp = fopen(fname, "rb");
-   if(!fp) {
-bad:
-      return error("Cannot read block trailer from %s", fname);
-   }
-   if(fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
+   if (fp == NULL) {
+      perrno(errno, "readtrailer() failed on fopen() for %s", fname);
+      return VERROR;
+   } else {
+      seekerr = fseek(fp, -(sizeof(BTRAILER)), SEEK_END);
+      if (seekerr == 0) count = fread(trailer, 1, sizeof(BTRAILER), fp);
       fclose(fp);
-      goto bad;
    }
-   if(fread(trailer, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) {
-      fclose(fp);
-      goto bad;
+   if(seekerr) {
+      perr("readtrailer() failed on fseek() for %s: ecode=%d", fname, seekerr);
+      return VERROR;
    }
-   fclose(fp);
+   if(count != sizeof(BTRAILER)) {
+      perr("readtrailer() failed on fread() for %s: read %zu/%zu bytes",
+         fname, count, sizeof(BTRAILER));
+      return VERROR;
+   }
    return VEOK;
 }
 
 
 /* bnum is little-endian on disk and core. */
-char *bnum2hex(byte *bnum)
+char *bnum2hex(void *bnum)
 {
-   static char buff[20];
+   static char buff[18];
+   word8 *bp;
 
+   bp = (word8 *) bnum;
    sprintf(buff, "%02x%02x%02x%02x%02x%02x%02x%02x",
-                  bnum[7],bnum[6],bnum[5],bnum[4],
-                  bnum[3],bnum[2],bnum[1],bnum[0]);
+      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
    return buff;
 }
 
+/* bnum is little-endian on disk and core. */
+#define weight2hex(_weight)   val2hex(_weight, 32, NULL, 0)
+char *val2hex(void *val, int len, char *buf, int bufsize)
+{
+   static char str[20];
+   unsigned char *bp;
+   char *cp;
+   int elip;
 
-char *addr2str(byte *addr)
+   /* fault protections */
+   if (buf == NULL) {
+      bufsize = sizeof(str);
+      buf = str;
+   } else if (bufsize < 8) {
+      if (bufsize < 4) *buf = '\0';
+      else strncpy(buf, "...", 4);
+      return buf;
+   }
+
+   /* initialize - trim leading zeros and set elipsis position */
+   bp = (unsigned char *) val;
+   for(elip = 0; len > 0 && bp[len - 1] == 0; len--);
+   if (--bufsize < (len * 2)) elip = len - ((bufsize - 3) / 4);
+   /* print value, respecting elipsis */
+   for (cp = buf; len > 0; len--, cp += 2) {
+      if (len <= elip) {
+         sprintf(cp, "...");
+         len = bufsize / 4;
+         elip = 0;
+         cp += 3;
+      }
+      sprintf(cp, "%02x", bp[len - 1]);
+   }  /* ensure null-termination */
+   cp = '\0';
+
+   return buf;
+}
+
+char *addr2str(void *addr)
 {
    static char str[10];
+   word8 *bp;
 
-   sprintf(str, "%02x%02x%02x%02x", addr[0], addr[1], addr[2], addr[3]);
+   bp = (word8 *) addr;
+   sprintf(str, "%02x%02x%02x%02x", bp[0], bp[1], bp[2], bp[3]);
    return str;
 }
 
 
 /* Return static printable string of hash[HASHLEN] input */
-char *hash2str(byte *hash)
+char *hash2str(word8 *hash)
 {
    static char s[(HASHLEN*2)+4];
    int n;
@@ -233,7 +140,7 @@ char *hash2str(byte *hash)
 }
 
 
-int moveublock(char *ublock, byte *newnum)
+int moveublock(char *ublock, word8 *newnum)
 {
    char buff[256];
    char cmd[288];
@@ -242,101 +149,51 @@ int moveublock(char *ublock, byte *newnum)
    bnum = bnum2hex(newnum);
    sprintf(buff, "b%s.bc", bnum);
    sprintf(cmd, "%s/b%s.bc", Bcdir, bnum);
-   if(exists(buff) || exists(cmd)) {
-      error("%s already exists!", buff);
-bad:
-      error("cannot move block %s", buff);
+   if(fexists(buff) || fexists(cmd)) {
+      perr("moveublock() failed: %s already exists!", buff);
       return VERROR;
    }
    if(rename(ublock, buff) != 0) {
-      error("moveublock(): rename() failed");
-      goto bad;
+      perrno(errno, "moveublock() failed on rename() %s to %s", ublock, buff);
+      return VERROR;
    }
    sprintf(cmd, "mv %s %s", buff, Bcdir);
-   system(cmd);
+   if (system(cmd)) return VERROR;
    sprintf(buff, "%s/b%s.bc", Bcdir, bnum);
-   if(!exists(buff)) {
-      error("moveublock(): system(%s) failed", cmd);
-      goto bad;
+   if(!fexists(buff)) {
+      perr("moveublock() failed on system(%s): %s missing", cmd, buff);
+      return VERROR;
    }
    return VEOK;
 }
-
-
-/* Check if buff is all zeros */
-int iszero(void *buff, int len)
-{
-   byte *bp;
-
-   for(bp = buff; len; bp++, len--)
-      if(*bp) return 0;
-
-   return 1;
-}
-
-
-/* Read a list of 32-bit words from a file
- * Zeros list first.
- * Returns error code.
- */
-int readlist32(word32 *list, unsigned size, unsigned maxlen, char *fname,
-  word32 *tailptr)
-{
-   FILE *fp;
-   unsigned j;
-
-   memset(list, 0, size * maxlen);
-   fp = fopen(fname, "rb");
-   if(fp) {
-      fread(list, size, maxlen, fp);  /* count = ... */
-
-/* Allow short lists
-      if(count != maxlen) {
-         error("read error on %s", fname);
-         fclose(fp);
-         return VERROR;
-      }
-*/
-      fclose(fp);
-   }  /* end if fp -- file exists */
-   if(tailptr != NULL) {
-      /* set j to 0 or index of first zero element in list[] */
-      for(j = 0; j < maxlen && list[j] != 0; j++);
-      if(j >= maxlen) j = 0;
-      *tailptr = j;
-   }
-   return VEOK;
-}  /* end readlist32() */
-
 
 /* Read in common global data */
 int read_global(void)
 {
    FILE *fp;
-   int count;
+   size_t count;
 
    fp = fopen("global.dat", "rb");
-   if(!fp) {
-      error("Cannot read global.dat");
+   if (fp == NULL) {
+      perrno(errno, "read_global() failed on fopen() for global.dat");
       return VERROR;
-   }
-   count = 0;
-   count += fread(Cblocknum,    1,  8, fp);
-   count += fread(Cblockhash,   1, 32, fp);
-   count += fread(Prevhash,     1, 32, fp);
-   count += fread(&Peerip,      1,  4, fp);
-   count += fread(&Errorlog,    1,  1, fp);
-   count += fread(&Trace,       1,  4, fp);
-   count += fread(&Mfee,        1,  8, fp);
-   count += fread(&Difficulty,  1,  4, fp);
-   count += fread(&Time0,       1,  4, fp);
-   count += fread(&Bgflag,      1,  1, fp);
-   if(count != (8+32+32+4+1+4+8+4+4+1)) {
+   } else {
+      count = 0;
+      count += fread(Cblocknum,    1,  8, fp);
+      count += fread(Cblockhash,   1, 32, fp);
+      count += fread(Prevhash,     1, 32, fp);
+      count += fread(&Peerip,      1,  4, fp);
+      count += fread(&Mfee,        1,  8, fp);
+      count += fread(&Difficulty,  1,  4, fp);
+      count += fread(&Time0,       1,  4, fp);
+      count += fread(&Bgflag,      1,  1, fp);
       fclose(fp);
-      error("I/O error on global.dat");
+   }
+   if(count != (8+32+32+4+8+4+4+1)) {
+      perr("read_global() failed on fread() for %s: read %zu/%zu bytes",
+         "global.dat", count, (size_t) (8+32+32+4+8+4+4+1));
       return VERROR;
    }
-   fclose(fp);
    return VEOK;
 }  /* end read_global() */
 
@@ -345,39 +202,43 @@ int read_global(void)
 int write_global(void)
 {
    FILE *fp;
-   int count;
+   size_t count;
 
    fp = fopen("global.dat", "wb");
-   if(!fp) {
-bad:
-      return error("write_global() bad I/O on global.dat");
-   }
-
-   count = 0;
-   count += fwrite(Cblocknum,    1,  8, fp);
-   count += fwrite(Cblockhash,   1, 32, fp);
-   count += fwrite(Prevhash,     1, 32, fp);
-   count += fwrite(&Peerip,      1,  4, fp);
-   count += fwrite(&Errorlog,    1,  1, fp);
-   count += fwrite(&Trace,       1,  4, fp);
-   count += fwrite(&Mfee,        1,  8, fp);
-   count += fwrite(&Difficulty,  1,  4, fp);
-   count += fwrite(&Time0,       1,  4, fp);
-   count += fwrite(&Bgflag,      1,  1, fp);
-   if(count != (8+32+32+4+1+4+8+4+4+1)) {
+   if (fp == NULL) {
+      perrno(errno, "write_global() failed on fopen() for global.dat");
+      return VERROR;
+   } else {
+      count = 0;
+      count += fwrite(Cblocknum,    1,  8, fp);
+      count += fwrite(Cblockhash,   1, 32, fp);
+      count += fwrite(Prevhash,     1, 32, fp);
+      count += fwrite(&Peerip,      1,  4, fp);
+      count += fwrite(&Mfee,        1,  8, fp);
+      count += fwrite(&Difficulty,  1,  4, fp);
+      count += fwrite(&Time0,       1,  4, fp);
+      count += fwrite(&Bgflag,      1,  1, fp);
       fclose(fp);
-      goto bad;
    }
-   fclose(fp);
+   if(count != (8+32+32+4+8+4+4+1)) {
+      perr("write_global() failed on fwrite() for %s: wrote %zu/%zu bytes",
+         "global.dat", count, (size_t) (8+32+32+4+8+4+4+1));
+      return VERROR;
+   }
    return VEOK;
 }  /* write_global() */
 
-
-void crctx(TX *tx)
+/* Accumulate weight based on difficulty */
+void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
 {
-   put16(CRC_VAL_PTR(tx), crc16(CRC_BUFF(tx), CRC_COUNT));
-}
+   static word32 trigger[2] = { WTRIGGER31, 0 };
+   word8 add256[32] = { 0 };
 
+   /* trigger block shifts weight increment from linear to exponential */
+   if(bnum && cmp64(bnum, trigger) < 0) add256[0] = difficulty;
+   else add256[difficulty / 8] = 1 << (difficulty % 8);  /* 2 ** difficulty */
+   multi_add(weight, add256, weight, 32);
+}  /* end add_weight() */
 
 /* Compute mining reward and copy to reward
  * It is a function of block number:
@@ -390,7 +251,7 @@ void crctx(TX *tx)
  */
 void get_mreward(word32 *reward, word32 *bnum)
 {
-   byte bnum2[8];
+   word8 bnum2[8];
    static word32 delta[2] = { 0xDAC0, 0 };      /* reward delta 56000 */
    static word32 base1[2] = { 0x2A05F200, 1 };  /* base 5000000000 */
    static word32 base2[2] = { 0x60b43c80, 1 };  /* base 5917392000 */
@@ -399,85 +260,59 @@ void get_mreward(word32 *reward, word32 *bnum)
    static word32 t2[2] =  { 373761, 0 };        /* mid block */
    static word32 t3[2] =  { 2097152, 0 };       /* final reward block */
    static word32 delta2[2] = { 150000, 0 };     /* increment */
-   static word32 delta3[2] = { 28488, 0 };      /* decrement */ 
+   static word32 delta3[2] = { 28488, 0 };      /* decrement */
 
    if(cmp64(bnum, t1) < 0) {
       /* bnum < 17185 */
-      if(sub64(bnum, One, bnum2)) goto noreward;
-      mult64(delta, bnum2, reward);
-      add64(reward, base1, reward);
-      goto out;
-   }
-   if(cmp64(bnum, t3) > 0) {
-noreward:
-      reward[0] = reward[1] = 0;  /* after t3, reward is zero */
-      goto out;
-   }
-   if(cmp64(bnum, t2) < 0) {
-      /* first 4 years */
+      if(sub64(bnum, One, bnum2)) {
+         perr("get_reward() UNDERFLOW DETECTED! No reward...");
+         reward[0] = reward[1] = 0;
+      } else {
+         mult64(delta, bnum2, reward);
+         add64(reward, base1, reward);
+      }
+   } else if(cmp64(bnum, t2) < 0) {
+      /* first 4 years (excl. bnum[0... 17184]) */
       sub64(bnum, t1, bnum2);
       mult64(delta2, bnum2, reward);
       add64(reward, base2, reward);
-      goto out;
-   } else {
+   } else if(cmp64(bnum, t3) <= 0) {
       /* last 18 years */
       sub64(bnum, t2, bnum2);
       mult64(delta3, bnum2, reward);
-      if(sub64(base3, reward, reward)) goto noreward;
-   }
-out:
-   if(Trace) 
-      plog("reward: 0x%s", bnum2hex((byte *) reward));
-}  /* end get_mreward() */
-
-
-/* Get exclusive lock on lockfile.
- * Returns: -1 if lock not made within 'seconds'
- *          else a descriptor to be used with unlock()
- */
-int lock(char *lockfile, int seconds)
-{
-   time_t timeout;
-   int fd, status;
-
-   timeout = time(NULL) + seconds;
-   fd = open(lockfile, O_NONBLOCK | O_RDONLY);
-   if(fd == -1) fatal("lock(): missing lock file");
-   for(;;) {
-      status = flock(fd, LOCK_EX | LOCK_NB);
-      if(status == 0) return fd;
-      if(time(NULL) >= timeout) {
-         close(fd);
-         return -1;
+      if(sub64(base3, reward, reward)) {
+         perr("get_reward() UNDERFLOW DETECTED! No reward...");
+         reward[0] = reward[1] = 0;
       }
-   }
-}
-
-
-/* Unlock a decriptor returned from lock() */
-int unlock(int fd)
-{
-   int status;
-
-   status =  flock(fd, LOCK_UN);
-   close(fd);
-   return status;
-}
-
+   } else reward[0] = reward[1] = 0;
+   pdebug("reward: 0x%s", bnum2hex(reward));
+}  /* end get_mreward() */
 
 int append_tfile(char *fname, char *tfile)
 {
    BTRAILER bt;
    FILE *fp;
+   size_t count;
 
-   if(readtrailer(&bt, fname) != VEOK) goto err;
-   fp = fopen(tfile, "ab");
-   if(!fp) goto err;
-   if(fwrite(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) {
-      fclose(fp);
-err:
-      return error("Cannot append_tfile()");
+   if(readtrailer(&bt, fname) != VEOK) {
+      perr("Cannot append_tfile()");
+      return VERROR;
    }
-   fclose(fp);
+   fp = fopen(tfile, "ab");
+   if (fp == NULL) {
+      perrno(errno, "append_tfile() failed on fopen() for %s", tfile);
+      return VERROR;
+   } else {
+      count = fwrite(&bt, 1, sizeof(BTRAILER), fp);
+      fclose(fp);
+   }
+   if(count != sizeof(BTRAILER)) {
+      perr("append_tfile() failed on fwrite(): wrote %zu/%zu bytes to %s",
+         count, sizeof(BTRAILER), tfile);
+      return VERROR;
+   }
    return VEOK;
 }
+
+/* end include guard */
+#endif
