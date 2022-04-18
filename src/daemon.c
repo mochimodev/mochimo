@@ -10,6 +10,15 @@
  * Requires data.c for globals: Monitor and Running.
 */
 
+/* include guard */
+#ifndef MOCHIMO_DAEMON_C
+#define MOCHIMO_DAEMON_C
+
+
+#include <signal.h>
+
+#include "extinet.h"
+#include "extprint.h"
 
 /*
  * Signal handlers
@@ -54,5 +63,8 @@ void close_extra(void)
 {
    int j;
 
-   for(j = 3; j < 50; j++) close(j);
+   for(j = 3; j < 50; j++) sock_close(j);
 }
+
+/* end include guard */
+#endif

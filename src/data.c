@@ -6,9 +6,14 @@
  * Date: 1 January 2018
 */
 
+/* include guard */
+#ifndef MOCHIMO_DATA_C
+#define MOCHIMO_DATA_C
+
 
 #include "extint.h"
 #include "config.h"
+#include "types.h"
 
 /*
  * Globals
@@ -81,3 +86,6 @@ pid_t Sendfound_pid;
 pid_t Mpid;               /* miner */
 pid_t Mqpid;              /* mirror() */
 int Mqcount;              /* count of mq.dat records */
+
+/* end include guard */
+#endif

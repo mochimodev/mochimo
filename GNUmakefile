@@ -40,7 +40,7 @@ COVERAGE:= $(BUILDDIR)/coverage.info
 
 # source files: test (base/cuda), base, cuda
 CUSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.cu))
-CSRCS:= src/peach.c src/sort.c src/trigg.c src/util.c src/wots.c src/xo4.c # $(sort $(wildcard $(SOURCEDIR)/*.c))
+CSRCS:= src/bcon.c src/peach.c src/sort.c src/trigg.c src/util.c src/wots.c src/xo4.c # $(sort $(wildcard $(SOURCEDIR)/*.c))
 TCUSRCS:= $(sort $(wildcard $(TESTSOURCEDIR)/*-cu.c))
 TCSRCS:= $(sort $(filter-out %-cu.c,$(wildcard $(TESTSOURCEDIR)/*.c)))
 
@@ -170,6 +170,9 @@ variable-%:
 # vv RECIPE CONFIGURATION vv
 
 # include custom recipe configurations here
+fullnode: $(BUILDDIR)/bcon
+	@mkdir -p $(BINDIR)
+	@mv $(BUILDDIR)/bcon $(BINDIR)/
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################

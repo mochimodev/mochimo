@@ -15,29 +15,34 @@
  *          exit status 0=block make, or non-zero=no block.
 */
 
+/* include guard */
+#ifndef MOCHIMO_BCON_C
+#define MOCHIMO_BCON_C
+
+
+/* extended-c support */
+#include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
+/* crypto support */
+#include "crc16.h"
+#include "sha256.h"
+
+/* mochimo support */
 #include "config.h"
-#include "mochimo.h"
-#include "errno.h"
-#define closesocket(_sd) close(_sd)
-
-#define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
-
-#include "crypto/crc16.c"
-#include "rand.c"
-#include "util.c"
 #include "daemon.c"
+#include "sort.c"
+#include "util.c"
 
-#include "sorttx.c"
+#include <errno.h>
 
 word32 Tnum = -1;  /* transaction sequence number */
 
 void bail(char *message)
 {
-   if(message) error("bcon: bailing out: %s (%d)", message, Tnum);
+   if(message) perr("bcon: bailing out: %s (%d)", message, Tnum);
    exit(1);
 }
 
@@ -67,7 +72,7 @@ int main(int argc, char **argv)
    static BHEADER bh;   /* the minimal length block header */
    static BTRAILER bt;  /* block trailers are fixed length */
    word32 *idx;
-   byte prev_tx_id[HASHLEN];  /* to check for duplicate transactions */
+   word8 prev_tx_id[HASHLEN];  /* to check for duplicate transactions */
    int cond;
    word32 ntx;
    static word32 mreward[2];
@@ -92,7 +97,7 @@ int main(int argc, char **argv)
       bail("no maddr.dat");
 
    if(Trace) {
-      Logfp = fopen(LOGFNAME, "a");
+      set_output_file(LOGFNAME, "a");
       plog("Entering bcon...");
    }
 
@@ -132,7 +137,7 @@ badwrite:
    put64(bh.mreward, mreward);
 
    /* begin hash of entire block */
-   sha256_update(&bctx, (byte *) &bh, sizeof(BHEADER));
+   sha256_update(&bctx, (word8 *) &bh, sizeof(BHEADER));
    if(NEWYEAR(bt.bnum)) memcpy(&mctx, &bctx, sizeof(mctx));
 
    /* write header to disk */
@@ -158,8 +163,8 @@ badwrite:
       count = fread(&tx, 1, sizeof(TXQENTRY), fp);
       if(count != sizeof(TXQENTRY)) goto badread;
       ntx++;  /* actual transactions for block */
-      sha256_update(&bctx, (byte *) &tx, sizeof(TXQENTRY));  /* entire block */
-      sha256_update(&mctx, (byte *) &tx, sizeof(TXQENTRY));  /* Merkel Array */
+      sha256_update(&bctx, (word8 *) &tx, sizeof(TXQENTRY));  /* entire block */
+      sha256_update(&mctx, (word8 *) &tx, sizeof(TXQENTRY));  /* Merkel Array */
       count = fwrite(&tx, 1, sizeof(TXQENTRY), fpout);
       if(count != sizeof(TXQENTRY)) goto badwrite;
    }  /* end for Tnum */
@@ -172,7 +177,7 @@ badwrite:
    put32(bt.tcount, ntx);
 
    if(NEWYEAR(bt.bnum))
-      sha256_update(&mctx, (byte *) &bt, (HASHLEN+8+8+4+4+4));
+      sha256_update(&mctx, (word8 *) &bt, (HASHLEN+8+8+4+4+4));
 
    sha256_final(&mctx, bt.mroot);  /* put the Merkel root in trailer */
 
@@ -180,7 +185,7 @@ badwrite:
    /* Hash in the trailer leaving out:
     * nonce[32], stime[4], and bhash[32].
     */
-   sha256_update(&bctx, (byte *) &bt, (sizeof(BTRAILER) - (2*HASHLEN) - 4));
+   sha256_update(&bctx, (word8 *) &bt, (sizeof(BTRAILER) - (2*HASHLEN) - 4));
 
    /* Let the miner put final hash[] and stime[] at end of BTRAILER struct
     * with the calls to sha256_final() and put32().
@@ -202,9 +207,12 @@ badwrite:
 
    unlink(argv[2]);
    if(rename("cblock.tmp", argv[2])) {
-            error("bcon: rename cblock.tmp (%d)", errno);
-            bail(NULL);
+      perr("bcon: rename cblock.tmp (%d)", errno);
+      bail(NULL);
    }
 
    return 0;
 }  /* end main() */
+
+/* end include guard */
+#endif
