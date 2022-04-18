@@ -66,7 +66,7 @@ int refresh_ipl(void)
    TX tx;
 
    for(j = ip = 0; j < 1000 && ip == 0; j++)
-      ip = Rplist[rand16() % RPLISTLEN];
+      ip = Rplist[rand16fast() % RPLISTLEN];
    if(ip == 0) BAIL(1);
    if(get_ipl(&node, ip) != VEOK) BAIL(2);
    /* Check peer's chain weight against ours. */

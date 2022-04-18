@@ -46,9 +46,9 @@ int miner(char *blockin, char *blockout)
    }
 #endif
 
-   /* Keep a separate rand2() sequence for miner child */
+   /* Keep a separate rand16() sequence for miner child */
    if(read_data(&temp, 12, "mseed.dat") == 12)
-      srand2(temp[0], temp[1], temp[2]);
+      srand16(temp[0], temp[1], temp[2]);
 
    for( ;; sleep(10)) {
       /* Running is set to 0 on SIGTERM */
@@ -204,8 +204,8 @@ int miner(char *blockin, char *blockout)
       break;
    }  /* end for(;;) exit miner  */
 
-   getrand2(temp, &temp[1], &temp[2]);
-   write_data(&temp, 12, "mseed.dat");    /* maintain rand2() sequence */
+   getrand16(temp, &temp[1], &temp[2]);
+   write_data(&temp, 12, "mseed.dat");    /* maintain rand16() sequence */
    printf("Miner exiting...\n");
    return 0;
 }  /* end miner() */

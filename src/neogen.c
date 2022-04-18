@@ -9,6 +9,7 @@
  *
 */
 
+#include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
@@ -19,7 +20,6 @@
 #include "data.c"
 
 #include "crypto/crc16.c"
-#include "rand.c"
 #include "util.c"
 #include "daemon.c"
 

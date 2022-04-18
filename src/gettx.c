@@ -334,7 +334,7 @@ int gettx(NODE *np, SOCKET sd)
    if(Trace) plog("gettx(): crc16 good");
    if(opcode != OP_HELLO) goto bad1;
    np->id1 = get16(tx->id1);
-   np->id2 = rand16();
+   np->id2 = rand16fast();
    if(send_op(np, OP_HELLO_ACK) != VEOK) return VERROR;
    status = rx2(np, 1, 3);
    opcode = get16(tx->opcode);

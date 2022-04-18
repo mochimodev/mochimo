@@ -19,6 +19,7 @@
  *                  Remove if your longs are not 64-bit.
 */
 
+#include "extlib.h"     /* general support */
 #include "extinet.h"    /* socket support */
 #include "extmath.h"    /* 64-bit math support */
 
@@ -161,66 +162,6 @@ typedef struct {
    pid_t pid;     /* process id of child -- zero if empty slot */
 } NODE;
 
-
-word16 get16(void *buff)
-{
-   return *((word16 *) buff);
-}
-
-void put16(void *buff, word16 val)
-{
-   *((word16 *) buff) = val;
-}
-
-/* little-endian */
-word32 get32(void *buff)
-{
-   return *((word32 *) buff);
-}
-
-void put32(void *buff, word32 val)
-{
-   *((word32 *) buff) = val;
-}
-
-/* buff<--val */
-void put64(void *buff, void *val)
-{
-   ((word32 *) buff)[0] = ((word32 *) val)[0];
-   ((word32 *) buff)[1] = ((word32 *) val)[1];
-}
-
-/* Network order word32 as byte a[4] to static alpha string like 127.0.0.1 */
-char *ntoa(byte *a)
-{
-   static char s[24];
-
-   sprintf(s, "%d.%d.%d.%d", a[0], a[1], a[2], a[3]);
-   return s;
-}
-
-/* Default initial seed for rand16() */
-static word32 Lseed = 1;
-
-/* Seed the generator */
-word32 srand16(word32 x)
-{
-   word32 r;
-
-   r = Lseed;
-   Lseed = x;
-   return r;
-}
-
-/* High speed random number generator
- * Period: 2**32 randl4() -- returns 0-65535
- */
-word32 rand16(void)
-{
-   Lseed = Lseed * 69069L + 262145L;
-   return (Lseed >> 16);
-}
-
 #include "crypto/crc16.c"
 #include "crypto/xo4.c"     /* crypto */
 
@@ -292,7 +233,7 @@ void shuffle32(word32 *list, word32 len)
 
    if(len < 2) return;
    for(ptr = &list[len - 1]; len > 1; len--, ptr--) {
-      p2 = &list[rand16() % len];
+      p2 = &list[rand16fast() % len];
       temp = *ptr;
       *ptr = *p2;
       *p2 = temp;
@@ -645,7 +586,7 @@ int callserver(NODE *np, word32 ip, char *addrstr)
       return VERROR;
    }
    np->src_ip = ip;
-   np->id1 = rand16();
+   np->id1 = rand16fast();
    send_op(np, OP_HELLO);
 
    ecode = rx2(np, 0);
@@ -771,7 +712,7 @@ byte *fuzzname(byte *name, int len)
    byte *bp;
 
    for(bp = name; len; len--)
-      *bp++ |= ((rand16() & 0x8000) ? 128 : 0);
+      *bp++ |= ((rand16fast() & 0x8000) ? 128 : 0);
    return name;
 }
 
@@ -938,8 +879,8 @@ void init_seed(char *seed, unsigned len)
 
    if(len < 5) fatal("init_seed()");
 
-   ((word16 *) seed)[0] = rand16();
-   ((word16 *) seed)[1] = rand16();
+   ((word16 *) seed)[0] = rand16fast();
+   ((word16 *) seed)[1] = rand16fast();
 
    len -= 4;
    seed += 4;
@@ -2272,7 +2213,7 @@ int main(int argc, char **argv)
       }  /* end switch */
    }  /* end for j */
 
-   srand16(time(NULL));
+   srand16fast(time(NULL));
 
    if(newflag) init_wallet(&Whdr);
    else if(argv[j]) {

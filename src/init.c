@@ -717,7 +717,7 @@ top:
       if(time(NULL) >= timeout) goto try_again;
       /* select random peer from Rplist */
       for(peerip = n = 0; peerip == 0 && Running && n < 1000; n++)
-         peerip = Rplist[rand16() % RPLISTLEN];
+         peerip = Rplist[rand16fast() % RPLISTLEN];
       /* no duplicate gang[] members */
       if(search32(peerip, gang, Quorum) != NULL) continue;
       /* fetch her ip list and compare block height/weight/hash */
@@ -968,7 +968,7 @@ try_again:
    if(Monitor && Bgflag == 0) resign("user break 5");  /* DSL */
 
    for(peerip = n = 0; peerip == 0 && Running && n < 1000; n++)
-      peerip = Rplist[rand16() % RPLISTLEN];
+      peerip = Rplist[rand16fast() % RPLISTLEN];
    if(get_ipl(np, peerip) != VEOK && Running) goto try_again;
    if(Running) goto top;  /* v.28 */
    resign("try again");

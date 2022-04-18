@@ -36,10 +36,10 @@ int server(void)
    mwtime = Ltime + 6;
    mqtime = Ltime + 5;      /* mirror() time */
    Utime = Ltime;           /* for watchdog timer */
-   Watchdog = WATCHTIME + (rand2() % 600);
+   Watchdog = WATCHTIME + (rand16() % 600);
    Bridgetime = Time0 + BRIDGE;  /* pseudo-block timer */
-   ipltime = Ltime + (rand2() % 300) + 10;  /* ip list fetch time */
-   sftime = Ltime + (rand2() % 300) + 300;  /* send_found() time */
+   ipltime = Ltime + (rand16() % 300) + 10;  /* ip list fetch time */
+   sftime = Ltime + (rand16() % 300) + 300;  /* send_found() time */
    vtime = Ltime + 4;  /* Verisimility restart check time */
 
    if((lsd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
@@ -292,13 +292,13 @@ int server(void)
 
       if(Ltime >= ipltime) {
          refresh_ipl();  /* refresh ip list */
-         ipltime = Ltime + (rand2() % 300) + 10;
+         ipltime = Ltime + (rand16() % 300) + 10;
       }
 
       /* Check random send_found() timer */
       if(Ltime >= sftime) {
          if(Sendfound_pid == 0) send_found();
-         sftime = Ltime + (rand2() % 300) + 300;
+         sftime = Ltime + (rand16() % 300) + 300;
       }
 
 

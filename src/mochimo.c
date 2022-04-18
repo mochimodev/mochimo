@@ -13,6 +13,7 @@
 #define PATCHLEVEL 37
 #define VERSIONSTR  "37"   /*   as printable string */
 
+#include "extlib.h"     /* general support */
 #include "extinet.h"    /* socket support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
@@ -28,7 +29,6 @@
 /* Support functions  */
 #include "crypto/crc16.c"
 #include "crypto/crc32.c"      /* for mirroring          */
-#include "rand.c"       /* fast random numbers    */
 
 /* Server control */
 #include "util.c"       /* server support */
@@ -170,8 +170,8 @@ int main(int argc, char **argv)
 
    /* improve random generators w/additional entropy from maddr.dat */
    read_data(Maddr, TXADDRLEN, "maddr.dat");
-   srand16(time(&Ltime) ^ get32(Maddr) ^ getpid());
-   srand2(Ltime ^ get32(Maddr+4), 0, 123456789 ^ get32(Maddr+8) ^ getpid());
+   srand16fast(time(&Ltime) ^ get32(Maddr) ^ getpid());
+   srand16(Ltime ^ get32(Maddr+4), 0, 123456789 ^ get32(Maddr+8) ^ getpid());
 
    Port = Dstport = PORT1;    /* default receive port */
    /*

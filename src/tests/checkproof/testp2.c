@@ -8,6 +8,7 @@
    Date: 23 November 2019
 */
 
+#include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 
 #include "../config.h"
@@ -79,10 +80,6 @@ void b2hexch(byte *addr, int len, int lastchar)
       printf("%c", lastchar);
 }
 
-
-#include "../rand.c"
-
-
 /**** TEST VERSION **** Print message to log file, Logfp, and/or stdout */
 void plog(char *fmt, ...)
 {
@@ -111,9 +108,9 @@ int readtf(BTRAILER *bt, word32 bnum, word32 count)
 
    plog("readtf() trace reading from block %u for %u trailer(s):",
         bnum, count);
-/*  save = srand16(bnum); */
+/*  save = srand16fast(bnum); */
    for(bp = (byte *) bt, n = count * sizeof(BTRAILER); n; n--, bp++)
-      *bp = rand16();
+      *bp = rand16fast();
    printf("time0 [%u]: ", get32(bts.time0));
    fgets(buff, 80, stdin);
    if(*buff >= 32) put32(bt->time0, atoi(buff));
@@ -131,7 +128,7 @@ int readtf(BTRAILER *bt, word32 bnum, word32 count)
    memcpy(&bts, bt, sizeof(bts));
 
    if(Trace > 1) plog("readtf() read %u trailers", count);
-/*   srand16(save); */
+/*   srand16fast(save); */
    return count;
 }  /* end readtf() */
 
@@ -366,7 +363,7 @@ int main()
    byte *bp;
 
    for(bp = (byte *) &txs, n = 0; n < sizeof(TX); n++, bp++)
-      *bp = rand16();
+      *bp = rand16fast();
 
    bt = (BTRAILER *) TRANBUFF(&txs);
    printf("NTFTX = %d\n", (int) NTFTX);

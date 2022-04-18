@@ -3,6 +3,7 @@
 #define VERSIONSTR  "37"   /*   as printable string */
 
 #include "extinet.h"    /* socket support */
+#include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
@@ -17,7 +18,6 @@
 /* Support functions  */
 #include "crypto/crc16.c"
 #include "crypto/crc32.c"      /* for mirroring          */
-#include "rand.c"       /* fast random numbers    */
 
 /* Server control */
 #include "util.c"       /* server support */

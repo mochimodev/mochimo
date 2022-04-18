@@ -8,6 +8,7 @@
    Date: 23 November 2019
 */
 
+#include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 
 #include "../config.h"
@@ -59,10 +60,6 @@ void b2hexch(byte *addr, int len, int lastchar)
       printf("%c", lastchar);
 }
 
-
-#include "../rand.c"
-
-
 /***** Dummy test function
  * Return number of records read from tfile.dat.
  */
@@ -71,11 +68,11 @@ int readtf(void *buff, word32 bnum, word32 count)
    byte *bp;
    word32 n, save;
 
-   save = srand16(bnum);
+   save = srand16fast(bnum);
    for(bp = buff, n = count * sizeof(BTRAILER); n; n--, bp++)
-      *bp = rand16();
+      *bp = rand16fast();
    if(Trace > 1) plog("readtf() read %u trailers\n", count);
-   srand16(save);
+   srand16fast(save);
    return count;
 }  /* end readtf() */
 
