@@ -30,7 +30,7 @@ typedef int pid_t;
 #endif
 
 #define ADDR_TAG_PTR(addr) (((byte *) addr) + 2196)
-#define ADDR_TAG_LEN 12
+#define TXTAGLEN 12
 
 /* Globals */
 word32 Bnum;
@@ -186,7 +186,7 @@ void disp_taddr(byte *addr)
 {
    b2hexch(addr, 16, 0);
    printf("   Tag: ");
-   bytes2hex(ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
+   bytes2hex(ADDR_TAG_PTR(addr), TXTAGLEN);
 }
 
 
@@ -830,10 +830,10 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
       printf("Tx id:      0x");  bytes2hex(txq.tx_id, 32);
       printf("src_addr:   0x");  disp_taddr(txq.src_addr);
 
-      if(ismtx(&txq)) {
+      if(TX_IS_MTX(&txq)) {
          mtx = (MTX *) &txq;
-         for(j = k = 0; j < NR_DST; j++) {
-            if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break;
+         for(j = k = 0; j < MDST_NUM_DST; j++) {
+            if(iszero(mtx->dst[j].tag, TXTAGLEN)) break;
             if(++k >= 10) {
                k = 0;
                printf("Press RETURN or 'q': ");
@@ -843,7 +843,7 @@ int txmenu(BHEADER *bh, BTRAILER *bt)
             printf("dst[%d] amount: %s",
                    j, itoa64(mtx->dst[j].amount, NULL, 9, 1));
             printf("  tag: 0x");
-            b2hexch(mtx->dst[j].tag, ADDR_TAG_LEN, ' ');
+            b2hexch(mtx->dst[j].tag, TXTAGLEN, ' ');
             if(mtx->zeros[j]) printf("*");  /* tag was not found in ledger */
             printf("\n");
          }  /* end for j */

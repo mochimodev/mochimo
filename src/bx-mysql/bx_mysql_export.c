@@ -72,10 +72,10 @@ void db_export_address(byte *addr_full, byte *addr_hash, MYSQL *conn)
 {
     // Create 32 byte hash of full address
     void* addr_full_raw = malloc(sizeof(byte) * TXADDRLEN);
-    byte addr_tag[ADDR_TAG_LEN];
+    byte addr_tag[TXTAGLEN];
     memcpy(addr_hash, addr_full, HASHLEN);
     memcpy(addr_full_raw, addr_full, TXADDRLEN);
-    memcpy(addr_tag, addr_full + TXADDRLEN - ADDR_TAG_LEN, ADDR_TAG_LEN);
+    memcpy(addr_tag, addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
 
     // Call `address_insert` stored procedure
     MYSQL_STMT *stmt;
@@ -84,7 +84,7 @@ void db_export_address(byte *addr_full, byte *addr_hash, MYSQL *conn)
     my_bool is_null_tag;
     long unsigned int addr_hash_len = HASHLEN;
     long unsigned int addr_full_len = TXADDRLEN;
-    long unsigned int addr_tag_len  = ADDR_TAG_LEN;
+    long unsigned int TXTAGLEN  = TXTAGLEN;
     int status;
 
     stmt = mysql_stmt_init(conn);
@@ -105,14 +105,14 @@ void db_export_address(byte *addr_full, byte *addr_hash, MYSQL *conn)
 
     ps_params[2].buffer_type = MYSQL_TYPE_STRING;
     ps_params[2].buffer = addr_tag;
-    ps_params[2].buffer_length = ADDR_TAG_LEN;
-    ps_params[2].length = &addr_tag_len;
+    ps_params[2].buffer_length = TXTAGLEN;
+    ps_params[2].length = &TXTAGLEN;
     ps_params[2].is_null = &is_null_tag;
 
     is_null_tag = 0;
     if (addr_tag[0] == 0x42 || addr_tag[0] == 0x00) {
       is_null_tag = 1;
-      addr_tag_len = 0;
+      TXTAGLEN = 0;
     }
 
     status = mysql_stmt_bind_param(stmt, ps_params);
@@ -133,9 +133,9 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
 
 // Scrape Tag from Address
   void * le_addr_full = malloc(sizeof(byte) * TXADDRLEN);
-  byte le_addr_tag[ADDR_TAG_LEN];
+  byte le_addr_tag[TXTAGLEN];
   memcpy(le_addr_full, le->addr, TXADDRLEN);
-  memcpy(le_addr_tag, le_addr_full + TXADDRLEN - ADDR_TAG_LEN, ADDR_TAG_LEN);
+  memcpy(le_addr_tag, le_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
   free(le_addr_full);
 
   MYSQL_STMT *stmt;
@@ -146,7 +146,7 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
   long unsigned int hash_len = HASHLEN;
   long unsigned int addr_full_len = TXADDRLEN;
   long unsigned int addr_hash_len = HASHLEN;
-  long unsigned int addr_tag_len = ADDR_TAG_LEN;
+  long unsigned int TXTAGLEN = TXTAGLEN;
   long unsigned int type_code = 9; /* Ledger Entry */
 
   byte empty_hash[32];      /* All Zeroes Hash for Ledger Entries */
@@ -182,7 +182,7 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
 
   ps_params[4].buffer_type = MYSQL_TYPE_STRING;
   ps_params[4].buffer = le_addr_tag;
-  ps_params[4].length = &addr_tag_len;
+  ps_params[4].length = &TXTAGLEN;
   ps_params[4].is_null = &is_null;
   
   ps_params[5].buffer_type = MYSQL_TYPE_LONG;
@@ -196,7 +196,7 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
 
   ps_params[7].buffer_type = MYSQL_TYPE_STRING;
   ps_params[7].buffer = (char *) empty_tag;
-  ps_params[7].length = &addr_tag_len;
+  ps_params[7].length = &TXTAGLEN;
   ps_params[7].is_null = &is_null;
 
   ps_params[8].buffer_type = MYSQL_TYPE_LONGLONG;
@@ -250,17 +250,17 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
   void* dst_addr_full = malloc(sizeof(byte) * TXADDRLEN);
   void* chg_addr_full = malloc(sizeof(byte) * TXADDRLEN);
 
-  byte src_addr_tag[ADDR_TAG_LEN];
-  byte dst_addr_tag[ADDR_TAG_LEN];
-  byte chg_addr_tag[ADDR_TAG_LEN];
+  byte src_addr_tag[TXTAGLEN];
+  byte dst_addr_tag[TXTAGLEN];
+  byte chg_addr_tag[TXTAGLEN];
 
   memcpy(src_addr_full, txq->src_addr, TXADDRLEN);
   memcpy(dst_addr_full, txq->dst_addr, TXADDRLEN);
   memcpy(chg_addr_full, txq->chg_addr, TXADDRLEN);
 
-  memcpy(src_addr_tag, src_addr_full + TXADDRLEN - ADDR_TAG_LEN, ADDR_TAG_LEN);
-  memcpy(dst_addr_tag, dst_addr_full + TXADDRLEN - ADDR_TAG_LEN, ADDR_TAG_LEN);
-  memcpy(chg_addr_tag, chg_addr_full + TXADDRLEN - ADDR_TAG_LEN, ADDR_TAG_LEN);
+  memcpy(src_addr_tag, src_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
+  memcpy(dst_addr_tag, dst_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
+  memcpy(chg_addr_tag, chg_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
 
   free(src_addr_full);
   free(dst_addr_full);
@@ -273,7 +273,7 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
   long unsigned int signature_len = TXSIGLEN;
   long unsigned int addr_full_len = TXADDRLEN;
   long unsigned int addr_hash_len = HASHLEN;
-  long unsigned int addr_tag_len  = ADDR_TAG_LEN;
+  long unsigned int TXTAGLEN  = TXTAGLEN;
 
 
 // Export Full Transaction Entry (type_code 0)
@@ -395,8 +395,8 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
 
   ps_params_1[4].buffer_type = MYSQL_TYPE_STRING;
   ps_params_1[4].buffer = &dst_addr_tag;
-  ps_params_1[4].buffer_length = ADDR_TAG_LEN;
-  ps_params_1[4].length = &addr_tag_len;
+  ps_params_1[4].buffer_length = TXTAGLEN;
+  ps_params_1[4].length = &TXTAGLEN;
   ps_params_1[4].is_null = &is_null_tag;
 
   ps_params_1[5].buffer_type = MYSQL_TYPE_LONG;
@@ -412,8 +412,8 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
 
   ps_params_1[7].buffer_type = MYSQL_TYPE_STRING;
   ps_params_1[7].buffer = &src_addr_tag;
-  ps_params_1[7].buffer_length = ADDR_TAG_LEN;
-  ps_params_1[7].length = &addr_tag_len;
+  ps_params_1[7].buffer_length = TXTAGLEN;
+  ps_params_1[7].length = &TXTAGLEN;
   ps_params_1[7].is_null = &is_null_tag;
 
   ps_params_1[8].buffer_type = MYSQL_TYPE_LONGLONG;
@@ -470,8 +470,8 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
 
   ps_params_2[4].buffer_type = MYSQL_TYPE_STRING;
   ps_params_2[4].buffer = &src_addr_tag;
-  ps_params_2[4].buffer_length = ADDR_TAG_LEN;
-  ps_params_2[4].length = &addr_tag_len;
+  ps_params_2[4].buffer_length = TXTAGLEN;
+  ps_params_2[4].length = &TXTAGLEN;
   ps_params_2[4].is_null = &is_null_tag;
 
   ps_params_2[5].buffer_type = MYSQL_TYPE_LONG;
@@ -487,8 +487,8 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
 
   ps_params_2[7].buffer_type = MYSQL_TYPE_STRING;
   ps_params_2[7].buffer = &dst_addr_tag;
-  ps_params_2[7].buffer_length = ADDR_TAG_LEN;
-  ps_params_2[7].length = &addr_tag_len;
+  ps_params_2[7].buffer_length = TXTAGLEN;
+  ps_params_2[7].length = &TXTAGLEN;
   ps_params_2[7].is_null = &is_null_tag;
 
   ps_params_2[8].buffer_type = MYSQL_TYPE_LONGLONG;
@@ -544,8 +544,8 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
 
   ps_params_3[4].buffer_type = MYSQL_TYPE_STRING;
   ps_params_3[4].buffer = &chg_addr_tag;
-  ps_params_3[4].buffer_length = ADDR_TAG_LEN;
-  ps_params_3[4].length = &addr_tag_len;
+  ps_params_3[4].buffer_length = TXTAGLEN;
+  ps_params_3[4].length = &TXTAGLEN;
   ps_params_3[4].is_null = &is_null_tag;
 
   ps_params_3[5].buffer_type = MYSQL_TYPE_LONG;
@@ -561,8 +561,8 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
 
   ps_params_3[7].buffer_type = MYSQL_TYPE_STRING;
   ps_params_3[7].buffer = &src_addr_tag;
-  ps_params_3[7].buffer_length = ADDR_TAG_LEN;
-  ps_params_3[7].length = &addr_tag_len;
+  ps_params_3[7].buffer_length = TXTAGLEN;
+  ps_params_3[7].length = &TXTAGLEN;
   ps_params_3[7].is_null = &is_null_tag;
 
   ps_params_3[8].buffer_type = MYSQL_TYPE_LONGLONG;
@@ -899,7 +899,7 @@ word32 db_export_block(BHEADER *bh, BTRAILER *bt, MYSQL *conn)
     word32 type_code = 4; /* Address is Receiving a Block Reward */
 
     my_bool is_null_tag = 1;
-    long unsigned int addr_tag_len  = ADDR_TAG_LEN;
+    long unsigned int TXTAGLEN  = TXTAGLEN;
 
     word32 zero = 0;
     byte empty_tag[12];
@@ -936,8 +936,8 @@ word32 db_export_block(BHEADER *bh, BTRAILER *bt, MYSQL *conn)
 
     ps_params_4[4].buffer_type = MYSQL_TYPE_STRING;
     ps_params_4[4].buffer = &empty_tag;
-    ps_params_4[4].buffer_length = ADDR_TAG_LEN;
-    ps_params_4[4].length = &addr_tag_len;
+    ps_params_4[4].buffer_length = TXTAGLEN;
+    ps_params_4[4].length = &TXTAGLEN;
     ps_params_4[4].is_null = &is_null_tag;
 
     ps_params_4[5].buffer_type = MYSQL_TYPE_LONG;
@@ -953,8 +953,8 @@ word32 db_export_block(BHEADER *bh, BTRAILER *bt, MYSQL *conn)
 
     ps_params_4[7].buffer_type = MYSQL_TYPE_STRING;
     ps_params_4[7].buffer = &empty_tag; /* No Tag for Fund Source Either */
-    ps_params_4[7].buffer_length = ADDR_TAG_LEN;
-    ps_params_4[7].length = &addr_tag_len;
+    ps_params_4[7].buffer_length = TXTAGLEN;
+    ps_params_4[7].length = &TXTAGLEN;
     ps_params_4[7].is_null = &is_null_tag;
 
     ps_params_4[8].buffer_type = MYSQL_TYPE_LONGLONG;
