@@ -96,7 +96,7 @@
  * of Work against the difficulty within the block trailer and ignores the
  * final hash
 */
-#define peach_check(btp)  peach_checkhash(btp, btp->diffuclty[0], NULL)
+#define peach_check(btp)  peach_checkhash(btp, (btp)->difficulty[0], NULL)
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus

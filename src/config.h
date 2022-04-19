@@ -9,8 +9,8 @@
  * NOTE: Edit the configuration section for your compiler and machine.
 */
 
-#ifndef _CONFIG_H
-#define _CONFIG_H
+#ifndef MOCHIMO_CONFIG_H
+#define MOCHIMO_CONFIG_H
 
 /* --------------- configuration section ------------------*/
 
@@ -53,7 +53,6 @@
 #endif
 
 /* Adjustable Parameters */
-#define MAXNODES      37       /* maximum number of connected nodes  */
 #define LQLEN         100      /* listen() queue length              */
 #define INIT_TIMEOUT  3        /* initial timeout after accept()     */
 #define ACK_TIMEOUT   10       /* timeout in callserver()            */
@@ -67,7 +66,6 @@
 #define EPINKLEN     100
 #define EPOCHMASK     15       /* update pinklist Epoch count - 1    */
 #define EPOCHSHIFT    4
-#define RPLISTLEN     32       /* recent peer list v.28 */
 #define CPLISTLEN     8        /* current peer list */
 #define CRCLISTLEN    1024     /* recent tx crc's */
 #define MAXQUORUM     8        /* for get_eon() gang[] */
@@ -108,7 +106,5 @@
 
 #define HASHLEN 32
 
-#define DEVNULL "/dev/null"
-#define SORTLTCMD()  system("../sortlt ltran.dat")
-
-#endif   /* _CONFIG_H */
+/* end include guard */
+#endif

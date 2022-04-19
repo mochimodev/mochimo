@@ -210,73 +210,7 @@ word32 init_coreipl(NODE *np, char *fname)
 }  /* end init_coreipl() */
 
 
-/* Extract the ledger from a neo-genesis block and
- * put it in ledger file lfile (ledger.dat)
- * Return VEOK on success, else VERROR.
- */
-int extract(char *fname, char *lfile)
-{
-   word32 hdrlen;    /* to read-in block header length */
-   FILE *fp, *lfp;
-   LENTRY le;        /* buffer to read ledger entry */
-   byte prevaddr[TXADDRLEN];  /* to check block addr sort */
-   byte first;
 
-   if(Trace) plog("extract() ledger from %s to %s", fname, lfile);
-
-   /* open the neo-genesis block and read in file header length */
-   fp = fopen(fname, "rb");
-   if(!fp) return VERROR;;
-   if(fread(&hdrlen, 1, 4, fp) != 4) goto ioerror;
-
-   lfp = fopen(lfile, "wb");
-   if(!lfp) {
-      error("extract(): Cannot open %s", lfile);
-      goto ioerror;
-   }
-
-   /* Make sure that NG header contains at least
-    * one ledger entry.
-    */
-   if(hdrlen < (sizeof(LENTRY) + 4)) {
-      error("extract(): Not a neo-genesis block: %s", fname);
-      goto error2;
-   }
-
-   /*
-    * Read the ledger from fp and copy it to lfp,
-    * creating a new ledger.dat file.
-    * NOTE: block trailer must be less than sizeof(LENTRY)
-    */
-   if(fseek(fp, 4, SEEK_SET)) goto error2;
-   for(hdrlen -= 4, first = 1; ; first = 0) {
-      if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY))
-         break;
-      hdrlen -= sizeof(LENTRY);
-      /* check ledger sort in NG block */
-      if(!first && memcmp(le.addr, prevaddr, TXADDRLEN) <= 0) {
-         error("extract(): bad ledger sort in neo-genesis block");
-         goto error2;
-      }
-      memcpy(prevaddr, le.addr, TXADDRLEN);
-      if(fwrite(&le, 1, sizeof(LENTRY), lfp) != sizeof(LENTRY))
-         goto error2;
-   }
-   if(hdrlen) {
-      error("extract(): bad neo-genesis block length");
-      goto error2;
-   }
-   fclose(fp);
-   fclose(lfp);
-   return VEOK;
-ioerror:
-      fclose(fp);
-      unlink(lfile);  /* remove bad ledger */
-      return error("extract() failed!");
-error2:
-   fclose(lfp);
-   goto ioerror;
-}  /* end extract() */
 
 
 /* Accumulate weight based on difficulty */
@@ -554,7 +488,7 @@ int extract_gen(char *lfile)
 
    sprintf(fname, "%s/b0000000000000000.bc", Bcdir);
    /* extract the ledger from our Genesis Block */
-   return extract(fname, lfile);
+   return le_extract(fname, lfile);
 }
 
 

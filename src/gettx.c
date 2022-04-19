@@ -257,6 +257,39 @@ int txcheck(byte *src_addr)
    return VEOK;  /* src_addr not found */
 }  /* end txcheck() */
 
+/* Look-up and return an address tag to np.
+ * Called from gettx() opcode == OP_RESOLVE
+ *
+ * on entry:
+ *     tag string at ADDR_TAG_PTR(np->tx.dst_addr)    tag to query
+ * on return:
+ *     np->tx.send_total = 1 if found, or 0 if not found.
+ *     if found: np->tx.dst_addr has full found address with tag.
+ *               np->tx.change_total has balance.
+ *
+ * Returns VEOK if found, else VERROR.
+*/
+int tag_resolve(NODE *np)
+{
+   word8 foundaddr[TXADDRLEN];
+   static word8 zeros[8];
+   word8 balance[TXAMOUNT];
+   int status, ecode = VERROR;
+
+   put64(np->tx.send_total, zeros);
+   put64(np->tx.change_total, zeros);
+   /* find tag in leger.dat */
+   status = tag_find(np->tx.dst_addr, foundaddr, balance, get16(np->tx.len));
+   if(status == VEOK) {
+      memcpy(np->tx.dst_addr, foundaddr, TXADDRLEN);
+      memcpy(np->tx.change_total, balance, TXAMOUNT);
+      put64(np->tx.send_total, One);
+      ecode = VEOK;
+   }
+   send_op(np, OP_RESOLVE);
+   return ecode;
+}  /* end tag_resolve() */
+
 
 /* opcodes in types.h */
 #define valid_op(op)  ((op) >= FIRST_OP && (op) <= LAST_OP)

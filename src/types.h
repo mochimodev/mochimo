@@ -46,11 +46,22 @@
 #define PORT2     2096     /**< Secondary port, primarily for testnet */
 #define TXEOT     0xabcd   /**< End-of-transmission id for packets */
 #define TXNETWORK 1337     /**< Network TX protocol version */
-#define TXADDRLEN 2208     /**< Standard transaction address length */
 #define TXSIGLEN  2144     /**< Standard transaction signature length */
+#define TXADDRLEN 2208     /**< Standard transaction address length */
+#define TXTAGLEN  12
 #define TXAMOUNT  8        /**< Standard transaction amount length */
 #define TRANLEN   ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
+#define TRANSIGHASHLEN  (TRANLEN - TXSIGLEN)
 #define TRANBUFF(tx) ((tx)->src_addr)  /**< Transaction buffer accessor */
+
+#define TX_IS_MTX(tx) \
+   ((tx)->dst_addr[2196] == 0x00 && (tx)->dst_addr[2197] == 0x01)
+#define MDST_NUM_DST 100       /* number of tags (MDST) in MTX dst[] */
+#define MDST_NUM_DZEROS 208    /* length of MTX zeros[] */
+
+#define ADDR_TAG_PTR(addr) (((word8 *) (addr)) + 2196)
+#define ADDR_HAS_TAG(addr) \
+   (((word8 *) (addr))[2196] != 0x42 && ((word8 *) (addr))[2196] != 0x00)
 
 /**
  * Capability bit for candidate block pushing nodes. Indicates the
@@ -220,6 +231,33 @@
 */
 #define LAST_OP         19
 
+
+/* device types (DEVICE_CTX.type) */
+
+#define NO_DEVICE       0  /**< No device */
+#define CUDA_DEVICE     1  /**< CUDA device type */
+#define OPENCL_DEVICE   2  /**< OPENCL device type */
+
+/* device status (DEVICE_CTX.status) */
+
+#define DEV_STOP  (-2)  /**< Device disabled status */
+#define DEV_FAIL  (-1)  /**< Device failure status */
+#define DEV_NULL  (0)   /**< Device no status (uninitialized) */
+#define DEV_IDLE  (1)   /**< Device idle status */
+#define DEV_INIT  (2)   /**< Device initialization status */
+#define DEV_WORK  (3)   /**< Device working status */
+
+/* device structs */
+
+typedef struct {
+   int id, type, status;            /**< device identification */
+   int grid, block, threads;        /**< device config/status */
+   unsigned fan, pow, temp, util;   /**< device monitors */
+   time_t last_work, last_monitor;  /**< timestamps */
+   word64 work, total_work;         /**< work counters */
+   char name[256], pciId[9];        /**< device properties */
+} DEVICE_CTX;  /**< (GPU) Device context for managing device data. */
+
 /**
  * Network transmission packet Multi-byte numbers are little-endian.
  * Structure is checked on start-up for byte-alignment.
@@ -306,18 +344,8 @@ typedef struct {
    word8 amount[TXAMOUNT];   /* 8 */
 } LTRAN;
 
-
-/* for mtx */
-/* takes TX * or TXQENTRY pointer */
-#define ismtx(tx) ((tx)->dst_addr[2196] == 0x00 \
-                    && (tx)->dst_addr[2197] == 0x01)
-
-#define ADDR_TAG_LEN 12
-#define NR_DST 100       /* number of tags (MDST) in MTX dst[] */
-#define NR_DZEROS 208    /* length of MTX zeros[] */
-
 typedef struct {
-   word8 tag[ADDR_TAG_LEN];    /* Tag value for MTX multi-destination. */
+   word8 tag[TXTAGLEN];    /* Tag value for MTX multi-destination. */
    word8 amount[8];            /* MTX Send Amount, to this tag. */
 } MDST;
 
@@ -327,8 +355,8 @@ typedef struct {
    word8 src_addr[TXADDRLEN];     /*  2208 */
 
    /* dst[] plus zeros[] is same size as TX dst_addr[]. */
-   MDST dst[NR_DST];
-   word8 zeros[NR_DZEROS];  /* padding - reserved - must follow dst[] */
+   MDST dst[MDST_NUM_DST];
+   word8 zeros[MDST_NUM_DZEROS];  /* padding - reserved - must follow dst[] */
 
    word8 chg_addr[TXADDRLEN];
    word8 send_total[TXAMOUNT];    /* 8 */
@@ -337,33 +365,6 @@ typedef struct {
    word8 tx_sig[TXSIGLEN];        /* 2144 */
    word8 tx_id[HASHLEN];          /* 32 */
 } MTX;
-
-
-/* device types (DEVICE_CTX.type) */
-
-#define NO_DEVICE       0  /**< No device */
-#define CUDA_DEVICE     1  /**< CUDA device type */
-#define OPENCL_DEVICE   2  /**< OPENCL device type */
-
-/* device status (DEVICE_CTX.status) */
-
-#define DEV_STOP  (-2)  /**< Device disabled status */
-#define DEV_FAIL  (-1)  /**< Device failure status */
-#define DEV_NULL  (0)   /**< Device no status (uninitialized) */
-#define DEV_IDLE  (1)   /**< Device idle status */
-#define DEV_INIT  (2)   /**< Device initialization status */
-#define DEV_WORK  (3)   /**< Device working status */
-
-/* device structs */
-
-typedef struct {
-   int id, type, status;            /**< device identification */
-   int grid, block, threads;        /**< device config/status */
-   unsigned fan, pow, temp, util;   /**< device monitors */
-   time_t last_work, last_monitor;  /**< timestamps */
-   word64 work, total_work;         /**< work counters */
-   char name[256], pciId[9];        /**< device properties */
-} DEVICE_CTX;  /**< (GPU) Device context for managing device data. */
 
 /* end include guard */
 #endif

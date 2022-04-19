@@ -20,6 +20,10 @@
 #include "extinet.h"
 #include "extprint.h"
 
+#ifndef NSIG
+#define NSIG 23
+#endif
+
 /*
  * Signal handlers
  *

@@ -57,14 +57,14 @@ int txclean(void)
       if(add64(tx.send_total, tx.change_total, total)) continue;
       if(add64(tx.tx_fee, total, total)) continue;
       if(cmp64(src_le.balance, total) != 0) continue;  /* bad balance */
-      if(ismtx(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+      if(TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
          mtx = (MTX *) &tx;
-         for(j = 0; j < NR_DST; j++) {
-            if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break;
-            memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
+         for(j = 0; j < MDST_NUM_DST; j++) {
+            if(iszero(mtx->dst[j].tag, TXTAGLEN)) break;
+            memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
             mtx->zeros[j] = 0;
             /* If dst[j] tag not found, put error code in zeros[] array. */
-            if(tag_find(addr, NULL, NULL, ADDR_TAG_LEN) != VEOK) {
+            if(tag_find(addr, NULL, NULL, TXTAGLEN) != VEOK) {
                mtx->zeros[j] = 1;
             }
          }

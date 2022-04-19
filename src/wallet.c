@@ -75,15 +75,15 @@ unsigned sleep(unsigned seconds);
                         + (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN + (2+2) )
 #define TRANBUFF(tx) ((tx)->src_addr)
 #define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN )
-#define SIG_HASH_COUNT (TRANLEN - TXSIGLEN)
+#define TRANSIGHASHLEN (TRANLEN - TXSIGLEN)
 
 #define CRC_BUFF(tx) TXBUFF(tx)
 #define CRC_COUNT   (TXBUFFLEN - (2+2))  /* tx buff less crc and trailer */
 #define CRC_VAL_PTR(tx)  ((tx)->crc16)
 
 #define ADDR_TAG_PTR(addr) (((byte *) addr) + 2196)
-#define ADDR_TAG_LEN 12
-#define HAS_TAG(addr) \
+#define TXTAGLEN 12
+#define ADDR_HAS_TAG(addr) \
    (((byte *) (addr))[2196] != 0x42 && ((byte *) (addr))[2196] != 0x00)
 
 #include "crypto/hash/cpu/sha256.h"      /* also defines word32 */
@@ -117,7 +117,7 @@ typedef struct {
    byte flags[1];
    byte balance[8];
    byte name[25];
-   byte tag[ADDR_TAG_LEN];
+   byte tag[TXTAGLEN];
 } WINDEX;
 
 
@@ -200,7 +200,7 @@ char *Peeraddr;  /* peer address string optional, set on command line */
 char *Corefile = "startnodes.lst"; /* Uses startnodes.lst if available */
 unsigned Nextcore;  /* index into Coreplist for callserver() */
 byte Verbose;       /* output trace messages */
-byte Default_tag[ADDR_TAG_LEN]
+byte Default_tag[TXTAGLEN]
    = { 0x42, 0, 0, 0, 0x0e, 0, 0, 0, 1, 0, 0, 0 };
 byte Cblocknum[8];  /* set from network */
 
@@ -1074,9 +1074,9 @@ word32 read_widx(void)
       ip->flags[0] = entry.flags[0];
       memcpy(ip->balance, entry.balance, sizeof(ip->balance));
       memcpy(ip->name, entry.name, sizeof(ip->name));
-      memcpy(ip->tag, ADDR_TAG_PTR(entry.addr), ADDR_TAG_LEN);
+      memcpy(ip->tag, ADDR_TAG_PTR(entry.addr), TXTAGLEN);
       ip->flags[0] &= ~(W_TAG);
-      if(HAS_TAG(entry.addr)) ip->flags[0] |= W_TAG;
+      if(ADDR_HAS_TAG(entry.addr)) ip->flags[0] |= W_TAG;
       if(cmp64(ip->balance, Zeros)) {
          ip->flags[0] |= W_BAL;
          ip->flags[0] &= ~(W_DEL);
@@ -1107,11 +1107,11 @@ unsigned find_dup(byte *addr, WENTRY *outentry)
 
    read_widx();
    tag = NULL;
-   if(HAS_TAG(addr)) tag = ADDR_TAG_PTR(addr);
+   if(ADDR_HAS_TAG(addr)) tag = ADDR_TAG_PTR(addr);
    for(idx = 0, ip = Windex; idx < Nindex; idx++, ip++) {
       if(read_wentry(&entry, idx) != VEOK) fatal("bad disk read");
-      if((tag && memcmp(tag, ADDR_TAG_PTR(entry.addr), ADDR_TAG_LEN) == 0)
-         || memcmp(addr, entry.addr, TXADDRLEN - ADDR_TAG_LEN) == 0) {
+      if((tag && memcmp(tag, ADDR_TAG_PTR(entry.addr), TXTAGLEN) == 0)
+         || memcmp(addr, entry.addr, TXADDRLEN - TXTAGLEN) == 0) {
             memcpy(outentry, &entry, sizeof(WENTRY));
             return idx + 1;
       }
@@ -1135,7 +1135,7 @@ unsigned find_tag(byte *addr, WENTRY *entry)
    read_widx();
    tag = ADDR_TAG_PTR(addr);
    for(idx = 0, ip = Windex; idx < Nindex; idx++, ip++) {
-      if(memcmp(tag, ip->tag, ADDR_TAG_LEN) == 0) {
+      if(memcmp(tag, ip->tag, TXTAGLEN) == 0) {
          if(read_wentry(entry, idx) != VEOK) return 0;  /* error */
          return idx + 1;
       }
@@ -1174,11 +1174,11 @@ int ext_addr(unsigned idx)
    if(fp == (FILE *) 1) goto out2;  /* user cancelled */
    ecode = VERROR;
    if(!fp) goto out2;
-   if(HAS_TAG(entry->addr)) {
+   if(ADDR_HAS_TAG(entry->addr)) {
       printf("Export tag (y/n)? ");
       tgets(buff, 80);
       if(*buff != 'y' && *buff != 'Y')
-         memcpy(ADDR_TAG_PTR(entry->addr), Default_tag, ADDR_TAG_LEN);
+         memcpy(ADDR_TAG_PTR(entry->addr), Default_tag, TXTAGLEN);
    }
    if(fwrite(entry->addr, 1, TXADDRLEN, fp) != TXADDRLEN) goto out;
    printf("Write balance (y/n)? ");
@@ -1242,7 +1242,7 @@ int get_tag(byte *addr, byte found[1])
    if(tx.send_total[0])
    {
 	   /* check if the tag on resolved address is the one we asked */
-	   if(memcmp(ADDR_TAG_PTR(addr), ADDR_TAG_PTR(tx.dst_addr), ADDR_TAG_LEN) != 0)
+	   if(memcmp(ADDR_TAG_PTR(addr), ADDR_TAG_PTR(tx.dst_addr), TXTAGLEN) != 0)
 	   {
 		   found[0] = 0;
 		   return VERROR;
@@ -1277,12 +1277,12 @@ int add_addr(WENTRY *entry, char *name)
       if(*buff == 'y' || *buff == 'Y') {
          ADDR_TAG_PTR(entry->addr)[0] = 1;        /* Create type-1 */
          rndbytes(ADDR_TAG_PTR(entry->addr) + 1,  /*  random tag field. */
-                  ADDR_TAG_LEN - 1, Whdr.seed);
+                  TXTAGLEN - 1, Whdr.seed);
       }  /* tag */
       bytes2hex((byte *) entry->addr, 32, '\n');
-      if(HAS_TAG(entry->addr)) {
+      if(ADDR_HAS_TAG(entry->addr)) {
          printf("Tag: ");
-         bytes2hex(ADDR_TAG_PTR(entry->addr), ADDR_TAG_LEN, '\n');
+         bytes2hex(ADDR_TAG_PTR(entry->addr), TXTAGLEN, '\n');
       }
    }  /* end if not dummy */
 
@@ -1338,7 +1338,7 @@ int add_tag_addr(void)
     */
    printf("Checking network...\n");
    hex2bytes(buff, buff);
-   memcpy(ADDR_TAG_PTR(addr), buff, ADDR_TAG_LEN);
+   memcpy(ADDR_TAG_PTR(addr), buff, TXTAGLEN);
    if(get_tag(addr, &found) != VEOK) {
       printf("\nTag server not connected... Try again.\n");
       Nextcore++;
@@ -1515,8 +1515,8 @@ void disp_line(WINDEX *ip, unsigned j)
 {
    printf("%-6d %-25.25s ", j+1, ip->name);
    if(!Verbose && (ip->flags[0] & W_TAG) == 0) {
-      for(j = 0; j < ADDR_TAG_LEN; j++) printf("  ");
-   } else bytes2hex(ip->tag, ADDR_TAG_LEN, 0);
+      for(j = 0; j < TXTAGLEN; j++) printf("  ");
+   } else bytes2hex(ip->tag, TXTAGLEN, 0);
    printf(" %s\n", itoa64(ip->balance, NULL, 9, 1));
 }
 
@@ -1717,7 +1717,7 @@ out:
    memcpy(tx.src_addr, sentry.addr, TXADDRLEN);
 getdst:
    printf("Foreign addresses:\n");
-   memcpy(ADDR_TAG_PTR(dentry.addr), Default_tag, ADDR_TAG_LEN);
+   memcpy(ADDR_TAG_PTR(dentry.addr), Default_tag, TXTAGLEN);
    display_wallet(1, sidx);
    printf("Destination address index (1-%d, or 0 for none): ", Nindex);
    tgets(buff, 80);
@@ -1729,7 +1729,7 @@ getdst:
    if(ecode != VEOK) goto ioerror;
    /* if dst has tag, get the full address from network */
    memcpy(olddst, dentry.addr, TXADDRLEN);
-   if(HAS_TAG(dentry.addr)) {
+   if(ADDR_HAS_TAG(dentry.addr)) {
       printf("Checking network...\n");
       get_tag(dentry.addr, &found);
       if(!found) {
@@ -1795,37 +1795,37 @@ nofunds:
    memcpy(tx.chg_addr, centry.addr, TXADDRLEN);
    put64(tx.tx_fee, Mfee);
 
-   if(HAS_TAG(tx.chg_addr))
+   if(ADDR_HAS_TAG(tx.chg_addr))
       printf("Change address has tag.\n");
-   if(HAS_TAG(tx.src_addr)) {
+   if(ADDR_HAS_TAG(tx.src_addr)) {
       printf("Source address has tag.  Transfer tag (y/n)? ");
       tgets(buff, 80);
       if(*buff == 'y' || *buff == 'Y') {
          memcpy(ADDR_TAG_PTR(tx.chg_addr),
-                ADDR_TAG_PTR(tx.src_addr), ADDR_TAG_LEN);
+                ADDR_TAG_PTR(tx.src_addr), TXTAGLEN);
          memcpy(ADDR_TAG_PTR(centry.addr),
-                ADDR_TAG_PTR(tx.chg_addr), ADDR_TAG_LEN);
+                ADDR_TAG_PTR(tx.chg_addr), TXTAGLEN);
       } else {
-         memcpy(ADDR_TAG_PTR(tx.chg_addr), Default_tag, ADDR_TAG_LEN);
-         memcpy(ADDR_TAG_PTR(centry.addr), Default_tag, ADDR_TAG_LEN);
+         memcpy(ADDR_TAG_PTR(tx.chg_addr), Default_tag, TXTAGLEN);
+         memcpy(ADDR_TAG_PTR(centry.addr), Default_tag, TXTAGLEN);
       }
    }
 
-   if(memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN - ADDR_TAG_LEN) == 0) {
+   if(memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN - TXTAGLEN) == 0) {
       printf("\nFrom and to address are the same.\n");
       goto out2;
    }
-   if(memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN - ADDR_TAG_LEN) == 0) {
+   if(memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN - TXTAGLEN) == 0) {
       printf("\nFrom and change address are the same.\n");
       goto out2;
    }
-   if(memcmp(tx.dst_addr, tx.chg_addr, TXADDRLEN - ADDR_TAG_LEN) == 0) {
+   if(memcmp(tx.dst_addr, tx.chg_addr, TXADDRLEN - TXTAGLEN) == 0) {
       printf("\nDestination and change address are the same.\n");
       goto out2;
    }
 
    /* hash tx to message*/
-   sha256(tx.src_addr,  SIG_HASH_COUNT, message);
+   sha256(tx.src_addr,  TRANSIGHASHLEN, message);
    /* sign TX with secret key for src_addr*/
    memcpy(rnd2, &tx.src_addr[TXSIGLEN+32], 32);  /* temp for wots_sign() */
    wots_sign(tx.tx_sig,  /* output 2144 */
@@ -1844,7 +1844,7 @@ notsent:
       printf("*** Not sent.\n");
       goto out2;
    }
-   if(HAS_TAG(tx.chg_addr) && bad_tag(tx.chg_addr)) goto notsent;
+   if(ADDR_HAS_TAG(tx.chg_addr) && bad_tag(tx.chg_addr)) goto notsent;
 
    /* transmit TX */
    printf("Trying connection.  Press ctrl-c to stop...\n");
@@ -2031,7 +2031,7 @@ int display_hex(void)
    printf("\n%-25.25s\n", entry.name);
    bytes2hex(entry.addr, 32, '\n');
    printf("(more)\nTag: ");
-   bytes2hex(ADDR_TAG_PTR(entry.addr), ADDR_TAG_LEN, '\n');
+   bytes2hex(ADDR_TAG_PTR(entry.addr), TXTAGLEN, '\n');
    printf("Press return...");
    tgets(lbuff, 100);
    return VEOK;

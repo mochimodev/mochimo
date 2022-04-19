@@ -21,28 +21,36 @@
  *          renames argv[1] to "vblock.dat" on good validation.
 */
 
+/* include guard */
+#ifndef MOCHIMO_BVAL_C
+#define MOCHIMO_BVAL_C
+
+
+/* system support */
+#include <sys/types.h>
+#include <sys/wait.h>
+
+/* extended-c support */
+#include "extint.h"     /* integer support */
 #include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
+/* crypto support */
+#include "crc16.h"
+
+/* algo support */
+#include "peach.h"
+#include "trigg.h"
+#include "wots.h"
+
+/* mochimo support */
 #include "config.h"
-#include "mochimo.h"
-#define closesocket(_sd) close(_sd)
-char *trigg_check(byte *in, byte d, byte *bnum);
-void trigg_expand2(byte *in, char *out);
-
-#define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
-
-#include "crypto/crc16.c"
-#include "util.c"
 #include "daemon.c"
 #include "ledger.c"
-
-#define EXCLUDE_RESOLVE
-#include "tag.c"
-#include "algo/peach/peach.c"
-#include "mtxval.c"  /* for mtx */
+#include "txval.c"  /* for mtx */
+#include "util.c"
 
 word32 Tnum = -1;    /* transaction sequence number */
 char *Bvaldelfname;  /* set == argv[1] to delete input file on failure */
@@ -70,7 +78,7 @@ void baddrop(char *message)
 {
    if(Trace && message)
       plog("bval: baddrop(): %s from: %s  TX index = %d",
-           message, ntoa((byte *) &Peerip), Tnum);
+           message, ntoa(&Peerip, NULL), Tnum);
    /* add Peerip to epoch pink list */
    cleanup(3);  /* put on epink.lst */
 }
@@ -78,13 +86,13 @@ void baddrop(char *message)
 
 void bail(char *message)
 {
-   if(message) error("bval: %s", message);
+   if(message) perr("bval: %s", message);
    cleanup(1);
 }
 
 
-#if ADDR_TAG_LEN != 12
-   ADDR_TAG_LEN must be 12 for tag code in bval.c
+#if TXTAGLEN != 12
+   TXTAGLEN must be 12 for tag code in bval.c
 #endif
 
 
@@ -100,27 +108,26 @@ int main(int argc, char **argv)
    int cond;
    static LENTRY src_le;            /* source and change ledger entries */
    word32 total[2];                 /* for 64-bit maths */
-   static byte mroot[HASHLEN];      /* computed Merkel root */
-   static byte bhash[HASHLEN];      /* computed block hash */
-   static byte tx_id[HASHLEN];      /* hash of transaction and signature */
-   static byte prev_tx_id[HASHLEN]; /* to check sort */
+   static word8 mroot[HASHLEN];      /* computed Merkel root */
+   static word8 bhash[HASHLEN];      /* computed block hash */
+   static word8 tx_id[HASHLEN];      /* hash of transaction and signature */
+   static word8 prev_tx_id[HASHLEN]; /* to check sort */
    static SHA256_CTX bctx;  /* to hash entire block */
    static SHA256_CTX mctx;  /* to hash transaction array */
    word32 bnum[2], stemp;
    static word32 mfees[2], mreward[2];
    unsigned long blocklen;
    int count;
-   static byte do_rename = 1;
-   static byte pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
-   static char *haiku;
-   static char haikufull[256];
+   static word8 do_rename = 1;
+   static word8 pk2[WOTSSIGBYTES], message[32], rnd2[32];  /* for WOTS */
+   static char haiku[256];
    word32 now;
    TXQENTRY *qp1, *qp2, *qlimit;   /* tag mods */
    clock_t ticks;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
    MTX *mtx;
-   static byte addr[TXADDRLEN];  /* for mtx scan 4 */
+   static word8 addr[TXADDRLEN];  /* for mtx scan 4 */
    int j;  /* mtx */
    static TXQENTRY txs;     /* for mtx sig check */
 
@@ -160,7 +167,7 @@ int main(int argc, char **argv)
    if(read_global() != VEOK)
       bail("Cannot read_global()");
 
-   if(Trace) Logfp = fopen(LOGFNAME, "a");
+   if(Trace) set_output_file(LOGFNAME, "a");
 
    /* open ledger read-only */
    if(le_open("ledger.dat", "rb") != VEOK)
@@ -220,20 +227,16 @@ badread:
             drop("bval(): Boxing Day Bugfix Block Bhash Failure");
          }
       } else
-      if(peach(&bt, get32(bt.difficulty), NULL, 1)){
+      if(peach_check(&bt)){
          drop("peach validation failed!");
       }
-
-      trigg_expand2(bt.nonce, haikufull);
-      if(!Bgflag) printf("\n%s\n\n", haikufull);
    }
    if(cmp64(bnum, v24trigger) <= 0) {
-      if((haiku = trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) == NULL) {
+      if(trigg_check(&bt)) {
       drop("trigg_check() failed!");
       }
-      if(!Bgflag) printf("\n%s\n\n", haiku);
    }
-
+   if(!Bgflag) printf("\n%s\n\n", trigg_expand(bt.nonce, haiku));
    /* Read block header */
    if(fseek(fp, 0, SEEK_SET)) goto badread;
    if(fread(&bh, 1, hdrlen, fp) != hdrlen)
@@ -241,13 +244,13 @@ badread:
    get_mreward(mreward, bnum);
    if(memcmp(bh.mreward, mreward, 8) != 0)
       drop("bad mining reward");
-   if(HAS_TAG(bh.maddr))
+   if(ADDR_HAS_TAG(bh.maddr))
       drop("bh.maddr has tag!");
 
    /* fp left at offset of Merkel Block Array--ready to fread() */
 
    sha256_init(&bctx);   /* begin entire block hash */
-   sha256_update(&bctx, (byte *) &bh, hdrlen);  /* ... with the header */
+   sha256_update(&bctx, (word8 *) &bh, hdrlen);  /* ... with the header */
 
    if(NEWYEAR(bt.bnum)) memcpy(&mctx, &bctx, sizeof(mctx));
 
@@ -275,15 +278,15 @@ badread:
          drop("bad TX read");
       if(memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0)
          drop("src == chg");
-      if(!ismtx(&tx) && memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0)
+      if(!TX_IS_MTX(&tx) && memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0)
          drop("src == dst");
 
       if(cmp64(tx.tx_fee, Mfee) < 0) drop("tx_fee is bad");
 
       /* running block hash */
-      sha256_update(&bctx, (byte *) &tx, sizeof(TXQENTRY));
+      sha256_update(&bctx, (word8 *) &tx, sizeof(TXQENTRY));
       /* running Merkel hash */
-      sha256_update(&mctx, (byte *) &tx, sizeof(TXQENTRY));
+      sha256_update(&mctx, (word8 *) &tx, sizeof(TXQENTRY));
       /* tx_id is hash of tx.src_add */
       sha256(tx.src_addr, TXADDRLEN, tx_id);
       if(memcmp(tx_id, tx.tx_id, HASHLEN) != 0)
@@ -299,13 +302,13 @@ badread:
       memcpy(prev_tx_id, tx_id, HASHLEN);
 
       /* check WTOS signature */
-      if(ismtx(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+      if(TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
          memcpy(&txs, &tx, sizeof(txs));
          mtx = (MTX *) &txs;
-         memset(mtx->zeros, 0, NR_DZEROS);  /* always signed when zero */
-         sha256(txs.src_addr, SIG_HASH_COUNT, message);
+         memset(mtx->zeros, 0, MDST_NUM_DZEROS);  /* always signed when zero */
+         sha256(txs.src_addr, TRANSIGHASHLEN, message);
       } else {
-         sha256(tx.src_addr, SIG_HASH_COUNT, message);
+         sha256(tx.src_addr, TRANSIGHASHLEN, message);
       }
       memcpy(rnd2, &tx.src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
       wots_pk_from_sig(pk2, tx.tx_sig, message, &tx.src_addr[TXSIGLEN],
@@ -325,7 +328,7 @@ badread:
 
       if(cmp64(src_le.balance, total) != 0)
          drop("bad transaction total");
-      if(!ismtx(&tx)) {
+      if(!TX_IS_MTX(&tx)) {
          if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, bt.bnum)
             != VEOK) drop("tag not valid");
       } else {
@@ -341,13 +344,13 @@ fee_overflow:
    }  /* end for Tnum */
    if(NEWYEAR(bt.bnum))
       /* phash, bnum, mfee, tcount, time0, difficulty */
-      sha256_update(&mctx, (byte *) &bt, (HASHLEN+8+8+4+4+4));
+      sha256_update(&mctx, (word8 *) &bt, (HASHLEN+8+8+4+4+4));
 
    sha256_final(&mctx, mroot);  /* compute Merkel Root */
    if(memcmp(bt.mroot, mroot, HASHLEN) != 0)
       baddrop("bad Merkle root");
 
-   sha256_update(&bctx, (byte *) &bt, sizeof(BTRAILER) - HASHLEN);
+   sha256_update(&bctx, (word8 *) &bt, sizeof(BTRAILER) - HASHLEN);
    sha256_final(&bctx, bhash);
    if(memcmp(bt.bhash, bhash, HASHLEN) != 0)
       drop("bad block hash");
@@ -355,13 +358,13 @@ fee_overflow:
    /* tag search  Begin ... */
    qlimit = &Q2[tcount];
    for(qp1 = Q2; qp1 < qlimit; qp1++) {
-      if(!HAS_TAG(qp1->src_addr)
+      if(!ADDR_HAS_TAG(qp1->src_addr)
          || memcmp(ADDR_TAG_PTR(qp1->src_addr), ADDR_TAG_PTR(qp1->chg_addr),
-                   ADDR_TAG_LEN) != 0) continue;
+                   TXTAGLEN) != 0) continue;
       /* Step 2: Start another big-O n squared, nested loop here... */
       for(qp2 = Q2; qp2 < qlimit; qp2++) {
          if(qp1 == qp2) continue;  /* added -trg */
-         if(ismtx(qp2)) continue;  /* skip multi-dst's for now */
+         if(TX_IS_MTX(qp2)) continue;  /* skip multi-dst's for now */
          /* if src1 == dst2, then copy chg1 to dst2 -- 32-bit for DSL -trg */
          if(   *((word32 *) ADDR_TAG_PTR(qp1->src_addr))
             == *((word32 *) ADDR_TAG_PTR(qp2->dst_addr))
@@ -391,7 +394,7 @@ fee_overflow:
       fwrite("-",            1,         1, ltfp);  /* debit src addr */
       fwrite(total,          1,         8, ltfp);
       /* add to or create non-multi dst address */
-      if(!ismtx(qp1) && !iszero(qp1->send_total, 8)) {
+      if(!TX_IS_MTX(qp1) && !iszero(qp1->send_total, 8)) {
          fwrite(qp1->dst_addr,   1, TXADDRLEN, ltfp);
          fwrite("A",             1,         1, ltfp);
          fwrite(qp1->send_total, 1,         8, ltfp);
@@ -413,14 +416,14 @@ fee_overflow:
     * expands the tags, and copies addresses around.
     */
    for(qp1 = Q2; qp1 < qlimit; qp1++) {
-      if(!ismtx(qp1)) continue;  /* only multi-dst's this time */
+      if(!TX_IS_MTX(qp1)) continue;  /* only multi-dst's this time */
       mtx = (MTX *) qp1;  /* poor man's union */
       /* For each dst[] tag... */
-      for(j = 0; j < NR_DST; j++) {
-         if(iszero(mtx->dst[j].tag, ADDR_TAG_LEN)) break; /* end of dst[] */
-         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, ADDR_TAG_LEN);
+      for(j = 0; j < MDST_NUM_DST; j++) {
+         if(iszero(mtx->dst[j].tag, TXTAGLEN)) break; /* end of dst[] */
+         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
          /* If dst[j] tag not found, write money back to chg addr. */
-         if(tag_find(addr, addr, NULL, ADDR_TAG_LEN) != VEOK) {
+         if(tag_find(addr, addr, NULL, TXTAGLEN) != VEOK) {
             count =  fwrite(mtx->chg_addr, TXADDRLEN, 1, ltfp);
             count += fwrite("A", 1, 1, ltfp);
             count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
@@ -433,12 +436,12 @@ fee_overflow:
             /* if dst[j] tag == any other src addr tag and chg addr tag,
              * copy other chg addr to dst[] addr.
              */
-            if(!HAS_TAG(qp2->src_addr)) continue;
+            if(!ADDR_HAS_TAG(qp2->src_addr)) continue;
             if(memcmp(ADDR_TAG_PTR(qp2->src_addr),
-                      ADDR_TAG_PTR(qp2->chg_addr), ADDR_TAG_LEN) != 0)
+                      ADDR_TAG_PTR(qp2->chg_addr), TXTAGLEN) != 0)
                          continue;
             if(memcmp(ADDR_TAG_PTR(qp2->src_addr), ADDR_TAG_PTR(addr),
-                      ADDR_TAG_LEN) == 0) {
+                      TXTAGLEN) == 0) {
                          memcpy(addr, qp2->chg_addr, TXADDRLEN);
                          break;
             }
@@ -479,3 +482,6 @@ fee_overflow:
    if(argc > 2) printf("Validated\n");
    return 0;  /* success */
 }  /* end main() */
+
+/* end include guard */
+#endif

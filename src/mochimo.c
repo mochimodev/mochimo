@@ -9,32 +9,53 @@
  * Revised: 20 August 2018
 */
 
+/* include guard */
+#ifndef MOCHIMO_C
+#define MOCHIMO_C
+
+
 /* build sequence */
 #define PATCHLEVEL 37
-#define VERSIONSTR  "37"   /*   as printable string */
+#define VERSIONSTR  "2.4.2-rc1"   /*   as printable string */
 
-#include "extlib.h"     /* general support */
+/* system support */
+#include <unistd.h>
+#include <errno.h>
+#include <sys/wait.h>  /* for waitpid() */
+#include <sys/file.h>  /* for flock() */
+#include <fcntl.h>
+
+/* standard-c support */
+#include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <time.h>
+#include <string.h>
+#include <signal.h>
+
+/* extended-c support */
 #include "extinet.h"    /* socket support */
+#include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
 /* Include everything that we need */
 #include "config.h"
-#include "mochimo.h"
 #include "proto.h"
 
 /* Include global data . . . */
 #include "data.c"       /* System wide globals  */
 
-/* Support functions  */
-#include "crypto/crc16.c"
-#include "crypto/crc32.c"      /* for mirroring          */
+/* crypto supprt functions  */
+#include "crc16.h"
+#include "crc32.h"      /* for mirroring          */
+#include "sha256.h"
 
 /* Server control */
 #include "util.c"       /* server support */
 #include "pink.c"       /* manage pinklist                 */
 #include "ledger.c"
-#include "tag.c"        /* address tag support             */
 #include "gettx.c"      /* poll and read NODE socket       */
 #include "txval.c"      /* validate transactions           */
 #include "mirror.c"
@@ -188,9 +209,8 @@ int main(int argc, char **argv)
          case 'p':  Port = Dstport = atoi(&argv[j][2]); /* home/dst */
                     break;
          case 'l':  if(argv[j][2]) /* open log file used by plog()   */
-                       Logfp = fopen(&argv[j][2], "a");
-                    else
-                       Logfp = fopen(LOGFNAME, "a");
+                       set_output_file(&argv[j][2], "a");
+                    else set_output_file(LOGFNAME, "a");
                     Cbits |= C_LOGGING;
                     break;
          case 'e':  Errorlog = 1;  /* enable "error.log" file */
@@ -288,3 +308,6 @@ int main(int argc, char **argv)
    pause_server();
    return 0;              /* never gets here */
 } /* end main() */
+
+/* end include guard */
+#endif

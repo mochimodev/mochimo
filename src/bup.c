@@ -19,21 +19,27 @@
  *          exit status 0=block update, or non-zero=error.
 */
 
+/* include guard */
+#ifndef MOCHIMO_BUP_C
+#define MOCHIMO_BUP_C
+
+
+/* extended-c support */
+#include "extint.h"     /* integer support */
 #include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
+/* crypto support */
+#include "crc16.h"
+#include "sha256.h"
+
+/* mochimo support */
 #include "config.h"
-#include "mochimo.h"
-#define closesocket(_sd) close(_sd)
-
-#define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
-
-#include "crypto/crc16.c"
-#include "util.c"
-#include "sorttx.c"
 #include "daemon.c"
+#include "sort.c"
+#include "util.c"
 
 word32 Tnum = -1;  /* transaction sequence number */
 
@@ -49,7 +55,7 @@ void cleanup(int ecode)
 
 void bail(char *message)
 {
-   if(message) error("bup.c bailing out: %s (%d)", message, Tnum);
+   if(message) perr("bup.c bailing out: %s (%d)", message, Tnum);
    cleanup(1);
 }
 
@@ -77,16 +83,16 @@ int main(int argc, char **argv)
    LENTRY oldle;     /* input ledger entry  */
    LENTRY newle;     /* output ledger entry */
    LTRAN  lt;        /* ledger transaction  */
-   byte taddr[TXADDRLEN];  /* transaction address hold */
-   byte leof, teof;  /* end of file flags   */
-   byte hold;        /* hold ledger entry for next loop */
+   word8 taddr[TXADDRLEN];  /* transaction address hold */
+   word8 leof, teof;  /* end of file flags   */
+   word8 hold;        /* hold ledger entry for next loop */
    word32 nout;      /* temp file output record counter */
    word32 j, bcount;
    static BHEADER bh;
    static BTRAILER bt;
    word32 diff[2];
-   static byte le_prev[TXADDRLEN];  /* for ledger sequence check */
-   static byte lt_prev[TXADDRLEN];  /* for tran delta sequence check */
+   static word8 le_prev[TXADDRLEN];  /* for ledger sequence check */
+   static word8 lt_prev[TXADDRLEN];  /* for tran delta sequence check */
 
    fix_signals();
    close_extra();   /* close files > 2 */
@@ -101,11 +107,11 @@ int main(int argc, char **argv)
    if(read_global() != VEOK)
       bail("no global.dat");
 
-   if(Trace) Logfp = fopen(LOGFNAME, "a");
+   if(Trace) set_output_file(LOGFNAME, "a");
 
-   SORTLTCMD();            /* sort the ledger transaction file -- wait */
+   sortlt("ltran.dat");    /* sort the ledger transaction file -- wait */
    /* build sorted index Txidx[] from txclean.dat */
-   if(exists("txclean.dat")) {
+   if(fexists("txclean.dat")) {
       if(sorttx("txclean.dat") != VEOK)
          bail("sorttx('txclean.dat') failed!");
    }
@@ -116,7 +122,7 @@ int main(int argc, char **argv)
    bfp = fopen(argv[1], "rb");
    if(!bfp) {
 badblock:
-      error("Cannot read %s", argv[1]);
+      perr("Cannot read %s", argv[1]);
       bail("");
    }
    /* read block header */
@@ -266,7 +272,7 @@ read_ledger:
          /* If ledger and transaction addr match, 
           * and both files not at end...
           */
-         debug("bup: ledger<-->tran addr match");  /* debug */
+         pdebug("bup: ledger<-->tran addr match");  /* debug */
          /* copy the old ledger entry to a new struct for editing */
          memcpy(&newle, &oldle, sizeof(LENTRY));
 apply_tran:
@@ -284,9 +290,9 @@ apply2:
             memset(newle.balance, 0, 8);
          } else bail("bad trancode");  /* should never happen! */
          /* read next transaction */
-         debug("apply -- reading transaction");  /* debug */
+         pdebug("apply -- reading transaction");  /* debug */
          if(fread(&lt, 1, sizeof(LTRAN), fp) != sizeof(LTRAN)) {
-            debug("eof on tran");  /* debug */
+            pdebug("eof on tran");  /* debug */
             teof = 1;
             goto write2;
          }
@@ -314,7 +320,7 @@ write2:
             if(Trace > 1) plog("   new balance <= Mfee is not written");
          }
          if(hold) {
-            debug("hold ledger");  /* debug */
+            pdebug("hold ledger");  /* debug */
             hold = 0;
             continue;  /* ...with eof checks and address compare */
          }
@@ -364,3 +370,6 @@ write2:
 
    return 0;        /* success */
 }  /* end main() */
+
+/* end include guard */
+#endif

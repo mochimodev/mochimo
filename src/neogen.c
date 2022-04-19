@@ -9,24 +9,29 @@
  *
 */
 
+/* include guard */
+#ifndef MOCHIMO_NEOGEN_C
+#define MOCHIMO_NEOGEN_C
+
+
+/* extended-c support */
 #include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
 
+/* crypto support */
+#include "crc16.h"
+#include "sha256.h"
+
+/* mochimo support */
 #include "config.h"
-#include "mochimo.h"
-
-#define EXCLUDE_NODES   /* exclude Nodes[], ip, and socket data */
 #include "data.c"
-
-#include "crypto/crc16.c"
-#include "util.c"
 #include "daemon.c"
-
+#include "util.c"
 
 void bail(char *message)
 {
-   if(message) error("neogen: bailing out: %s", message);
+   if(message) perr("neogen: bailing out: %s", message);
    write_data("fail", 4, "neofail.lck");
    exit(1);
 }
@@ -42,7 +47,7 @@ int main(int argc, char **argv)
    SHA256_CTX bctx;
    FILE *nfp, *lfp;
    word32 neobnum[2];
-   static byte buff[IOBUFFLEN];
+   static word8 buff[IOBUFFLEN];
    unsigned int count;
    word32 total;
 
@@ -98,7 +103,7 @@ badneo:
 
    sha256_init(&bctx);   /* begin entire block hash */
    /* ... with the header length field. */
-   sha256_update(&bctx, (byte *) &hdrlen, 4);
+   sha256_update(&bctx, (word8 *) &hdrlen, 4);
 
    /* Cue ledger.dat to beginning and copy it to neo-gen block
     * header whilst hashing it into bctx.
@@ -121,7 +126,7 @@ badneo:
    put32(nbt.stime, get32(bt.stime));
    put32(nbt.time0, get32(bt.time0));
    put32(nbt.difficulty, get32(bt.difficulty));
-   sha256_update(&bctx, (byte *) &nbt, sizeof(BTRAILER) - HASHLEN);
+   sha256_update(&bctx, (word8 *) &nbt, sizeof(BTRAILER) - HASHLEN);
    sha256_final(&bctx, nbt.bhash);
    if(fwrite(&nbt, 1, sizeof(BTRAILER), nfp) != sizeof(BTRAILER))
       goto badneo;
@@ -130,3 +135,6 @@ badneo:
    if(append_tfile(argv[2], "tfile.dat") != VEOK) goto badneo;
    return 0;  /* success */
 }
+
+/* end include guard */
+#endif

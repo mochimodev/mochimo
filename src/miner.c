@@ -12,7 +12,7 @@
  */
 
 #include <inttypes.h>
-#include "algo/peach/peach.c"
+#include "peach.h"
 
 #ifdef CUDANODE
 /* trigg algo prototypes */
