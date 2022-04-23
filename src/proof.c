@@ -1,7 +1,26 @@
 /* proof.c  Get proof for OP_FOUND from tfile.dat
+ *
+ * Copyright (c) 2019-2021 Adequate Systems, LLC. All Rights Reserved.
+ * For more information, please refer to ../LICENSE
+ *
  * Date: 10 November 2019
- * See LICENSE.PDF
- */
+ * Revised: 18 October 2021
+ *
+*/
+
+#ifndef _MOCHIMO_PROOF_C_
+#define _MOCHIMO_PROOF_C_  /* include guard */
+
+
+#include "extint.h"
+#include "extio.h"
+
+#include "config.h"
+#include "types.h"
+#include "data.c"
+
+#include "trigg.h"
+#include "peach.h"
 
 /* Count of trailers that fit in a TX: */
 #define NTFTX (TRANLEN / sizeof(BTRAILER))
@@ -18,7 +37,7 @@ int readtf(void *buff, word32 bnum, word32 count)
       return 0;
    }
    count = fread(buff, sizeof(BTRAILER), count, fp);
-   if(Trace) plog("readtf() read %u trailers", count);
+   pdebug("readtf() read %u trailers", count);
    fclose(fp);
    return count;
 }  /* end readtf() */
@@ -35,43 +54,36 @@ int loadproof(TX *tx)
    return readtf(TRANBUFF(tx), tnum, NTFTX);
 }
 
-
-/* Reduce weight based on difficulty
- * Note: Only works above WTRIGGER31.
- */
-int sub_weight(byte *weight, byte difficulty)
-{
-   byte temp[32];
-
-   memset(temp, 0, 32);
-   /* temp = 2**difficulty */
-   temp[difficulty / 8] = 1 << (difficulty % 8);
-   return multi_sub(weight, temp, weight, 32);
-}  /* end sub_weight() */
-
-
 /* Compute our weight at lownum and return in weight[]
- * Return VEOK on success, else error code.
+ * Return VEOK on success, else VERROR.
  */
-int past_weight(byte *weight, word32 lownum)
+int past_weight(word8 *weight, word32 lownum)
 {
+   BTRAILER bt;
    word32 cbnum;
-   int message;
-   BTRAILER bts;
+   word8 temp[32];
 
    cbnum = get32(Cblocknum);
-   if(lownum >= cbnum) BAIL(1);
-   memcpy(weight, Weight, 32);
-   for( ; cbnum > lownum; cbnum--) {
-      if((cbnum & 0xff) == 0) continue;  /* skip NG blocks */
-      if(readtf(&bts, cbnum, 1) != 1) BAIL(2);
-      sub_weight(weight, bts.difficulty[0]);
+   if(lownum >= cbnum) perr("past_weight() failed on insufficient cbnum");
+   else {
+      memcpy(weight, Weight, 32);
+      for( ; cbnum > lownum; cbnum--) {
+         if((cbnum & 0xff) == 0) continue;  /* skip NG blocks */
+         if(readtf(&bt, cbnum, 1) != 1) {
+            perr("past_weight() failed on readtf()");
+            break;
+         }
+         /* Reduce weight based on difficulty
+          * Note: Only works above WTRIGGER31. */
+         memset(temp, 0, 32);
+         /* temp = 2**bt.difficulty[0] */
+         temp[bt.difficulty[0] / 8] = 1 << (bt.difficulty[0] % 8);
+         multi_sub(weight, temp, weight, 32);
+      }
+      if (cbnum == lownum) return VEOK;
    }
-   return VEOK;
-bail:
    memset(weight, 0, 32);
-   if(Trace) plog("past_weight(): bail: %d", message);
-   return message;
+   return VERROR;
 }  /* end past_weight() */
 
 
@@ -84,12 +96,13 @@ bail:
  */
 int checkproof(TX *tx, word32 *splitblock)
 {
-   int j, count, message;
+   unsigned j;
+   int count, message;
    BTRAILER *bt, bts;
    word32 diff, stime, s, time0, now, difficulty, highblock, prevnum;
    static word32 tnum[2];
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   byte weight[32];
+   word8 weight[32];
 
    /* Check preconditions for proof scan: */
    *splitblock = 0;  /* invalid syncup() block */
@@ -140,15 +153,14 @@ int checkproof(TX *tx, word32 *splitblock)
       if(get32(bt->tcount) != 0) {
          /* bt is not a pseudoblock so check work: */
          if(cmp64(bt->bnum, v24trigger) > 0) {  /* v2.4 */
-            if(peach(bt, difficulty, NULL, 1)) BAIL(11);
+            if (peach_check(bt) != VEOK) BAIL(11);
          } else {  /* v2.3 and prior */
-            if(trigg_check(bt->mroot, difficulty, bt->bnum) == NULL) BAIL(12);
+            if (trigg_check(bt) != VEOK) BAIL(12);
          }
       }
-      add_weight2(weight, difficulty);  /* tally peer's chain weight */
+      add_weight(weight, difficulty, bt->bnum);  /* tally peer's chain weight */
       /* Compute diff = next difficulty to check next peer trailer. */
-      diff = set_difficulty(difficulty, stime - time0, stime,
-                            (byte *) tnum);
+      diff = set_difficulty(bt);
       if(!Running) BAIL(13);
    }  /* end for j, bt -- proof trailers check */
 
@@ -177,3 +189,6 @@ bail:
    if(Trace) plog("checkproof() ignore peer (%d)", message);
    return message;  /* ignore contention */
 }  /* end checkproof() */
+
+
+#endif  /* end _MOCHIMO_PROOF_C_ */

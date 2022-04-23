@@ -26,6 +26,7 @@ int server(void)
    static pid_t pid;    /* child pid */
    static int lfd;      /* for lock() */
    static word32 hps;  /* same as Hps in monitor.c */
+   static word16 opcode;
 
    Running = 1;          /* globals are in data.c */
 
@@ -51,7 +52,7 @@ int server(void)
 
    show("bind");
    for(;;) {
-      if(!Running) { closesocket(lsd); return 0; }
+      if(!Running) { sock_close(lsd); return 0; }
       if(bind(lsd, (struct sockaddr *) &addr, sizeof(addr)) == 0) break;
       plog("Trying to bind port %d...", Port);
       sleep(5);
@@ -59,8 +60,8 @@ int server(void)
    }
 
    /* set listening port non-blocking for accept() */
-   if(nonblock(lsd) == -1)
-      fatal("nonblock() failed on lsd.");
+   if(sock_set_nonblock(lsd) == -1)
+      fatal("sock_set_nonblock() failed on lsd.");
    listen(lsd, LQLEN);  /* LQSIZ */
    nsd = INVALID_SOCKET;
 
@@ -92,25 +93,24 @@ int server(void)
          pid = waitpid(np->pid, &status, WNOHANG);
          if(pid <= 0) continue;  /* child still running or signal */
          freeslot(np);
-         if(Trace) plog("np->pid: %d  pid: %d  status: 0x%x  op: %d  (%d)",
-                        np->pid, pid, status, np->opcode, errno);  /* debug */
+         opcode = get16(np->tx.opcode);
+         pdebug("np->pid: %d  pid: %d  status: 0x%x  op: %" P16u "  (%d)",
+                        np->pid, pid, status, opcode, errno);  /* debug */
          /* Adds to lists if needed and returns exit status 0-3 */
          status = child_status(np, pid, status);
-         if(np->opcode == OP_FOUND) {
-            if(Blockfound == 0) error("server(): line %d", __LINE__);
+         if(opcode == OP_FOUND) {
+            if(Blockfound == 0) perr("server(): line %d", __LINE__);
             else {
                if(update("rblock.dat", 0) == VEOK) {
                   send_found();  /* start send_found() child */
-                  addcurrent(np->src_ip);  /* v.28 */
-                  addrecent(np->src_ip);   /* v.28 */
+                  addrecent(np->ip);   /* v.28 */
                }
                Blockfound = 0;
             }
          }  /* end if OP_FOUND child */
-         else if(np->opcode == OP_GETBLOCK || np->opcode == OP_GET_TFILE) {
+         else if(opcode == OP_GET_BLOCK || opcode == OP_GET_TFILE) {
             if(get16(np->tx.len) == 0 && status == 0) {
-               addcurrent(np->src_ip);  /* v.28 */
-               addrecent(np->src_ip);
+               addrecent(np->ip);
             }
          }
       }  /* end for check Node[] zombies */
@@ -124,7 +124,7 @@ int server(void)
       /* Check for new connection with accept() and set nsd. */
       if(nsd == INVALID_SOCKET) {
          if((nsd = accept(lsd, NULL, NULL)) != INVALID_SOCKET) {
-            nonblock(nsd);
+            sock_set_nonblock(nsd);
             nsd_time = Ltime;
          }
       }
@@ -142,7 +142,7 @@ int server(void)
           */
          status = gettx(&node, nsd);  /* fills in node */
          if(status != -1) {
-            if(status == sizeof(TX) && (np = getslot(&node)) != NULL) {
+            if(status == VEOK && (np = getslot(&node)) != NULL) {
                pid = fork();  /* create child to handle TX */
                if(pid == 0) {
                   /* in child */
@@ -155,18 +155,18 @@ int server(void)
                    * parent Node[] table.
                    */
                   freeslot(np);
-                  error("fork() failed!");
+                  perr("fork() failed!");
                   restart("cannot fork()");
                }
             }  /* end if need child and slot found */
             /* parent closes its socket if gettx() did not */
             if(node.sd != INVALID_SOCKET)
-               closesocket(nsd);
+               sock_close(nsd);
             nsd = INVALID_SOCKET;
          } else {   /* status == -1 no data yet -- so check timeout */
             if(Ltime - nsd_time > INIT_TIMEOUT) {
                Ntimeouts++;  /* log statistics */
-               closesocket(nsd);
+               sock_close(nsd);
                nsd = INVALID_SOCKET;
             }
          }  /* end if timeout */
@@ -179,7 +179,7 @@ int server(void)
        */
 
       /* Check miner */
-      if(Blockfound == 0 && exists("mblock.dat")) {
+      if(Blockfound == 0 && fexists("mblock.dat")) {
          Blockfound = 1;
          if(cmp64(Cblocknum, Bcbnum) == 0) {
             /* We solved a block! */
@@ -197,7 +197,7 @@ int server(void)
          bctime = Ltime;
       if(Bcpid == 0 && Blockfound == 0
          && Ltime >= bctime
-         && (Txcount > 0 || (Mpid == 0 && existsnz("txclean.dat")))) {
+         && (Txcount > 0 || (Mpid == 0 && fexistsnz("txclean.dat")))) {
          /* append txq1.dat to txclean.dat */
          system("cat txq1.dat >>txclean.dat 2>/dev/null");
          unlink("txq1.dat");
@@ -211,10 +211,10 @@ int server(void)
          if(Bcpid == 0) {
             /* in child */
             execl("../bcon", "bcon", "txclean.dat", "cblock.dat", NULL);
-            error("server(): Cannot execl('bcon',...)");
+            perr("server(): Cannot execl('bcon',...)");
             exit(1);  /* error but not pink */
          }
-         if(Bcpid == -1) { error("Cannot fork() bcon");  Bcpid = 0; }
+         if(Bcpid == -1) { perr("Cannot fork() bcon");  Bcpid = 0; }
          bctime = Ltime + BCONFREQ;
       }
 
@@ -226,7 +226,6 @@ int server(void)
          if(pid > 0) {
             Bcpid = 0;  /* pid not zero means she is done. */
             if(!Nominer) {
-               if(!Bgflag) printf("Solving...\n");
                start_miner();  /* start or re-start miner */
             }
          }
@@ -286,7 +285,7 @@ int server(void)
 
       /* Check for restart signal from Verisimility every 4 seconds */
       if(Ltime >= vtime) {
-         if(exists("vstart.lck")) restart("Verisimility");
+         if(fexists("vstart.lck")) restart("Verisimility");
          vtime += 4;
       }
 
@@ -309,6 +308,6 @@ int server(void)
    /*
     * Clean up server and exit
     */
-   closesocket(lsd);  /* close listening socket */
+   sock_close(lsd);  /* close listening socket */
    return 0;          /* main() will finish cleanup */
 } /* end server() */
