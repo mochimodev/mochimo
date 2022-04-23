@@ -14,9 +14,22 @@
 #define MOCHIMO_C
 
 
-/* build sequence */
-#define PATCHLEVEL 37
-#define VERSIONSTR  "2.4.2-rc1"   /*   as printable string */
+#define STR_NX(x)    #x
+#define STR(x)       STR_NX(x)
+
+#define VER_MAJOR    2
+#define VER_MINOR    4
+#define VER_PATCH    2
+#define VER_EXTRA    "-alpha"
+#define VER_LEVEL    ((VER_MAJOR << 16) | (VER_MINOR << 8) | VER_PATCH)
+#define VER_STR   \
+   "v" STR(VER_MAJOR) "." STR(VER_MINOR) "." STR(VER_PATCH) VER_EXTRA
+
+/* Display terminal error message
+ * and exit with NO restart (code 0).
+ */
+#define fatal(mess) fatal2(0, mess)
+#define pause_server() fatal2(0, NULL);
 
 /* system support */
 #include <unistd.h>
@@ -42,19 +55,22 @@
 
 /* Include everything that we need */
 #include "config.h"
+#include "network.h"
+#include "trigg.h"
+#include "peach.h"
+#include "util.h"       /* server support */
+#include "wots.h"
 #include "proto.h"
 
 /* Include global data . . . */
 #include "data.c"       /* System wide globals  */
 
-/* crypto supprt functions  */
+/* crypto support functions  */
 #include "crc16.h"
 #include "crc32.h"      /* for mirroring          */
 #include "sha256.h"
 
 /* Server control */
-#include "util.c"       /* server support */
-#include "pink.c"       /* manage pinklist                 */
 #include "ledger.c"
 #include "gettx.c"      /* poll and read NODE socket       */
 #include "txval.c"      /* validate transactions           */
@@ -62,7 +78,6 @@
 #include "execute.c"
 #include "monitor.c"    /* system monitor/debugger prompt  */
 #include "daemon.c"
-#include "bupdata.c"    /* for block updates               */
 #include "miner.c"
 #include "pval.c"       /* pseudo-blocks                   */
 #include "optf.c"       /* for OP_HASH and OP_TF           */
@@ -74,7 +89,7 @@
 #include "server.c"     /* tcp server                      */
 
 
-void usage(void)
+int usage(void)
 {
    printf("usage: mochimo [-option...]\n"
           "         -l         open mochi.log file\n"
@@ -91,7 +106,6 @@ void usage(void)
           "         -D         Daemon ignore ctrl-c and no term output\n"
           "         -sN        sleep N usec. on each loop if not busy\n"
           "         -xxxxxxx   replace xxxxxxx with state\n"
-          "         -f         frisky mode (promiscuous mirroring)\n"
           "         -S         Safe mode\n"
           "         -F         Filter private IP's\n"  /* v.28 */
           "         -P         Allow pushed mblocks\n"
@@ -103,18 +117,15 @@ void usage(void)
 #ifdef BX_MYSQL
    printf("         -X         Export to MySQL database on block update\n");
 #endif
-   exit(0);
+   return VEOK;
 }
 
 
 void veronica(void)
 {
-   byte h[64];
-   char *cp;
-
-   cp = trigg_generate(h, 0);
-   if(cp) printf("\n%s\n\n", cp);
-   exit(0);
+   char haiku[256];
+   trigg_generate(haiku);
+   printf("\n%s\n\n", haiku);
 }
 
 /* Kill the miner child */
@@ -141,7 +152,7 @@ void fatal2(int exitcode, char *message)
    stop_mirror();
 #endif
    if(!Bgflag && message) {
-      error("%s", message);
+      perr("%s", message);
       fprintf(stdout, "fatal: %s\n", message);
    }
    /* wait for all children */
@@ -149,18 +160,18 @@ void fatal2(int exitcode, char *message)
    exit(exitcode);
 }
 
-/* Display terminal error message
- * and exit with NO restart (code 0).
- */
-#define fatal(mess) fatal2(0, mess)
-#define pause_server() fatal2(0, NULL);
-
 void restart(char *mess)
 {
    unlink("epink.lst");
    stop_miner();
    if(Trace && mess != NULL) plog("restart: %s", mess);
    fatal2(1, NULL);
+}
+
+void resign(char *mess)
+{
+   if(mess) pdebug("resigning in %s (sigterm)", mess);
+   fatal2(0, NULL);
 }
 
 char *show(char *state)
@@ -178,7 +189,7 @@ char *show(char *state)
 int main(int argc, char **argv)
 {
    static int j;
-   static byte endian[] = { 0x34, 0x12 };
+   static word8 endian[] = { 0x34, 0x12 };
    static char *cp;
 
    /* sanity checks */
@@ -199,9 +210,10 @@ int main(int argc, char **argv)
     * Parse command line arguments.
     */
    for(j = 1; j < argc; j++) {
-      if(argv[j][0] != '-') usage();
+      if(argv[j][0] != '-') return usage();
       switch(argv[j][1]) {
          case 't':  Trace = atoi(&argv[j][2]); /* set trace level  */
+                    set_print_level(Trace);
                     break;
          case 'q':  Quorum = atoi(&argv[j][2]); /* peers in gang[Quorum] */
                     if((unsigned) Quorum > MAXQUORUM) usage();
@@ -220,8 +232,6 @@ int main(int argc, char **argv)
          case 'L':  Lpfname = &argv[j][2];  /* local peer network */
                     break;
          case 'd':  Disable_pink = 1;  /* disable pink lists */
-                    break;
-         case 'f':  Frisky = 1;
                     break;
          case 'S':  if(strncmp(argv[j], "-Sanctuary=", 11) == 0) {
                        cp = strchr(argv[j], ',');
@@ -254,16 +264,17 @@ int main(int argc, char **argv)
                     if(Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
                     else Cbits |= C_MFEE;
                     break;
-         case 'V':  if(strcmp(&argv[j][1], "Veronica") == 0)
-                       veronica();
-                    usage();
+         case 'V':  if(strcmp(&argv[j][1], "Veronica") == 0) veronica();
+                    else return usage();
+                    return VEOK;
          case 'v':  Dstport = PORT2;  Port = PORT1;
                     if(argv[j][2] == '2') {
                        Dstport = PORT1;  Port = PORT2;
                     }
                     break;
          case 'T':  if(argv[j][2] == '\0') {
-                       Trustblock = -1;
+                       Trustblock = 0;
+                       Trustblock--; /* force underflow? */
                        break;
                     }
                     else {
@@ -274,35 +285,42 @@ int main(int argc, char **argv)
          case 'X':  Exportflag = 1;
                     break;
 #endif
-         default:   usage();
+         default:   return usage();
       }  /* end switch */
    }  /* end for j */
 
-   if(Trace == 3) { Trace = 0; Betabait = 1; }
-   if(Bgflag) setpgrp();  /* detach */
+   Running = 1;               /* set Running flag */
+   Port = Dstport = PORT1;    /* set receive port */
 
-   /*
-    * Redirect signals.
-    */
-   fix_signals();
-   signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
+   if(Bgflag) setpgrp();      /* detach */
+   sock_startup();            /* enable socket support */
+   fix_signals();             /* redirect signals... */
+   signal(SIGCHLD, SIG_DFL);  /* ... so waitpid() works */
 
-   init();  /* fetch initial block chain */
-   if(!Bgflag) printf("\n");
+   /* print header */
+   plog("Mochimo Server " VER_STR " built on " __DATE__ " " __TIME__);
+   plog("(c) 2018-2022 Adequate Systems, LLC.  All Rights Reserved.\n");
+   if (Running) sleep(1);
 
-   plog("\nMochimo Server (Build %d)  PVERSION: %d  Built on %s %s\n"
-        "Copyright (c) 2019 Adequate Systems, LLC.  All rights reserved.\n"
-        "\nBooting",
-        PATCHLEVEL, PVERSION, __DATE__, __TIME__);
+   /* disclaimer */
+   plog("This software is subject to the terms and conditions of");
+   plog("the Mochimo End User License Agreement v2.0, available");
+   plog("at https://www.mochimo.org/license and included with");
+   plog("this distribution.  Read LICENSE.PDF\n");
+   if (Running) sleep(2);
 
-   /* 
-    * Show local host info
-    */
-   if(!Bgflag) phostinfo();
+   /* host info */
+   phostinfo();
+   if (Running) sleep(2);
+
+   /* perform initialization step */
+   if (init() != VEOK) return VERROR;
 
    server();                  /* start server */
 
+   psticky("");   /* clear any sticky notes */
    plog("Server exiting . . .");
+   sock_cleanup();
    save_rplist();
    savepink();
    pause_server();

@@ -51,7 +51,7 @@ unsigned sleep(unsigned seconds);
 #define OP_HELLO          1
 #define OP_HELLO_ACK      2
 #define OP_TX             3
-#define OP_GETIPL         6
+#define OP_GET_IPL         6
 #define OP_BALANCE        12
 #define OP_RESOLVE        14
 
@@ -70,21 +70,21 @@ unsigned sleep(unsigned seconds);
 #define HASHLEN 32
 #define TXAMOUNT 8
 #define RNDSEEDLEN 64
-#define TXBUFF(tx)   ((byte *) tx)
+#define TXBUFF(tx)   ((word8 *) tx)
 #define TXBUFFLEN    ((2*5) + (8*2) + 32 + 32 + 32 + 2 \
                         + (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN + (2+2) )
 #define TRANBUFF(tx) ((tx)->src_addr)
 #define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN )
-#define TRANSIGHASHLEN (TRANLEN - TXSIGLEN)
+#define TXSIGHASH_COUNT (TRANLEN - TXSIGLEN)
 
 #define CRC_BUFF(tx) TXBUFF(tx)
 #define CRC_COUNT   (TXBUFFLEN - (2+2))  /* tx buff less crc and trailer */
 #define CRC_VAL_PTR(tx)  ((tx)->crc16)
 
-#define ADDR_TAG_PTR(addr) (((byte *) addr) + 2196)
+#define ADDR_TAG_PTR(addr) (((word8 *) addr) + 2196)
 #define TXTAGLEN 12
 #define ADDR_HAS_TAG(addr) \
-   (((byte *) (addr))[2196] != 0x42 && ((byte *) (addr))[2196] != 0x00)
+   (((word8 *) (addr))[2196] != 0x42 && ((word8 *) (addr))[2196] != 0x00)
 
 #include "crypto/hash/cpu/sha256.h"      /* also defines word32 */
 #include "crypto/wots/wots.h"   /* TXADDRLEN */
@@ -92,32 +92,32 @@ unsigned sleep(unsigned seconds);
 
 /* Wallet header */
 typedef struct {
-   byte sig[4];
-   byte lastkey[4];
-   byte seed[RNDSEEDLEN];   /* seed to generate random bytes for addresses */
-   byte naddr[4];
-   byte name[25];
+   word8 sig[4];
+   word8 lastkey[4];
+   word8 seed[RNDSEEDLEN];   /* seed to generate random bytes for addresses */
+   word8 naddr[4];
+   word8 name[25];
 } WHEADER;
 
 
 /* Wallet entry */
 typedef struct {
-   byte key[4];
-   byte flags[1];
-   byte balance[8];
-   byte name[25];
-   byte addr[TXADDRLEN];
-   byte secret[32];
+   word8 key[4];
+   word8 flags[1];
+   word8 balance[8];
+   word8 name[25];
+   word8 addr[TXADDRLEN];
+   word8 secret[32];
 } WENTRY;
 
 
 /* Wallet index entry */
 typedef struct {
-   byte key[4];
-   byte flags[1];
-   byte balance[8];
-   byte name[25];
-   byte tag[TXTAGLEN];
+   word8 key[4];
+   word8 flags[1];
+   word8 balance[8];
+   word8 name[25];
+   word8 tag[TXTAGLEN];
 } WINDEX;
 
 
@@ -126,28 +126,28 @@ typedef struct {
  * HASHLEN is checked to be 32.
  */
 typedef struct {
-   byte version[2];  /* 0x01, 0x00 PVERSION  */
-   byte network[2];  /* 0x39, 0x05 TXNETWORK */
-   byte id1[2];
-   byte id2[2];
-   byte opcode[2];
-   byte cblock[8];        /* current block num  64-bit */
-   byte blocknum[8];      /* block num for I/O in progress */
-   byte cblockhash[32];   /* sha-256 hash of our current block */
-   byte pblockhash[32];   /* sha-256 hash of our previous block */
-   byte weight[32];       /* sum of block difficulties */
-   byte len[2];  /* length of data in transaction buffer for I/O op's */
+   word8 version[2];  /* 0x01, 0x00 PVERSION  */
+   word8 network[2];  /* 0x39, 0x05 TXNETWORK */
+   word8 id1[2];
+   word8 id2[2];
+   word8 opcode[2];
+   word8 cblock[8];        /* current block num  64-bit */
+   word8 blocknum[8];      /* block num for I/O in progress */
+   word8 cblockhash[32];   /* sha-256 hash of our current block */
+   word8 pblockhash[32];   /* sha-256 hash of our previous block */
+   word8 weight[32];       /* sum of block difficulties */
+   word8 len[2];  /* length of data in transaction buffer for I/O op's */
    /* start transaction buffer */
-   byte src_addr[TXADDRLEN];
-   byte dst_addr[TXADDRLEN];
-   byte chg_addr[TXADDRLEN];
-   byte send_total[TXAMOUNT];
-   byte change_total[TXAMOUNT];
-   byte tx_fee[TXAMOUNT];
-   byte tx_sig[TXSIGLEN];
+   word8 src_addr[TXADDRLEN];
+   word8 dst_addr[TXADDRLEN];
+   word8 chg_addr[TXADDRLEN];
+   word8 send_total[TXAMOUNT];
+   word8 change_total[TXAMOUNT];
+   word8 tx_fee[TXAMOUNT];
+   word8 tx_sig[TXSIGLEN];
    /* end transaction buffer */
-   byte crc16[2];
-   byte trailer[2];  /* 0xcd, 0xab */
+   word8 crc16[2];
+   word8 trailer[2];  /* 0xcd, 0xab */
 } TX;
 
 
@@ -172,7 +172,7 @@ void crctx(TX *tx)
 
 
 /* bnum is little-endian on disk and core. */
-char *bnum2hex(byte *bnum)
+char *bnum2hex(word8 *bnum)
 {
    static char buff[20];
 
@@ -192,17 +192,17 @@ XO4CTX Xo4ctx;
 WHEADER Whdr;        /* wallet header */
 WINDEX *Windex;      /* wallet index */
 word32 Nindex;       /* number of addresses in wallet */
-byte Needcleanup;    /* for Winsock */
+word8 Needcleanup;    /* for Winsock */
 word32 Mfee[2] = { MFEE, 0 };
-byte Zeros[8];
+word8 Zeros[8];
 word32 Port = 2095;  /* default server port */
 char *Peeraddr;  /* peer address string optional, set on command line */
 char *Corefile = "startnodes.lst"; /* Uses startnodes.lst if available */
 unsigned Nextcore;  /* index into Coreplist for callserver() */
-byte Verbose;       /* output trace messages */
-byte Default_tag[TXTAGLEN]
+word8 Verbose;       /* output trace messages */
+word8 Default_tag[TXTAGLEN]
    = { 0x42, 0, 0, 0, 0x0e, 0, 0, 0, 1, 0, 0, 0 };
-byte Cblocknum[8];  /* set from network */
+word8 Cblocknum[8];  /* set from network */
 
 #define CORELISTLEN 9
 
@@ -216,7 +216,7 @@ word32 Coreplist[RPLISTLEN] = {
 };
 
 
-byte Sigint;
+word8 Sigint;
 
 void ctrlc(int sig)
 {
@@ -304,7 +304,7 @@ int read_coreipl(char *fname)
    return VEOK;
 }  /* end read_coreipl() */
 
-void bytes2hex(byte *addr, int len, int lastchar)
+void bytes2hex(word8 *addr, int len, int lastchar)
 {
    int n;
    
@@ -322,7 +322,7 @@ void bytes2hex(byte *addr, int len, int lastchar)
 /* Check if buff is all zeros */
 int iszero(void *buff, int len)
 {
-   byte *bp;
+   word8 *bp;
 
    for(bp = buff; len; bp++, len--)
       if(*bp) return 0;
@@ -469,7 +469,7 @@ SOCKET connectip2(word32 ip, char *addrstr)
       if(name[0])
          printf("Trying %s port %d...  ", name, port);
       else
-         printf("Trying %s port %d...  ", ntoa((byte *) &ip), port);
+         printf("Trying %s port %d...  ", ntoa(&ip, NULL), port);
    }
 
    nonblock(sd);
@@ -483,7 +483,7 @@ retry:
 #endif
       if(errno == EISCONN) goto out;
       if(time(NULL) < timeout && Sigint == 0) goto retry;
-      closesocket(sd);
+      sock_close(sd);
       if(Verbose) printf("connectip(): cannot connect() socket.\n");
       return INVALID_SOCKET;
    }
@@ -567,6 +567,7 @@ int rx2(NODE *np, int checkids)
 int callserver(NODE *np, word32 ip, char *addrstr)
 {
    int ecode, j;
+   word16 opcode;
 
    Sigint = 0;
 
@@ -585,7 +586,7 @@ int callserver(NODE *np, word32 ip, char *addrstr)
       Nextcore = 0;
       return VERROR;
    }
-   np->src_ip = ip;
+   np->ip = ip;
    np->id1 = rand16fast();
    send_op(np, OP_HELLO);
 
@@ -593,15 +594,15 @@ int callserver(NODE *np, word32 ip, char *addrstr)
    if(ecode != VEOK) {
       if(Verbose) printf("*** missing HELLO_ACK packet (%d)\n", ecode);
 bad:
-      closesocket(np->sd);
+      sock_close(np->sd);
       np->sd = INVALID_SOCKET;
       Nextcore++;
       return VERROR;
    }
    np->id2 = get16(np->tx.id2);
-   np->opcode = get16(np->tx.opcode);
-   if(np->opcode != OP_HELLO_ACK) {
-      if(Verbose) printf("*** HELLO_ACK is wrong: %d\n", np->opcode);
+   opcode = get16(np->tx.opcode);
+   if(opcode != OP_HELLO_ACK) {
+      if(Verbose) printf("*** HELLO_ACK is wrong: %d\n", opcode);
       goto bad;
    }
    put64(Cblocknum, np->tx.cblock);
@@ -613,7 +614,7 @@ bad:
  * opcode = OP_BALANCE tx->src_addr is address to query and
  *                     balance returned in tx->send_total.
  *
- * opcode = OP_GETIPL  returns IP list in TRANBUFF(tx) of tx->len bytes.
+ * opcode = OP_GET_IPL  returns IP list in TRANBUFF(tx) of tx->len bytes.
  *
  * Returns VOEK on success, else VERROR.
  */
@@ -627,10 +628,10 @@ int get_tx(TX *tx, word32 ip, char *addrstr, int opcode)
    put16(node.tx.len, 1);  /* signal server that we are a wallet */
    send_op(&node, opcode);
    if(rx2(&node, 1) != VEOK) {
-      closesocket(node.sd);
+      sock_close(node.sd);
       return VERROR;
    }
-   closesocket(node.sd);
+   sock_close(node.sd);
    memcpy(tx, &node.tx, sizeof(TX));  /* return tx to caller's space */
    return VEOK;
 }  /* end get_tx() */
@@ -651,7 +652,7 @@ int get_ipl(char *addrstr)
    for(j = 0; j < RPLISTLEN && Sigint == 0; j++) {
       ip = Coreplist[j];
       if(ip == 0 && addrstr == NULL) break;
-      status = get_tx(&tx, ip, addrstr, OP_GETIPL);
+      status = get_tx(&tx, ip, addrstr, OP_GET_IPL);
       len = get16(tx.len);
       /*
        * Insert the peer list after the core ip's in Coreplist[]
@@ -687,15 +688,15 @@ int send_tx(TX *tx, word32 ip, char *addrstr)
    memcpy(&node.tx, tx, sizeof(TX));
    put16(node.tx.len, 1);  /* signal server that we are a wallet */
    status = send_op(&node, OP_TX);
-   closesocket(node.sd);
+   sock_close(node.sd);
    return status;
 }  /* end send_tx() */
 
 
 /* Very special for Shylock: */
-void shy_setkey(XO4CTX *ctx, byte *salt, byte *password, unsigned len)
+void shy_setkey(XO4CTX *ctx, word8 *salt, word8 *password, unsigned len)
 {
-   byte key[256];
+   word8 key[256];
 
    memset(key, 0, 256);
    if(len > 188) len = 188;   /* 256-64-4 */
@@ -707,9 +708,9 @@ void shy_setkey(XO4CTX *ctx, byte *salt, byte *password, unsigned len)
 }
 
 
-byte *fuzzname(byte *name, int len)
+word8 *fuzzname(word8 *name, int len)
 {
-   byte *bp;
+   word8 *bp;
 
    for(bp = name; len; len--)
       *bp++ |= ((rand16fast() & 0x8000) ? 128 : 0);
@@ -717,9 +718,9 @@ byte *fuzzname(byte *name, int len)
 }
 
 
-byte *unfuzzname(byte *name, int len)
+word8 *unfuzzname(word8 *name, int len)
 {
-   byte *bp;
+   word8 *bp;
 
    for(bp = name; len; len--)
       *bp++ &= 127;
@@ -730,11 +731,11 @@ byte *unfuzzname(byte *name, int len)
 /* Copy outlen random bytes to out.
  * 64-byte seed is incremented.
  */
-void rndbytes(byte *out, word32 outlen, byte *seed)
+void rndbytes(word8 *out, word32 outlen, word8 *seed)
 {
-   static byte state;
-   static byte rnd[PASSWLEN+64];
-   byte hash[32];  /* output for sha256() */
+   static word8 state;
+   static word8 rnd[PASSWLEN+64];
+   word8 hash[32];  /* output for sha256() */
    int n;
 
    if(state == 0) {
@@ -769,9 +770,9 @@ void rndbytes(byte *out, word32 outlen, byte *seed)
  *          addr[TXADDRLEN] takes the address (2208 bytes)
  *          secret[32]      needed for wots_sign()
  */
-void create_addr(byte *addr, byte *secret, byte *seed)
+void create_addr(word8 *addr, word8 *secret, word8 *seed)
 {
-   byte rnd2[32];
+   word8 rnd2[32];
 
    rndbytes(secret, 32, seed);  /* needed later to use wots_sign() */
 
@@ -875,7 +876,7 @@ int init_password(void)
 void init_seed(char *seed, unsigned len)
 {
    FILE *fp;
-   byte b;
+   word8 b;
 
    if(len < 5) fatal("init_seed()");
 
@@ -904,7 +905,7 @@ void init_wallet(WHEADER *wh)
    FILE *fp;
    char fname[WFNAMELEN];
    char lbuff[100];
-   static byte salt[4];  /* salt is always zero for the header */
+   static word8 salt[4];  /* salt is always zero for the header */
 
    memset(wh, 0, sizeof(WHEADER));
    printf("\nPress ctrl-c at any time to cancel.\n\n");
@@ -926,7 +927,7 @@ get_name:
 
    /* encrypt disk image */
    fuzzname(wh->name, 25);
-   shy_setkey(&Xo4ctx, salt, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, salt, (word8 *) Password, PASSWLEN);
    xo4_crypt(&Xo4ctx, wh, wh, sizeof(Whdr));
 
    if(fwrite(wh, 1, sizeof(WHEADER), fp) != sizeof(WHEADER))
@@ -934,7 +935,7 @@ get_name:
    fclose(fp);
 
    /* decrypt for use */
-   shy_setkey(&Xo4ctx, salt, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, salt, (word8 *) Password, PASSWLEN);
    xo4_crypt(&Xo4ctx, wh, wh, sizeof(WHEADER));
    unfuzzname(wh->name, 25);
    printf("Wallet '%-1.25s' id: 0x%x created to file %s\n", wh->name,
@@ -968,8 +969,8 @@ int read_wheader(WHEADER *whdr)
 
 int decrypt_wheader()
 {
-   static byte salt[4];
-   shy_setkey(&Xo4ctx, salt, (byte *) Password, PASSWLEN);
+   static word8 salt[4];
+   shy_setkey(&Xo4ctx, salt, (word8 *) Password, PASSWLEN);
    xo4_crypt(&Xo4ctx, &Whdr, &Whdr, sizeof(WHEADER));
    unfuzzname(Whdr.name, 25);
    printf("Loaded wallet '%-1.25s' from %s\n", Whdr.name, Wfname);
@@ -994,7 +995,7 @@ bad:
       return VERROR;
    }
    if(fread(entry, 1, sizeof(WENTRY), fp) != sizeof(WENTRY)) goto bad;
-   shy_setkey(&Xo4ctx, entry->key, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, entry->key, (word8 *) Password, PASSWLEN);
    /* entry->flags is first field after entry.key salt */
    xo4_crypt(&Xo4ctx, entry->flags, entry->flags,
              sizeof(WENTRY) - sizeof(entry->key));
@@ -1022,7 +1023,7 @@ bad:
       return VERROR;
    }
    fuzzname(entry->name, sizeof(entry->name));
-   shy_setkey(&Xo4ctx, entry->key, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, entry->key, (word8 *) Password, PASSWLEN);
    /* entry->flags is first field after entry.key salt */
    xo4_crypt(&Xo4ctx, entry->flags, entry->flags,
              sizeof(WENTRY) - sizeof(entry->key));
@@ -1065,7 +1066,7 @@ word32 read_widx(void)
 
    for(j = 0, ip = Windex; j < Nindex; j++, ip++) {
       if(fread(&entry, 1, sizeof(WENTRY), fp) != sizeof(WENTRY)) break;
-      shy_setkey(&Xo4ctx, entry.key, (byte *) Password, PASSWLEN);
+      shy_setkey(&Xo4ctx, entry.key, (word8 *) Password, PASSWLEN);
       /* entry.flags is first field after entry.key salt */
       xo4_crypt(&Xo4ctx, entry.flags, entry.flags,
                 sizeof(WENTRY) - sizeof(entry.key));
@@ -1098,11 +1099,11 @@ word32 read_widx(void)
  * If not found, return 0 with addr and outentry unchanged.
  * Call fatal() on I/O errors.
  */
-unsigned find_dup(byte *addr, WENTRY *outentry)
+unsigned find_dup(word8 *addr, WENTRY *outentry)
 {
    WINDEX *ip;
    unsigned idx;
-   byte *tag;
+   word8 *tag;
    WENTRY entry;
 
    read_widx();
@@ -1126,11 +1127,11 @@ unsigned find_dup(byte *addr, WENTRY *outentry)
  * 1 based index, else return 0 with addr unchanged.
  * (entry is indeterminate on I/O error.)
  */
-unsigned find_tag(byte *addr, WENTRY *entry)
+unsigned find_tag(word8 *addr, WENTRY *entry)
 {
    WINDEX *ip;
    unsigned idx;
-   byte *tag;
+   word8 *tag;
 
    read_widx();
    tag = ADDR_TAG_PTR(addr);
@@ -1205,7 +1206,7 @@ out2:
 int update_wheader(WHEADER *whdr)
 {
    FILE *fp;
-   static byte salt[4];
+   static word8 salt[4];
    WHEADER whout;
 
    /* open wallet header */
@@ -1213,7 +1214,7 @@ int update_wheader(WHEADER *whdr)
    /* encrypt it for write to disk */
    memcpy(&whout, whdr, sizeof(WHEADER));
    fuzzname(whout.name, 25);
-   shy_setkey(&Xo4ctx, salt, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, salt, (word8 *) Password, PASSWLEN);
    xo4_crypt(&Xo4ctx, &whout, &whout, sizeof(WHEADER));
    if(fwrite(&whout, 1, sizeof(WHEADER), fp) != sizeof(WHEADER))
       fatal("Cannot update wallet header");
@@ -1226,7 +1227,7 @@ int update_wheader(WHEADER *whdr)
  * Returns VEOK if found with full address in addr,
  * else error code.
  */
-int get_tag(byte *addr, byte found[1])
+int get_tag(word8 *addr, word8 found[1])
 {
    int ecode;
    TX tx;
@@ -1279,7 +1280,7 @@ int add_addr(WENTRY *entry, char *name)
          rndbytes(ADDR_TAG_PTR(entry->addr) + 1,  /*  random tag field. */
                   TXTAGLEN - 1, Whdr.seed);
       }  /* tag */
-      bytes2hex((byte *) entry->addr, 32, '\n');
+      bytes2hex((word8 *) entry->addr, 32, '\n');
       if(ADDR_HAS_TAG(entry->addr)) {
          printf("Tag: ");
          bytes2hex(ADDR_TAG_PTR(entry->addr), TXTAGLEN, '\n');
@@ -1293,7 +1294,7 @@ int add_addr(WENTRY *entry, char *name)
    if(name)
       memcpy(entry->name, name, sizeof(entry->name));
    fuzzname(entry->name, sizeof(entry->name));
-   shy_setkey(&Xo4ctx, entry->key, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, entry->key, (word8 *) Password, PASSWLEN);
    /* entry->flags is first field after entry->key salt */
    xo4_crypt(&Xo4ctx, entry->flags, entry->flags,
              sizeof(WENTRY) - sizeof(entry->key));
@@ -1316,8 +1317,8 @@ int add_tag_addr(void)
    word32 lastkey;
    char buff[80];
    WENTRY *entry, entst;
-   byte addr[TXADDRLEN];
-   byte found;
+   word8 addr[TXADDRLEN];
+   word8 found;
    unsigned idx;
 
    entry = &entst;
@@ -1372,7 +1373,7 @@ int add_tag_addr(void)
    put32(Whdr.lastkey, lastkey);   /* save updated salt */
    put32(entry->key, lastkey);
    fuzzname(entry->name, sizeof(entry->name));
-   shy_setkey(&Xo4ctx, entry->key, (byte *) Password, PASSWLEN);
+   shy_setkey(&Xo4ctx, entry->key, (word8 *) Password, PASSWLEN);
    /* entry->flags is first field after entry->key salt */
    xo4_crypt(&Xo4ctx, entry->flags, entry->flags,
              sizeof(WENTRY) - sizeof(entry->key));
@@ -1421,7 +1422,7 @@ char *itoa64(void *val64, char *out, int dec, int flags)
    static char s[24];
    char *cp, zflag = 1;
    word32 *tab;
-   byte val[8];
+   word8 val[8];
 
    /* 64-bit little-endian */
    static word32 table[] = {
@@ -1480,9 +1481,9 @@ char *itoa64(void *val64, char *out, int dec, int flags)
  * If string ends in 'c' or 'C' convert to Chi, else
  * leave as Satoshi.
  */
-int atoi64(char *string, byte *out)
+int atoi64(char *string, word8 *out)
 {
-   static byte addin[8];
+   static word8 addin[8];
    static word32 ten[2] = { 10 };
    static word32 tene9[2] = { 1000000000 };  /* Satoshi per Chi */
    int overflow = 0;
@@ -1535,7 +1536,7 @@ int display_wallet(int mode, unsigned notidx)
    WINDEX *ip;
    int line;
    char lbuff[10];
-   byte flags;
+   word8 flags;
    int nout;
 
    read_widx();
@@ -1607,9 +1608,9 @@ int archive_addr(void)
 
 
 /* Return 1 if tag unusable, else 0. */
-int bad_tag(byte *addr)
+int bad_tag(word8 *addr)
 {
-   byte found;
+   word8 found;
    int status;
 
    Sigint = 0;
@@ -1679,10 +1680,10 @@ int spend_addr(void)
    WENTRY sentry, dentry, centry;
    TX tx;
    word32 total[2], change[2];
-   byte message[32], rnd2[32];
-   byte val[8];
-   byte found;
-   byte olddst[TXADDRLEN];
+   word8 message[32], rnd2[32];
+   word8 val[8];
+   word8 found;
+   word8 olddst[TXADDRLEN];
 
    memset(&tx, 0, sizeof(TX));
    memset(&sentry, 0, sizeof(WENTRY));
@@ -1825,7 +1826,7 @@ nofunds:
    }
 
    /* hash tx to message*/
-   sha256(tx.src_addr,  TRANSIGHASHLEN, message);
+   sha256(tx.src_addr,  TXSIGHASH_COUNT, message);
    /* sign TX with secret key for src_addr*/
    memcpy(rnd2, &tx.src_addr[TXSIGLEN+32], 32);  /* temp for wots_sign() */
    wots_sign(tx.tx_sig,  /* output 2144 */
@@ -2179,7 +2180,7 @@ void usage(void)
 int main(int argc, char **argv)
 {
    int j;
-   static byte newflag;
+   static word8 newflag;
 
 #ifdef _WINSOCKAPI_
    static WORD wsaVerReq;

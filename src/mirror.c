@@ -47,18 +47,18 @@ pid_t mgc(word32 ip)
    /* create grandchild */
    pid = fork();
    if(pid < 0) {
-      error("mgc(): Cannot fork()");
+      perr("mgc(): Cannot fork()");
       return 0;  /* to parent */
    }
    if(pid) return pid;  /* to parent */
 
    /* in (grand) child */
-   if(Trace) plog("mgc()...");
+   pdebug("mgc()...");
    show("mgc()");
 
    fp = fopen("mirror.dat", "rb");
    if(fp == NULL) {
-      error("mgc(): Cannot open mirror.dat");
+      perr("mgc(): Cannot open mirror.dat");
       exit(1);
    }
    offset = 0;
@@ -66,7 +66,7 @@ pid_t mgc(word32 ip)
    while(Running) {
       lockfd = lock("mq.lck", 20);
       if(lockfd == -1) {
-         error("mgc(): Cannot lock mq.lck"); fclose(fp); exit(1);
+         perr("mgc(): Cannot lock mq.lck"); fclose(fp); exit(1);
       }
       if(fseek(fp, offset, SEEK_SET)) {
          unlock(lockfd); fclose(fp); exit(1);
@@ -88,7 +88,7 @@ pid_t mgc(word32 ip)
       /* copy ip address map to outgoing TX */
       memcpy(node.tx.weight, mtx.weight, 32);
       send_op(&node, OP_TX);
-      closesocket(node.sd);
+      sock_close(node.sd);
    }  /* end while Running */
    fclose(fp);
    exit(0);
@@ -106,18 +106,18 @@ pid_t mirror1(word32 *iplist, int len)
 {
    pid_t pid, peer[RPLISTLEN];
    int j;
-   byte busy;
+   word8 busy;
 
    /* create child */
    pid = fork();
    if(pid < 0) {
-      error("mirror(): Cannot fork()");
+      perr("mirror(): Cannot fork()");
       return 0;
    }
    if(pid) return pid;  /* to parent */
 
    /* in child */
-   if(Trace) plog("mirror()...");
+   pdebug("mirror()...");
    show("mirror");
 
    shuffle32(iplist, len);  /* NOTE: can create embedded zeros. */
@@ -147,34 +147,24 @@ pid_t mirror1(word32 *iplist, int len)
    exit(0);
 }  /* end mirror1() */
 
-
-byte Frisky;  /* command line switch */
-
 /* Send tx to either current or recent peers
  * Called from server()       --  becomes child
  */
 pid_t mirror(void)
 {
-   int i;
-   int num_lan = 0;
-   for (i = 0; i < LPLISTLEN; i++) {
-      if (Lplist[i] == 0) break; /* no more local peers in list */
-      Splist[i] = Lplist[i];
-      num_lan++;
+   word32 Splist[TPLISTLEN + RPLISTLEN] = { 0 };
+   int i, num;
+
+   for (i = 0; i < TPLISTLEN; i++) {
+      if (Tplist[i] == 0) break; /* no more trusted peers */
+      Splist[num++] = Tplist[i];
    }
-   if(Frisky) {
-      for (i = 0; i < RPLISTLEN; i++) {
-         Splist[i+num_lan] = Rplist[i];
-      }
-      //return mirror1(Rplist, RPLISTLEN);
-      return mirror1(Splist, RPLISTLEN+num_lan);
-   } else {
-      for (i = 0; i < CPLISTLEN; i++) {
-         Splist[i+num_lan] = Cplist[i];
-      }
-      //return mirror1(Cplist, CPLISTLEN);
-      return mirror1(Splist, CPLISTLEN+num_lan);
+   for (i = 0; i < RPLISTLEN; i++) {
+      if (Rplist[i] == 0) break; /* no more recent peers */
+      Splist[num++] = Rplist[i];
    }
+
+   return mirror1(Splist, num);
 }
 
 
@@ -182,7 +172,7 @@ pid_t mirror(void)
 void stop_mirror(void)
 {
    if(Mqpid) {
-      if(Trace) plog("   Reaping mirror() zombies...");
+      pdebug("   Reaping mirror() zombies...");
       kill(Mqpid, SIGTERM);
       waitpid(Mqpid, NULL, 0);
       Mqpid = 0;
@@ -202,10 +192,10 @@ int process_tx(NODE *np)
    int evilness;
    int count, lockfd;
    int ecode;
-   byte tx_id[HASHLEN];
+   word8 tx_id[HASHLEN];
    FILE *fp;
 
-   if(Trace) plog("process_tx()");
+   pdebug("process_tx()");
    show("tx");
 
    tx = &np->tx;
@@ -219,7 +209,7 @@ int process_tx(NODE *np)
 
    fp = fopen("txq1.dat", "ab");
    if(!fp) {
-      error("process_tx(): Cannot open txq1.dat");
+      perr("process_tx(): Cannot open txq1.dat");
       return 1;
    }
 
@@ -231,27 +221,27 @@ int process_tx(NODE *np)
    /* then append source tx_id */
    count = fwrite(tx_id, 1, HASHLEN, fp);
    if(count != HASHLEN) ecode = 1;
-   if(Trace) plog("writing TX to txq1.dat");
+   pdebug("writing TX to txq1.dat");
    fclose(fp);  /* close txq1.dat */
    if(ecode) {
-      error("bad write on txq1.dat");
+      perr("bad write on txq1.dat");
       return 1;
    }
    else {
       Txcount++;
-      if(Trace) plog("incrementing Txcount to %d", Txcount);
+      pdebug("incrementing Txcount to %d", Txcount);
    }
    Nrec++;  /* total good TX received */
 
    /* lock mirror file */
    lockfd = lock("mq.lck", 20);
    if(lockfd == -1) {
-      error("process_tx(): Cannot lock mq.lck");  /* should not happen */
+      perr("process_tx(): Cannot lock mq.lck");  /* should not happen */
       return 1;
    }
    fp = fopen("mq.dat", "ab");
    if(!fp) {
-      error("process_tx(): Cannot open mq.dat");
+      perr("process_tx(): Cannot open mq.dat");
       unlock(lockfd);
       return 1;
    }
@@ -259,14 +249,17 @@ int process_tx(NODE *np)
    /* If empty slot in mirror address map, fill it
     * in and then write tx to mirror queue, mq.dat.
     */
-   if(txmap(tx, np->src_ip) == VEOK) {
+   pdebug("process_tx(): before txmap()");
+   if(txmap(tx, np->ip) == VEOK) {
       count = fwrite(tx, 1, sizeof(TX), fp);
       if(count != sizeof(TX)) {
-         error("bad write on mq.dat");
+         perr("bad write on mq.dat");
          ecode = 1;
       } else Mqcount++;
    }
+   pdebug("process_tx(): after txmap()");
    fclose(fp);      /* close mirror queue, mq.dat */
    unlock(lockfd);  /* unlock mirror queue lock, mq.lck */
+   pdebug("process_tx(): done %d", ecode);
    return ecode;
 }  /* end process_tx() */

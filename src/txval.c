@@ -145,13 +145,13 @@ int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
          goto bad;
       }
    }
-   if(Trace) plog("Tag created");
+   pdebug("Tag created");
    return VEOK;  /* If we get here, a new TX change tag gets created. */
 good:
-   if(Trace) plog("Tag moved");
+   pdebug("Tag moved");
    return VEOK;
 bad:
-   if(Trace) plog("Tag rejected");
+   pdebug("Tag rejected");
    return VERROR;
 }  /* end tag_valid() */
 
@@ -175,23 +175,23 @@ int tx_val(TX *tx)
    static TX txs;
 
    if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
-      if(Trace) plog("tx_val(): src == chg");  /* also mtx */
+      pdebug("tx_val(): src == chg");  /* also mtx */
       return 2;
    }
 
    if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0) {
-      if(Trace) plog("tx_val(): src == dst");
+      pdebug("tx_val(): src == dst");
       return 2;
    }
 
    /* validate transaction fixed fee */
    if(cmp64(tx->tx_fee, Mfee) < 0) {
-      if(Trace) plog("tx_val(): bad mining fee");
+      pdebug("tx_val(): bad mining fee");
       return 2;
    }
    /* validate my fee */
    if(cmp64(tx->tx_fee, Myfee) < 0) {
-      if(Trace) plog("tx_val(): fee < %u", Myfee[0]);
+      pdebug("tx_val(): fee < %u", Myfee[0]);
       return 1;
    }
 
@@ -200,9 +200,9 @@ int tx_val(TX *tx)
       memcpy(&txs, tx, sizeof(txs));
       mtx = (MTX *) TRANBUFF(&txs);  /* poor man's union */
       memset(mtx->zeros, 0, MDST_NUM_DZEROS);
-      sha256(txs.src_addr, TRANSIGHASHLEN, message);
+      sha256(txs.src_addr, TXSIGHASH_COUNT, message);
    } else {
-      sha256(tx->src_addr, TRANSIGHASHLEN, message);
+      sha256(tx->src_addr, TXSIGHASH_COUNT, message);
    }
 
    memcpy(rnd2, &tx->src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
@@ -215,7 +215,7 @@ int tx_val(TX *tx)
 
    /* look up source address in ledger */
    if(le_find(tx->src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
-      if(Trace) plog("tx_val(): src_addr not in ledger");
+      pdebug("tx_val(): src_addr not in ledger");
       return 1;
    }
    total[0] = total[1] = 0;
@@ -227,7 +227,7 @@ int tx_val(TX *tx)
       return 2;
    }
    if(cmp64(src_le.balance, total) != 0) {
-      if(Trace) plog("tx_val(): bad transaction total != src_le.balance");
+      pdebug("tx_val(): bad transaction total != src_le.balance");
       return 1;
    }
    if(TX_IS_MTX(tx)) {

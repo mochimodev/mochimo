@@ -16,9 +16,9 @@
 
 #ifdef CUDANODE
 /* trigg algo prototypes */
-int trigg_init_cuda(byte difficulty, byte *blockNumber);
+int trigg_init_cuda(word8 difficulty, word8 *blockNumber);
 void trigg_free_cuda();
-void trigg_generate_cuda(byte *mroot, word32 *hps, byte *runflag);
+void trigg_generate_cuda(word8 *mroot, word32 *hps, word8 *runflag);
 /* peach algo prototypes */
 #include "algo/peach/cuda_peach.h"
 #endif
@@ -32,11 +32,10 @@ int miner(char *blockin, char *blockout)
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
 
-   char *haiku;
    char phaiku[256];
-   
-   time_t htime;
-   word32 temp[3], hcount, hps;
+   double htime;
+   time_t start;
+   word32 temp[3], hps, n;
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
 #ifdef CUDANODE
@@ -50,33 +49,33 @@ int miner(char *blockin, char *blockout)
    if(read_data(&temp, 12, "mseed.dat") == 12)
       srand16(temp[0], temp[1], temp[2]);
 
-   for( ;; sleep(10)) {
+   for(time(&start);; sleep(10)) {
       /* Running is set to 0 on SIGTERM */
       if(!Running) break;
-      if(!exists(blockin)) break;
+      if(!fexists(blockin)) break;
       if(read_data(&bctx, sizeof(bctx), "bctx.dat") != sizeof(bctx)) {
-         error("miner: cannot read bctx.dat");
+         perr("miner: cannot read bctx.dat");
          break;
       }
       unlink("bctx.dat");
       if((fp = fopen(blockin, "rb")) == NULL) {
-         error("miner: cannot open %s", blockin);
+         perr("miner: cannot open %s", blockin);
          break;
       }
       if(fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
          fclose(fp);
-         error("miner: seek error");
+         perr("miner: seek error");
          break;
       }
       if(fread(&bt, 1, sizeof(bt), fp) != sizeof(bt)) {
-         error("miner: read error");
+         perr("miner: read error");
          fclose(fp);
          break;
       }
       fclose(fp);
       unlink("miner.tmp");
       if(rename(blockin, "miner.tmp") != 0) {
-         error("miner: cannot rename %s", blockin);
+         perr("miner: cannot rename %s", blockin);
          break;
       }
 
@@ -90,31 +89,31 @@ int miner(char *blockin, char *blockout)
 #ifdef CUDANODE
          /* Allocate and initialize necessary memory on CUDA devices */
          if (init_cuda_peach(Difficulty, bt.phash, bt.bnum) < 1) {
-            error("Miner failed to initilize CUDA devices\n");
+            perr("Miner failed to initilize CUDA devices\n");
             break;
          }
          /* Run the peach cuda miner */
-         cuda_peach((byte *) &bt, &hps, &Running);
+         cuda_peach((word8 *) &bt, &hps, &Running);
          /* Free allocated memory on CUDA devices */
          free_cuda_peach();
-         /* Block validation check */
-         if (Running && peach(&bt, Difficulty, NULL, 1)) {
-            byte* bt_bytes = (byte*) &bt;
-            char hex[124 * 4];
-            for(int i = 0; i < 124; i++){
-               sprintf(hex + i * 4, "%03i ", bt_bytes[i]);
-            }          
-            error("!!!!!CUDA Peach solved block is not valid!!!!!");
-            error("CPU BT -> %s", hex);
-            sleep(5);
-            break;
-         }
          /* K all g... */
 #endif
 #ifdef CPUNODE
-         if(peach(&bt, Difficulty, &hps, 0)) break;
-#endif
 
+         /* initialize Peach context, adjust diff; solve Peach; increment hash */
+         for(peach_init(&bt);
+            Running && peach_solve(&bt, Difficulty, bt.nonce);
+            n++);
+         /* Calculate and write Haiku/s to disk */
+         htime = difftime(time(NULL), start);
+         if(htime == 0) htime = 1;
+         hps = n / htime;
+#endif
+         /* Block validation check */
+         if (Running && !peach_check(&bt)) {
+            printf("ERROR - Block is not valid\n");
+            break;
+         }
       } /* end if(cmp64(bt.bnum... */
 
 
@@ -122,16 +121,11 @@ int miner(char *blockin, char *blockout)
 
       if(cmp64(bt.bnum, v24trigger) <= 0)
       {
-         /* Create the solution state-space beginning with
-          * the first plausible link on the TRIGG chain.
-          */
-         trigg_solve(bt.mroot, bt.difficulty[0], bt.bnum);
-         
 #ifdef CUDANODE
          /* Initialize CUDA specific memory allocations
           * and check for obvious errors */
          if(trigg_init_cuda(bt.difficulty[0], bt.bnum) < 1) {
-            error("Cuda initialization failed. Check nvidia-smi");
+            perr("Cuda initialization failed. Check nvidia-smi");
             trigg_free_cuda();
             break;
          }
@@ -141,18 +135,17 @@ int miner(char *blockin, char *blockout)
          trigg_free_cuda();
 #endif
 #ifdef CPUNODE
-         for(hcount = 0, htime = time(NULL); Running; hcount++)
-            if(trigg_generate(bt.mroot, bt.difficulty[0]) != NULL)
-               break;
+         /* adjust diff; solve Trigg; increment hash */
+         for(; Running && trigg_solve(&bt, bt.difficulty[0], bt.nonce); n++);
          
          /* Calculate and write Haiku/s to disk */
-         htime = time(NULL) - htime;
+         htime = difftime(time(NULL), start);
          if(htime == 0) htime = 1;
-         hps = hcount / htime;
+         hps = n / htime;
 #endif
 
          /* Block validation check */
-         if (Running && !trigg_check(bt.mroot, bt.difficulty[0], bt.bnum)) {
+         if (Running && !trigg_check(&bt)) {
             printf("ERROR - Block is not valid\n");
             break;
          }
@@ -162,7 +155,7 @@ int miner(char *blockin, char *blockout)
       if(!Running) break;
       
       /* Print Haiku */
-      trigg_expand2(bt.nonce, phaiku);
+      trigg_expand(bt.nonce, phaiku);
       if(!Bgflag) printf("\n%s\n\n", phaiku);
 
       /* Everything below this line is shared code.  */
@@ -178,23 +171,23 @@ int miner(char *blockin, char *blockout)
       sha256_final(&bctx, bt.bhash);  /* put hash in block trailer */
       fp = fopen("miner.tmp", "r+b");
       if(fp == NULL) {
-         if(Trace) plog("miner: cannot re-open miner.tmp");
+         pdebug("miner: cannot re-open miner.tmp");
          break;
       }
       if(fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
          fclose(fp);
-         error("miner: cannot fseek(trailer) miner.tmp");
+         perr("miner: cannot fseek(trailer) miner.tmp");
          break;
       }
       if(fwrite(&bt, 1, sizeof(bt), fp) != sizeof(bt)) {
          fclose(fp);
-         error("miner: cannot fwrite(trailer) miner.tmp");
+         perr("miner: cannot fwrite(trailer) miner.tmp");
          break;
       }
       fclose(fp);
       unlink(blockout);
       if(rename("miner.tmp", blockout) != 0) {
-         error("miner: cannot rename miner.tmp");
+         perr("miner: cannot rename miner.tmp");
          break;
       }
 
@@ -204,9 +197,8 @@ int miner(char *blockin, char *blockout)
       break;
    }  /* end for(;;) exit miner  */
 
-   getrand16(temp, &temp[1], &temp[2]);
+   get_rand16(temp, &temp[1], &temp[2]);
    write_data(&temp, 12, "mseed.dat");    /* maintain rand16() sequence */
-   printf("Miner exiting...\n");
    return 0;
 }  /* end miner() */
 

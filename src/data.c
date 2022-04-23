@@ -19,6 +19,7 @@
  * Globals
  */
 
+char *Statusarg;     /* Statusarg->"message_string" shows on ps   */
 word8 Running;        /* non-zero when server is online            */
 word8 Errorlog;       /* non-zero to log errors to "error.log"     */
 word8 Monitor;        /* set non-zero by ctrlc() to enter monitor  */
@@ -44,7 +45,7 @@ word32 Bridgetime;   /* for Pseudoblock Trigger                   */
 word32 Sanctuary;
 word32 Lastday;
 word8 Exportflag;     /* enable database export if BX_MYSQL defined */
-int Trustblock;
+word32 Trustblock;
 
 /*
  * real time of current server loop - set by server()
@@ -55,6 +56,7 @@ time_t Stime;            /* status display update time */
 word16 Port;             /* Our listening port */
 word16 Dstport;          /* Our send destination port */
 char *Bcdir = BCDIR;     /* block chain directory */
+char *Spdir = SPDIR;     /* split directory */
 char *Ngdir = NGDIR;     /* block chain directory */
 
 word32 Mfee[2] = { MFEE, 0 };  /* minimum transaction fee */
@@ -72,6 +74,16 @@ word8 Weight[HASHLEN];
  * mq.lck        gomochi            gomochi
  * neofail.lck   neogen   bupdata   bupdata
 */
+
+
+word32 Quorum = 4;         /* Number of peers in get_eon() gang[MAXQUORUM] */
+word8 Ininit;            /* non-zero when init() runs */
+word8 Insyncup;          /* non-zero when syncup() runs */
+word8 Safemode;          /* Safe mode enable */
+word8 Nominer;           /* Do not start miner if true -n */
+word32 Watchdog;        /* enable watchdog timeout -wN */
+time_t Utime;           /* update time for watchdog */
+word8 Betabait;          /* betabait() display */
 
 /* Global semaphores */
 word8 Blockfound;          /* set on receiving OP_FOUND from peer */

@@ -17,10 +17,10 @@ int pval(char *fname)
    BTRAILER bt;
    word32 hdrlen, temp[2];
    int message;
-   byte h[HASHLEN];
+   word8 h[HASHLEN];
    FILE *fp;
 
-   if(Trace) plog("Checking %s", fname);
+   pdebug("Checking %s", fname);
 
    fp = fopen(fname, "rb");
    if(fp == NULL) BAIL(1);
@@ -55,8 +55,8 @@ int pval(char *fname)
 
    /* compute and check block hash */
    sha256_init(&ctx);
-   sha256_update(&ctx, (byte *) &hdrlen, 4);
-   sha256_update(&ctx, (byte *) &bt, sizeof(bt) - HASHLEN);
+   sha256_update(&ctx, (word8 *) &hdrlen, 4);
+   sha256_update(&ctx, (word8 *) &bt, sizeof(bt) - HASHLEN);
    sha256_final(&ctx, h);
    if(memcmp(bt.bhash, h, HASHLEN) != 0) BAIL(17);
    unlink("ublock.dat");
@@ -65,7 +65,7 @@ int pval(char *fname)
 
 bail:
    if(fp != NULL) fclose(fp);
-   if(Trace) plog("pval(): ecode = %d", message);
+   pdebug("pval(): ecode = %d", message);
    return VERROR;
 }  /* end pval() */
 
@@ -80,7 +80,7 @@ int bridge(void)
    FILE *fp = NULL;
    int message;
 
-   if(Trace) plog("Making pblock.dat...");
+   pdebug("Making pblock.dat...");
 
    fp = fopen("pblock.dat", "wb");
    if(fp == NULL) BAIL(2);
@@ -96,8 +96,8 @@ int bridge(void)
    
    /* compute pseudo-block hash */
    sha256_init(&ctx);
-   sha256_update(&ctx, (byte *) &hdrlen, 4);
-   sha256_update(&ctx, (byte *) &bt, sizeof(bt) - HASHLEN);
+   sha256_update(&ctx, (word8 *) &hdrlen, 4);
+   sha256_update(&ctx, (word8 *) &bt, sizeof(bt) - HASHLEN);
    sha256_final(&ctx, bt.bhash);
    if(fwrite(&bt, sizeof(bt), 1, fp) != 1) BAIL(4);
    fclose(fp);
@@ -105,7 +105,7 @@ int bridge(void)
 
 bail:
    if(fp != NULL) fclose(fp);
-   error("bridge(): ecode = %d", message);
+   perr("bridge(): ecode = %d", message);
    unlink("pblock.dat");
    return VERROR;
 }  /* end bridge() */

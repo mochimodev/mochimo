@@ -20,13 +20,13 @@ int send_balance(NODE *np)
 {
    LENTRY le;
    word16 len;
-   static byte zeros[8];
+   static word8 zeros[8];
 
    len = get16(np->tx.len);
    put64(np->tx.send_total, zeros);
    put64(np->tx.change_total, zeros);
    /* check for old OP_BALANCE Request with ZEROED Tag */
-   if(len == 0 && ((byte *) (np->tx.src_addr))[2196] == 0x00) {
+   if(len == 0 && ((word8 *) (np->tx.src_addr))[2196] == 0x00) {
      len = TXADDRLEN - 12;
    }
    /* look up source address in ledger */
@@ -39,70 +39,6 @@ int send_balance(NODE *np)
    return 0;  /* success */
 } /* end send_balance() */
 
-int sendnack(NODE *np)
-{
-   put16(np->tx.opcode, OP_NACK);
-   return sendtx(np);
-}
-
-
-/*
- * send_file() timeout handler  -- child exits
- */
-void sendalrm(int sig)
-{
-   if(Trace) plog("sendalrm() existing with signal %i\n", sig);
-   exit(1);  /* fail */
-}
-
-/* Send block to peer  -- called by child
- * Return VERROR on file errors or reset connection, else VEOK.
- */
-int send_file(NODE *np, char *fname)
-{
-   byte *bnum;
-   TX *tx;
-   int n, status;
-   FILE *fp;
-   char name[128];
-
-   tx = &np->tx;
-   bnum = tx->blocknum;
-
-   show("send");
-
-   if(fname == NULL) {
-      sprintf(name, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
-      fname = name;
-   }
-   fp = fopen(fname, "rb");
-   if(fp == NULL) {
-      if(Trace) plog("cannot open %s", fname);
-      sendnack(np);
-      return VERROR;
-   }
-   if(Trace) plog("sending %s", fname);
-   blocking(np->sd);   /* set blocking I/O for send() */
-   signal(SIGALRM, sendalrm);  /* set timeout handler */
-   for(; Running; ) {
-      n = fread(TRANBUFF(tx), 1, TRANLEN, fp);
-      put16(tx->len, n);
-      alarm(10);
-      status = send_op(np, OP_SEND_BL);
-      if(n < TRANLEN) {
-         alarm(0);
-         fclose(fp);
-         return status;  /* VEOK or VERROR -- server does freeslot() */
-      }
-      if(status != VEOK) break;
-      /* Make upload bandwidth dynamic. */
-      if(Nonline > 1) usleep((Nonline - 1) * UBANDWIDTH);
-   }  /* end for(; Running; ) */
-   alarm(0);
-   fclose(fp);
-   return VERROR;
-}  /* end send_file() */
-
 
 /* Send our recent peer list to NODE np in response to OP_GETIPL.
  * Called from execute().
@@ -111,9 +47,9 @@ int send_ipl(NODE *np)
 {
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy recent peer list to TX */
-   memcpy(TRANBUFF(&np->tx), Rplist, IPCOPYLEN);
-   put16(np->tx.len, IPCOPYLEN);
-   return send_op(np, OP_SEND_IP);  /* send ip list */
+   memcpy(TRANBUFF(&np->tx), Rplist, sizeof(word32) * RPLISTLEN);
+   put16(np->tx.len, sizeof(word32) * RPLISTLEN);
+   return send_op(np, OP_SEND_IPL);  /* send ip list */
 }
 
 
@@ -136,10 +72,10 @@ int send_cblock(NODE *np)
    pid_t pid;
 
    show("sendcb");
-   if(exists("cblock.dat")) {
+   if(fexists("miner.tmp")) {
       pid = getpid();
       sprintf(fname, "cb%u.tmp", (int) pid);
-      sprintf(cmd, "cp cblock.dat %s", fname);
+      sprintf(cmd, "cp miner.tmp %s", fname);
       system(cmd);
       send_file(np, fname);
       unlink(fname);
@@ -148,64 +84,19 @@ int send_cblock(NODE *np)
 }  /* end send_cblock() */
 
 
-/* Get a block named fname from np
- * Returns 0 on good download, else 1
- */
-int get_block3(NODE *np, char *fname)
-{
-   FILE *fp;
-   word16 len;
-   int n;
-   int ecode = 666;
-
-   if(Trace) plog("get_block3() Recfile is '%s'", fname);
-   show("getmb");
-
-   fp = fopen(fname, "wb");
-   if(fp == NULL) {
-      plog("cannot open %s", fname);
-      return 1;
-   }
-
-   for(;;) {
-      if((ecode = rx2(np, 1, 10)) != VEOK) goto bad;
-      if(get16(np->tx.opcode) != OP_SEND_BL) goto bad;
-      len = get16(np->tx.len);
-      if(len > TRANLEN) goto bad;
-      if(len) {
-         n = fwrite(TRANBUFF(&np->tx), 1, len, fp);
-         if(n != len) {
-            error("get_block3() I/O error");
-            goto bad;
-         }
-      }
-      /* check EOF */
-      if(len < 1 || n < TRANLEN) {
-         fclose(fp);
-         if(Trace) plog("get_block3(): EOF");
-         return 0;
-      } /* end if EOF */
-   }  /* end for */
-bad:
-   fclose(fp);
-   unlink(fname);  /* delete partial downloads */
-   if(Trace)
-      plog("get_block3(): fail (%d) len = %d opcode = %d",
-           ecode, get16(np->tx.len), get16(np->tx.opcode));
-   return 1;
-}  /* end get_block3() */
-
-
 /* Get a mined block from some random node... */
 int get_mblock(NODE *np)
 {
    int status;
 
    /* Get a block or file that is pushed on us.  In execute(): */
-   if(Blockfound || exists("rblock2.dat") || exists("cblock.lck"))
+   if(Blockfound || fexists("rblock2.dat") || fexists("cblock.lck"))
       return 1;
-   status = get_block3(np, "rblock2.dat");
-   if(status || exists("mblock.dat")) {
+
+   /* receive file */
+   status = recv_file(np, "rblock2.dat");
+
+   if(status || fexists("mblock.dat")) {
       unlink("rblock2.dat");
       return 1;
    }
@@ -225,49 +116,45 @@ int get_mblock(NODE *np)
 int execute(NODE *np)
 {
    int status;
+   word16 opcode;
 
-   if(Trace)
-      plog("execute(): opcode = %d", np->opcode);
+   opcode = get16(np->tx.opcode);
+   pdebug("execute(%s): opcode = %d", np->id, opcode);
 
    status = 0;  /* for child exit status */
-   switch(np->opcode) {
+   switch(opcode) {
       case OP_FOUND:
          /* get the advertised found block -- synchronous
-          * Blockfound was set by gettx()
-          */
-         closesocket(np->sd);  /* close initial connection */
-         if(get_block2(np->src_ip, np->tx.cblock, "rblock.dat",
-                       OP_GETBLOCK) != VEOK) return 1;  /* fail */
-         return 0;
-      case OP_GETBLOCK:
+          * Blockfound was set by gettx() */
+         sock_close(np->sd);  /* close initial connection */
+         return get_file(np->ip, np->tx.cblock, "rblock.dat");
+      case OP_GET_BLOCK:
          /* send np->tx.blocknum to peer */
          if(send_file(np, NULL) != VEOK) status = 1;
-         closesocket(np->sd);
+         sock_close(np->sd);
          return status;
       case OP_GET_TFILE:
          /* send out tfile.dat to peer */
          if(send_file(np, "tfile.dat") != VEOK) status = 1;
-         closesocket(np->sd);
+         sock_close(np->sd);
          return status;
       case OP_GET_CBLOCK:
-         signal(SIGTERM, sendalrm);
          send_cblock(np);
-         closesocket(np->sd);
+         sock_close(np->sd);
          return 0;
       case OP_MBLOCK:
-         signal(SIGTERM, sendalrm);
          get_mblock(np);
-         closesocket(np->sd);
+         sock_close(np->sd);
          return 0;
       case OP_TF:
          /* send tfile.dat section to peer */
          send_tf(np);
-         closesocket(np->sd);
+         sock_close(np->sd);
          return 0;
 
       default:
          Nbadlogs++;  /* bad OP's */
-         if(Trace) plog("execute(): bad opcode: %d", np->opcode);
+         pdebug("execute(): bad opcode: %d", opcode);
          return 2;
     }  /* end switch op */
 }  /* end execute() */

@@ -11,6 +11,7 @@
 #define MOCHIMO_LEDGER_C
 
 
+#include <sys/wait.h>
 #include <errno.h>
 #include "extint.h"
 #include "extprint.h"
@@ -107,7 +108,7 @@ int le_extract(char *fname, char *lfile)
    word8 prevaddr[TXADDRLEN];  /* to check block addr sort */
    word8 first;
 
-   if(Trace) plog("le_extract() ledger from %s to %s", fname, lfile);
+   pdebug("le_extract() ledger from %s to %s", fname, lfile);
 
    /* open the neo-genesis block and read in file header length */
    fp = fopen(fname, "rb");
@@ -196,7 +197,7 @@ int tag_buildidx(void)
    word32 n;
    word8 *tp;
 
-   if(Trace) plog("tag_buildidx()");
+   pdebug("tag_buildidx()");
    if(Tagidx != NULL) return VEOK;  /* index already made */
 
    fp = fopen("ledger.dat", "rb");
@@ -212,7 +213,7 @@ int tag_buildidx(void)
    }
    if(n != Ntagidx) BAIL(3);  /* I/O error likely */
    fclose(fp);
-   if(Trace) plog("tag_buildidx() success: Ntagidx = %u", Ntagidx);
+   pdebug("tag_buildidx() success: Ntagidx = %u", Ntagidx);
    return VEOK;  /* index built */
 bail:
    if(fp != NULL) fclose(fp);

@@ -23,9 +23,7 @@
 #include "types.h"
 
 
-#ifndef HTTPSTARTPEERS
-#define HTTPSTARTPEERS "https://new-api.mochimap.com/network/peers/start"
-#endif
+
 #ifndef HTTPPUSHPEERS
 #define HTTPPUSHPEERS "https://new-api.mochimap.com/network/peers/push"
 #endif
@@ -55,6 +53,10 @@
 #define STD_TIMEOUT 10
 #endif
 
+#define CPINKLEN     100       /* maximum entries in pinklists       */
+#define LPINKLEN     100
+#define EPINKLEN     100
+
 /* The Node struct */
 typedef struct {
    TX tx;            /* packet buffer */
@@ -74,9 +76,9 @@ typedef struct {
    volatile int ts;  /* thread status -- set by thread */
 } THREAD_SCAN_ARGS;
 
-#define addrecent(_ip)  addpeer(_ip, Rplist, RPLISTLEN, &Rplistidx)
+#define addrecent(ip)   addpeer(ip, Rplist, RPLISTLEN, &Rplistidx)
 #define recentip(ip)    search32(ip, Rplist, RPLISTLEN)
-#define save_rplist()   save_ipl("rplist.lst", Rplist, RPLISTLEN)
+#define save_rplist()   save_ipl("recentip.lst", Rplist, RPLISTLEN)
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
@@ -95,6 +97,9 @@ word8 Running;
 NODE Nodes[MAXNODES];  /* data structure for connected NODE's     */
 NODE *Hi_node;         /* points one beyond last logged in NODE   */
 
+
+time_t Pushtime;           /* time of last OP_MBLOCK */
+word8 Allowpush;           /* set by -P flag in mochimo.c */
 word8 Cbits;               /* Node capability bits */
 word8 Noprivate;           /* filter out private IP's when set v.28 */
 word16 Dstport;            /* Destination port (default 2095) */
@@ -106,6 +111,14 @@ word32 Rplistidx;
 word32 Tplist[TPLISTLEN];  /* Trusted peer list - preserved */
 word32 Tplistidx;
 
+/* pink lists of EVIL IP addresses read in from disk */
+word32 Cpinklist[CPINKLEN];
+word32 Lpinklist[LPINKLEN];
+word32 Epinklist[EPINKLEN];
+word32 Cpinkidx, Lpinkidx, Epinkidx;
+word8 Disable_pink;
+
+
 word32 *search32(word32 val, word32 *list, unsigned len);
 word32 remove32(word32 bad, word32 *list, unsigned maxlen, word32 *idx);
 word32 include32(word32 val, word32 *list, unsigned len, word32 *idx);
@@ -114,7 +127,16 @@ int isprivate(word32 ip);
 word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx);
 int save_ipl(char *fname, word32 *list, word32 len);
 word32 read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx);
-void init_peers(void);
+int readpeers(void);
+int readpink(void);
+int savepink(void);
+int pinklisted(word32 ip);
+int cpinklist(word32 ip);
+int pinklist(word32 ip);
+int lpinklist(word32 ip);
+int epinklist(word32 ip);
+void mergepinklists(void);
+void purge_epoch(void);
 int recv_tx(NODE *np, double timeout);
 int recv_file(NODE *np, char *fname);
 int send_tx(NODE *np, double timeout);

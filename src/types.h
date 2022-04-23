@@ -50,9 +50,10 @@
 #define TXADDRLEN 2208     /**< Standard transaction address length */
 #define TXTAGLEN  12
 #define TXAMOUNT  8        /**< Standard transaction amount length */
-#define TRANLEN   ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
-#define TRANSIGHASHLEN  (TRANLEN - TXSIGLEN)
+#define TXBUFF(tx)   ((word8 *) tx)    /**< Transaction packet accessor */
 #define TRANBUFF(tx) ((tx)->src_addr)  /**< Transaction buffer accessor */
+#define TRANLEN   ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
+#define TXSIGHASH_COUNT  (TRANLEN - TXSIGLEN)
 
 #define TX_IS_MTX(tx) \
    ((tx)->dst_addr[2196] == 0x00 && (tx)->dst_addr[2197] == 0x01)

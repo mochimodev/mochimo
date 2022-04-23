@@ -48,7 +48,7 @@ int stats(int showflag)
                "\n",
                 Eon, Ngen,
                 Nonline, Nlogins, Nbadlogs, Nspace, Ntimeouts,
-                Nerrors, Nrec, Nsent, Ndups, Txcount, Nsenderr,
+                get_num_errs(), Nrec, Nsent, Ndups, Txcount, Nsenderr,
                 Nsolved, Nupdated
    );
 
@@ -93,15 +93,15 @@ void displaycp(void)
 {
    int j, k;
 
-   printf("\nCurrent peer list:\n");
-   for(j = k = 0; j < CPLISTLEN && Cplist[j]; j++) {
+   printf("\nTrusted peer list:\n");
+   for(j = k = 0; j < TPLISTLEN && Tplist[j]; j++) {
       if(++k > 4) { printf("\n");  k = 0; }
-      printf("   %-15.15s", ntoa((byte *) &Cplist[j]));
+      printf("   %-15.15s", ntoa(&Tplist[j], NULL));
    }
    printf("\n\nRecent peer list:\n");
    for(j = k = 0; j < RPLISTLEN && Rplist[j]; j++) {
       if(++k > 4) { printf("\n");  k = 0; }
-      printf("   %-15.15s", ntoa((byte *) &Rplist[j]));
+      printf("   %-15.15s", ntoa(&Rplist[j], NULL));
    }
    printf("\n\n");
 }
@@ -109,7 +109,7 @@ void displaycp(void)
 
 void monitor(void)
 {
-   static byte runmode = 0;   /* 1 for single stepping */
+   static word8 runmode = 0;   /* 1 for single stepping */
    static char buff[81], cmd;
    static char logfile[81] = LOGFNAME;     /* log file name */
 
@@ -118,7 +118,7 @@ void monitor(void)
     */
    if(runmode == 0)
       printf("\n\n\nMochimo System Monitor ver %s\n\n"
-             "? for help\n\n", VERSIONSTR);
+             "? for help\n\n", VER_STR);
 
    show("monitor");
    /*
@@ -170,17 +170,13 @@ setmining:
          continue;
       }
       if(cmd == 'l') {        /* toggle log file */
-         if(Logfp != NULL) {
-            fclose(Logfp);
-            Logfp = NULL;
-            printf("Log file is closed.\n");
-            continue;
-         }
+         set_output_file(NULL, NULL);
+         printf("Log file is closed.\n");
          printf("Log file [%s]: ", logfile);
          tgets(buff, 80);
          if(*buff) strncpy(logfile, buff, 80);
          buff[80] = '\0';
-         if((Logfp = fopen(logfile, "a")) == NULL)
+         if(set_output_file(logfile, "a"))
             printf("Cannot open %s\n", logfile);
          else
             printf("Log file %s is open.\n", logfile);

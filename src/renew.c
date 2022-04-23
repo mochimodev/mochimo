@@ -49,7 +49,7 @@ int renew(void)
 bail:
    if(fp != NULL) fclose(fp);
    if(fpout != NULL) fclose(fpout);
-   error("Carousel renewal code: %d (%u,%u)", message, n - m, n);
+   perr("Carousel renewal code: %d (%u,%u)", message, n - m, n);
    return message;
 }  /* end renew() */
 
@@ -70,15 +70,15 @@ int refresh_ipl(void)
    if(ip == 0) BAIL(1);
    if(get_ipl(&node, ip) != VEOK) BAIL(2);
    /* Check peer's chain weight against ours. */
-   if(cmp_weight(node.tx.weight, Weight) < 0) {
+   if(cmp256(node.tx.weight, Weight) < 0) {
       /* Send found message to low weight peer */
       loadproof(&tx);  /* get proof from tfile.dat */
       if(callserver(&node, ip) != VEOK) BAIL(3);
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
       send_op(&node, OP_FOUND);
-      closesocket(node.sd);
+      sock_close(node.sd);
    }
 bail:
-   if(Trace) plog("refresh_ipl(): %d", message);
+   pdebug("refresh_ipl(): %d", message);
    return message;
 }  /* end refresh_ipl() */

@@ -44,7 +44,7 @@ int send_found(void)
       if(readtrailer(&bt, fname) != VEOK
          || cmp64(Cblocknum, bt.bnum) != 0) {
 bad:
-         error("send_found(): ecode: %d", ecode);
+         perr("send_found(): ecode: %d", ecode);
          exit(1);
       }
       ecode = 3;
@@ -53,8 +53,7 @@ bad:
       memcpy(Prevhash, bt.phash, HASHLEN);
    }  /* end if NG block v.23 */
 
-   if(Trace)
-      plog("send_found(0x%s)", bnum2hex(Cblocknum));
+   pdebug("send_found(0x%s)", bnum2hex(Cblocknum));
 
    loadproof(&tx);  /* get proof from tfile.dat */
    /* Send found message to recent peers */
@@ -64,15 +63,15 @@ bad:
       if(callserver(&node, *ipp) != VEOK) continue;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
       send_op(&node, OP_FOUND);
-      closesocket(node.sd);
+      sock_close(node.sd);
    }
    /* Send found message to local peers */
-   for(ipp = Lplist; ipp < &Lplist[LPLISTLEN] && Running; ipp++) {
+   for(ipp = Tplist; ipp < &Tplist[TPLISTLEN] && Running; ipp++) {
       if(*ipp == 0) continue;
       if(callserver(&node, *ipp) != VEOK) continue;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
       send_op(&node, OP_FOUND);
-      closesocket(node.sd);
+      sock_close(node.sd);
    }
    exit(0);
 }  /* end send_found() */
@@ -86,13 +85,13 @@ bad:
  */
 int child_status(NODE *np, pid_t pid, int status)
 {
-   if(Trace) plog("child_status(): pid = %d  status = 0x%x", pid, status);
+   pdebug("child_status(): pid = %d  status = 0x%x", pid, status);
    if(pid > 0) {  /* child existed and called exit() */
       if(WIFEXITED(status)) {
          status = WEXITSTATUS(status);
          if(status != 0) {
-            if(status >= 2) pinklist(np->src_ip);
-            if(status >= 3) epinklist(np->src_ip);
+            if(status >= 2) pinklist(np->ip);
+            if(status >= 3) epinklist(np->ip);
             return status;
          }
       } else return 1;  /* error if not exited */
@@ -106,11 +105,13 @@ int child_status(NODE *np, pid_t pid, int status)
 void reaper2(void)
 {
    NODE *np;
+   word16 opcode;
 
    /* Don't fear the Reaper, baby...It won't hurt... */
    for(np = Nodes; np < Hi_node; np++) {
       if(np->pid == 0) continue;
-      if(np->opcode == OP_GET_CBLOCK || np->opcode == OP_MBLOCK) {
+      opcode = get16(np->tx.opcode);
+      if(opcode == OP_GET_CBLOCK || opcode == OP_MBLOCK) {
          kill(np->pid, SIGTERM);
          waitpid(np->pid, NULL, 0);
          freeslot(np);
@@ -145,13 +146,13 @@ int update(char *fname, int mode)
    char cmd[100];
    char *solvestr;
 
-   if(Trace) plog("Entering update()");
-   if(!exists(fname)) return VERROR;
+   pdebug("Entering update()");
+   if(!fexists(fname)) return VERROR;
    show("update");
    solvestr = NULL;
 
    if(Bcpid) {
-      if(Trace) plog("   Waiting for bcon to exit...");
+      pdebug("   Waiting for bcon to exit...");
       waitpid(Bcpid, NULL, 0);  /* wait for bcon to exit */
       /* Make miner idle during update. */
       unlink("cblock.dat");
@@ -164,7 +165,7 @@ int update(char *fname, int mode)
 
    /* wait for send_found() to exit */
    if(Sendfound_pid) {
-      if(Trace) plog("   Waiting for send_found() to exit");
+      pdebug("   Waiting for send_found() to exit");
       kill(Sendfound_pid, SIGTERM);
       waitpid(Sendfound_pid, NULL, 0);
       Sendfound_pid = 0;
@@ -183,10 +184,10 @@ int update(char *fname, int mode)
 
    le_close();      /* close server ledger reference */
 
-   if(Trace) plog("   About to call bval and bup...");
+   pdebug("   About to call bval and bup...");
 
    /* Hotfix for critical bug identified on 09/26/19 */
-   if(exists("cblock.lck")) {
+   if(fexists("cblock.lck")) {
       unlink("cblock.lck");
       solvestr = "pushed";
    }
@@ -194,7 +195,7 @@ int update(char *fname, int mode)
    tag_free(); /* Erase Tagidx[] to be rebuilt on next tag_find() call. */
    sprintf(cmd, "../bval %s", fname);  /* call validator on fname */
    system(cmd);
-   if(!exists("vblock.dat")) {      /* validation failed */
+   if(!fexists("vblock.dat")) {      /* validation failed */
       txclean();  /* clean the queue */
       le_open("ledger.dat", "rb");  /* re-open ledger */
       return VERROR;
@@ -204,7 +205,7 @@ int update(char *fname, int mode)
 
    txclean();  /* clean the queue */
    le_open("ledger.dat", "rb");  /* re-open new ledger.dat */
-   if(!exists("ublock.dat")) {
+   if(!fexists("ublock.dat")) {
       if(mode != 0) unlink("mblock.dat");
       return VERROR;
    }
@@ -249,7 +250,7 @@ after_bup:
    Stime = Ltime + 20;  /* hold status display */
    if(!Ininit) {
       /* synchronous */
-      if(exists("../update-external.sh")) system("../update-external.sh");
+      if(fexists("../update-external.sh")) system("../update-external.sh");
    }
    if(mode != 2) {  /* not a pseudo-block */
       if(!Ininit) {

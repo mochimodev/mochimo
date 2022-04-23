@@ -29,15 +29,15 @@ void clrscr(void);
 typedef int pid_t;
 #endif
 
-#define ADDR_TAG_PTR(addr) (((byte *) addr) + 2196)
+#define ADDR_TAG_PTR(addr) (((word8 *) addr) + 2196)
 #define TXTAGLEN 12
 
 /* Globals */
 word32 Bnum;
 FILE *Bfp;
 word32 Hdrlen;
-byte Maddr[TXADDRLEN];
-byte Sigint;
+word8 Maddr[TXADDRLEN];
+word8 Sigint;
 word32 Txidx;
 long Foffset;
 
@@ -82,16 +82,16 @@ void put64(void *buff, void *val)
 
 
 /* Prototypes */
-char *trigg_check(byte *in, byte d, byte *bnum);
+char *trigg_check(word8 *in, word8 d, word8 *bnum);
 
 
 /* Find a binary string, s, of length, len, in file fp.
  * Caller sets seek position of fp before call.
  * If found, return offset of start of match, else return -1.
  */
-long findtag(byte *s, int len, FILE *fp)
+long findtag(word8 *s, int len, FILE *fp)
 {
-   byte *cp, c;
+   word8 *cp, c;
    int len2;
 
    for(cp = s, len2 = len; len2; ) {
@@ -143,7 +143,7 @@ unsigned long getval(char *s)
 
 
 /* bnum is little-endian on disk and core. */
-char *bnum2hex(byte *bnum)
+char *bnum2hex(word8 *bnum)
 {
    static char buff[20];
 
@@ -154,7 +154,7 @@ char *bnum2hex(byte *bnum)
 }
 
 
-char *b2hex8(byte *amt)
+char *b2hex8(word8 *amt)
 {
    static char str[20];
 
@@ -165,7 +165,7 @@ char *b2hex8(byte *amt)
 }
 
 
-void b2hexch(byte *addr, int len, int lastchar)
+void b2hexch(word8 *addr, int len, int lastchar)
 {
    int n;
 
@@ -182,7 +182,7 @@ void b2hexch(byte *addr, int len, int lastchar)
 
 #define bytes2hex(addr, len) b2hexch(addr, len, '\n')
 
-void disp_taddr(byte *addr)
+void disp_taddr(word8 *addr)
 {
    b2hexch(addr, 16, 0);
    printf("   Tag: ");
@@ -215,7 +215,7 @@ int read_block(word32 bnum, BHEADER *bh, BTRAILER *bt, char *filename)
 {
    char fnamebuff[100], *fname;
    int count;
-   static byte bnum8[8];
+   static word8 bnum8[8];
 
    if(Bfp) fclose(Bfp);
    if(filename) fname = filename;
@@ -289,7 +289,7 @@ char *itoa64(void *val64, char *out, int dec, int flags)
    static char s[24];
    char *cp, zflag = 1;
    word32 *tab;
-   byte val[8];
+   word8 val[8];
 
    /* 64-bit little-endian */
    static word32 table[] = {
@@ -449,7 +449,7 @@ void hexcon(void)
       }
       if(buff[0] < '0' || buff[0] > '9') break;
       val = getval(buff);
-      printf("%lu  (0x%lx)  [0x%s]    ", val, val, b2hex8((byte *) &val));
+      printf("%lu  (0x%lx)  [0x%s]    ", val, val, b2hex8((word8 *) &val));
       for(cp = (char *) &val, n = sizeof(val); n; n--, cp++) {
          if(*cp >= ' ' && *cp < 127) printf("%c", *cp); else printf(".");
       }
@@ -545,7 +545,7 @@ goidx:
          printf("RETURN=find again or\n");
 getsearch:
          printf("Enter up to 80 character hex string (e.g. 001a20):\n");
-         bytes2hex((byte *) sbuff, len / 2);
+         bytes2hex((word8 *) sbuff, len / 2);
          memset(buff, 0, 81);
          tgets(buff, 81);
          if(*buff) {
@@ -560,7 +560,7 @@ getsearch:
          } else fseek(fp, lastfind, SEEK_SET);
          printf("Searching for %u byte(s) from offset %ld (0x%lx)...\n\n",
                 len / 2, lastfind, lastfind);
-         offset = findtag((byte *) sbuff, len / 2, fp);
+         offset = findtag((word8 *) sbuff, len / 2, fp);
          if(offset == -1) {
 notfound:
             fseek(fp, saveoff, SEEK_SET);
@@ -656,7 +656,7 @@ getidx:
          printf("RETURN=find again or\n");
 getsearch:
          printf("Enter up to 80 character hex string (e.g. 001a20):\n");
-         bytes2hex((byte *) sbuff, len / 2);
+         bytes2hex((word8 *) sbuff, len / 2);
          memset(buff, 0, 81);
          tgets(buff, 81);
          if(*buff) {
@@ -671,7 +671,7 @@ getsearch:
          } else fseek(fp, lastfind, SEEK_SET);
          printf("Searching for %u byte(s) from offset %ld (0x%lx)...\n\n",
                 len / 2, lastfind, lastfind);
-         offset = findtag((byte *) sbuff, len / 2, fp);
+         offset = findtag((word8 *) sbuff, len / 2, fp);
          if(offset == -1) {
 notfound:
             fseek(fp, saveoff, SEEK_SET);
@@ -717,14 +717,14 @@ int findmenu(BHEADER *bh, BTRAILER *bt)
    static int len = 2;
    long offset, temp;
    word32 idx;
-   byte again;
+   word8 again;
 
    offset = -1;
    for( ;; ) {
       Sigint = 0;
       printf("q=quit, p=previous menu, RETURN=find again\n");
       printf("Enter up to 80 character hex string (e.g. 001a20):\n");
-      bytes2hex((byte *) sbuff, len / 2);
+      bytes2hex((word8 *) sbuff, len / 2);
       memset(buff, 0, 81);
       tgets(buff, 81);
       if(buff[0] == 'q') exit(0);
@@ -754,7 +754,7 @@ readb:
       if(!again) offset = -1;
       fseek(Bfp, offset + 1, SEEK_SET);
       again = 0;
-      offset = findtag((byte *) sbuff, len / 2, Bfp);
+      offset = findtag((word8 *) sbuff, len / 2, Bfp);
       if(offset == -1) {
          if(Sigint) continue;
          Bnum++;
@@ -782,7 +782,7 @@ readb:
 /* Check if buff is all zeros */
 int iszero(void *buff, int len)
 {
-   byte *bp;
+   word8 *bp;
 
    for(bp = buff; len; bp++, len--)
       if(*bp) return 0;

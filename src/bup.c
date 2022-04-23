@@ -48,7 +48,7 @@ void cleanup(int ecode)
    unlink("ledger.tmp");
    unlink("txq.tmp");
    unlink("ltran.dat");
-   if(Trace) plog("cleanup() exiting with ecode %i", ecode);
+   pdebug("cleanup() exiting with ecode %i", ecode);
    exit(1);
 }
 
@@ -231,7 +231,7 @@ next2:   /* examine next clean TX */
       bail("Bad tcount in new block");  /* should never happen! */
    unlink("txclean.dat");
    rename("txq.tmp", "txclean.dat");    /* clean TX queue is updated */
-   if(Trace) plog("bup.c: wrote %u entries to new txclean.dat", nout);
+   pdebug("bup.c: wrote %u entries to new txclean.dat", nout);
 
 noclean:
 
@@ -362,7 +362,7 @@ write2:
 
 #endif  /* !DEBUG_LEDGER */
 
-   if(Trace) plog("bup.c: wrote %u entries to new ledger.dat", nout);
+   pdebug("bup.c: wrote %u entries to new ledger.dat", nout);
 
    if(rename(argv[1], argv[2]) != 0) bail("rename failed");  /* fail */
 

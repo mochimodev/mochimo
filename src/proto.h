@@ -30,26 +30,20 @@ int execute(NODE *np);
 int identify(NODE *np);
 
 int rx2(NODE *np, int checkids, int seconds);
-int callserver(NODE *np, word32 ip);
 int get_tx2(NODE *np, word32 ip, word16 opcode);
-int get_block2(word32 ip, byte *bnum, char *fname, word16 opcode);
+int get_block2(word32 ip, word8 *bnum, char *fname, word16 opcode);
 
 /* Source file: init.c */
 int get_ipl(NODE *np, word32 ip);
 int read_coreipl(char *fname);
 int read_localipl(char *fname);
 word32 init_coreipl(NODE *np, char *fname);
-void add_weight(byte *weight, int difficulty, byte *bnum);
-int cmp_weight(byte *w1, byte *w2);
+int cmp_weight(word8 *w1, word8 *w2);
 int append_tfile(char *fname, char *tfile);
-byte *tfval(char *fname, byte *highblock, int weight_only, int *result);
+word8 *tfval(char *fname, word8 *highblock, int weight_only, int *result);
 int get_eon(NODE *np, word32 peerip);
 int init(void);
-void trigg_solve(byte *link, int diff, byte *bnum);
-char *trigg_generate(byte *in, int diff);
-char *trigg_check(byte *in, byte d, byte *bnum);
 int get_ipl(NODE *np, word32 ip);
-void add_weight2(byte *weight, byte difficulty);
 
 void stop_mirror(void);
 int send_balance(NODE *np);
@@ -64,12 +58,14 @@ int loadproof(TX *tx);
 int checkproof(TX *tx, word32 *matchblock);
 
 /* Source file: syncup.c */
-int syncup(word32 matchblock, byte *txcblock, word32 peerip);
+int syncup(word32 matchblock, word8 *txcblock, word32 peerip);
 
 /* Source file: renew.c */
 int renew(void);
 int refresh_ipl(void);
 
-/* Source file: algo/peach/peach.c */
-int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode);
-
+int stop_miner(void);
+void fatal2(int exitcode, char *message);
+void restart(char *mess);
+void resign(char *mess);
+char *show(char *state);

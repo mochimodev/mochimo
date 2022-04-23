@@ -60,10 +60,8 @@
 #define MAXBLTX       32768    /* max TX's in a block for bcon (~1M) */
 #define STATUSFREQ    10       /* status display interval sec.       */
 #define BCDIR         "bc"     /* rename to dir for block storage    */
+#define SPDIR         "split"  /* rename to dir for backup storage    */
 #define NGDIR         "ng"     /* rename to dir for neogen storage   */
-#define CPINKLEN     100       /* maximum entries in pinklists       */
-#define LPINKLEN     100
-#define EPINKLEN     100
 #define EPOCHMASK     15       /* update pinklist Epoch count - 1    */
 #define EPOCHSHIFT    4
 #define CPLISTLEN     8        /* current peer list */

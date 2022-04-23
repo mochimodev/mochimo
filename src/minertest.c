@@ -30,7 +30,6 @@
 #include "execute.c"
 #include "monitor.c"    /* system monitor/debugger prompt  */
 #include "daemon.c"
-#include "bupdata.c"    /* for block updates               */
 #include "miner.c"
 #include "pval.c"       /* pseudo-blocks                   */
 #include "optf.c"       /* for OP_HASH and OP_TF           */

@@ -28,7 +28,7 @@ int txclean(void)
    int count, message, tnum, j;
    word32 nout;            /* temp file output record counter */
    word32 total[2];
-   static byte addr[TXADDRLEN];
+   static word8 addr[TXADDRLEN];
    MTX *mtx;
 
    /* open the clean TX queue (txclean.dat) to read */
@@ -84,7 +84,7 @@ int txclean(void)
       if(rename("txq.tmp", "txclean.dat")) BAIL(5);
    } else {
       unlink("txq.tmp");  /* remove empty temp file */
-      if(Trace) plog("txclean.dat is empty.");
+      pdebug("txclean.dat is empty.");
    }
 
    if(Trace && nout) plog("txclean.c: wrote %u entries from %u"
@@ -95,6 +95,6 @@ bail:
    if(fp) fclose(fp);
    if(fpout) fclose(fpout);
    unlink("txq.tmp");
-   if(Trace) plog("txclean(): %d", message);
+   pdebug("txclean(): %d", message);
    return message;
 }  /* end txclean() */

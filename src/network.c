@@ -123,7 +123,6 @@ word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx)
 /**
  * Save the Rplist[] list to disk.
  * Returns VEOK on success, else VERROR */
-#define save_rplist()   save_ipl("rplist.lst", Rplist, RPLISTLEN)
 int save_ipl(char *fname, word32 *list, word32 len)
 {
    static char preface[] = "# Peer list (built by node)\n";
@@ -194,44 +193,154 @@ word32 read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
    return count;
 }  /* end read_ipl() */
 
-/**
- * Initialize peers lists via peer processing.
- * Read core peers file, coreip.lst, into Rplist[] (if available).
- * Download startnodes.lst file from MochiMap, and read into Rplist[].
- * Read Trusted peers file, tplist.lst, into Tplist[] (if available).
- * Read Recent peers file, rplist.lst, into Rplist[] (if available).
- * NOTE: shuffles Rplist[] after trying all sources. */
-void init_peers(void)
+/* */
+int readpeers(void)
 {
-   /* peer acquisition */
    if(fexists("coreip.lst")) {
-      pdebug("init_peers(): adding coreip list to Rplist[]...");
+      pdebug("init_peers(): adding coreip.lst to Rplist[]...");
       read_ipl("coreip.lst", Rplist, RPLISTLEN, &Rplistidx);
-   } else pdebug("init_peers(): skipping coreip.lst...");
-   pdebug("init_peers(): downloading peers from interwebs...");
-   http_get(HTTPSTARTPEERS, "start.lst", STD_TIMEOUT);
+   }
    if(fexists("start.lst")) {
       pdebug("init_peers(): adding start.lst to Rplist[]...");
       read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
       remove("start.lst");
-   } else pdebug("init_peers(): skipping start.lst...");
-   if(fexists("rplist.lst")) {
-      pdebug("init_peers(): adding rplist.lst to Rplist[]...");
-      read_ipl("rplist.lst", Rplist, RPLISTLEN, &Rplistidx);
-   } else pdebug("init_peers(): skipping rplist.lst...");
-   if(fexists("tplist.lst")) {
-      pdebug("init_peers(): adding tplist.lst to Rplist[] and Tplist[]...");
-      read_ipl("tplist.lst", Rplist, RPLISTLEN, &Rplistidx);
-      read_ipl("tplist.lst", Tplist, TPLISTLEN, &Tplistidx);
-   } else pdebug("init_peers(): skipping tplist.lst...");
+   }
+   if(fexists("recentip.lst")) {
+      pdebug("init_peers(): adding " "recentip.lst" " to Rplist[]...");
+      read_ipl("recentip.lst", Rplist, RPLISTLEN, &Rplistidx);
+   }
+   if(fexists("trustedip.lst")) {
+      pdebug("init_peers(): adding " "trustedip.lst" " to Rplist[] and Tplist[]...");
+      read_ipl("trustedip.lst", Rplist, RPLISTLEN, &Rplistidx);
+      read_ipl("trustedip.lst", Tplist, TPLISTLEN, &Tplistidx);
+   }
 
    /* report node count */
    pdebug("init_peers(): Rplistidx= %" P32u, Rplistidx);
    pdebug("init_peers(): Tplistidx= %" P32u, Tplistidx);
 
-   /* shuffle recent peer list */
-   shuffle32(Rplist, RPLISTLEN);
-}  /* end init_peers() */
+   return VEOK;
+}
+
+/* Re-read epoch pink list from init(). */
+int readpink(void)
+{
+   pdebug("reading epoch pink list...");
+   return read_ipl("epink.lst", Epinklist, EPINKLEN, &Epinkidx);
+}
+
+/*
+ * Save pink lists to disk.
+ */
+int savepink(void)
+{
+   int j;
+
+   pdebug("saving epoch pink list...");
+
+   /* save non-zero entries */
+   for(j = 0; j < EPINKLEN; j++)
+      if(Epinklist[j] == 0) break;
+
+   save_ipl("epink.lst", Epinklist, j);
+   return VEOK;
+}  /* end savepink() */
+
+
+int pinklisted(word32 ip)
+{
+   if(Disable_pink) return 0;   /* for debug */
+
+   if(search32(ip, Cpinklist, CPINKLEN) != NULL
+      || search32(ip, Lpinklist, LPINKLEN) != NULL
+      || search32(ip, Epinklist, EPINKLEN) != NULL)
+         return 1;
+   return 0;
+}
+
+
+/* Add ip address to current pinklist.
+ * Call pinklisted() first to check if already on list.
+ */
+int cpinklist(word32 ip)
+{
+   if(Cpinkidx >= CPINKLEN)
+      Cpinkidx = 0;
+   Cpinklist[Cpinkidx++] = ip;
+   return VEOK;
+}
+
+/* Add ip address to current pinklist and remove it from
+ * current and recent peer lists.
+ * Checks the list first...
+ */
+int pinklist(word32 ip)
+{
+   pdebug("%s pink-listed", ntoa(&ip, NULL));
+
+   if(!pinklisted(ip)) {
+      if(Cpinkidx >= CPINKLEN)
+         Cpinkidx = 0;
+      Cpinklist[Cpinkidx++] = ip;
+   }
+   if(!Disable_pink) {
+      remove32(ip, Rplist, RPLISTLEN, &Rplistidx);
+   }
+   return VEOK;
+}  /* end pinklist() */
+
+
+/* Add ip address to last pinklist.
+ * Caller checks if already on list.
+ */
+int lpinklist(word32 ip)
+{
+   if(Lpinkidx >= LPINKLEN)
+      Lpinkidx = 0;
+   Lpinklist[Lpinkidx++] = ip;
+   return VEOK;
+}
+
+
+int epinklist(word32 ip)
+{
+   if(Epinkidx >= EPINKLEN) {
+      pdebug("Epoch pink list overflow");
+      Epinkidx = 0;
+   }
+   Epinklist[Epinkidx++] = ip;
+   return VEOK;
+}
+
+
+/* Call after each epoch.
+ * Merges current pink list into last pink list
+ * and purges current pink list.
+ */
+void mergepinklists(void)
+{
+   int j;
+   word32 ip, *ptr;
+
+   for(j = 0; j < CPINKLEN; j++) {
+      ip = Cpinklist[j];
+      if(ip == 0) continue;  /* empty */
+      ptr = search32(ip, Lpinklist, LPINKLEN);
+      if(ptr == NULL) lpinklist(ip);  /* add to last bad list */
+      Cpinklist[j] = 0;
+   }
+   Cpinkidx = 0;
+}
+
+
+/* Erase Epoch Pink List */
+void purge_epoch(void)
+{
+   pdebug("   purging epoch pink list");
+   unlink("epink.lst");
+   memset(Epinklist, 0, sizeof(Epinklist));
+   Epinkidx = 0;
+}
 
 /**
  * Receive next packet from NODE *np.
@@ -479,7 +588,7 @@ int send_file(NODE *np, char *fname)
 }  /* end send_file() */
 
 /**
- * Used for simple one packet responses like OP_GETIPL.
+ * Used for simple one packet responses like OP_GET_IPL.
  * Assumes socket np->sd is connected and non-blocking.
  * Closes socket and sets np->sd to INVALID_SOCKET on return.
  * Returns VEOK on success, else VERROR. */
@@ -547,7 +656,7 @@ int callserver(NODE *np, word32 ip)
 }  /* end callserver() */
 
 /**
- * Used for simple one packet responses like OP_GETIPL.
+ * Used for simple one packet responses like OP_GET_IPL.
  * Closes socket and sets np->sd to INVALID_SOCKET on return.
  * Returns VEOK on success, else VERROR. */
 int get_tx(NODE *np, word32 ip, word16 opcode)
@@ -618,7 +727,7 @@ int get_ipl(NODE *np, word32 ip)
    word16 len;
    word32 *ipp;
 
-   pdebug("get_ipl(%s): sending get_tx(OP_GETIPL)", ntoa(&ip, ipaddr));
+   pdebug("get_ipl(%s): sending get_tx(OP_GET_IPL)", ntoa(&ip, ipaddr));
    if(get_tx(np, ip, OP_GET_IPL) == VEOK) {  /* closes socket */
       len = get16(np->tx.len);  /* ^^ get_tx() checks len <= TRANLEN */
       for(ipp = (word32 *) TRANBUFF(&np->tx); len > 0; ipp++, len -= 4) {
@@ -717,7 +826,7 @@ int scan_network
    do {
       /* update sticky progress */
       percent = 100.0 * done / Rplistidx;
-      sprintf(progress, "Scanning Network %.2f%% (%d/%d) | Elapsed %.0fs",
+      sprintf(progress, "Network Scan %.2f%% (%d/%d) | Elapsed %.0fs",
          percent, done, Rplistidx, difftime(time(NULL), start));
       psticky(progress);
       /* check threads */
