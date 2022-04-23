@@ -133,7 +133,7 @@ int readtf(BTRAILER *bt, word32 bnum, word32 count)
 }  /* end readtf() */
 
 
-void add_weight2(byte *weight, byte difficulty)
+void add_weight(byte *weight, byte difficulty)
 {
    byte temp[32];
 
@@ -141,7 +141,7 @@ void add_weight2(byte *weight, byte difficulty)
    /* temp = 2**difficulty */
    temp[difficulty / 8] = 1 << (difficulty % 8);
    multi_add(weight, temp, weight, 32);
-}  /* end add_weight2() */
+}  /* end add_weight() */
 
 
 /* Reduce weight based on difficulty
@@ -187,7 +187,7 @@ int past_weight(byte *weight, word32 lownum)
    return VEOK;
 bail:
    memset(weight, 0, 32);
-   if(Trace) plog("past_weight(): bail: %d", message);
+   pdebug("past_weight(): bail: %d", message);
    return message;
 }  /* end past_weight() */
 
@@ -320,7 +320,7 @@ int checkproof(TX *tx, word32 *splitblock)
             if(trigg_check(bt->mroot, difficulty, bt->bnum) == NULL) BAIL(10);
          }
       }
-      add_weight2(weight, difficulty);  /* tally peer's chain weight. */
+      add_weight(weight, difficulty);  /* tally peer's chain weight. */
       /* Compute diff = next difficulty to check next peer trailer. */
       diff = set_difficulty(difficulty, stime - time0, stime,
                             (byte *) tnum);
@@ -346,10 +346,10 @@ int checkproof(TX *tx, word32 *splitblock)
    if(j == 0) BAIL(14);  /* never matched -- ignore peer */
    if(j >= NTFTX) BAIL(15);  /* should not happen */
 allow:
-   if(Trace) plog("checkproof() splitblock = 0x%x", *splitblock);
+   pdebug("checkproof() splitblock = 0x%x", *splitblock);
    return VEOK;  /* allow syncup() to run */
 bail:
-   if(Trace) plog("checkproof() ignore peer (%d)", message);
+   pdebug("checkproof() ignore peer (%d)", message);
    return message;  /* ignore contention */
 }  /* end checkproof() */
 

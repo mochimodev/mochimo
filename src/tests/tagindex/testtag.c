@@ -24,7 +24,7 @@
 void stop_mirror(void)
 {
    if(Mqpid) {
-      if(Trace) plog("   Reaping mirror() zombies...");
+      pdebug("   Reaping mirror() zombies...");
       kill(Mqpid, SIGTERM);
       waitpid(Mqpid, NULL, 0);
       Mqpid = 0;

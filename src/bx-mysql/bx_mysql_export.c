@@ -18,10 +18,10 @@
 
 #define EXCLUDE_NODES
 
-byte Errorlog = 1;  /* since not including data.c */
-byte Bgflag;
-byte Monitor;
-byte Running = 1;
+word8 Errorlog = 1;  /* since not including data.c */
+word8 Bgflag;
+word8 Monitor;
+word8 Running = 1;
 word32 Trace = 1;
 word32 Nsolved;
 pid_t Mpid, Sendfound_pid;  /* in error.c */
@@ -68,11 +68,11 @@ const char *get_filename_ext(const char *filename)
   return (ext && ext != filename) ? ext+1 : "";
 }
 
-void db_export_address(byte *addr_full, byte *addr_hash, MYSQL *conn)
+void db_export_address(word8 *addr_full, word8 *addr_hash, MYSQL *conn)
 {
     // Create 32 byte hash of full address
     void* addr_full_raw = malloc(sizeof(byte) * TXADDRLEN);
-    byte addr_tag[TXTAGLEN];
+    word8 addr_tag[TXTAGLEN];
     memcpy(addr_hash, addr_full, HASHLEN);
     memcpy(addr_full_raw, addr_full, TXADDRLEN);
     memcpy(addr_tag, addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
@@ -128,12 +128,12 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
 {
 
 // EXPORT address and get address hash
-  byte addr_hash[HASHLEN];
+  word8 addr_hash[HASHLEN];
   db_export_address(le->addr, addr_hash, conn);
 
 // Scrape Tag from Address
   void * le_addr_full = malloc(sizeof(byte) * TXADDRLEN);
-  byte le_addr_tag[TXTAGLEN];
+  word8 le_addr_tag[TXTAGLEN];
   memcpy(le_addr_full, le->addr, TXADDRLEN);
   memcpy(le_addr_tag, le_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
   free(le_addr_full);
@@ -149,8 +149,8 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
   long unsigned int TXTAGLEN = TXTAGLEN;
   long unsigned int type_code = 9; /* Ledger Entry */
 
-  byte empty_hash[32];      /* All Zeroes Hash for Ledger Entries */
-  byte empty_tag[12];       /* All Zeroes DST Tag for Ledger Entries */
+  word8 empty_hash[32];      /* All Zeroes Hash for Ledger Entries */
+  word8 empty_tag[12];       /* All Zeroes DST Tag for Ledger Entries */
 
   memset(empty_hash, 0, 32);
   memset(empty_tag, 0, 12);
@@ -235,9 +235,9 @@ void db_export_ledger(BHEADER *bh, BTRAILER *bt, FILE *fp, word32 block_db_id, M
 void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block_num, MYSQL *conn)
 {
 // Address hash buffers to pass to db_export_address()
-  byte src_addr_hash[HASHLEN];
-  byte dst_addr_hash[HASHLEN];
-  byte chg_addr_hash[HASHLEN];
+  word8 src_addr_hash[HASHLEN];
+  word8 dst_addr_hash[HASHLEN];
+  word8 chg_addr_hash[HASHLEN];
 
 // EXPORT address and hash pairs
   
@@ -250,9 +250,9 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
   void* dst_addr_full = malloc(sizeof(byte) * TXADDRLEN);
   void* chg_addr_full = malloc(sizeof(byte) * TXADDRLEN);
 
-  byte src_addr_tag[TXTAGLEN];
-  byte dst_addr_tag[TXTAGLEN];
-  byte chg_addr_tag[TXTAGLEN];
+  word8 src_addr_tag[TXTAGLEN];
+  word8 dst_addr_tag[TXTAGLEN];
+  word8 chg_addr_tag[TXTAGLEN];
 
   memcpy(src_addr_full, txq->src_addr, TXADDRLEN);
   memcpy(dst_addr_full, txq->dst_addr, TXADDRLEN);
@@ -745,7 +745,7 @@ word32 db_export_block(BHEADER *bh, BTRAILER *bt, MYSQL *conn)
   }
   remove_block(block_num, conn);  /* If the block is in the DB, wipe it. */
   // Export the miner address and get hash
-  byte miner_addr_hash[HASHLEN];
+  word8 miner_addr_hash[HASHLEN];
   db_export_address(bh->maddr, miner_addr_hash, conn);
 
   // Export block entry
@@ -902,8 +902,8 @@ word32 db_export_block(BHEADER *bh, BTRAILER *bt, MYSQL *conn)
     long unsigned int TXTAGLEN  = TXTAGLEN;
 
     word32 zero = 0;
-    byte empty_tag[12];
-    byte empty_hash[32];
+    word8 empty_tag[12];
+    word8 empty_hash[32];
 
     memset(empty_tag, 0, 12);
     memset(empty_hash, 0, 32);

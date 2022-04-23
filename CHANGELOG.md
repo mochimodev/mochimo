@@ -61,7 +61,7 @@ Repository restructure and implementation of the Adequate Systems Build-C reposi
 - pval.c server.c, and config.h to allow 0xff pseudo-blocks
 - simplified parameter logic in tag_valid() and calls from bval and txval.c
 - bx.c to indicate tags not found in MTX
-- replaced 100 with NR_DST in bval.c mtxval.c txclean.c
+- replaced 100 with MDST_NUM_DST in bval.c mtxval.c txclean.c
 - proof.c comments
 - syncup.c fprintf's to plog's
 - server.c ipltime from 600 to 300

@@ -77,7 +77,7 @@ int readtf(void *buff, word32 bnum, word32 count)
 }  /* end readtf() */
 
 
-void add_weight2(byte *weight, byte difficulty)
+void add_weight(byte *weight, byte difficulty)
 {
    byte temp[32];
 
@@ -85,7 +85,7 @@ void add_weight2(byte *weight, byte difficulty)
    /* temp = 2**difficulty */
    temp[difficulty / 8] = 1 << (difficulty % 8);
    multi_add(weight, temp, weight, 32);
-}  /* end add_weight2() */
+}  /* end add_weight() */
 
 
 /* Reduce weight based on difficulty
@@ -124,7 +124,7 @@ int past_weight(byte *weight, word32 lownum)
    return VEOK;
 bail:
    memset(weight, 0, 32);
-   if(Trace) plog("past_weight(): bail: %d\n", message);
+   pdebug("past_weight(): bail: %d\n", message);
    return message;
 }  /* end past_weight() */
 
@@ -142,7 +142,7 @@ int main()
    high = 100;
    for(j = 1; j <= high; j++) {
       readtf(&bts, j, 1);
-      add_weight2(Weight, bts.difficulty[0]);
+      add_weight(Weight, bts.difficulty[0]);
    }
    Cblocknum[0] = high;
    printf("Weight at block %d:\n", Cblocknum[0]);
