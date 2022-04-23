@@ -25,7 +25,15 @@
 extern "C" {
 #endif
 
+#ifndef _WIN32
+   int lock(char *lockfile, int seconds);
+   int unlock(int fd);
+
+#endif
+
+void crctx(TX *tx);
 int readtrailer(BTRAILER *trailer, char *fname);
+char *val2hex64(void *val, char hex[]);
 char *bnum2hex(void *bnum);
 char *val2hex(void *val, int len, char *buf, int bufsize);
 char *addr2str(void *addr);
@@ -36,6 +44,9 @@ int write_global(void);
 void add_weight(word8 *weight, word8 difficulty, word8 *bnum);
 void get_mreward(word32 *reward, word32 *bnum);
 int append_tfile(char *fname, char *tfile);
+word32 set_difficulty(BTRAILER *btp);
+int bupdata(void);
+int do_neogen(void);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus

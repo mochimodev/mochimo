@@ -33,7 +33,53 @@
 #include "extmath.h"
 #include "extprint.h"
 
+#include "crc16.h"
+
+#include "peach.h"
+#include "trigg.h"
+
 #include "data.c"
+
+#ifndef _WIN32
+
+/* Get exclusive lock on lockfile.
+ * Returns: -1 if lock not made within 'seconds' or open() failed
+ *          else a descriptor to be used with unlock()
+ */
+int lock(char *lockfile, int seconds)
+{
+   time_t timeout;
+   int fd, status;
+
+   timeout = time(NULL) + seconds;
+   fd = open(lockfile, O_NONBLOCK | O_RDONLY);
+   if(fd == -1) return -1;
+   for(;;) {
+      status = flock(fd, LOCK_EX | LOCK_NB);
+      if(status == 0) return fd;
+      if(time(NULL) >= timeout) {
+         close(fd);
+         return -1;
+      }
+   }
+}
+
+/* Unlock a decriptor returned from lock() */
+int unlock(int fd)
+{
+   int status;
+
+   status =  flock(fd, LOCK_UN);
+   close(fd);
+   return status;
+}
+
+#endif
+
+void crctx(TX *tx)
+{
+   put16(tx->crc16, crc16((word8 *) tx, sizeof(TX) - (2+2)));
+}
 
 /* Seek to end of fname and read block trailer.
  * Return VEOK on success, else error code.
@@ -65,6 +111,13 @@ int readtrailer(BTRAILER *trailer, char *fname)
    return VEOK;
 }
 
+char *val2hex64(void *val, char hex[])
+{
+   word8 *bp = (word8 *) val;
+   sprintf(hex, "%02x%02x%02x%02x%02x%02x%02x%02x",
+      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
+   return hex;
+}
 
 /* bnum is little-endian on disk and core. */
 char *bnum2hex(void *bnum)
@@ -234,6 +287,7 @@ void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
    static word32 trigger[2] = { WTRIGGER31, 0 };
    word8 add256[32] = { 0 };
 
+
    /* trigger block shifts weight increment from linear to exponential */
    if(bnum && cmp64(bnum, trigger) < 0) add256[0] = difficulty;
    else add256[difficulty / 8] = 1 << (difficulty % 8);  /* 2 ** difficulty */
@@ -265,7 +319,7 @@ void get_mreward(word32 *reward, word32 *bnum)
    if(cmp64(bnum, t1) < 0) {
       /* bnum < 17185 */
       if(sub64(bnum, One, bnum2)) {
-         perr("get_reward() UNDERFLOW DETECTED! No reward...");
+         /* underflow, no reward */
          reward[0] = reward[1] = 0;
       } else {
          mult64(delta, bnum2, reward);
@@ -281,11 +335,10 @@ void get_mreward(word32 *reward, word32 *bnum)
       sub64(bnum, t2, bnum2);
       mult64(delta3, bnum2, reward);
       if(sub64(base3, reward, reward)) {
-         perr("get_reward() UNDERFLOW DETECTED! No reward...");
+         /* underflow, no reward */
          reward[0] = reward[1] = 0;
       }
    } else reward[0] = reward[1] = 0;
-   pdebug("reward: 0x%s", bnum2hex(reward));
 }  /* end get_mreward() */
 
 int append_tfile(char *fname, char *tfile)
@@ -311,6 +364,135 @@ int append_tfile(char *fname, char *tfile)
          count, sizeof(BTRAILER), tfile);
       return VERROR;
    }
+   return VEOK;
+}
+
+/* seconds is 32-bit signed, stime and bnum are from block trailer.
+ * NOTE: hash is set to 0 for old algorithm.
+ * If used and integrating into an old chain,
+ * change DTRIGGER31 to a non-NG block number on which to
+ * trigger new algorithm.
+ */
+word32 set_difficulty(BTRAILER *btp)
+{
+   word32 hash;
+   word32 stime = get32(btp->stime);
+   word32 difficulty = get32(btp->difficulty);
+   int seconds = stime - get32(btp->time0);
+   int highsolve = 284;
+   int lowsolve = 143;
+
+   /* Change DTRIGGER31 to a non-NG block number trigger for new algorithm. */
+   static word32 trigger_block[2] = { DTRIGGER31, 0 };
+   static word32 fix_trigger[2] = { FIXTRIGGER, 0 };
+   if(seconds < 0) return difficulty;
+   if(cmp64(btp->bnum, trigger_block) < 0){
+      hash = 0;
+      highsolve = 506;
+      lowsolve = 253;
+   }
+   else
+      hash = (stime >> 6) ^ stime;
+   if(cmp64(btp->bnum, fix_trigger) > 0) hash = 0;
+   if(seconds > highsolve) {
+      if(difficulty > 0) difficulty--;
+      if(difficulty > 0 && (hash & 1)) difficulty--;
+   } else if(seconds < lowsolve) {
+      if((hash & 3) == 0  && difficulty < 255)
+         difficulty++;
+   }
+   return difficulty;
+}
+
+/* Called from server.c to update globals */
+int bupdata(void)
+{
+   BTRAILER bt;
+   char bnumstr[24], haiku[256], *haiku1, *haiku2, *haiku3;
+   unsigned btxs, btime, bdiff;
+   word32 time1;
+   int ecode;
+
+   ecode = VEOK;
+
+   if(add64(Cblocknum, One, Cblocknum)) {  /* increment block number */
+      perr("new blocknum overflow");
+      ecode = VERROR;
+   }
+
+   /* Update block hashes */
+   memcpy(Prevhash, Cblockhash, HASHLEN);
+   if(readtrailer(&bt, "ublock.dat") != VEOK) {
+      perr("bupdata(): cannot read new ublock.dat hash");
+      ecode = VERROR;
+   }
+   memcpy(Cblockhash, bt.bhash, HASHLEN);
+   Difficulty = get32(bt.difficulty);
+   Time0 = get32(bt.time0);
+   time1 = get32(bt.stime);
+   add_weight(Weight, bt.difficulty[0], bt.bnum);
+   /* Update block difficulty */
+   Difficulty = set_difficulty(&bt);
+   pdebug("new: Difficulty = %d  seconds = %d", Difficulty, time1 - Time0);
+   pdebug("Cblockhash: %s for block: 0x%s", hash2str(Cblockhash),
+           bnum2hex(Cblocknum));
+   Time0 = time1;
+   /* display block update stats */
+   btxs = (unsigned) get32(bt.tcount);
+   btime = (unsigned) get32(bt.stime) - get32(bt.time0);
+   bdiff = (unsigned) get32(bt.difficulty);
+   if(!Bgflag && get32(bt.tcount)) {
+      trigg_expand(bt.nonce, haiku);
+      /* separate lines */
+      haiku1 = strtok(haiku, "\n");
+      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+      /* rebuild one-line haiku */
+      val2hex(bt.bnum, 8, bnumstr, sizeof(bnumstr));
+      print("\nBlock #%" P32u " (0x%s):\n", get32(bt.bnum), bnumstr);
+      print(" │ %s\n │ %s\n │ %s\n", haiku1, haiku2, haiku3);
+      print(" └─ Time: %us / Diff: %u / Txs: %u\n", btime, bdiff, btxs);
+   }
+   return ecode;
+}  /* end bupdata() */
+
+
+/* Build a neo-genesis block -- called from server.c */
+int do_neogen(void)
+{
+   char cmd[1024];
+   word32 newnum[2];
+   char *cp;
+   int ecode;
+   BTRAILER bt;
+
+   unlink("neofail.lck");
+   cp = bnum2hex(Cblocknum);
+   sprintf(cmd, "../neogen %s/b%s.bc ngblock.dat", Bcdir, cp);
+   pdebug("Creating neo-genesis block:\n '%s'", cmd);
+   ecode = system(cmd);
+   pdebug("do_neogen(): system():  ecode = %d", ecode);
+   if(fexists("neofail.lck")) {
+      perr("do_neogen failed");
+      return VERROR;
+   }
+   add64(Cblocknum, One, newnum);
+   cp = bnum2hex((word8 *) newnum);
+   sprintf(cmd, "%s/b%s.bc", Bcdir, cp);
+   if(rename("ngblock.dat", cmd) != 0) {
+      perr("do_neogen failed to rename ngblock.dat to %s", cmd);
+      return VERROR;
+   }
+
+   add64(Cblocknum, One, Cblocknum);
+   /* Update block hashes */
+   memcpy(Prevhash, Cblockhash, HASHLEN);
+   if(readtrailer(&bt, cmd) != VEOK) {
+      perr("do_neogen(): cannot read NG block hash");
+      return VERROR;
+   }
+   memcpy(Cblockhash, bt.bhash, HASHLEN);
+   Eon++;
    return VEOK;
 }
 
