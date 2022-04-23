@@ -170,9 +170,13 @@ variable-%:
 # vv RECIPE CONFIGURATION vv
 
 # include custom recipe configurations here
-fullnode: $(addprefix $(BUILDDIR)/,bcon bup bval neogen)
-	@mkdir -p $(BINDIR)
+fullnode: $(addprefix $(BUILDDIR)/,bcon bup bval neogen mochimo)
+	@echo && echo "Installing Mochimo fullnode..."
+	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
+	@mkdir -p $(BINDIR)/d
 	@mv $^ $(BINDIR)/
+	@echo "Done."
+	@echo
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
