@@ -155,6 +155,7 @@ pid_t mirror(void)
    word32 Splist[TPLISTLEN + RPLISTLEN] = { 0 };
    int i, num;
 
+   num = 0;
    for (i = 0; i < TPLISTLEN; i++) {
       if (Tplist[i] == 0) break; /* no more trusted peers */
       Splist[num++] = Tplist[i];

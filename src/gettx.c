@@ -291,10 +291,13 @@ int gettx(NODE *np, SOCKET sd)
       }
       Nlogins++;  /* raw TX in */
       status = process_tx(np);
+      pdebug("gettx: process_tx() = %d", status);
       if(status > 2) goto bad1;
       if(status > 1) goto bad2;
       if(get16(np->tx.len) == 0) {  /* do not add wallets */
+         pdebug("gettx: post process_tx(), addrecent(%s)", ntoa(&(np->ip), NULL));
          addrecent(np->ip);
+         pdebug("gettx: post process_tx(), addrecent() ok");
       }
       return 1;  /* no child */
    } else if(opcode == OP_FOUND) {
