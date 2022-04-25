@@ -15,6 +15,7 @@
 #define MOCHIMO_DAEMON_C
 
 
+#include <execinfo.h>
 #include <signal.h>
 
 #include "extinet.h"
@@ -48,6 +49,19 @@ void sigterm(int sig)
    Running = 0;
 }
 
+void segfault(int sig) {
+  void *array[10];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 10);
+
+  // print out all the frames to stderr
+  fprintf(stderr, "Error: signal %d:\n", sig);
+  backtrace_symbols_fd(array, size, STDERR_FILENO);
+  exit(1);
+}
+
 
 void fix_signals(void)
 {
@@ -61,6 +75,7 @@ void fix_signals(void)
 
    signal(SIGINT, ctrlc);     /* then install ctrl-C handler */
    signal(SIGTERM, sigterm);  /* ...and software termination */
+   signal(SIGSEGV, segfault);   // install our handler
 }
 
 
