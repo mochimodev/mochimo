@@ -173,12 +173,20 @@ variable-%:
 
 # include custom recipe configurations here
 fullnode: $(addprefix $(BUILDDIR)/,bcon bup bval neogen mochimo)
-	@echo && echo "Installing Mochimo fullnode..."
-	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
+	@echo && echo "Mochimo binaries compiled successfully!" && echo
+
+install:
+	@echo && echo "Installing directory structure..."
 	@mkdir -p $(BINDIR)/d
-	@mv $^ $(BINDIR)/
-	@echo "Done."
-	@echo
+	@echo "Installing Mochimo binaries..."
+	@mv $(addprefix $(BUILDDIR)/,bcon bup bval neogen mochimo) $(BINDIR)/
+	@echo "Installing support files..."
+	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
+	@echo "Ensuring permissions..."
+	@chmod +x $(BINDIR)/gomochi
+	@chmod +x $(BINDIR)/mochimo
+	@echo && echo "Installation complete!"
+	@echo && echo "Cleanup..."
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
