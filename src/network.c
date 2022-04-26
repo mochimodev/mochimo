@@ -587,6 +587,48 @@ int send_file(NODE *np, char *fname)
    return ecode;
 }  /* end send_file() */
 
+/* Process OP_TF.  Return VEOK on success, else VERROR.
+ * Called by child -- execute().
+ */
+int send_tf(NODE *np)
+{
+   int status;
+   word32 first, count;
+   char cmd[128], fname[32];
+
+   sprintf(fname, "tf%u.tmp", (int) getpid());
+
+   first = get32(np->tx.blocknum);      /* first trailer to send */
+   count = get32(&np->tx.blocknum[4]);  /* count of trailers to send */
+
+   /* limit tfile extract to 1000 trailers */
+   if(count > 1000) return VERROR;
+   sprintf(cmd, "dd if=tfile.dat of=%s bs=%u skip=%u count=%u 2>/dev/null",
+                fname, (int) sizeof(BTRAILER), first, count);
+   system(cmd);
+   status = send_file(np, fname);  /* returns VEOK or VERROR */
+   unlink(fname);
+   return status;
+}  /* end send_tf() */
+
+
+/* Process OP_HASH.  Return VEOK on success, else VERROR.
+ * Called by gettx().
+ */
+int send_hash(NODE *np)
+{
+   BTRAILER bt;
+   char fname[128];
+
+   sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(np->tx.blocknum));
+   if(readtrailer(&bt, fname) != VEOK) return VERROR;
+   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   /* copy hash of tx.blocknum to TX */
+   memcpy(TRANBUFF(&np->tx), bt.bhash, HASHLEN);
+   put16(np->tx.len, HASHLEN);
+   return send_op(np, OP_HASH);  /* send back to peer */
+}  /* end send_hash() */
+
 /**
  * Used for simple one packet responses like OP_GET_IPL.
  * Assumes socket np->sd is connected and non-blocking.

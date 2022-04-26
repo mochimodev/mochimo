@@ -142,6 +142,8 @@ int recv_file(NODE *np, char *fname);
 int send_tx(NODE *np, double timeout);
 int send_op(NODE *np, int opcode);
 int send_file(NODE *np, char *fname);
+int send_tf(NODE *np);
+int send_hash(NODE *np);
 int get_op(NODE *np, word16 opcode);
 int callserver(NODE *np, word32 ip);
 int get_tx(NODE *np, word32 ip, word16 opcode);
