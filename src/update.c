@@ -173,8 +173,6 @@ int update(char *fname, int mode)
 
    if(!Ininit && Allowpush) reaper2();
 
-   write_global();  /* gift bval with Peerip and other globals */
-
    /* Check for pseudo-block */
    if(mode == 2 || gethdrlen(fname) == 4) {
       mode = 2;
@@ -193,14 +191,17 @@ int update(char *fname, int mode)
    }
 
    tag_free(); /* Erase Tagidx[] to be rebuilt on next tag_find() call. */
-   sprintf(cmd, "../bval %s", fname);  /* call validator on fname */
-   system(cmd);
+
+   /* validate block file, fname, into vblock.dat */
+   b_val(fname, "vblock.dat");
    if(!fexists("vblock.dat")) {      /* validation failed */
       txclean();  /* clean the queue */
       le_open("ledger.dat", "rb");  /* re-open ledger */
       return VERROR;
    }
+
    /* update vblock.dat */
+   write_global();  /* gift bup with Peerip and other globals */
    system("../bup vblock.dat ublock.dat");
 
    txclean();  /* clean the queue */
