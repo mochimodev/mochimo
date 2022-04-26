@@ -1,43 +1,23 @@
 /**
- * bval.c  Block Validator
- *
- * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
- * See LICENSE.PDF   **** NO WARRANTY ****
- *
- * The Mochimo Project System Software
- *
- * Date: 8 January 2018
- *
- * NOTE: Invoked by server.c update() by wait on system()
- *
- * Returns exit code 0 on successful validation,
- *                   1 I/O errors, or
- *                   >= 2 Peerip needs pinklist().
- *
- * Inputs:  argv[1],    rblock.dat, the block to validate
- *          ledger.dat  the ledger of address balances
- *
- * Outputs: ltran.dat  transaction file to post against ledger.dat
- *          exit status 0=valid or non-zero=not valid.
- *          renames argv[1] to "vblock.dat" on good validation.
- *
- * @note Use of "Validation Error MACROs assumes @code int ecode; @endcode
- * has been previously declared.
+ * @private
+ * @headerfile validate.h <validate.h>
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
-#ifndef MOCHIMO_BVAL_C
-#define MOCHIMO_BVAL_C
+#ifndef MOCHIMO_VALIDATE_C
+#define MOCHIMO_VALIDATE_C
 
+
+#include "validate.h"
 
 /* system support */
 #include <errno.h>
 
 /* extended-c support */
-#include "extint.h"     /* integer support */
 #include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
-#include "extprint.h"   /* print/logging support */
 
 /* crypto support */
 #include "crc16.h"
@@ -49,7 +29,6 @@
 
 /* mochimo support */
 #include "config.h"
-#include "types.h"
 #include "data.c"
 #include "util.c"
 #include "ledger.c"
