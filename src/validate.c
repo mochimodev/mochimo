@@ -384,13 +384,13 @@ FAIL:
 int b_val(char *fname, char *vfname)
 {
    /* fork trigger blocks */
-   static const word32 tot_trigger[2] = { V23TRIGGER, 0 };
-   static const word32 v24_trigger[2] = { V24TRIGGER, 0 };
+   static word32 tot_trigger[2] = { V23TRIGGER, 0 };
+   static word32 v24_trigger[2] = { V24TRIGGER, 0 };
    /* Adding constants to skip validation on BoxingDay corrupt block
     * provided the blockhash matches.  See "Boxing Day Anomaly" write
     * up on the Wiki or on [ REDACTED ] for more details. */
-   static const word32 boxingday[2] = { 0x52d3c, 0 };
-   static const char boxdayhash[32] = {
+   static word32 boxingday[2] = { 0x52d3c, 0 };
+   static char boxdayhash[32] = {
       0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
       0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
       0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
@@ -423,7 +423,8 @@ int b_val(char *fname, char *vfname)
    size_t len;             /* for malloc lengths */
    word32 hdrlen, tcount;  /* header length and transaction count */
    long blocklen;
-   int j, cond, count;
+   unsigned j;
+   int cond, count;
    int ecode;
 
    /* init */
