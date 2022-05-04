@@ -12,37 +12,31 @@
  */
 
 #include <inttypes.h>
+#include "exttime.h"
+#include "extprint.h"
 #include "peach.h"
 
-#ifdef CUDANODE
-/* trigg algo prototypes */
-int trigg_init_cuda(word8 difficulty, word8 *blockNumber);
-void trigg_free_cuda();
-void trigg_generate_cuda(word8 *mroot, word32 *hps, word8 *runflag);
-/* peach algo prototypes */
-#include "algo/peach/cuda_peach.h"
-#endif
+#define GPUMAX 64
 
 uint8_t nvml_init = 0;
 
 /* miner blockin blockout -- child process */
 int miner(char *blockin, char *blockout)
 {
-   BTRAILER bt;
+   BTRAILER bt, btout;
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
 
    char phaiku[256];
    double htime;
    time_t start;
-   word32 temp[3], hps, n;
-   static word32 v24trigger[2] = { V24TRIGGER, 0 };
+   word32 temp[3] /* , hps, n */;
 
-#ifdef CUDANODE
-   if (!nvml_init) {
-      init_nvml();
-      nvml_init = 1;
-   }
+#ifdef CUDA
+   DEVICE_CTX D[GPUMAX] = { 0 };
+   int m, count;
+   time_t poll = time(NULL);
+
 #endif
 
    /* Keep a separate rand16() sequence for miner child */
@@ -83,78 +77,66 @@ int miner(char *blockin, char *blockout)
       pdebug("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
 
-      if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 and later */
-      
-#ifdef CUDANODE
+#ifdef CUDA
          /* Allocate and initialize necessary memory on CUDA devices */
-         if (init_cuda_peach(Difficulty, bt.phash, bt.bnum) < 1) {
-            perr("Miner failed to initilize CUDA devices\n");
-            break;
+         for (m = 0, count = peach_init_cuda(D, GPUMAX); Running && count &&
+               peach_solve_cuda(&D[m], &bt, Difficulty, &btout);
+               millisleep(1))
+         {
+            if (++m >= count) {
+               htime = difftime(time(NULL), poll);
+               if (htime > 20) {
+                  time(&poll);
+                  for (m = 0; m < count; m++) {
+                     htime = difftime(time(NULL), D[m].last_work);
+                     print("%s [%s%u%%:%uW:%u°C] %g H/s\n",
+                        D[m].name, D[m].pciId, D[m].fan, D[m].pow,
+                        D[m].temp, (double) D[m].work / htime);
+                  }
+                  print("\n");
+               }
+               m = 0;
+            }
          }
-         /* Run the peach cuda miner */
-         cuda_peach((word8 *) &bt, &hps, &Running);
+         memcpy(&bt, &btout, sizeof(BTRAILER));
+         /* final GPU status print */
+         htime = difftime(time(NULL), poll);
+         if (htime > 30) {
+            time(&poll);
+            for (m = 0; m < count; m++) {
+               htime = difftime(time(NULL), D[m].last_work);
+               print("%s [%s%u%%:%uW:%u°C:%u%%] %g H/s\n",
+                  D[m].name, D[m].pciId, D[m].fan, D[m].pow,
+                  D[m].temp, D[m].util, (double) D[m].work / htime);
+            }
+            print("\n");
+         }
          /* Free allocated memory on CUDA devices */
-         free_cuda_peach();
+         /* free_cuda_peach(); */
          /* K all g... */
-#else
 
+#else  /* CPU */
          /* initialize Peach context, adjust diff; solve Peach; increment hash */
          for(peach_init(&bt);
             Running && peach_solve(&bt, Difficulty, bt.nonce);
             n++);
-         /* Calculate and write Haiku/s to disk */
+         /* Calculate and write Haiku/s to disk 
          htime = difftime(time(NULL), start);
          if(htime == 0) htime = 1;
-         hps = n / htime;
-#endif
-         /* Block validation check */
-         if (Running && !peach_check(&bt)) {
-            printf("ERROR - Block is not valid\n");
-            break;
-         }
-      } /* end if(cmp64(bt.bnum... */
+         hps = n / htime; */
 
-
-/* Legacy handler is CPU Only for all v2.3 and earlier blocks */
-
-      if(cmp64(bt.bnum, v24trigger) <= 0)
-      {
-#ifdef CUDANODE
-         /* Initialize CUDA specific memory allocations
-          * and check for obvious errors */
-         if(trigg_init_cuda(bt.difficulty[0], bt.bnum) < 1) {
-            perr("Cuda initialization failed. Check nvidia-smi");
-            trigg_free_cuda();
-            break;
-         }
-         /* Run the trigg cuda miner */
-         trigg_generate_cuda(bt.mroot, &hps, &Running);
-         /* Free CUDA specific memory allocations */
-         trigg_free_cuda();
-#endif
-#ifdef CPUNODE
-         /* adjust diff; solve Trigg; increment hash */
-         for(; Running && trigg_solve(&bt, bt.difficulty[0], bt.nonce); n++);
-         
-         /* Calculate and write Haiku/s to disk */
-         htime = difftime(time(NULL), start);
-         if(htime == 0) htime = 1;
-         hps = n / htime;
 #endif
 
          /* Block validation check */
-         if (Running && !trigg_check(&bt)) {
-            printf("ERROR - Block is not valid\n");
+         if (!Running) break;
+         else if (peach_check(&bt) == VEOK) {
+            /* Print Haiku */
+            trigg_expand(bt.nonce, phaiku);
+            if(!Bgflag) plog("\nSOLVED!!!\n%s\n\n", phaiku);
+         } else {
+            perr("Invalid solve!\n");
             break;
          }
-      } /* end legacy handler */
-
-      write_data(&hps, sizeof(hps), "hps.dat");  /* unsigned int haiku per second */
-      if(!Running) break;
-      
-      /* Print Haiku */
-      trigg_expand(bt.nonce, phaiku);
-      if(!Bgflag) printf("\n%s\n\n", phaiku);
 
       /* Everything below this line is shared code.  */
       show("solved");
