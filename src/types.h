@@ -15,13 +15,52 @@
 #define MOCHIMO_TYPES_H
 
 
+/* external support */
 #include <time.h>
-
-#include "extint.h"
 #include "extio.h"
+#include "extint.h"
 
-/* simple definitions */
+/* ------ Begin Dev Section -----*/
 
+/* Version checking */
+#define PVERSION      4      /* protocol version number (short) */
+
+/* Adjustable Parameters */
+#define MAXNODES     37       /**< maximum number of connected nodes */
+#define INIT_TIMEOUT 3        /**< initial timeout after accept() */
+#define ACK_TIMEOUT  10       /**< hello_ack timeout in callserver() */
+#define STD_TIMEOUT  10       /**< connection timeout in callserver() */
+#define LQLEN        100      /**< listen() queue length */
+#define TXQUEBIG     32       /**< big enough to run bcon */
+#define MAXBLTX      32768    /**< max TX's in a block for bcon (~1M) */
+#define STATUSFREQ   10       /**< status display interval sec. */
+#define CPINKLEN     100       /* maximum entries in pinklists */
+#define LPINKLEN     100
+#define EPINKLEN     100
+#define EPOCHMASK    15       /**< update pinklist Epoch count - 1 */
+#define EPOCHSHIFT   4
+#define RPLISTLEN    64       /**< recent peer list v.28 */
+#define TPLISTLEN    32       /**< trusted peer list */
+#define CRCLISTLEN   1024     /**< recent tx crc's */
+#define MAXQUORUM    16       /**< for init */
+#define BCONFREQ     10       /**< Run con at least */
+#define CBITS        0        /**< 8 capability bits for TX */
+#define MFEE         500
+
+#define UBANDWIDTH   14300    /**< Dynamic upload bandwidth -- not zero */
+
+#define BCDIR        "bc"     /**< rename to dir for block storage */
+#define SPDIR        "split"  /**< rename to dir for backup storage */
+#define NGDIR        "ng"     /**< rename to dir for neogen storage */
+
+#define ERRFNAME     "error.log" /**< default error log filename */
+#define LOGFNAME     "mochi.log" /**< default standard log filename */
+
+/* ------ end Dev Section  -----*/
+
+/* ----------------- DO NOT CHANGE BELOW THIS LINE --------------------- */
+
+/* boolean return codes */
 #ifndef TRUE
 	#define TRUE   1   /**< Boolean value for TRUE (#ifndef) */
 #endif
@@ -29,17 +68,14 @@
 	#define FALSE  0   /**< Boolean value for FALSE (#ifndef) */
 #endif
 
-#define ERRFNAME  "error.log"    /**< default error log filename */
-#define LOGFNAME  "mochi.log"    /**< default standard log filename */
+#define HASHLEN   32  /**< Digest length of core hashes - SHA256LEN */
 
-#define HASHLEN   32 /**< Digest length of core hash function - sha256 */
-
-/* function return codes */
-#define VEOK        0      /**< Function return code - No error */
-#define VERROR      1      /**< Function return code - General error */
-#define VEBAD       2      /**< Function return code - client was bad */
-#define VEBAD2      3      /**< Function return code - client was naughty */
-#define VETIMEOUT   (-1)   /**< Function return code - socket timeout */
+/* status return codes */
+#define VEOK      0        /**< Status return code - No error */
+#define VERROR    1        /**< Status return code - General error */
+#define VEBAD     2        /**< Status return code - client was bad */
+#define VEBAD2    3        /**< Status return code - client was naughty */
+#define VETIMEOUT (-1)     /**< Status return code - socket timeout */
 
 /* network/transmission definitions */
 #define PORT1     2095     /**< Default TCP listening port for network */
@@ -50,10 +86,13 @@
 #define TXADDRLEN 2208     /**< Standard transaction address length */
 #define TXTAGLEN  12
 #define TXAMOUNT  8        /**< Standard transaction amount length */
-#define TXBUFF(tx)   ((word8 *) tx)    /**< Transaction packet accessor */
-#define TRANBUFF(tx) ((tx)->src_addr)  /**< Transaction buffer accessor */
-#define TRANLEN   ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
-#define TXSIGHASH_COUNT  (TRANLEN - TXSIGLEN)
+
+#define TRANBUFF(tx) ( (tx)->src_addr )  /**< Transaction buffer accessor */
+#define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
+#define TXBUFF(tx)   ( (word8 *) tx )    /**< Transaction packet accessor */
+#define TXBUFFLEN    ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN + 2 + 2 )
+#define TXSIG_INLEN  (TRANLEN - TXSIGLEN)
+#define TXCRC_INLEN  ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN )
 
 #define TX_IS_MTX(tx) \
    ((tx)->dst_addr[2196] == 0x00 && (tx)->dst_addr[2197] == 0x01)
@@ -63,6 +102,21 @@
 #define ADDR_TAG_PTR(addr) (((word8 *) (addr)) + 2196)
 #define ADDR_HAS_TAG(addr) \
    (((word8 *) (addr))[2196] != 0x42 && ((word8 *) (addr))[2196] != 0x00)
+
+/* Historic Compatibility Break Points */
+#define DTRIGGER31 17185   /* for v2.0 new set_difficulty() */
+#define WTRIGGER31 17185   /* for v2.0 new add_weight() */
+#define RTRIGGER31 17185   /* for v2.0 new get_mreward() */
+#define FIXTRIGGER 17697   /* for v2.0 difficulty patch */
+#define V23TRIGGER 54321   /* for v2.3 pseudoblocks */
+#define V24TRIGGER 0x12851 /* for v2.4 new FPGA Tough algo */
+#define MTXTRIGGER 133333  /* MTX flag activation block */
+#define BRIDGE     949     /* Trouble time -- Edit for testing */
+
+/* break point trigger detection MACROs */
+#define NEWYEAR(bnum) ( get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0 )
+#define WATCHTIME  (BRIDGE*4+1)  /* minimum watchdog time */
+#define TIMES_OF_TROUBLE(bnum) NEWYEAR(bnum)
 
 /**
  * Capability bit for candidate block pushing nodes. Indicates the

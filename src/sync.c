@@ -1,24 +1,38 @@
 /**
- * @file syncup.c
- * @date 11 February 2018 (Revised 2 Dec 2021)
- * @brief Blockchain initialization and synchronization support.
+ * @private
+ * @file sync.c
  * @copyright © Adequate Systems LLC, 2018-2021. All Rights Reserved.
  * <br />For more information, please refer to ../LICENSE
 */
 
-#ifndef MOCHIMO_SYNCUP_C
-#define MOCHIMO_SYNCUP_C  /* include guard */
+/* include guard */
+#ifndef MOCHIMO_SYNC_C
+#define MOCHIMO_SYNC_C
 
-#include "extio.h"
-#include "extint.h"
-#include "extthread.h"
-#include <sys/types.h>
-#include <dirent.h>  /* for scanning directories for files */
 
-#include "config.h"
-#include "network.h"
+#include "sync.h"
+
+/* internal support */
+#include "util.h"
 #include "types.h"
-#include "data.c"
+#include "trigg.h"
+#include "tfile.h"
+#include "peach.h"
+#include "network.h"
+#include "ledger.h"
+#include "global.h"
+#include "bval.h"
+#include "bup.h"
+
+/* external support */
+#include <sys/types.h>
+#include <string.h>
+#include <dirent.h>
+#include "extthread.h"
+#include "extmath.h"
+#include "extlib.h"
+#include "extint.h"
+#include "extio.h"
 
 #define THREADS_MAX  64
 
@@ -28,41 +42,26 @@ typedef struct {
    word32 ip;        /* source ip */
 } BIP_THREAD_ARGS;
 
-typedef struct {
-   volatile int tr;  /* thread function result -- set by thread */
-   BTRAILER bt;      /* blocktrailer for validation */
-} TF_VAL_THREAD_ARGS;
-
-ThreadProc thread_pow_val(void *arg)
+ThreadProc thread_get_block(void *arg)
 {
-   static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   TF_VAL_THREAD_ARGS *argp = (TF_VAL_THREAD_ARGS *) arg;
+   BIP_THREAD_ARGS *args = (BIP_THREAD_ARGS *) arg;
+   char fname[FILENAME_MAX], fname2[FILENAME_MAX], bnumstr[24];
+   int res;
 
-   /* Adding constants to skip validation on BoxingDay corrupt block
-    * provided the blockhash matches.  See "Boxing Day Anomaly" write
-    * up on the Wiki or on [ REDACTED ] for more details. */
-   static word32 boxingday[2] = { 0x52d3c, 0 };
-   static word8 boxdayhash[32] = {
-      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
-      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
-      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
-      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
-   };
+   /* initialize */
+   sprintf(fname, "b%.16s.tmp", val2hex64(args->bnum, bnumstr));
+   sprintf(fname2, "b%.16s.dat", val2hex64(args->bnum, bnumstr));
+   res = get_file(args->ip, args->bnum, fname);
+   if (res == VEOK) {
+      res = rename(fname, fname2);
+      if (res != VEOK) {
+         perrno(res, "catchup(): failed to move %s -> %s", fname, fname2);
+         res = VERROR;
+      }
+   }
 
-   /* v2.4 onwards uses peach, else trigg */
-   if (cmp64(argp->bt.bnum, v24trigger) > 0) {
-      /* Boxing Day Anomaly -- Bugfix */
-      if (cmp64(argp->bt.bnum, boxingday) == 0) {
-         if (memcmp(argp->bt.bhash, boxdayhash, 32) != 0) {
-            pdebug("init(): Boxing Day Anomaly Bhash Failure");
-             argp->tr = 0x0101; /* fail */
-         } else argp->tr = 0x0001; /* pass */
-      } else
-      if (peach_check(&(argp->bt))) argp->tr = 0x0101; /* fail */
-      else argp->tr = 0x0001; /* pass */
-   } else if (trigg_check(&(argp->bt))) argp->tr = 0x0101; /* fail */
-   else argp->tr = 0x0001; /* pass */
-
+   remove(fname);
+   args->tr = (res << 8) | 1;
    Unthread;
 }
 
@@ -119,245 +118,6 @@ int reset_chain(void)
    return VEOK;
 }  /* end reset_chain() */
 
-/**
- * @brief Validate a Trailer file.
- *
- * Validates a Trailer file at @a fname and returns the Trailer
- * file block number and accumulated weight values to the
- * @a *bnum and @a weight pointers, respectively.
- * @param fname filename of the trailer file
- * @param bnum pointer to 64-bit block number value, or `NULL`
- * @param weight pointer to a 256-bit weight value, or `NULL`
- * @param weight_only when set non-zero, indicates a "weight only"
- * trailer file validation (where POW validation is not required)
- * @returns Integer representing the result of the tfile validation.
- * @retval VEOK Tfile is valid
- * @retval 1-10 Tfile is invalid
- * @retval 100-199 I/O errors
- * @retval 200+ (200 + errno)
- * @note Additional error details are logged with perr().
- */
-int tf_val(char *fname, void *bnum, void *weight, int weight_only)
-{
-   ThreadId tid[THREADS_MAX] = { 0 };
-   TF_VAL_THREAD_ARGS targp[THREADS_MAX] = { 0 };
-   int tlen, tidx, tactive, tres;
-   float percent;
-   time_t start;
-   FILE *fp;
-   BTRAILER bt = { 0 };
-   word32 difficulty = 0;
-   word32 time1 = 0;
-   word32 stime;
-   word8 prevhash[HASHLEN];
-   word8 highweight[HASHLEN];  /* return value */
-   word8 highblock[8];         /* return value */
-   long filelen;
-   unsigned endblock;
-   int ecode, gblock;
-   char genfile[100];
-   word32 tcount;
-   static word32 tottrigger[2] = { V23TRIGGER, 0 };
-   static word32 v24trigger[2] = { V24TRIGGER, 0 };
-
-   /* Adding constants to skip validation on BoxingDay corrupt block
-    * provided the blockhash matches.  See "Boxing Day Anomaly" write
-    * up on the Wiki or on [ REDACTED ] for more details. */
-   static word32 boxingday[2] = { 0x52d3c, 0 };
-   static word8 boxdayhash[32] = {
-      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
-      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
-      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
-      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
-   };
-
-   ecode = 100;                 /* I/O high error code */
-   tidx = tactive = 0;
-   memset(highblock, 0, 8);       /* start from genesis block */
-   memset(highweight, 0, HASHLEN);
-   /* set ideal thread count for pow validation */
-   tlen = weight_only ? 0 : cpu_cores();
-
-   pdebug("Entering tf_val()");
-   show("tfval");
-
-   sprintf(genfile, "%s/b0000000000000000.bc", Bcdir);
-   /* get trailer from our Genesis Block */
-   if(readtrailer(&bt, genfile) != VEOK) goto tfval_end;  /* error 100 */
-   memcpy(prevhash, bt.bhash, HASHLEN);
-
-   fp = fopen(fname, "rb");
-   if(!fp) {
-      perr("tf_val(): Cannot open %s", fname);
-      ecode = 101;
-      goto tfval_end;
-   }
-
-   fseek(fp, 0, SEEK_END);
-   filelen = ftell(fp);
-   if((filelen % sizeof(BTRAILER)) != 0) {
-      fclose(fp);
-      ecode = 102;
-      goto tfval_end;
-   } else endblock = (unsigned) (filelen / sizeof(BTRAILER));
-   fseek(fp, 0, SEEK_SET);
-
-   /* Validate every block trailer in tfile and compute weight. */
-   for(time(&start), gblock = 1, ecode = 0; Running; gblock = ecode = 0) {
-      if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) {
-         /* check for I/O error */
-         if (ferror(fp)) break;
-      }
-
-      if (tlen > 0) {
-         do {  /* check threads ready for join */
-            for (tidx = 0; tidx < tlen && tidx < THREADS_MAX; tidx++) {
-               if (tid[tidx] > 0 && targp[tidx].tr) {
-                  tres = thread_join(tid[tidx]);
-                  if (tres != VEOK) {
-                     perrno(tres, "tf_val() failed to wait for thread");
-                  }  /* check thread status */
-                  if ((targp[tidx].tr >> 8) != VEOK) {
-                     perr("tf_val(0x%s) failed on POW validation",
-                        bnum2hex(targp[tidx].bt.bnum));
-                     /* wait for all threads to finish */
-                     thread_multijoin(tid, tlen);
-                     ecode = 9;
-                     break;
-                  }
-                  /* clear thread result/id, and reduce thread count */
-                  targp[tidx].tr = 0;
-                  tid[tidx] = 0;
-                  tactive--;
-               }
-            }
-            if (!Running || ecode) break;
-            /* wait for at least ONE (1) free thread, or all threads on EOF */
-         } while(tactive == tlen || (tactive && feof(fp)));
-      }
-
-      /* check for EOF or error */
-      if (feof(fp) || ecode) break;
-
-      if (bt.bnum[0] == 0 && endblock) {
-         percent = 100.0 * get32(bt.bnum) / endblock;
-         if (weight_only) {
-            psticky("Tfile check %.02f%% (0x%08x)", percent, get32(bt.bnum));
-         } else {
-            psticky("Validating Tfile %.2f%% (0x%08x) | Elapsed %gs",
-               percent, get32(bt.bnum), difftime(time(NULL), start));
-         }
-      }
-
-      tcount = get32(bt.tcount);
-
-      ecode++;
-      /* The Genesis Block is very special. 1 */
-      if(gblock) {
-         if(!iszero(&bt, (sizeof(BTRAILER) - HASHLEN))) break;
-         ecode++;  /* 2 */
-         if(memcmp(prevhash, bt.bhash, HASHLEN) != 0) break;
-         difficulty = 1;  /* difficulty of block one. */
-         goto next;
-      }
-      if(weight_only) goto skipval;
-
-      ecode = 3;
-      /* validate block trailer -- Mfee: 3 */
-      if(highblock[0] && tcount) {
-         if(cmp64(bt.mfee, Mfee) < 0) break;
-      } else if(!iszero(bt.mfee, 8)) break;  /* for NG block or P-block */
-
-      ecode++;  /* difficulty ecode = 4 */
-      if(get32(bt.difficulty) != difficulty) break;
-
-      ecode++;
-      /* check for early block time 5 */
-      stime = get32(bt.stime);
-      if(highblock[0]) {
-         if(stime <= time1) break;  /* unsigned time here */
-         ecode++;  /* future block time 6 */
-         if(stime > start && (stime - start) > BCONFREQ) break;
-      }
-      else if(stime != time1) break;  /* bad time for NG block */
-      ecode = 7;
-      /* bad block number 7 */
-      if(cmp64(highblock, bt.bnum) != 0) break;
-      ecode++;
-      /* bad previous hash 8 */
-      if(memcmp(prevhash, bt.phash, HASHLEN) != 0) break;
-      ecode++;
-      /* check enforced delay 9 */
-      if (get32(bt.bnum) > Trustblock) {
-         if(highblock[0] && tcount) {
-            if (tlen > 0) {  /* find free thread slot, allocate and continue */
-               for(tidx = 0; tidx < tlen && tidx < THREADS_MAX; tidx++) {
-                  if (!Running) break;
-                  if (tid[tidx]) continue;
-                  /* copy block trailer to thread arguments */
-                  memcpy(&(targp[tidx].bt), &bt, sizeof(bt));
-                  tres = thread_create(&tid[tidx], &thread_pow_val, &targp[tidx]);
-                  if (tres != VEOK) {
-                     tid[tidx--] = 0;
-                     if (Dynasleep) sleep(Dynasleep);
-                     perrno(tres, "tf_val() failed to create thread");
-                  } else {
-                     tactive++;
-                     break;
-                  }
-               }
-            } else {
-               /* v2.4 onwards uses peach, else trigg */
-               if (cmp64(bt.bnum, v24trigger) > 0) {
-                  /* Boxing Day Anomaly -- Bugfix */
-                  if(cmp64(bt.bnum, boxingday) == 0) {
-                     if(memcmp(bt.bhash, boxdayhash, 32) != 0) {
-                        pdebug("init(): Boxing Day Anomaly Bhash Failure");
-                        break;
-                     }
-                  } else
-                  /* check POW */
-                  if (peach_check(&bt)) break;
-               } else if(trigg_check(&bt)) break;
-            }
-         }
-      }
-      ecode = 10;
-      if(cmp64(highblock, tottrigger) > 0 &&
-        (highblock[0] != 0xfe && highblock[0] != 0xff && highblock[0] != 0)) {
-         if((word32) (stime - get32(bt.time0)) > BRIDGE) break;
-      }
-
-skipval:
-      /* update for next loop 11 */
-      time1 = get32(bt.stime);
-
-      /*
-       * Let the neo-genesis (not the 0xff) block change the
-       * difficulty for the next 0x01 block.
-       */
-      if(highblock[0] != 0xff) {
-         add_weight(highweight, difficulty, bt.bnum);
-         difficulty = set_difficulty(&bt);
-      }
-next:
-      /* set previous hash for next iteration */
-      memcpy(prevhash, bt.bhash, HASHLEN);
-      add64(highblock, One, highblock);  /* bnum in next trailer */
-   }  /* end for */
-   /* ensure all threads are finished */
-   if (tactive) thread_multijoin(tid, tlen);
-   sub64(highblock, One, bnum);     /* fix high block number */
-   memcpy(weight, highweight, HASHLEN);
-   fclose(fp);
-   pdebug("tf_val(): ecode = %d  bnum = 0x%s  weight = 0x...%x",
-                  ecode, bnum2hex(highblock), highweight[0]);
-tfval_end:
-   psticky("");
-   return ecode;
-}  /* end tf_val() */
-
-
 /* Delete all blocks above bc/matchblock.
  * Returns number of blocks deleted.
  */
@@ -378,36 +138,6 @@ int delete_blocks(word8 *matchblock)
 }
 
 
-int trim_tfile(word8 *highbnum)
-{
-   FILE *fp, *fpout;
-   BTRAILER bt;
-   word8 bnum[8], flag;
-
-   fp = fopen("tfile.dat", "rb");
-   if(!fp) return VERROR;
-   fpout = fopen("tfile.tmp", "wb");
-   if(!fpout) { fclose(fp);  return VERROR; }
-
-   put64(bnum, highbnum);
-   for(flag = 0; ; ) {
-      if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) break;
-      if(fwrite(&bt, 1, sizeof(BTRAILER), fpout) != sizeof(BTRAILER)) break;
-      flag = 1;
-      if(iszero(bnum, 8)) break;
-      sub64(bnum, One, bnum);
-   }
-   fclose(fpout);
-   fclose(fp);
-   if(iszero(bnum, 8) && flag != 0) {
-      unlink("tfile.dat");
-      return rename("tfile.tmp", "tfile.dat");  /* VEOK (0) on success */
-   }
-   perr("tfile(): flag = %d  bnum = 0x%s", flag, bnum2hex(bnum));
-   return VERROR;  /* non-zero -- fail */
-}  /* end trim_tfile() */
-
-
 /* Extract Genesis Block to ledger.dat */
 int extract_gen(char *lfile)
 {
@@ -418,144 +148,9 @@ int extract_gen(char *lfile)
    return le_extract(fname, lfile);
 }
 
-
-/* Integrate reward function from block 0 to block bnum.
- * Return result in sum.
- */
-word8 *get_treward(void *sum, void *bnum)
-{
-   word32 reward[2], bnum2[2];
-
-   put64(bnum2, bnum);
-   if(!iszero(bnum, 8)) {
-      for(memset(sum, 0, 8); ;) {
-         if(((word8 *) bnum2)[0]) {
-            get_mreward(reward, bnum2);
-            add64(sum, reward, sum);
-         }
-         if(sub64(bnum2, One, bnum2)) break;
-      }
-   }
-   return sum;
-}
-
-
-#define NGBUFFLEN (16*1024)
-#define NGERROR(e) { ecode = e; goto err; }
-
-/* Check NG block:
- * 1. check hash is good and == Cblockhash
- * 2. not too much in amounts
- * 3. block hash is in tfile.dat
- *
- * Return 0 if NG is good, else error code.
- * (reset_chain() has already been called to set Cblockhash.)
- */
-int check_ng(char *fname, word8 *bnum)
-{
-   static word32 premine[2]
-      = { 0xbd1a6400, 0x0010e686 };  /* 4757066000000000 */
-   static word32 tlen[2] = { sizeof(BTRAILER), 0 };
-   word8 sum[8], sum2[8], temp[8];
-   LENTRY le;
-   BTRAILER bt;
-   long toffset;
-   word8 chash[HASHLEN];
-   word8 bhash[HASHLEN];
-   word8 buff[NGBUFFLEN];
-   FILE *fp;
-   unsigned long len;
-   unsigned count, n;
-   SHA256_CTX cctx;
-   int ecode = 2;
-
-   fp = fopen(fname, "rb");
-   if(fp == NULL) return 1;
-   if(fseek(fp, 0, SEEK_END)) {
-err:
-      fclose(fp);
-      return ecode;
-   }
-   /* Read hash value in NG trailer */
-   len = ftell(fp);
-   if(len < (sizeof(BTRAILER) + sizeof(LENTRY))) NGERROR(3);
-   if(fseek(fp, -(HASHLEN), SEEK_END)) NGERROR(4);
-   if(fread(bhash, 1, HASHLEN, fp) != HASHLEN) NGERROR(5);
-   /* Compute NG block hash */
-   if(fseek(fp, 0, SEEK_SET)) NGERROR(6);
-   sha256_init(&cctx);
-   len -= HASHLEN;
-   n = NGBUFFLEN;
-   for( ; len; len -= count) {
-      if(len < NGBUFFLEN) n = len;
-      count = fread(buff, 1, n, fp);
-      if(count < 1) break;
-      sha256_update(&cctx, buff, count);
-   }
-   if(len) NGERROR(7);
-   sha256_final(&cctx, chash);
-   /* Check computed hash, chash, against hash from trailer, bhash. */
-   if(memcmp(chash, bhash, HASHLEN) != 0) NGERROR(8);
-   /* and the hash set by reset_chain(). */
-   if(memcmp(chash, Cblockhash, HASHLEN) != 0) NGERROR(9);
-
-   /* Compute total reward + premine into sum. */
-   get_treward(sum, bnum);
-   add64(premine, sum, sum);
-   pdebug("premine: %lu  0x%lx\n", *((long *) premine), *((long *) premine));
-   pdebug("sum:  %lu  0x%lx\n", *((long *) sum), *((long *) sum));
-   /* Check sum of amounts in NG ledger. */
-   fseek(fp, 4, SEEK_SET);
-   for(memset(sum2, 0, 8); ; ) {
-      if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY)) break;
-      /* add64(sum2, le.balance, sum2);
-      if(cmp64(sum2, sum) > 0) NGERROR(10); */
-   }
-   pdebug("sum2: %lu  0x%lx\n", *((long *) sum2), *((long *) sum2));
-   fclose(fp);
-
-   /* Now check bnum's hash in trailer in tfile.dat */
-   fp = fopen("tfile.dat", "rb");
-   if(fp == NULL) return 11;
-   put64(temp, bnum);
-   mult64(temp, tlen, temp);
-   if(sizeof(toffset) == 8) put64(&toffset, temp);
-   if(sizeof(toffset) != 8) *((word32 *) &toffset) = *((word32 *) temp);
-   if(fseek(fp, toffset, SEEK_SET)) NGERROR(12);
-   if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER))
-      NGERROR(13);
-   if(memcmp(bt.bhash, Cblockhash, HASHLEN) != 0) NGERROR(14);
-   fclose(fp);
-
-   return 0;  /* success */
-}  /* end check_ng() */
-
-ThreadProc thread_get_block(void *arg)
-{
-   BIP_THREAD_ARGS *args = (BIP_THREAD_ARGS *) arg;
-   char fname[FILENAME_MAX], fname2[FILENAME_MAX], bnumstr[24];
-   int res;
-
-   /* initialize */
-   sprintf(fname, "b%.16s.tmp", val2hex64(args->bnum, bnumstr));
-   sprintf(fname2, "b%.16s.dat", val2hex64(args->bnum, bnumstr));
-   res = get_file(args->ip, args->bnum, fname);
-   if (res == VEOK) {
-      res = rename(fname, fname2);
-      if (res != VEOK) {
-         perrno(res, "catchup(): failed to move %s -> %s", fname, fname2);
-         res = VERROR;
-      }
-   }
-
-   remove(fname);
-   args->tr = (res << 8) | 1;
-   Unthread;
-}
-
 /**
  * Catch up by getting blocks from peers in plist[count].
- * Returns VEOK if updates made, else update() error code. */
+ * Returns VEOK if updates made, else b_update() error code. */
 int catchup(word32 plist[], word32 count)
 {
    char fname[FILENAME_MAX], fname2[FILENAME_MAX], bnumstr[24];
@@ -619,7 +214,7 @@ int catchup(word32 plist[], word32 count)
          add64(Cblocknum, One, bnum);
          sprintf(fname2, "b%.16s.dat", val2hex64(bnum, bnumstr));
          if (fexists(fname2)) {
-            res = update(fname2, 0);
+            res = b_update(fname2, 0);
             if (res != VEOK) {
                perr("catchup(): failed to update block file %s", fname2);
                /* wait for all threads to finish and return res */
@@ -706,7 +301,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    show("checkneo");  /* check neo-genesis hash against Cblockhash */
    if(!iszero(bnum, 8)) {  /* Cblockhash was set by reset_chain() */
-      result = check_ng(fname, bnum);
+      result = ng_val(fname, bnum);
       if(result != 0) {
          plog("init(): Bad NG block! ecode: %d", result);
          remove(fname);
@@ -763,20 +358,10 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    Insyncup = 1;
    show("syncup");
-   if(Bcpid) { /* Wait for block constructor to exit... */
-      pdebug("syncup(): Waiting for bcon to exit...");
-      kill(Bcpid, SIGTERM);
-      waitpid(Bcpid, NULL, 0);
-      Bcpid = 0;
-   }
 
-   /* Stop sending update blocks, since we're behind */
-   if(Sendfound_pid) {
-      pdebug("syncup(): Killing send_found()...");
-      kill(Sendfound_pid, SIGTERM);
-      waitpid(Sendfound_pid, NULL, 0);
-      Sendfound_pid = 0;
-   }
+   /* Stop constructing and sending update blocks, since we're behind */
+   stop_bcon();
+   stop_found();
 
    /* Stop block transfer children and others */
    for(np2 = Nodes; np2 < Hi_node; np2++) {
@@ -788,7 +373,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    /* Close server ledger */	
    pdebug("syncup(): beginning state save...");
-   le_close(); 
+   le_close();
 
    /* Backup TFILE, Ledger, and blocks to split-tree directory. */
    /* system("mkdir split"); * already exists */
@@ -840,7 +425,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
                      bnum2hex(bnum));
       sprintf(buff, "cp split/b%s.bc spblock.tmp", bnum2hex(bnum));
       system(buff);
-      if(update("spblock.tmp", 1) != VEOK) {
+      if(b_update("spblock.tmp", 1) != VEOK) {
          pdebug("syncup(): failed to update our own block.");
          goto badsyncup;
       }
@@ -866,7 +451,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
          j++;  /* retry counter */
          continue;
       }
-      if(update(buff, 0) != VEOK) {
+      if(b_update(buff, 0) != VEOK) {
          pdebug("syncup(): cannot update peer's block.");
          goto badsyncup;
       }
@@ -896,6 +481,59 @@ badsyncup:
    Insyncup = 0;
    return VEOK;
 }  /* end syncup() */
+
+/* Handle contention
+ * Returns:  0 = nothing else to do
+ *           1 = do fetch block with child
+ */
+int contention(NODE *np)
+{
+   word32 splitblock;
+   TX *tx;
+   word32 j;
+   int result;
+   BTRAILER *bt;
+
+   pdebug("contention(): IP: %s", ntoa(&np->ip, NULL));
+
+   tx = &np->tx;
+   /* ignore low weight */
+   if(cmp256(tx->weight, Weight) <= 0) {
+      pdebug("contention(): Ignoring low weight");
+      return 0;
+   }
+   /* ignore NG blocks */
+   if(tx->cblock[0] == 0) {
+      epinklist(np->ip);
+      return 0;
+   }
+
+   if(memcmp(Cblockhash, tx->pblockhash, HASHLEN) == 0) {
+      pdebug("contention(): get the expected block");
+      return 1;  /* get block */
+   }
+
+   /* Try to do a simple catchup() of more than 1 block on our own chain. */
+   j = get32(tx->cblock) - get32(Cblocknum);
+   if(j > 1 && j <= NTFTX) {
+        bt = (BTRAILER *) TRANBUFF(tx);  /* top of tx proof array */
+        /* Check for matching previous hash in the array. */
+        if(memcmp(Cblockhash, bt[NTFTX - j].phash, HASHLEN) == 0) {
+           result = catchup(&np->ip, 1);
+           if(result == VEOK) goto done;  /* we updated */
+           if(result == VEBAD) return 0;  /* EVIL: ignore bad bval2() */
+        }
+   }
+   /* Catchup failed so check the tx proof and chain weight. */
+   if(checkproof(tx, &splitblock) != VEOK) return 0;  /* ignore bad proof */
+   /* Proof is good so try to re-sync to peer */
+   if(syncup(splitblock, tx->cblock, np->ip) != VEOK) return 0;
+done:
+   /* send_found on good catchup or syncup */
+   send_found();  /* start send_found() child */
+   addrecent(np->ip);
+   return 0;  /* nothing else to do */
+}  /* end contention() */
 
 /* end include guard */
 #endif

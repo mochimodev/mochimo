@@ -11,7 +11,9 @@
 
 
 #include "trigg.h"
-#include <string.h>  /* for memory handling */
+
+/* external support */
+#include <string.h>
 
 /**
  * @private

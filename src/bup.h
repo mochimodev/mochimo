@@ -1,26 +1,21 @@
 /**
- * @file bval.h
- * @brief Mochimo block validation support.
+ * @file bup.h
+ * @brief Mochimo block update support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
-#ifndef MOCHIMO_BVAL_H
-#define MOCHIMO_BVAL_H
+#ifndef MOCHIMO_BUP_H
+#define MOCHIMO_BUP_H
 
-
-/* internal support */
-#include "types.h"
 
 /* C/C++ compatible prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int p_val(char *fname);
-int ng_val(char *fname, word8 *bnum);
-int b_val(char *fname);
+int b_update(char *fname, int mode);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus

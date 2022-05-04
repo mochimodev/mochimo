@@ -1,11 +1,207 @@
-/* mirror.c  Transaction mirroring.
- *
- * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
- * See LICENSE.PDF   **** NO WARRANTY ****
- *
- * Date: 13 May 2018
+/**
+ * @private
+ * @headerfile tx.h <tx.h>
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
 */
 
+/* include guard */
+#ifndef MOCHIMO_TX_C
+#define MOCHIMO_TX_C
+
+
+#include "tx.h"
+
+/* internal support */
+#include "wots.h"
+#include "util.h"
+#include "trigg.h"
+#include "tag.h"
+#include "peach.h"
+#include "ledger.h"
+#include "global.h"
+
+/* external support */
+#include <sys/wait.h>
+#include "extmath.h"
+#include "extlib.h"
+#include <errno.h>
+#include "crc16.h"
+
+/* Validates a multi-dst transaction MTX.
+ * (Does all tag checking as well.)
+ * tx->src_addr is already checked in ledger.dat and totals tally.
+ * tx_val() sets fee parameter to Myfee and bval.c sets fee to Mfee.
+ * Returns 0 on valid, else error code.
+ */
+int mtx_val(MTX *mtx, word32 *fee)
+{
+   int j, message;
+   word8 total[8], mfees[8], *bp, *limit;
+   static word8 addr[TXADDRLEN];
+
+   limit = &mtx->zeros[0];
+
+   /* Check that src and chg have tags.
+    * Check that src and chg have same tag.
+    * tx_val() or bval.c has already checked src != chg, src exists,
+    *   sig is good, and totals are good.
+    */
+   if(!ADDR_HAS_TAG(mtx->src_addr)) BAIL(1);
+   if(memcmp(ADDR_TAG_PTR(mtx->src_addr),
+             ADDR_TAG_PTR(mtx->chg_addr), TXTAGLEN) != 0) BAIL(2);
+   if(cmp64(mtx->change_total, Mfee) <= 0) BAIL(3);
+
+   memset(total, 0, 8);
+   memset(mfees, 0, 8);
+   /* Tally each dst[] amount and mfees... */
+   for(j = 0; j < MDST_NUM_DST; j++) {
+      /* zero dst[] tag marks end of list.  */
+      if(iszero(mtx->dst[j].tag, TXTAGLEN)) {
+         for(bp = mtx->dst[j].amount; bp < limit; bp++) {
+            if(*bp) BAIL(4);  /* Check that rest of dst[] list is zeros. */
+         }
+         break;
+      }
+      if(iszero(mtx->dst[j].amount, 8)) BAIL(5);  /* bad send amount */
+      /* no dst to src */
+      if(memcmp(mtx->dst[j].tag,
+                ADDR_TAG_PTR(mtx->src_addr), TXTAGLEN) == 0) BAIL(6);
+      /* tally fees and send_total */
+      if(add64(total, mtx->dst[j].amount, total)) BAIL(7);
+      if(add64(mfees, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
+      if(get32(Cblocknum) >= MTXTRIGGER) {
+         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
+         mtx->zeros[j] = 0;
+         /* If dst[j] tag not found, put error code in zeros[] array. */
+         if(tag_find(addr, NULL, NULL, TXTAGLEN) != VEOK) mtx->zeros[j] = 1;
+      }
+   }  /* end for j */
+   /* Check tallies... */
+   if(cmp64(total, mtx->send_total) != 0) BAIL(9);
+   if(cmp64(mtx->tx_fee, mfees) < 0) BAIL(10);
+   return 0;  /* valid */
+bail:
+   if(message && Trace) plog("mtx_val(): %d", message);
+   return message;  /* bad */
+}  /* end mtx_val() */
+
+/* Validate a transaction against ledger
+ *
+ * Returns: 0 if vaild (accept)
+ *          1 if server error (drop)
+ *          2 or 3 if evil    (drop)
+ */
+int tx_val(TX *tx)
+{
+   int cond;
+   static LENTRY src_le;            /* source ledger entry */
+   word32 total[2];                 /* for 64-bit maths */
+   static word8 message[HASHLEN];    /* transaction hash for WOTS */
+   static word8 pk2[WOTSSIGBYTES];   /* more WOTS */
+   static word8 rnd2[32];            /* for WOTS addr[] */
+   MTX *mtx;
+   static TX txs;
+
+   if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
+      pdebug("tx_val(): src == chg");  /* also mtx */
+      return 2;
+   }
+
+   if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0) {
+      pdebug("tx_val(): src == dst");
+      return 2;
+   }
+
+   /* validate transaction fixed fee */
+   if(cmp64(tx->tx_fee, Mfee) < 0) {
+      pdebug("tx_val(): bad mining fee");
+      return 2;
+   }
+   /* validate my fee */
+   if(cmp64(tx->tx_fee, Myfee) < 0) {
+      pdebug("tx_val(): fee < %u", Myfee[0]);
+      return 1;
+   }
+
+   /* check WTOS signature */
+   if(TX_IS_MTX(tx) && get32(Cblocknum) >= MTXTRIGGER) {
+      memcpy(&txs, tx, sizeof(txs));
+      mtx = (MTX *) TRANBUFF(&txs);  /* poor man's union */
+      memset(mtx->zeros, 0, MDST_NUM_DZEROS);
+      sha256(txs.src_addr, TXSIG_INLEN, message);
+   } else {
+      sha256(tx->src_addr, TXSIG_INLEN, message);
+   }
+
+   memcpy(rnd2, &tx->src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
+   wots_pk_from_sig(pk2, tx->tx_sig, message, &tx->src_addr[TXSIGLEN],
+                    (word32 *) rnd2);
+   if(memcmp(pk2, tx->src_addr, TXSIGLEN) != 0) {
+      plog("tx_val(): WOTS signature failed!");
+      return 3;
+   }
+
+   /* look up source address in ledger */
+   if(le_find(tx->src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
+      pdebug("tx_val(): src_addr not in ledger");
+      return 1;
+   }
+   total[0] = total[1] = 0;
+   /* use add64() to check for overflow */
+   cond =  add64(tx->send_total, tx->change_total, total);
+   cond += add64(tx->tx_fee, total, total);
+   if(cond) {
+      plog("tx_val(): TX amount overflow");
+      return 2;
+   }
+   if(cmp64(src_le.balance, total) != 0) {
+      pdebug("tx_val(): bad transaction total != src_le.balance");
+      return 1;
+   }
+   if(TX_IS_MTX(tx)) {
+      mtx = (MTX *) TRANBUFF(tx);  /* poor man's union */
+      if(mtx_val(mtx, Myfee)) return 1;  /* bad mtx */
+   } else {
+      if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr,
+                   NULL) != VEOK) return 1;  /* bad tag */
+   }
+   return 0;  /* tx valid */
+}  /* end tx_val() */
+
+/* Search txq1.dat and txclean.dat for src_addr.
+ * Return VEOK if the src_addr is not found, otherwise VERROR.
+ */
+int txcheck(word8 *src_addr)
+{
+   FILE *fp;
+   TXQENTRY tx;
+
+   fp = fopen("txq1.dat", "rb");
+   if(fp != NULL) {
+      for(;;) {
+         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
+         if(memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+            fclose(fp);
+            return VERROR;  /* found */
+         }
+      }  /* end for */
+      fclose(fp);
+   }  /* end if fp */
+
+   fp = fopen("txclean.dat", "rb");
+   if(fp != NULL) {
+      for(;;) {
+         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
+         if(memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+            fclose(fp);
+            return VERROR;  /* found */
+         }
+      }  /* end for */
+      fclose(fp);
+   }  /* end if fp */
+   return VEOK;  /* src_addr not found */
+}  /* end txcheck() */
 
 /* Add src_ip to tx address map (weight[])
  * Called from process_tx()
@@ -94,11 +290,6 @@ pid_t mgc(word32 ip)
    exit(0);
 }  /* end mgc() */
 
-
-#if CPLISTLEN > RPLISTLEN
-error fix CPLISTLEN: It must be <= RPLISTLEN
-#endif
-
 /* Send tx to all current or recent peers on iplist.
  * Called from server()       --  becomes child
  */
@@ -129,7 +320,7 @@ pid_t mirror1(word32 *iplist, int len)
 
    /* while Running, wait for grandchildren to finish. */
    while(Running) {
-      busy = FALSE;
+      busy = 0;
       for(j = 0; j < len; j++) {
          if(peer[j] == 0) continue;
          pid = waitpid(peer[j], NULL, WNOHANG);
@@ -167,18 +358,6 @@ pid_t mirror(void)
 
    return mirror1(Splist, num);
 }
-
-
-/* kill mirror() children and grandchildren */
-void stop_mirror(void)
-{
-   if(Mqpid) {
-      pdebug("   Reaping mirror() zombies...");
-      kill(Mqpid, SIGTERM);
-      waitpid(Mqpid, NULL, 0);
-      Mqpid = 0;
-   }
-}  /* end stop_mirror() */
 
 
 /* Called by gettx()  -- in parent
@@ -264,3 +443,6 @@ int process_tx(NODE *np)
    pdebug("process_tx(): done %d", ecode);
    return ecode;
 }  /* end process_tx() */
+
+/* end include guard */
+#endif

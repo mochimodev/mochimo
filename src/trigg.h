@@ -21,10 +21,13 @@
 #define MOCHIMO_TRIGG_H
 
 
-#include "extint.h"  /* for word types */
-#include "extlib.h"  /* for rand16() */
-#include "types.h"   /* for Mochimo types */
+/* internal support */
+#include "types.h"
+
+/* external support */
 #include "sha256.h"
+#include "extlib.h"
+#include "extint.h"
 
 /* The features for the semantic grammar are
  * adapted from systemic grammar (Winograd, 1972). */

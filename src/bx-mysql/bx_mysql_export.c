@@ -24,7 +24,7 @@ word8 Monitor;
 word8 Running = 1;
 word32 Trace = 1;
 word32 Nsolved;
-pid_t Mpid, Sendfound_pid;  /* in error.c */
+pid_t Mpid, Found_pid;  /* in error.c */
 
 #include "../algo/peach/peach.c"
 

@@ -1,350 +1,104 @@
 /**
  * @private
- * @headerfile validate.h <validate.h>
+ * @headerfile bval.h <bval.h>
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
-#ifndef MOCHIMO_VALIDATE_C
-#define MOCHIMO_VALIDATE_C
+#ifndef MOCHIMO_BVAL_C
+#define MOCHIMO_BVAL_C
 
 
-#include "validate.h"
+#include "bval.h"
 
-/* system support */
-#include <errno.h>
-
-/* extended-c support */
-#include "extlib.h"     /* general support */
-#include "extmath.h"    /* 64-bit math support */
-
-/* crypto support */
-#include "crc16.h"
-
-/* algo support */
-#include "peach.h"
-#include "trigg.h"
+/* internal support */
 #include "wots.h"
+#include "util.h"
+#include "tx.h"
+#include "trigg.h"
+#include "tag.h"
+#include "peach.h"
+#include "ledger.h"
+#include "global.h"
 
-/* mochimo support */
-#include "config.h"
-#include "data.c"
-#include "util.c"
-#include "ledger.c"
-
-/* validation error MACROs */
-
-/**
- * Validation error code. Sets @a ecode to given value and jumps to label.
- * Example: @code vEcode(FAIL_LABEL, VETIMEOUT); @endcode
- * @param _lbl Label to jump to
- * @param _e Error code to set ecode to
-*/
-#define vEcode(_lbl, _e)   { ecode = _e; goto _lbl; }
+/* external support */
+#include <string.h>
+#include <stdlib.h>
+#include "sha256.h"
+#include "extprint.h"
+#include "extmath.h"
 
 /**
- * Validation protocol violation. Calls perr(...) with variable arguments,
- * sets @a ecode to VEBAD2 (indicating that a peer is in violation of
- * protocol and may need pinklisting), and jumps to label.
- * Example: @code vEdrop(FAIL_LABEL, "Violation of protocol"); @endcode
- * @param _lbl Label to jump to
- * @param ... arguments passed to perr()
+ * Validate a pseudo-block against current node state. Uses node state
+ * (Cblocknum, Cblockhash, Difficulty, Time0).
+ * @returns VEOK on success, else error code
 */
-#define vEdrop(_lbl, ...)  { perr(__VA_ARGS__); vEcode(_lbl, VEBAD2); }
-
-/**
- * Validation error w/ error number. Calls perrno(...) with variable
- * arguments, sets @a ecode to VERROR, and jumps to label.
- * Example: @code vErrno(FAIL_LABEL, errno, "Failure message"); @endcode
- * @param _lbl Label to jump to
- * @param ... arguments passed to perr()
-*/
-#define vErrno(_lbl, ...)  vEcode(_lbl, perrno(__VA_ARGS__));
-
-/**
- * Validation error. Calls perr(...) with variable arguments, sets
- * @a ecode to VERROR, and jumps to label.
- * Example: @code vError(FAIL_LABEL, "Failure message"); @endcode
- * @param _lbl Label to jump to
- * @param ... arguments passed to perr()
-*/
-#define vError(_lbl, ...)  vEcode(_lbl, perr(__VA_ARGS__));
-
-
-#define BAIL(m) { message = m; goto bail; }
-
-/* Validates a multi-dst transaction MTX.
- * (Does all tag checking as well.)
- * tx->src_addr is already checked in ledger.dat and totals tally.
- * tx_val() sets fee parameter to Myfee and bval.c sets fee to Mfee.
- * Returns 0 on valid, else error code.
- */
-int mtx_val(MTX *mtx, word32 *fee)
-{
-   int j, message;
-   word8 total[8], mfees[8], *bp, *limit;
-   static word8 addr[TXADDRLEN];
-
-   limit = &mtx->zeros[0];
-
-   /* Check that src and chg have tags.
-    * Check that src and chg have same tag.
-    * tx_val() or bval.c has already checked src != chg, src exists,
-    *   sig is good, and totals are good.
-    */
-   if(!ADDR_HAS_TAG(mtx->src_addr)) BAIL(1);
-   if(memcmp(ADDR_TAG_PTR(mtx->src_addr),
-             ADDR_TAG_PTR(mtx->chg_addr), TXTAGLEN) != 0) BAIL(2);
-   if(cmp64(mtx->change_total, Mfee) <= 0) BAIL(3);
-
-   memset(total, 0, 8);
-   memset(mfees, 0, 8);
-   /* Tally each dst[] amount and mfees... */
-   for(j = 0; j < MDST_NUM_DST; j++) {
-      /* zero dst[] tag marks end of list.  */
-      if(iszero(mtx->dst[j].tag, TXTAGLEN)) {
-         for(bp = mtx->dst[j].amount; bp < limit; bp++) {
-            if(*bp) BAIL(4);  /* Check that rest of dst[] list is zeros. */
-         }
-         break;
-      }
-      if(iszero(mtx->dst[j].amount, 8)) BAIL(5);  /* bad send amount */
-      /* no dst to src */
-      if(memcmp(mtx->dst[j].tag,
-                ADDR_TAG_PTR(mtx->src_addr), TXTAGLEN) == 0) BAIL(6);
-      /* tally fees and send_total */
-      if(add64(total, mtx->dst[j].amount, total)) BAIL(7);
-      if(add64(mfees, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
-      if(get32(Cblocknum) >= MTXTRIGGER) {
-         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
-         mtx->zeros[j] = 0;
-         /* If dst[j] tag not found, put error code in zeros[] array. */
-         if(tag_find(addr, NULL, NULL, TXTAGLEN) != VEOK) mtx->zeros[j] = 1;
-      }
-   }  /* end for j */
-   /* Check tallies... */
-   if(cmp64(total, mtx->send_total) != 0) BAIL(9);
-   if(cmp64(mtx->tx_fee, mfees) < 0) BAIL(10);
-   return 0;  /* valid */
-bail:
-   if(message && Trace) plog("mtx_val(): %d", message);
-   return message;  /* bad */
-}  /* end mtx_val() */
-
-
-/* Validate TX address tags.
- * If called from tx_val(), bnum is NULL in order to check
- * queues, txq1.dat and txclean.dat, and always do dst check.
- * When called from bval.c, bnum is not NULL and is checked
- * against tagval_trigger in order to do dst check.
- * Return VEOK if tags are valid, else VERROR to reject TX.
- */
-int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
-{
-   LENTRY le;
-   static word32 tagval_trigger[2] = { RTRIGGER31, 0 };  /* For v2.0 */
-
-   if(bnum == NULL || cmp64(bnum, tagval_trigger) >= 0) {
-      /* Do below check on or after block 17185 when called
-       * from bval().  If called from tx_val(), always perform
-       * check.  src_addr was already found in ledger.dat and dup
-       * already checked by txval or bval.
-       *
-       * Check dst_addr.  If no dst_tag, dst_addr is valid:
-       */
-
-      if(ADDR_HAS_TAG(dst_addr)) {
-         /* If there is a dst_tag, and its full address is not
-          * already in ledger.dat, tx is not valid.
-          */
-         if(le_find(dst_addr, &le, NULL, TXADDRLEN) == FALSE) {
-            plog("DST_ADDR Tagged, but Tag is not in ledger!");
-            goto bad;
-         }
-      }
-   }  /* end if dst tag check */
-   /* If no change tag, tx is valid. */
-   if(!ADDR_HAS_TAG(chg_addr)) return VEOK;
-   /* If src and chg tags are the same, tx is valid (transfer). */
-   if(memcmp(ADDR_TAG_PTR(src_addr),
-             ADDR_TAG_PTR(chg_addr), TXTAGLEN) == 0) goto good;
-
-   /* If tags are not the same and the src is not default, tx invalid. */
-   if(ADDR_HAS_TAG(src_addr)) {
-      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!");
-      goto bad;
-   }
-   /* Otherwise, check all queues and ledger.dat for change tag.
-    * First, if change tag is in ledger.dat, tx is invalid.
-    */
-   if(tag_find(chg_addr, NULL, NULL, TXTAGLEN) == VEOK) {
-      plog("New CHG_TAG Already Exists in Ledger!");
-      goto bad;
-   }
-   if(bnum == NULL) {
-      /* If called from tx_val(),
-       * and if tag is in txq1.dat or txclean.dat, tx is invalid.
-       */
-      if(tag_qfind(chg_addr) == VEOK) {
-         plog("Tag is already in queue");
-         goto bad;
-      }
-   }
-   pdebug("Tag created");
-   return VEOK;  /* If we get here, a new TX change tag gets created. */
-good:
-   pdebug("Tag moved");
-   return VEOK;
-bad:
-   pdebug("Tag rejected");
-   return VERROR;
-}  /* end tag_valid() */
-
-/* Validate a transaction against ledger
- *
- * Returns: 0 if vaild (accept)
- *          1 if server error (drop)
- *          2 or 3 if evil    (drop)
- */
-int tx_val(TX *tx)
-{
-   int cond;
-   static LENTRY src_le;            /* source ledger entry */
-   word32 total[2];                 /* for 64-bit maths */
-   static word8 message[HASHLEN];    /* transaction hash for WOTS */
-   static word8 pk2[TXSIGLEN];       /* more WOTS */
-   static word8 rnd2[32];            /* for WOTS addr[] */
-   MTX *mtx;
-   static TX txs;
-
-   if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
-      pdebug("tx_val(): src == chg");  /* also mtx */
-      return 2;
-   }
-
-   if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0) {
-      pdebug("tx_val(): src == dst");
-      return 2;
-   }
-
-   /* validate transaction fixed fee */
-   if(cmp64(tx->tx_fee, Mfee) < 0) {
-      pdebug("tx_val(): bad mining fee");
-      return 2;
-   }
-   /* validate my fee */
-   if(cmp64(tx->tx_fee, Myfee) < 0) {
-      pdebug("tx_val(): fee < %u", Myfee[0]);
-      return 1;
-   }
-
-   /* check WTOS signature */
-   if(TX_IS_MTX(tx) && get32(Cblocknum) >= MTXTRIGGER) {
-      memcpy(&txs, tx, sizeof(txs));
-      mtx = (MTX *) TRANBUFF(&txs);  /* poor man's union */
-      memset(mtx->zeros, 0, MDST_NUM_DZEROS);
-      sha256(txs.src_addr, TXSIGHASH_COUNT, message);
-   } else {
-      sha256(tx->src_addr, TXSIGHASH_COUNT, message);
-   }
-
-   memcpy(rnd2, &tx->src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
-   wots_pk_from_sig(pk2, tx->tx_sig, message, &tx->src_addr[TXSIGLEN],
-                    (word32 *) rnd2);
-   if(memcmp(pk2, tx->src_addr, TXSIGLEN) != 0) {
-      plog("tx_val(): WOTS signature failed!");
-      return 3;
-   }
-
-   /* look up source address in ledger */
-   if(le_find(tx->src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
-      pdebug("tx_val(): src_addr not in ledger");
-      return 1;
-   }
-   total[0] = total[1] = 0;
-   /* use add64() to check for overflow */
-   cond =  add64(tx->send_total, tx->change_total, total);
-   cond += add64(tx->tx_fee, total, total);
-   if(cond) {
-      plog("tx_val(): TX amount overflow");
-      return 2;
-   }
-   if(cmp64(src_le.balance, total) != 0) {
-      pdebug("tx_val(): bad transaction total != src_le.balance");
-      return 1;
-   }
-   if(TX_IS_MTX(tx)) {
-      mtx = (MTX *) TRANBUFF(tx);  /* poor man's union */
-      if(mtx_val(mtx, Myfee)) return 1;  /* bad mtx */
-   } else {
-      if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr,
-                   NULL) != VEOK) return 1;  /* bad tag */
-   }
-   return 0;  /* tx valid */
-}  /* end tx_val() */
-
-/* Validate a pseudo-block -- Called from update() */
 int p_val(char *fname)
 {
    BTRAILER bt;
    SHA256_CTX ctx;
-   word8 hash[HASHLEN];
-   word32 hdrlen, bnum[2];
-   int ecode;
    FILE *fp;
-   clock_t ticks; /* for function execution time */
+   clock_t ticks;
+   long plen;
+   word32 hdrlen, bnum[2];
+   word8 hash[HASHLEN];
+   int ecode;
 
    /* init */
    ticks = clock();
-   pdebug("p_val(%s): entering...", fname);
+
+   pdebug("p_val(): validating pseudo-block...");
 
    /* open the pseudo-block to validate */
    fp = fopen(fname, "rb");
-   if (fp == NULL) vError(FAIL, "p_val(): cannot open %s", fname);
+   if (fp == NULL) mErrno(FAIL, "p_val(): failed to fopen(%s)", fname);
    /* read and check regular fixed size block header */
    if (fread(&hdrlen, 4, 1, fp) != 1) {
-      vError(FAIL_IO, "p_val(): failed to fread(hdrlen)");
+      mError(FAIL_IO, "p_val(): failed to fread(hdrlen)");
    } else if (hdrlen != 4) {
-      vEdrop(FAIL_IO, "p_val(): bad hdrlen size: %" P32u, hdrlen);
+      mEdrop(FAIL_IO, "p_val(): bad hdrlen size: %" P32u, hdrlen);
    }
 
-   /* compute block file length */
-   ecode = fseek(fp, 0, SEEK_END);
-   if (ecode) vErrno(FAIL_IO, ecode, "p_val(): failed to fseek(END)");
-   if (ftell(fp) != sizeof(BTRAILER) + 4) {
-      vError(FAIL_IO, "p_val(): failed on ftell(fp)");
+   /* fseek to check pseudo-block file length */
+   if (fseek(fp, 0, SEEK_END) != 0) {
+      mErrno(FAIL_IO, "p_val(): failed to fseek(END)");
+   }
+   plen = ftell(fp);
+   if (plen == EOF) mErrno(FAIL_IO, "p_val(): failed to ftell(fp)");
+   if (plen != sizeof(BTRAILER) + 4) {
+      mError(FAIL_IO, "p_val(): invalid pseudo-block length: %ld", plen);
    }
 
    /* read trailer */
-   ecode = fseek(fp, -(sizeof(BTRAILER)), SEEK_END);
-   if (ecode) vErrno(FAIL_IO, ecode, "p_val(): failed on fseek(-BTRAILER)");
-   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
-      vError(FAIL_IO, "p_val(): failed to fread(bt)");
+   if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
+      mErrno(FAIL_IO, "p_val(): failed on fseek(END-BTRAILER)");
+   } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+      mError(FAIL_IO, "p_val(): failed to fread(bt)");
    }
 
    /* check zeros */
-   if (get32(bt.tcount) != 0) vEdrop(FAIL_IO, "p_val(): bad tcount");
-   if (!iszero(bt.mroot, 32)) vEdrop(FAIL_IO, "p_val(): bad merkel array");
-   if (!iszero(bt.nonce, 32)) vEdrop(FAIL_IO, "p_val(): bad nonce");
+   if (get32(bt.tcount) != 0) mEdrop(FAIL_IO, "p_val(): bad tcount");
+   if (!iszero(bt.mroot, 32)) mEdrop(FAIL_IO, "p_val(): bad merkel array");
+   if (!iszero(bt.nonce, 32)) mEdrop(FAIL_IO, "p_val(): bad nonce");
 
    /* check block num, hash, and difficulty */
    add64(Cblocknum, One, bnum);
    if (cmp64(bt.bnum, bnum) != 0) {
-      vEdrop(FAIL_IO, "p_val(): bad block number");
+      mEdrop(FAIL_IO, "p_val(): bad block number");
    } else if (memcmp(bt.phash, Cblockhash, HASHLEN) != 0) {
-      vEdrop(FAIL_IO, "p_val(): previous block hash mismatch");
+      mEdrop(FAIL_IO, "p_val(): previous block hash mismatch");
    } else if (get32(bt.difficulty) != Difficulty) {
-      vEdrop(FAIL_IO, "p_val(): bad difficulty");
-   } 
+      mEdrop(FAIL_IO, "p_val(): bad difficulty");
+   }
 
    /* check block times */
    if (get32(bt.time0) != Time0) {
-      vEdrop(FAIL_IO, "p_val(): bad start time (time0)");
+      mEdrop(FAIL_IO, "p_val(): bad start time (time0)");
    } else if (get32(bt.stime) != Time0 + BRIDGE) {
-      vEdrop(FAIL_IO, "p_val(): bad bridge time (stime)");
+      mEdrop(FAIL_IO, "p_val(): bad bridge time (stime)");
    } else if (!iszero(bt.mfee, 8)) {
-      vEdrop(FAIL_IO, "p_val(): bad mining fee");
+      mEdrop(FAIL_IO, "p_val(): bad mining fee");
    }
 
    /* compute and check block hash */
@@ -353,18 +107,14 @@ int p_val(char *fname)
    sha256_update(&ctx, &bt, sizeof(bt) - HASHLEN);
    sha256_final(&ctx, hash);
    if (memcmp(bt.bhash, hash, HASHLEN) != 0) {
-      vEdrop(FAIL_IO, "p_val(): bad block hash");
+      mEdrop(FAIL_IO, "p_val(): bad block hash");
    }
 
-   remove("ublock.dat");
-   if (rename(fname, "ublock.dat") != 0) {
-      vError(FAIL_IO, "p_val(): failed to move %s to ublock.dat", fname);
-   }
+   pdebug("p_val(): completed in %gs", diffclocktime(clock(), ticks));
 
-   ecode = VEOK; /* success */
-   pdebug("p_val(): completed in %u ticks.", (word32) (clock() - ticks));
+   ecode = VEOK;  /* success */
 
-   /* cleanup - error handling */
+   /* cleanup / error handling */
 FAIL_IO:
    fclose(fp);
 FAIL:
@@ -372,16 +122,118 @@ FAIL:
    return ecode;
 }  /* end p_val() */
 
+#define NGBUFFLEN (16*1024)
+#define NGERROR(e) { ecode = e; goto err; }
+
 /**
- * Validate a blockchain file, as the next block, according to node state.
- * @param fname Name of blockchain file to validate
- * @param vfname If not NULL, renames @a fname to this filename on success
+ * Validate a neogenesis block file.
+ * Check NG block:
+ * 1. check hash is good and == Cblockhash
+ * 2. not too much in amounts
+ * 3. block hash is in tfile.dat
+ *
+ * Return 0 if NG is good, else error code.
+ * (reset_chain() has already been called to set Cblockhash.)
+ */
+int ng_val(char *fname, word8 *bnum)
+{
+   static word32 premine[2]
+      = { 0xbd1a6400, 0x0010e686 };  /* 4757066000000000 */
+   static word32 tlen[2] = { sizeof(BTRAILER), 0 };
+
+   word32 reward[2], bnum2[2];
+   word8 sum[8], sum2[8], temp[8];
+   LENTRY le;
+   BTRAILER bt;
+   long toffset;
+   word8 chash[HASHLEN];
+   word8 bhash[HASHLEN];
+   word8 buff[NGBUFFLEN];
+   FILE *fp;
+   unsigned long len;
+   unsigned count, n;
+   SHA256_CTX cctx;
+   int ecode = 2;
+
+   fp = fopen(fname, "rb");
+   if(fp == NULL) return 1;
+   if(fseek(fp, 0, SEEK_END)) {
+err:
+      fclose(fp);
+      return ecode;
+   }
+   /* Read hash value in NG trailer */
+   len = ftell(fp);
+   if(len < (sizeof(BTRAILER) + sizeof(LENTRY))) NGERROR(3);
+   if(fseek(fp, -(HASHLEN), SEEK_END)) NGERROR(4);
+   if(fread(bhash, 1, HASHLEN, fp) != HASHLEN) NGERROR(5);
+   /* Compute NG block hash */
+   if(fseek(fp, 0, SEEK_SET)) NGERROR(6);
+   sha256_init(&cctx);
+   len -= HASHLEN;
+   n = NGBUFFLEN;
+   for( ; len; len -= count) {
+      if(len < NGBUFFLEN) n = len;
+      count = fread(buff, 1, n, fp);
+      if(count < 1) break;
+      sha256_update(&cctx, buff, count);
+   }
+   if(len) NGERROR(7);
+   sha256_final(&cctx, chash);
+   /* Check computed hash, chash, against hash from trailer, bhash. */
+   if(memcmp(chash, bhash, HASHLEN) != 0) NGERROR(8);
+   /* and the hash set by reset_chain(). */
+   if(memcmp(chash, Cblockhash, HASHLEN) != 0) NGERROR(9);
+
+   /* Compute total reward + premine into sum. */
+   put64(bnum2, bnum);
+   if(!iszero(bnum, 8)) {
+      for(memset(sum, 0, 8); ;) {
+         if(((word8 *) bnum2)[0]) {
+            get_mreward(reward, bnum2);
+            add64(sum, reward, sum);
+         }
+         if(sub64(bnum2, One, bnum2)) break;
+      }
+   }
+   add64(premine, sum, sum);
+   pdebug("premine: %lu  0x%lx\n", *((long *) premine), *((long *) premine));
+   pdebug("sum:  %lu  0x%lx\n", *((long *) sum), *((long *) sum));
+   /* Check sum of amounts in NG ledger. */
+   fseek(fp, 4, SEEK_SET);
+   for(memset(sum2, 0, 8); ; ) {
+      if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY)) break;
+      /* add64(sum2, le.balance, sum2);
+      if(cmp64(sum2, sum) > 0) NGERROR(10); */
+   }
+   pdebug("sum2: %lu  0x%lx\n", *((long *) sum2), *((long *) sum2));
+   fclose(fp);
+
+   /* Now check bnum's hash in trailer in tfile.dat */
+   fp = fopen("tfile.dat", "rb");
+   if(fp == NULL) return 11;
+   put64(temp, bnum);
+   mult64(temp, tlen, temp);
+   if(sizeof(toffset) == 8) put64(&toffset, temp);
+   if(sizeof(toffset) != 8) *((word32 *) &toffset) = *((word32 *) temp);
+   if(fseek(fp, toffset, SEEK_SET)) NGERROR(12);
+   if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER))
+      NGERROR(13);
+   if(memcmp(bt.bhash, Cblockhash, HASHLEN) != 0) NGERROR(14);
+   fclose(fp);
+
+   return 0;  /* success */
+}  /* end ng_val() */
+
+/**
+ * Validate a blockchain file and rename to "vblock.dat" on success. Also
+ * creates ledger transaction deltas file, "ltran.dat", on success. Uses
+ * node state (Mfee, Difficulty, Time0, Cblocknum, Cblockhash) to verify
+ * the blockchain file against.
+ * @param fname Name of blockchain file to validate: "rblock.dat"
  * @returns VEOK on success, else VERROR
- * @note Creates ltran.dat on success.
- * @note Uses the folowing globals:<br/>
- * Mfee, Difficulty, Time0, Cblocknum, Cblockhash
 */
-int b_val(char *fname, char *vfname)
+int b_val(char *fname)
 {
    /* fork trigger blocks */
    static word32 tot_trigger[2] = { V23TRIGGER, 0 };
@@ -406,7 +258,6 @@ int b_val(char *fname, char *vfname)
    TXQENTRY *Q2, *qlimit;  /* tag mods */
    TXQENTRY *qp1, *qp2;    /* tag mods */
    MTX *mtx;
-
    FILE *fp, *ltfp;        /* input fname, output file ltran.tmp */
    word8 mroot[HASHLEN];   /* computed Merkel root */
    word8 bhash[HASHLEN];   /* computed block hash */
@@ -423,81 +274,84 @@ int b_val(char *fname, char *vfname)
    size_t len;             /* for malloc lengths */
    word32 hdrlen, tcount;  /* header length and transaction count */
    long blocklen;
-   unsigned j;
-   int cond, count;
-   int ecode;
+   unsigned int j;
+   int cond, count, ecode;
 
    /* init */
    ticks = clock();
-   pdebug("b_val(%s, %s): entering...", fname, vfname);
+   memset(mfees, 0, sizeof(mfees));
+
+   pdebug("b_val(): validating blockchain file %s...", fname);
 
    /* open ledger read-only */
    if (le_open("ledger.dat", "rb") != VEOK) {
-      vErrno(FAIL_LE, errno, "b_val(): cannot open ledger.dat");
+      mErrno(FAIL, "b_val(): failed to le_open(ledger.dat)");
    }
    /* create ledger transaction temp file */
    ltfp = fopen("ltran.tmp", "wb");
-   if (ltfp == NULL) {
-      vErrno(FAIL_LT, errno, "b_val(): cannot open ltran.tmp");
-   }
+   if (ltfp == NULL) mErrno(FAIL, "b_val(): failed to fopen(ltran.tmp)");
    /* open the block to validate */
    fp = fopen(fname, "rb");
-   if (fp == NULL) vErrno(FAIL_FP, errno, "b_val(): cannot open %s", fname);
+   if (fp == NULL) mErrno(FAIL_IN, "b_val(): failed to fopen(%s)", fname);
    /* read and check regular fixed size block header */
-   if (fread(&hdrlen, 1, 4, fp) != 4) {
-      vError(FAIL_IO, "b_val(): failed to fread(hdrlen)");
+   if (fread(&hdrlen, 4, 1, fp) != 1) {
+      mError(FAIL_IO, "b_val(): failed to fread(hdrlen)");
    } else if (hdrlen != sizeof(BHEADER)) {
-      vEdrop(FAIL_IO, "b_val(): bad hdrlen size: %" P32u, hdrlen);
+      mEdrop(FAIL_IO, "b_val(): bad hdrlen size: %" P32u, hdrlen);
    }
 
    /* compute block file length */
-   ecode = fseek(fp, 0, SEEK_END);
-   if (ecode) vErrno(FAIL_IO, ecode, "b_val(): failed to fseek(END)");
+   if (fseek(fp, 0, SEEK_END) != 0) {
+      mErrno(FAIL_IO, "b_val(): failed to fseek(END)");
+   }
    blocklen = ftell(fp);
-   if (blocklen == EOF) vError(FAIL_IO, "b_val(): failed on ftell(fp)");
+   if (blocklen == EOF) mError(FAIL_IO, "b_val(): failed on ftell(fp)");
 
    /* Read block trailer:
     * Check phash, bnum,
     * difficulty, Merkel Root, nonce, solve time, and block hash.
     */
-   ecode = fseek(fp, -(sizeof(BTRAILER)), SEEK_END);
-   if (ecode) vErrno(FAIL_IO, ecode, "b_val(): failed on fseek(-BTRAILER)");
-   if (fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) {
-      vError(FAIL_IO, "b_val(): failed on fread(bt)");
+   if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
+      mErrno(FAIL_IO, "b_val(): failed on fseek(-BTRAILER)");
+   } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+      mError(FAIL_IO, "b_val(): failed on fread(bt)");
    } else if (cmp64(bt.mfee, Mfee) < 0) {
-      vEdrop(FAIL_IO, "b_val(): bad mining fee");
+      mEdrop(FAIL_IO, "b_val(): bad mining fee");
    } else if (get32(bt.difficulty) != Difficulty) {
-      vEdrop(FAIL_IO, "b_val(): difficulty mismatch");
+      mEdrop(FAIL_IO, "b_val(): difficulty mismatch");
    }
 
    /* check block times */
    stemp = get32(bt.stime);
-   if (stemp <= Time0) vEdrop(FAIL_IO, "b_val(): early block time");
+   if (stemp <= Time0) mEdrop(FAIL_IO, "b_val(): early block time");
    if (stemp > (time(NULL) + BCONFREQ)) {
-      vEdrop(FAIL_IO, "b_val(): time travel?");
+      mEdrop(FAIL_IO, "b_val(): time travel?");
    }
    /* check block number */
    add64(Cblocknum, One, bnum);
    if (memcmp(bnum, bt.bnum, 8) != 0) {
-      vEdrop(FAIL_IO, "b_val(): bad block number");
+      mEdrop(FAIL_IO, "b_val(): bad block number");
    } else if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
-      if ((word32) (stemp - get32(bt.time0)) > BRIDGE) {
-         vEdrop(FAIL_IO, "b_val(): invalid TOT trigger");
+      if ((stemp - get32(bt.time0)) > BRIDGE) {
+         mEdrop(FAIL_IO, "b_val(): invalid TOT trigger");
       }
    }
    /* check previous block hash */
    if (memcmp(Cblockhash, bt.phash, HASHLEN) != 0) {
-      vEdrop(FAIL_IO, "b_val(): previous block hash mismatch");
+      printf("bt.phash=%s...", addr2str(bt.phash));
+      printf("Cblockhash=%s...", addr2str(Cblockhash));
+      printf("Prevhash=%s...", addr2str(Prevhash));
+      mEdrop(FAIL_IO, "b_val(): previous block hash mismatch");
    }
    /* check transaction count */
    tcount = get32(bt.tcount);
-   if(tcount == 0 || tcount > MAXBLTX) {
-      vEdrop(FAIL_IO, "b_val(): bad tcount");
+   if (tcount == 0 || tcount > MAXBLTX) {
+      mEdrop(FAIL_IO, "b_val(): bad tcount");
    }
    /* check total block length */
-   if((hdrlen + sizeof(BTRAILER) + (tcount * sizeof(TXQENTRY)))
+   if ((hdrlen + sizeof(BTRAILER) + (tcount * sizeof(TXQENTRY)))
          != (word32) blocklen) {
-      vEdrop(FAIL_IO, "b_val(): invalid block length");
+      mEdrop(FAIL_IO, "b_val(): invalid block length");
    }
 
    /* check enforced delay, collect haiku from block */
@@ -505,23 +359,23 @@ int b_val(char *fname, char *vfname)
       /* Boxing Day Anomaly -- Bugfix */
       if (cmp64(bt.bnum, boxingday) == 0) {
          if (memcmp(bt.bhash, boxdayhash, 32) != 0) {
-            vEdrop(FAIL_IO, "b_val(): bad boxingday anomaly bhash");
+            mEdrop(FAIL_IO, "b_val(): bad boxingday anomaly bhash");
          }
-      } else if (peach_check(&bt)) vEdrop(FAIL_IO, "b_val(): bad Peach");
-   } else if (trigg_check(&bt)) vEdrop(FAIL_IO, "b_val(): bad Trigg");
+      } else if (peach_check(&bt)) mEdrop(FAIL_IO, "b_val(): bad Peach");
+   } else if (trigg_check(&bt)) mEdrop(FAIL_IO, "b_val(): bad Trigg");
 
    /* Read block header */
-   ecode = fseek(fp, 0, SEEK_SET);
-   if (ecode) vErrno(FAIL_IO, ecode, "b_val(): failed on fseek(SET)");
-   if (fread(&bh, 1, hdrlen, fp) != hdrlen) {
-      vError(FAIL_IO, "b_val(): failed on fread(bh)");
+   if (fseek(fp, 0, SEEK_SET) != 0) {
+      mErrno(FAIL_IO, "b_val(): failed on fseek(SET)");
+   } else if (fread(&bh, hdrlen, 1, fp) != 1) {
+      mError(FAIL_IO, "b_val(): failed on fread(bh)");
    }
    /* check mining reward/address */
    get_mreward(mreward, bnum);
    if (memcmp(bh.mreward, mreward, 8) != 0) {
-      vEdrop(FAIL_IO, "b_val(): bad mining reward");
+      mEdrop(FAIL_IO, "b_val(): bad mining reward");
    } else if (ADDR_HAS_TAG(bh.maddr)) {
-      vEdrop(FAIL_IO, "b_val(): maddr has tag");
+      mEdrop(FAIL_IO, "b_val(): maddr has tag");
    }
 
    /* fp left at offset of Merkel Block Array--ready to fread() */
@@ -533,24 +387,23 @@ int b_val(char *fname, char *vfname)
    else memcpy(&mctx, &bctx, sizeof(mctx));  /* ... or copy bctx state */
 
    /* temp TX tag processing queue */
-   len = tcount * sizeof(TXQENTRY);
-   Q2 = malloc(len);
+   Q2 = malloc((len = tcount * sizeof(TXQENTRY)));
    if (Q2 == NULL) {
-      vError(FAIL_Q2, "b_val(): failed to malloc(%zu) for Q2", len);
+      mError(FAIL_IO, "b_val(): failed to malloc(%zu) Q2", len);
    }
 
    /* Validate each transaction */
    for (j = 0; j < tcount; j++) {
-      if (j >= MAXBLTX) vError(FAIL_TX, "b_val(): too many transactions");
+      if (j >= MAXBLTX) mError(FAIL_TX, "b_val(): too many transactions");
       if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
-         vError(FAIL_TX, "b_val(): failed on fread(TX): TX#%" P32u, j);
+         mError(FAIL_TX, "b_val(): failed on fread(TX): TX#%" P32u, j);
       } else if (cmp64(tx.tx_fee, Mfee) < 0) {
-         vEdrop(FAIL_TX, "b_val(): bad tx_fee: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): bad tx_fee: TX#%" P32u, j);
       } else if (memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0) {
-         vEdrop(FAIL_TX, "b_val(): (src == chg): TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): (src == chg): TX#%" P32u, j);
       } else if (!TX_IS_MTX(&tx)) {
          if (memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0) {
-            vEdrop(FAIL_TX, "b_val(): (src == dst): TX#%" P32u, j);
+            mEdrop(FAIL_TX, "b_val(): (src == dst): TX#%" P32u, j);
          }
       }
 
@@ -560,7 +413,7 @@ int b_val(char *fname, char *vfname)
       /* tx_id is hash of tx.src_addr */
       sha256(tx.src_addr, TXADDRLEN, tx_id);
       if (memcmp(tx_id, tx.tx_id, HASHLEN) != 0) {
-         vEdrop(FAIL_TX, "b_val(): bad tx_id: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): bad tx_id: TX#%" P32u, j);
       }
 
       /* Check that tx_id is sorted. */
@@ -568,8 +421,8 @@ int b_val(char *fname, char *vfname)
          cond = memcmp(tx_id, prev_tx_id, HASHLEN);
          if (cond <= 0) {
             if (cond == 0) {
-               vEdrop(FAIL_TX, "b_val(): duplicate tx_id: TX#%" P32u, j);
-            } else vEdrop(FAIL_TX, "b_val(): unsorted tx_id: TX#%" P32u, j);
+               mEdrop(FAIL_TX, "b_val(): duplicate tx_id: TX#%" P32u, j);
+            } else mEdrop(FAIL_TX, "b_val(): unsorted tx_id: TX#%" P32u, j);
          }
       }
       /* remember this tx_id for next time */
@@ -581,17 +434,17 @@ int b_val(char *fname, char *vfname)
          mtx = (MTX *) &txs;
          /* mtx->zeros is always signed when zero */
          memset(mtx->zeros, 0, MDST_NUM_DZEROS);
-         sha256(txs.src_addr, TXSIGHASH_COUNT, msg);
-      } else sha256(tx.src_addr, TXSIGHASH_COUNT, msg);
+         sha256(txs.src_addr, TXSIG_INLEN, msg);
+      } else sha256(tx.src_addr, TXSIG_INLEN, msg);
       memcpy(rnd2, &tx.src_addr[TXSIGLEN + 32], 32);  /* copy WOTS addr[] */
       wots_pk_from_sig(pk2, tx.tx_sig, msg, &tx.src_addr[TXSIGLEN], rnd2);
       if (memcmp(pk2, tx.src_addr, TXSIGLEN) != 0) {
-         vEdrop(FAIL_TX, "b_val(): WOTS signature failed: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): WOTS signature failed: TX#%" P32u, j);
       }
 
       /* look up source address in ledger */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == 0) {
-         vEdrop(FAIL_TX, "b_val(): src_addr not in ledger: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): src_addr not in ledger: TX#%" P32u, j);
       }
 
       total[0] = total[1] = 0;
@@ -599,19 +452,19 @@ int b_val(char *fname, char *vfname)
       cond =  add64(tx.send_total, tx.change_total, total);
       cond += add64(tx.tx_fee, total, total);
       if (cond) {
-         vEdrop(FAIL_TX, "b_val(): total overflow: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): total overflow: TX#%" P32u, j);
       } else if (cmp64(src_le.balance, total) != 0) {
-         vEdrop(FAIL_TX, "b_val(): bad transaction total: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): bad transaction total: TX#%" P32u, j);
       } else if (add64(mfees, tx.tx_fee, mfees)) {
-         vError(FAIL_TX, "b_val(): mfees overflow: TX#%" P32u, j);
+         mError(FAIL_TX, "b_val(): mfees overflow: TX#%" P32u, j);
       }
       /* check mtx/tag_valid */
       if (!TX_IS_MTX(&tx)) {
          if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, bt.bnum)) {
-            vEdrop(FAIL_TX, "b_val(): tag not valid: TX#%" P32u, j);
+            mEdrop(FAIL_TX, "b_val(): tag not valid: TX#%" P32u, j);
          }
       } else if(mtx_val((MTX *) &tx, Mfee)) {
-         vEdrop(FAIL_TX, "b_val(): bad mtx_val: TX#%" P32u, j);
+         mEdrop(FAIL_TX, "b_val(): bad mtx_val: TX#%" P32u, j);
       }
 
       /* copy TX to tag queue */
@@ -622,20 +475,20 @@ int b_val(char *fname, char *vfname)
    if (NEWYEAR(bt.bnum)) sha256_update(&mctx, &bt, (HASHLEN+8+8+4+4+4));
    sha256_final(&mctx, mroot);
    if (memcmp(bt.mroot, mroot, HASHLEN) != 0) {
-      vEdrop(FAIL_FINAL, "b_val(): bad merkel root");
+      mEdrop(FAIL_TX, "b_val(): bad merkel root");
    }
 
    /* finalize block hash - Block trailer (- block hash) */
    sha256_update(&bctx, &bt, sizeof(BTRAILER) - HASHLEN);
    sha256_final(&bctx, bhash);
    if (memcmp(bt.bhash, bhash, HASHLEN) != 0) {
-      vEdrop(FAIL_FINAL, "b_val(): bad block hash");
+      mEdrop(FAIL_TX, "b_val(): bad block hash");
    }
 
    /* When spending from a tag, the address associated with said tag will
-    * change. Any transactions to dst_tags that also exist as the src_tags
-    * for other transactions within the same block, MUST have their dst_addr
-    * replaced with the chg_addr of said src_tag transactions. */
+    * change. Any transactions to dst_tags that are also spent from as
+    * src_tags within the same block, MUST have their dst_addr replaced
+    * with the chg_addr of said src_tag transactions. */
 
    /* tag search  Begin ... */
    qlimit = &Q2[tcount];
@@ -666,7 +519,7 @@ int b_val(char *fname, char *vfname)
       total[0] = total[1] = 0;
       cond =  add64(qp1->send_total, qp1->change_total, total);
       cond += add64(qp1->tx_fee, total, total);
-      if (cond) vError(FAIL_FINAL, "b_val(): scan3 total overflow");
+      if (cond) mError(FAIL_TX, "b_val(): scan3 total overflow");
 
       /* Write ledger transactions to ltran.tmp for all src and chg,
        * but only non-mtx dst
@@ -689,7 +542,7 @@ int b_val(char *fname, char *vfname)
       }
    }  /* end for j -- scan 3 */
    if(j != tcount) {
-      vError(FAIL_FINAL, "b_val(): scan3 tcount mismatch: %" P32u, j);
+      mError(FAIL_TX, "b_val(): scan3 tcount mismatch: %" P32u, j);
    }
 
    /* mtx tag search  Begin scan 4 ...
@@ -711,7 +564,7 @@ int b_val(char *fname, char *vfname)
             count += fwrite("A", 1, 1, ltfp);
             count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
             if (count == 3) continue;  /* next dst[j] */
-            vError(FAIL_FINAL, "b_val(): bad I/O dst-->chg write");
+            mError(FAIL_TX, "b_val(): bad I/O dst-->chg write");
          }
          /* Start another big-O n-squared, nested loop here... scan 5 */
          for(qp2 = Q2; qp2 < qlimit; qp2++) {
@@ -733,7 +586,7 @@ int b_val(char *fname, char *vfname)
          count =  fwrite(addr, TXADDRLEN, 1, ltfp);
          count += fwrite("A", 1, 1, ltfp);
          count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
-         if (count != 3) vError(FAIL_FINAL, "b_val(): bad I/O scan 4");
+         if (count != 3) mError(FAIL_TX, "b_val(): bad I/O scan 4");
       }  /* end for j */
    }  /* end for qp1 */
    /* end mtx scan 4 */
@@ -742,7 +595,7 @@ int b_val(char *fname, char *vfname)
     * address = bh.maddr
     */
    if (add64(mfees, mreward, mfees)) {
-      vError(FAIL_FINAL, "b_val(): mfees overflow");
+      mError(FAIL_TX, "b_val(): mfees overflow");
    }
    /* Make ledger tran to add to or create mining address.
     * '...Money from nothing...'
@@ -750,80 +603,38 @@ int b_val(char *fname, char *vfname)
    count =  fwrite(bh.maddr, 1, TXADDRLEN, ltfp);
    count += fwrite("A",      1,         1, ltfp);
    count += fwrite(mfees,    1,         8, ltfp);
-   if(count != (TXADDRLEN+1+8) || ferror(ltfp)) {
-      vError(FAIL_FINAL, "b_val(): ltfp IO error");
+   if (count != (TXADDRLEN+1+8) || ferror(ltfp)) {
+      mError(FAIL_TX, "b_val(): ltfp IO error");
    }
 
-   /* promote ltran.tmp to *.dat file */
+   /* cleanup */
+   free(Q2);
+   fclose(fp);
+   fclose(ltfp);  /* revert failure mode to (FAIL) */
+   /* promote ltran.tmp to *.dat file and rename blockchain file */
    remove("ltran.dat");
    if (rename("ltran.tmp", "ltran.dat") != 0) {
-      vError(FAIL_FINAL, "b_val(): rename ltran.tmp to ltran.dat");
+      mError(FAIL, "b_val(): failed to move ltran.tmp to ltran.dat");
    }
-   /* rename if specified */
-   if (vfname) {
-      remove(vfname);
-      if (rename(fname, vfname) != 0) {
-         vError(FAIL_FINAL, "b_val(): rename %s to %s", fname, vfname);
-      }
-      pdebug("b_val(): %s validated to %s\n", fname, vfname);
-   } else pdebug("b_val(): %s validated\n", fname);
 
-   ecode = VEOK; /* success */
-   pdebug("b_val(): completed in %u ticks.", (word32) (clock() - ticks));
+   pdebug("b_val(): %s validated", fname);
+   pdebug("b_val(): completed in %gs", diffclocktime(clock(), ticks));
 
-   /* cleanup - error handling */
-FAIL_FINAL:
+   /* success */
+   return VEOK;
+
+   /* failure / error handling */
 FAIL_TX:
    free(Q2);
-FAIL_Q2:
 FAIL_IO:
    fclose(fp);
-FAIL_FP:
+FAIL_IN:
    fclose(ltfp);
    remove("ltran.tmp");
-FAIL_LT:
-   le_close();
-FAIL_LE:
+FAIL:
 
    return ecode;
-}  /* end bc_val() */
-
-#ifdef BCVALMAIN
-
-int main(int argc, char **argv)
-{
-   char *vfname = NULL;
-   char *fname = NULL;
-   int result = VERROR;
-
-   /* sanity checks */
-   if (sizeof(MTX) != sizeof(TXQENTRY)) {
-      printf("struct size error: MTX != TXQENTRY\n");
-      goto FAIL;
-   }
-
-   /* check usage/options */
-   if (argc < 2) {
-      printf("\n"
-         "bval: performs bval(input_file, output_file)\n\n"
-         "usage: bval <input_file> [output_file]\n\n");
-      goto FAIL;
-   }
-   if (argc > 2) {
-      vfname = argv[2];
-   }
-   fname = argv[1];
-
-   result = bc_val(fname, vfname);
-   printf("b_val(): bc_val(%s, %s) = %d\n\n",
-      fname, vfname, result);
-
-FAIL:
-   return result;
-}  /*end b_val() */
-
-/* end #ifdef BVALMAIN... */
-#endif
+}  /* end b_val() */
 
 /* end include guard */
 #endif

@@ -1,9 +1,8 @@
-/* ledger.c  Open, close, and search ledger.dat
- *
- * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
- * See LICENSE.PDF   **** NO WARRANTY ****
- *
- * The Mochimo Project System Software
+/**
+ * @private
+ * @headerfile ledger.h <ledger.h>
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
@@ -11,11 +10,20 @@
 #define MOCHIMO_LEDGER_C
 
 
-#include <sys/wait.h>
-#include <errno.h>
-#include "extint.h"
+#include "ledger.h"
+
+/* internal support */
+#include "util.h"
+#include "tag.h"
+#include "sort.h"
+#include "global.h"
+
+/* external support */
+#include <string.h>
 #include "extprint.h"
-#include "types.h"
+#include "extmath.h"
+#include "extlib.h"
+#include <errno.h>
 
 static FILE *Lefp;
 static unsigned long Nledger;
@@ -50,7 +58,6 @@ void le_close(void)
    Lefp = NULL;
    Nledger = 0;
 }
-
 
 /* Binary search ledger.dat (Lefp) for addr.
  * input: addr
@@ -94,7 +101,6 @@ int le_find(word8 *addr, LENTRY *le, long *position, word16 len)
    if(position) *position = low;
    return 0;  /* not found */
 }  /* end le_find() */
-
 
 /* Extract the ledger from a neo-genesis block and
  * put it in ledger file lfile (ledger.dat)
@@ -157,176 +163,239 @@ int le_extract(char *fname, char *lfile)
    return VEOK;
 ioerror:
       fclose(fp);
-      unlink(lfile);  /* remove bad ledger */
+      remove(lfile);  /* remove bad ledger */
       return perr("le_extract() failed!");
 error2:
    fclose(lfp);
    goto ioerror;
 }  /* end le_extract() */
 
-/*
-   [<---2196 Bytes Address--->][<--12 Bytes Tag-->]
-
-   12-byte tag:  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-                 ^
-              type byte
-*/
-
-word8 *Tagidx;    /* array of all 12-word8 tags in ledger order */
-word32 Ntagidx;  /* number of tags in Tagidx[] */
-#define BAIL(m) { message = m; goto bail; }
-
-
-/* Release tag index */
-void tag_free(void)
+/* Returns 0 on success, else error code. */
+int le_renew(void)
 {
-   if(Tagidx != NULL) free(Tagidx);
-   Tagidx = NULL;
-   Ntagidx = 0;
-}
-
-
-/* Build the tag index, Tagidx[].
- * Return VEOK if success, else error code.
- */
-int tag_buildidx(void)
-{
-   FILE *fp;
+   FILE *fp, *fpout;
    LENTRY le;
-   int message;
-   word32 n;
-   word8 *tp;
+   int message = 0;
+   word32 n, m;
+   static word32 sanctuary[2];
 
-   pdebug("tag_buildidx()");
-   if(Tagidx != NULL) return VEOK;  /* index already made */
+   if(Sanctuary == 0) return 0;  /* success */
+   le_close();  /* make sure ledger.dat is closed */
+   plog("Lastday 0x%0x.  Carousel begins...", Lastday);
+   n = m = 0;
+   fp = fpout = NULL;
+   sanctuary[0] = Sanctuary;
 
    fp = fopen("ledger.dat", "rb");
    if(fp == NULL) BAIL(1);
-   fseek(fp, 0L, SEEK_END);
-   Ntagidx = ftell(fp) / sizeof(le);
-   Tagidx = (word8 *) malloc(Ntagidx * TXTAGLEN);
-   if(Tagidx == NULL) BAIL(2);  /* no memory */
-   fseek(fp, 0L, SEEK_SET);
-   for(tp = Tagidx, n = 0; n < Ntagidx; n++, tp += TXTAGLEN) {
-      if(fread(&le, sizeof(le), 1, fp) != 1) break;   /* EOF */
-      memcpy(tp, ADDR_TAG_PTR(le.addr), TXTAGLEN);
+   fpout = fopen("ledger.tmp", "wb");
+   if(fpout == NULL) BAIL(2);
+   for(;;) {
+      if(fread(&le, sizeof(le), 1, fp) != 1) break;
+      n++;
+      if(sub64(le.balance, sanctuary, le.balance)) continue;
+      if(cmp64(le.balance, Mfee) <= 0) continue;
+      if(fwrite(&le, sizeof(le), 1, fpout) != 1) BAIL(3);
+      m++;
    }
-   if(n != Ntagidx) BAIL(3);  /* I/O error likely */
    fclose(fp);
-   pdebug("tag_buildidx() success: Ntagidx = %u", Ntagidx);
-   return VEOK;  /* index built */
+   fclose(fpout);
+   fp = fpout = NULL;
+   remove("ledger.dat");
+   if(rename("ledger.tmp", "ledger.dat")) BAIL(4);
+   plog("%u citizens renewed out of %u", n - m, n);
+   return 0;  /* success */
 bail:
    if(fp != NULL) fclose(fp);
-   if(Tagidx != NULL) free(Tagidx);
-   Tagidx = NULL;
-   Ntagidx = 0;
-   perr("tag_buildidx(): BAIL(%d)\007", message);  /* should not happen */
+   if(fpout != NULL) fclose(fpout);
+   perr("Carousel renewal code: %d (%u,%u)", message, n - m, n);
    return message;
-}  /* end tag_buildidx() */
+}  /* end le_renew() */
 
-
-/* Search txq1.dat and txclean.dat for a tag matching tag of addr in
- * some pending TX's change address.
- * Return VEOK if the tag is found in a chg_addr, otherwise VERROR.
- */
-int tag_qfind(word8 *addr)
+/**
+ * Update leadger by applying ledger transaction deltas to a ledger. Uses
+ * "ltran.dat" as (input) ledger transaction deltas file, "ledger.tmp" as
+ * temporary (output) ledger file and renames to "ledger.dat" on success.
+ * Ledger file is kept sorted on addr. Ledger transaction file is sorted by
+ * sortlt() on addr+trancode, where '-' comes before 'A'.
+ * @returns VEOK on success, else VERROR
+*/
+int le_update(void)
 {
-   FILE *fp;
-   TXQENTRY tx;
-   word8 *tag, *txtag;
+   LENTRY oldle, newle;    /* input/output ledger entries */
+   LTRAN lt;               /* ledger transaction  */
+   FILE *fp, *fpout;       /* input txclean and output txq file pointers */
+   FILE *lfp;              /* ledger file pointers */
+   clock_t ticks;
+   word32 nout;            /* temp file output counter */
+   word8 hold;             /* hold ledger entry for next loop */
+   word8 taddr[TXADDRLEN];    /* for transaction address hold */
+   word8 le_prev[TXADDRLEN];  /* for ledger sequence check */
+   word8 lt_prev[TXADDRLEN];  /* for tran delta sequence check */
+   int cond, ecode;
 
-   tag = ADDR_TAG_PTR(addr);
-   txtag = ADDR_TAG_PTR(tx.chg_addr);
+   /* init */
+   ticks = clock();
+   nout = 0;         /* output record counter */
+   hold = 0;         /* hold ledger flag */
+   memset(le_prev, 0, TXADDRLEN);
+   memset(lt_prev, 0, TXADDRLEN);
 
-   fp = fopen("txq1.dat", "rb");
-   if(fp != NULL) {
-      for(;;) {
-         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
-         if(memcmp(tag, txtag, TXTAGLEN) == 0) {
-            fclose(fp);
-            return VEOK;  /* found */
-         }
-      }  /* end for */
-      fclose(fp);
-   }  /* end if fp */
-
-   /* Stop Block Constructor who uses txclean.dat. */
-   if(Bcpid) {
-      kill(Bcpid, SIGTERM);
-      waitpid(Bcpid, NULL, 0);
-      Bcpid = 0;
+   /* sort the ledger transaction file */
+   if (sortlt("ltran.dat") != VEOK) {
+      mError(FAIL, "le_update: bad sortlt(ltran.dat)");
    }
 
-   fp = fopen("txclean.dat", "rb");
-   if(fp != NULL) {
-      for(;;) {
-         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
-         if(memcmp(tag, txtag, TXTAGLEN) == 0) {
-            fclose(fp);
-            return VEOK;  /* found */
+   /* open input, ledger, temp output ledger files */
+   lfp = fopen("ledger.dat", "rb");
+   if (lfp == NULL) {
+      mErrno(FAIL, "le_update(): failed to fopen(ledger.dat)");
+   }
+   fp = fopen("ltran.dat", "rb");
+   if (fp == NULL) {
+      mErrno(FAIL_IN, "le_update(): failed to fopen(ltran.dat)");
+   }
+   fpout = fopen("ledger.tmp", "wb");
+   if (fpout == NULL) {
+      mErrno(FAIL_OUT, "le_update(): failed to fopen(ledger.tmp)");
+   }
+
+   /* prepare initial ledger transaction */
+   fread(&lt, sizeof(LTRAN), 1, fp);
+   if (ferror(fp)) {
+      mErrno(FAIL_IO, "le_update(): failed to fread(lt)");
+   }
+
+   /* while one of the files is still open */
+   while (feof(lfp) == 0 || feof(fp) == 0) {
+      /* if ledger entry on hold, skip read, else do read and sort checks */
+      if (hold) hold = 0;
+      else if (feof(lfp) == 0) {
+         /* read ledger entry, check sort, and store entry in le_prev */
+         if (fread(&oldle, sizeof(LENTRY), 1, lfp) != 1) {
+            /* check file errors, else "continue" loop for eof check */
+            if (ferror(lfp)) {
+               mErrno(FAIL_IO, "le_update(): fread(oldle)");
+            } else continue;
+         } else if (memcmp(oldle.addr, le_prev, TXADDRLEN) < 0) {
+            mError(FAIL_IO, "le_update(): bad ledger.dat sort");
+         } else memcpy(le_prev, oldle.addr, TXADDRLEN);
+      }
+      /* compare ledger address to latest transaction address */
+      cond = memcmp(oldle.addr, lt.addr, TXADDRLEN);
+      if (cond == 0 && feof(fp) == 0 && feof(lfp) == 0) {
+         /* If ledger and transaction addr match,
+          * and both files not at end...
+          * copy the old ledger entry to a new struct for editing */
+         pdebug("le_update(): editing address %s...", addr2str(lt.addr));
+         memcpy(&newle, &oldle, sizeof(LENTRY));
+      } else if ((cond < 0 || feof(fp)) && feof(lfp) == 0) {
+         /* If ledger compares "before" transaction or transaction eof,
+          * and ledger file is NOT at end...
+          * write the old ledger entry to temp file */
+         if (fwrite(&oldle, sizeof(LENTRY), 1, fpout) != 1) {
+            mError(FAIL_IO, "le_update(): bad write on temp ledger");
          }
-      }  /* end for */
-      fclose(fp);
-   }  /* end if fp */
-   return VERROR;  /* tag not found */
-}  /* end tag_qfind() */
+         nout++;  /* count records in temp file */
+         continue;  /* nothing else to do */
+      } else if((cond > 0 || feof(lfp)) && feof(fp) == 0) {
+         /* If ledger compares "after" transaction or ledger eof,
+          * and transaction file is NOT at end...
+          */
+         if(lt.trancode[0] != 'A') {
+            mEdrop(FAIL_IO, "le_update(): create tran not 'A'");
+         }
+         pdebug("le_update(): creating address %s...", addr2str(lt.addr));
+         /* CREATE NEW ADDR
+          * Copy address from transaction to new ledger entry.
+          */
+         memcpy(&newle, lt.addr, TXADDRLEN);
+         memset(newle.balance, 0, 8);  /* but zero balance for apply_tran */
+         /* Hold old ledger entry to insert before this addition. */
+         hold = 1;
+      }
 
+      /* save ledger transaction address */
+      memcpy(taddr, lt.addr, TXADDRLEN);
 
-#if TXTAGLEN != 12
-   TXTAGLEN must be 12 for tag code in tag.c tag_find()
-#endif
+      do {
+         pdebug("le_update(): Applying '%c' to %s...",
+            (char) lt.trancode[0], addr2str(lt.addr));
+         /* '-' transaction sorts before 'A' */
+         if (lt.trancode[0] == 'A') {
+            if (add64(newle.balance, lt.amount, newle.balance)) {
+               pdebug("le_update(): balance OVERFLOW! Zero-ing balance...");
+               memset(newle.balance, 0, 8);
+            }
+         } else if(lt.trancode[0] == '-') {
+            if (cmp64(newle.balance, lt.amount) != 0) {
+               mEdrop(FAIL_IO, "le_update(): '-' balance != trans amount");
+            }
+            memset(newle.balance, 0, 8);
+         } else mError(FAIL_IO, "le_update(): bad trancode");
+         /* --- ^ shouldn't happen */
+         /* read next transaction */
+         pdebug("le_update(): apply -- reading transaction");
+         if (fread(&lt, sizeof(LTRAN), 1, fp) != 1) {
+            if (ferror(fp)) mErrno(FAIL_IO, "le_update(): fread(lt)");
+            pdebug("le_update(): eof on tran");
+            break;
+         }
+         /* Sequence check on lt.addr */
+         if (memcmp(lt.addr, lt_prev, TXADDRLEN) < 0) {
+            mError(FAIL_IO, "le_update(): bad ltran.dat sort");
+         }
+         memcpy(lt_prev, lt.addr, TXADDRLEN);
 
-/* Find the tag of addr in Tagidx[].
- * If foundaddr or balance is not NULL, copy the
- * full fields from ledger.dat to foundaddr and/or balance.
- * Return VEOK if tag found, VERROR if not found, or
- * some other internal error code.
- */
-int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
-{
-   FILE *fp;
-   word8 *tag, *tp;
-   LENTRY le;
-   word32 n;
-   int message;
+         /* Check for multiple transactions on a single address:
+         * '-' must come before 'A'
+         * (Transaction file did not run out and its addr matches
+         *  the previous transaction...)
+         */
+      } while (memcmp(lt.addr, taddr, TXADDRLEN) == 0);
 
-   fp = NULL;  /* for bail */
-   if(Tagidx == NULL) tag_buildidx();
-   if(Tagidx == NULL) BAIL(2);  /* 2 > VERROR */
+      /* Only balances > Mfee are written to updated ledger. */
+      if (cmp64(newle.balance, Mfee) > 0) {
+         pdebug("le_update(): writing new balance");
+         /* write new balance to temp file */
+         if (fwrite(&newle, sizeof(LENTRY), 1, fpout) != 1) {
+            mError(FAIL_IO, "le_update(): bad write on temp ledger");
+         }
+         nout++;  /* count output records */
+      } else pdebug("le_update(): new balance <= Mfee is not written");
+   }  /* end while not both on EOF  -- updating ledger */
 
-   tag = ADDR_TAG_PTR(addr);
-   /* Search tag index, Tagidx[] for tag. */
-   for(tp = Tagidx, n = 0; n < Ntagidx; n++, tp += TXTAGLEN) {
-      /* compare tag in Tagidx[] to tag */
-      if(  /* partial tag len search */
-         (len > 1 && len < TXTAGLEN && memcmp(tp, tag, len) == 0)
-         || (  /* full tag len search (about 9 instructions in asm) */
-            *((word32 *) tp)       == *((word32 *) tag)
-         && *((word32 *) (tp + 4)) == *((word32 *) (tag + 4))
-         && *((word32 *) (tp + 8)) == *((word32 *) (tag + 8))) ) {
-         /* tag found */
-         if(foundaddr != NULL || balance != NULL) {
-            /* and caller wants ledger entry... */
-            fp = fopen("ledger.dat", "rb");
-            if(fp == NULL) BAIL(3);
-            /* n is record number in ledger.dat */
-            if(fseek(fp, n * sizeof(le), SEEK_SET)) BAIL(4);
-            if(fread(&le, sizeof(le), 1, fp) != 1) BAIL(5);
-            if(memcmp(ADDR_TAG_PTR(le.addr), tag, len)) BAIL(6);
-            fclose(fp);
-            if(foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
-            if(balance != NULL) memcpy(balance, le.balance, TXAMOUNT);
-         }  /* end if copy entry */
-         return VEOK;  /* found tag! */
-      }  /* end if memcmp found */
-   }  /* end for tp -- search for tag */
-   return VERROR;  /* tag not found */
-bail:
-   if(fp != NULL) fclose(fp);
-   tag_free();  /* Erase the bad index */
-   perr("tag_find(): BAIL(%d)\007", message);  /* should not happen */
-   return message;
-}  /* end tag_find() */
+   fclose(fpout);
+   fclose(fp);
+   fclose(lfp);
+   if (nout) {
+      /* if there are entries in ledger.tmp */
+      remove("ledger.dat");
+      rename("ledger.tmp", "ledger.dat");
+      remove("ltran.dat");   /* may need to archive this */
+   } else {
+      remove("ledger.tmp");  /* remove empty temp file */
+      mError(FAIL, "le_update(): the ledger is empty!");
+   }
+
+   pdebug("le_update(): wrote %u entries to new ledger", nout);
+   pdebug("le_update(): completed in %gs", diffclocktime(clock(), ticks));
+
+   /* success */
+   return VEOK;
+
+   /* failure / error handling */
+FAIL_IO:
+   fclose(fpout);
+   remove("ledger.tmp");
+FAIL_OUT:
+   fclose(lfp);
+FAIL_IN:
+   fclose(lfp);
+FAIL:
+
+   return ecode;
+}  /* end le_update() */
 
 /* end include guard */
 #endif

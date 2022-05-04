@@ -40,9 +40,7 @@ COVERAGE:= $(BUILDDIR)/coverage.info
 
 # source files: test (base/cuda), base, cuda
 CUSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.cu))
-#CSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.c))
-CSRCS:= src/network.c src/peach.c src/sort.c src/trigg.c src/util.c \
-	src/validate.c src/wots.c src/xo4.c
+CSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.c))
 TCUSRCS:= $(sort $(wildcard $(TESTSOURCEDIR)/*-cu.c))
 TCSRCS:= $(sort $(filter-out %-cu.c,$(wildcard $(TESTSOURCEDIR)/*.c)))
 
@@ -172,14 +170,13 @@ variable-%:
 # vv RECIPE CONFIGURATION vv
 
 # include custom recipe configurations here
-fullnode: $(addprefix $(BUILDDIR)/,bcon bup bval neogen mochimo)
-	@echo && echo "Mochimo binaries compiled successfully!" && echo
+mochimo: $(BUILDDIR)/exec/mochimo
 
 install:
 	@echo && echo "Installing directory structure..."
 	@mkdir -p $(BINDIR)/d
 	@echo "Installing Mochimo binaries..."
-	@mv $(addprefix $(BUILDDIR)/,bcon bup bval neogen mochimo) $(BINDIR)/
+	@mv $(addprefix $(BUILDDIR)/exec/,mochimo) $(BINDIR)/
 	@echo "Installing support files..."
 	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
 	@echo "Ensuring permissions..."

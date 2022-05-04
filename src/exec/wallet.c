@@ -75,7 +75,7 @@ unsigned sleep(unsigned seconds);
                         + (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN + (2+2) )
 #define TRANBUFF(tx) ((tx)->src_addr)
 #define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN )
-#define TXSIGHASH_COUNT (TRANLEN - TXSIGLEN)
+#define TXSIG_INLEN (TRANLEN - TXSIGLEN)
 
 #define CRC_BUFF(tx) TXBUFF(tx)
 #define CRC_COUNT   (TXBUFFLEN - (2+2))  /* tx buff less crc and trailer */
@@ -1826,7 +1826,7 @@ nofunds:
    }
 
    /* hash tx to message*/
-   sha256(tx.src_addr,  TXSIGHASH_COUNT, message);
+   sha256(tx.src_addr,  TXSIG_INLEN, message);
    /* sign TX with secret key for src_addr*/
    memcpy(rnd2, &tx.src_addr[TXSIGLEN+32], 32);  /* temp for wots_sign() */
    wots_sign(tx.tx_sig,  /* output 2144 */

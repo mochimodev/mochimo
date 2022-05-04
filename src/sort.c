@@ -1,11 +1,8 @@
 /**
- * @file sort.c
- * @brief Mochimo specific sorting routines.
+ * @private
+ * @headerfile sort.h <sort.h>
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
- * @note The original Polymorphic Shell sort algorithm, shell(), was
- * deprecated in favour of qsort().
- * > For more details see <https://godbolt.org/z/YE7j57Po9>
 */
 
 /* include guard */
@@ -13,28 +10,26 @@
 #define MOCHIMO_SORT_C
 
 
-#include "extint.h"
-#include "extprint.h"
+#include "sort.h"
+
+/* internal support */
+#include "util.h"
 #include "types.h"
 
-#include <stdlib.h>  /* for malloc() & qsort() */
-#include <string.h>  /* for memcmp() */
-#include <errno.h>   /* for errno */
+/* external support */
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
 
-static LTRAN *Ltrans;   /* malloc'd Ltrans[]: Nlt * sizeof(LTRAN) */
-static word32 *Ltidx;   /* malloc'd Ltidx[]: Nlt * sizeof(word32) */
-static word32 Nlt;      /* number of ledger transactions */
-
-word8 *Tx_ids;    /**< malloc'd Tx_ids[]: Ntx * HASHLEN */
-word32 *Txidx;   /**< malloc'd Txidx[]: Ntx * sizeof(word32) */
-word32 Ntx;      /**< number of transaction entries in "txclean" */
+static LTRAN *Ltrans;   /* malloc'd Ltrans[]: Nlt * sizeof(LTRAN) - sort */
 
 /**
  * @private
  * Comparison function to sort index to ledger transactions, LTRAN Ltrans[]:
  * includes Ltrans[].trancode[0] in key: (+1)
 */
-static int compare_ltrans(const void *va, const void *vb)
+static int compare_lt(const void *va, const void *vb)
 {
    word32 *a = (word32 *) va;
    word32 *b = (word32 *) vb;
@@ -46,7 +41,7 @@ static int compare_ltrans(const void *va, const void *vb)
  * @private
  * Comparison function to sort index to TXIDs
 */
-static int compare_txids(const void *va, const void *vb)
+static int compare_tx(const void *va, const void *vb)
 {
    word32 *a = (word32 *) va;
    word32 *b = (word32 *) vb;
@@ -65,77 +60,61 @@ static int compare_txids(const void *va, const void *vb)
 int sortlt(char *fname)
 {
    FILE *fp;
+   word32 *Ltidx;   /* malloc'd Ltidx[]: Nlt * sizeof(word32) */
+   word32 Nlt;      /* number of ledger transactions */
+   word32 j;
    size_t len;
    long offset;
    int ecode;
-   word32 j;
 
    /* open ltran file */
    fp = fopen(fname, "r+b");
    if (fp == NULL) {
-      return perrno(errno, "sortlt(): fopen(%s) failed", fname);
+      return perrno(errno, "sortlt(): failed to fopen(%s)", fname);
    }
 
    /* seek to file end */
-   ecode = fseek(fp, 0, SEEK_END);
-   if (ecode != 0) {
-      ecode = perrno(ecode, "sortlt(%s): fseek(END) failed", fname);
-      goto FAIL_IO;
+   if (fseek(fp, 0, SEEK_END) != 0) {
+      mErrno(FAIL_IO, "sortlt(): failed to fseek(END)");
    }
    /* obtain file offset (at file end), check valid size */
    offset = ftell(fp);
-   if (offset == EOF) {
-      ecode = perrno(errno, "sortlt(%s): ftell() failed", fname);
-      goto FAIL_IO;
-   } else if ((offset % sizeof(LTRAN)) != 0) {
-      ecode = perr("sortlt(%s): invalid size: %ld bytes", fname, offset);
-      goto FAIL_IO;
+   if (offset == EOF) mErrno(FAIL_IO, "sortlt(): failed to ftell()");
+   if ((offset % sizeof(LTRAN)) != 0) {
+      mError(FAIL_IO, "sortlt(): invalid length: %ld", offset);
    }
    /* calc transactions */
    Nlt = offset / sizeof(LTRAN);
-   if (Nlt == 0) {
-      ecode = perr("sortlt(%s): 0 transactions", fname);
-      goto FAIL_IO;
-   }
+   if (Nlt == 0) mError(FAIL_IO, "sortlt(): 0 transactions");
    /* seek to file start */
-   ecode = fseek(fp, 0, SEEK_SET);
-   if (ecode) {
-      ecode = perrno(ecode, "sortlt(%s): fseek(SET) failed", fname);
-      goto FAIL_IO;
+   if (fseek(fp, 0, SEEK_SET)) {
+      mErrno(FAIL_IO, "sortlt(): failed to fseek(SET)");
    }
    /* allocate memory */
-   len = Nlt * sizeof(word32);
-   Ltidx = malloc(len);
+   Ltidx = malloc((len = Nlt * sizeof(word32)));
    if (Ltidx == NULL) {
-      ecode = perr("sortlt(%s): Ltidx malloc(%zu) failed", fname, len);
-      goto FAIL_Ltidx;
+      mError(FAIL_Ltidx, "sortlt(): failed to malloc(%zu) Ltidx", len);
    }
-   len = Nlt * sizeof(LTRAN);
-   Ltrans = malloc(len);
+   Ltrans = malloc((Nlt * sizeof(LTRAN)));
    if (Ltrans == NULL) {
-      ecode = perr("sortlt(%s): Ltrans malloc(%zu) failed", fname, len);
-      goto FAIL_Ltrans;
+      mError(FAIL_Ltrans, "sortlt(): failed to malloc(%zu) Ltrans", len);
    }
    /* read-in transactions */
    if (fread(Ltrans, sizeof(LTRAN), Nlt, fp) != Nlt) {
-      ecode = perr("sortlt(%s): fread() failed", fname);
-      goto FAIL_IO2;
+      mError(FAIL_IO2, "sortlt(): failed to fread(Ltrans)");
    }
    /* initialize transaction index; Ltidx[] = 0,1,2,3,4,5,... */
-   for(j = 0; j < Nlt; j++) Ltidx[j] = j;
+   for (j = 0; j < Nlt; j++) Ltidx[j] = j;
    /* perform sort operation */
-   qsort(Ltidx, Nlt, sizeof(word32), compare_ltrans);
+   qsort(Ltidx, Nlt, sizeof(word32), compare_lt);
    /* return to start of file */
-   ecode = fseek(fp, 0, SEEK_SET);
-   if (ecode) {
-      ecode = perrno(ecode, "sortlt(%s): fseek(SET) failed", fname);
-      goto FAIL_IO2;
+   if (fseek(fp, 0, SEEK_SET) != 0) {
+      mErrno(FAIL_IO2, "sortlt(): failed to fseek(SET) (pre-write)");
    }
    /* write sorted transactions */
-   for(j = 0; j < Nlt; j++) {
-      if(fwrite(&Ltrans[Ltidx[j]], 1, sizeof(LTRAN), fp) != sizeof(LTRAN)) {
-         ecode = perr("sortlt(%s): fwrite() failed", fname);
-         goto FAIL_IO2;
+   for (j = 0; j < Nlt; j++) {
+      if (fwrite(&Ltrans[Ltidx[j]], sizeof(LTRAN), 1, fp) != 1) {
+         mError(FAIL_IO2, "sortlt(): failed to fwrite()");
       }
    }
 
@@ -145,11 +124,11 @@ int sortlt(char *fname)
    /* cleanup */
 FAIL_IO2:
    free(Ltrans);
-FAIL_Ltrans:
    Ltrans = NULL;
+FAIL_Ltrans:
    free(Ltidx);
-FAIL_Ltidx:
    Ltidx = NULL;
+FAIL_Ltidx:
 FAIL_IO:
    fclose(fp);
    Nlt = 0;
@@ -157,13 +136,14 @@ FAIL_IO:
    return ecode;
 }  /* end sortlt() */
 
+
 /**
  * Creates a malloc'd sort index and transaction ID list:
  * - `word32 Txidx[Ntx];`
  * - `word8 Tx_ids[Ntx * HASHLEN];`
  * ... stores sorted list in memory.
  * @param fname Name of file to sort
- * @returns VEOK on success, else VERROR
+ * @returns VEOK on success, else error code
  */
 int sorttx(char *fname)
 {
@@ -184,76 +164,57 @@ int sorttx(char *fname)
       Txidx = NULL;
    }
 
-   /* open txclean file */
+   /* open txclean file, and seek to end */
    fp = fopen(fname, "rb");
-   if (fp == NULL) {
-      perrno(errno, "sorttx(): fopen(%s) failed", fname);
-      goto FAIL_FOPEN;
-   }
-   /* seek to file end */
-   ecode = fseek(fp, 0, SEEK_END);
-   if (ecode != 0) {
-      perrno(ecode, "sorttx(%s): fseek(END) failed", fname);
-      goto FAIL_IO;
+   if (fp == NULL) mErrno(FAIL, "sorttx(): failed to fopen(%s)", fname);
+   if (fseek(fp, 0, SEEK_END) != 0) {
+      mErrno(FAIL_IO, "sorttx(): failed to fseek(END)");
    }
    /* obtain file offset (at file end), check valid size */
    offset = ftell(fp);
-   if (offset == EOF) {
-      perrno(errno, "sorttx(%s): ftell() failed", fname);
-      goto FAIL_IO;
-   } else if ((offset % sizeof(TXQENTRY)) != 0) {
-      perr("sorttx(%s): invalid size: %ld bytes", fname, offset);
-      goto FAIL_IO;
+   if (offset == EOF) mErrno(FAIL_IO, "sorttx(): failed to ftell(fp)");
+   if ((offset % sizeof(TXQENTRY)) != 0) {
+      mError(FAIL_IO, "sorttx(): invalid size: %ld bytes", offset);
    }
    /* calc transactions */
    Ntx = offset / sizeof(TXQENTRY);
-   if (Ntx == 0) {
-      perr("sorttx(%s): 0 transactions", fname);
-      goto FAIL_IO;
-   }
+   if (Ntx == 0) mError(FAIL_IO, "sorttx(): 0 transactions");
    /* seek to file start */
-   ecode = fseek(fp, 0, SEEK_SET);
-   if (ecode) {
-      perrno(ecode, "sorttx(%s): fseek(SET) failed", fname);
-      goto FAIL_IO;
+   if (fseek(fp, 0, SEEK_SET) != 0) {
+      mErrno(FAIL_IO, "sorttx(): failed to fseek(SET)");
    }
    /* allocate memory */
-   len = Ntx * sizeof(word32);
-   Txidx = malloc(len);
+   Txidx = malloc((len = Ntx * sizeof(word32)));
    if (Txidx == NULL) {
-      perr("sorttx(%s): Txidx malloc(%zu) failed", fname, len);
-      goto FAIL_TXIDX;
+      mError(FAIL_TXIDX, "sorttx(): failed to malloc(%zu) Txidx", len);
    }
-   len = Ntx * HASHLEN;
-   Tx_ids = malloc(len);
+   Tx_ids = malloc((len = Ntx * HASHLEN));
    if (Tx_ids == NULL) {
-      perr("sorttx(%s): Tx_ids malloc(%zu) failed", fname, len);
-      goto FAIL_TXIDS;
+      mError(FAIL_TXIDS, "sorttx(): failed to malloc(%zu) Tx_ids", len);
    }
    /* Read each (pre-computed) TXID into Tx_ids[Ntx][HASHLEN] */
    for(j = 0, bp = Tx_ids; j < Ntx; j++, bp += HASHLEN) {
       /* seek down in transaction record to txid[] */
-      ecode = fseek(fp, sizeof(TXQENTRY) - HASHLEN, SEEK_CUR);
-      if (ecode != 0) {
-         perrno(ecode, "sorttx(%s): fseek(SET) failed", fname);
-         goto FAIL_IO2;
+      if (fseek(fp, sizeof(TXQENTRY) - HASHLEN, SEEK_CUR) != 0) {
+         mErrno(FAIL_IO2, "sorttx(): failed to fseek(CUR)");
       }
       /* reading txid[] puts us at start of next record (TXQENTRY) */
-      if (fread(bp, 1, HASHLEN, fp) != HASHLEN) {
-         perr("sorttx(%s): fread() failed", fname);
-         goto FAIL_IO2;
+      if (fread(bp, HASHLEN, 1, fp) != 1) {
+         mError(FAIL_IO2, "sorttx(): failed to fread(bp)");
       }
       /* initialize index Txidx[] = 0,1,2,3,4,5,... */
       Txidx[j] = j;
    }
-   /* sort the index */
-   qsort(Txidx, Ntx, sizeof(word32), compare_txids);
 
-   /* cleanup - success */
    fclose(fp);
+
+   /* sort the index */
+   qsort(Txidx, Ntx, sizeof(word32), compare_tx);
+
+   /* success */
    return VEOK;
 
-   /* cleanup - fail */
+   /* failure / error handling */
 FAIL_IO2:
    free(Tx_ids);
 FAIL_TXIDS:
@@ -263,8 +224,9 @@ FAIL_TXIDX:
    Txidx = NULL;
 FAIL_IO:
    fclose(fp);
-FAIL_FOPEN:
-   return VERROR;
+FAIL:
+
+   return ecode;
 }  /* end sorttx() */
 
 /* end include guard */

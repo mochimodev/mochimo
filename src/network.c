@@ -1,346 +1,115 @@
 /**
- * node.c - Mochimo Node communication support
- *
- * Copyright (c) 2018-2021 by Adequate Systems, LLC.  All Rights Reserved.
- * For more information, please refer to ../LICENSE   *** NO WARRANTY ***
- *
- * Date: 18 February 2018
- * Revised: 10 November 2021
- *
+ * @private
+ * @headerfile network.h <network.h>
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
 */
 
-#ifndef MOCHIMO_NODE_C
-#define MOCHIMO_NODE_C  /* include guard */
+/* include guard */
+#ifndef MOCHIMO_NETWORK_C
+#define MOCHIMO_NETWORK_C
 
 
 #include "network.h"
 
-/* extended-c support */
+/* internal support */
+#include "util.h"
+#include "tx.h"
+#include "tfile.h"
+#include "tag.h"
+#include "sync.h"
+#include "ledger.h"
+#include "global.h"
+
+/* external support */
+#include <string.h>
+#include "exttime.h"
+#include "extthread.h"
+#include "extprint.h"
+#include "extmath.h"
 #include "extlib.h"
 #include "extinet.h"
-#include "extmath.h"
-#include "extprint.h"
-#include "exttime.h"
-
-/* crypto support */
 #include "crc16.h"
 
-/* mochimo support */
-#include "config.h"
-#include "util.h"
-
-#include <string.h>
+#define valid_op(op)  ((op) >= FIRST_OP && (op) <= LAST_OP)
+#define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
+#define can_fork_tx() (Nonline <= (MAXNODES - 5))
 
 NODE Nodes[MAXNODES];  /* data structure for connected NODE's     */
 NODE *Hi_node = Nodes; /* points one beyond last logged in NODE   */
 
-word8 Cbits = CBITS;       /* Node capability bits */
-word16 Dstport = PORT1;    /* Destination port (default 2095) */
-
-static const char Metric[9][3] =
-   { "", "K", "M", "G", "T", "P", "E", "Z", "Y" };
-
-
-/* Search a list[] of 32-bit unsigned integers for a non-zero value.
- * A zero value marks the end of list (zero cannot be in the list).
- * Returns NULL if not found, else a pointer to value. */
-word32 *search32(word32 val, word32 *list, unsigned len)
-{
-   for( ; len; len--, list++) {
-      if(*list == 0) break;
-      if(*list == val) return list;
-   }
-   return NULL;
-}
-
-/* Remove bad from list[maxlen]
- * Returns 0 if bad is not in list, else bad.
- * NOTE: *idx queue index is adjusted if idx is non-NULL. */
-word32 remove32(word32 bad, word32 *list, unsigned maxlen, word32 *idx)
-{
-   word32 *bp, *end;
-
-   bp = search32(bad, list, maxlen);
-   if(bp == NULL) return 0;
-   if(idx && &list[*idx] > bp) idx[0]--;
-   for(end = &list[maxlen - 1]; bp < end; bp++) bp[0] = bp[1];
-   *bp = 0;
-   return bad;
-}
-
-/* Append a non-zero 32-bit unsigned integer to a list[].
- * Returns 0 if val was not added, else val.
- * NOTE: *idx queue index is always adjusted, as idx is required. */
-word32 include32(word32 val, word32 *list, unsigned len, word32 *idx)
-{
-   if(idx == NULL || val == 0) return 0;
-   if(search32(val, list, len) != NULL) return 0;
-   if(idx[0] >= len) idx[0] = 0;
-   list[idx[0]++] = val;
-   return val;
-}
-
-/* Shuffle a list of < 64k 32-bit unsigned integers using Durstenfeld's
- * implementation of the Fisher-Yates shuffling algorithm.
- * NOTE: the shuffling length limitation is due to rand16fast(). */
-void shuffle32(word32 *list, word32 len)
-{
-   word32 *ptr, *p2, temp;
-
-   if (len < 2) return; /* list length is not long enough to shuffle, bail */
-   while (list[--len] == 0 && len > 0);  /* determine non-zero list length */
-   for(ptr = &list[len]; len > 1; len--, ptr--) {
-      p2 = &list[rand16fast() % len];
-      temp = *ptr;
-      *ptr = *p2;
-      *p2 = temp;
-   }
-}
-
-/* Returns non-zero if ip is private, else 0. */
-int isprivate(word32 ip)
-{
-   word8 *bp;
-
-   bp = (word8 *) &ip;
-   if(bp[0] == 10) return 1;  /* class A */
-   if(bp[0] == 172 && bp[1] >= 16 && bp[1] <= 31) return 2;  /* class B */
-   if(bp[0] == 192 && bp[1] == 168) return 3;  /* class C */
-   if(bp[0] == 169 && bp[1] == 254) return 4;  /* auto */
-   return 0;  /* public IP */
-}
-
-word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx)
-{
-   if(ip == 0) return 0;
-   if(Noprivate && isprivate(ip)) return 0;  /* v.28 */
-   if(search32(ip, list, len) != NULL) return 0;
-   if(*idx >= len) *idx = 0;
-   list[idx[0]++] = ip;
-   return ip;
-}
+static const char Metric[8][3] = { "", "K", "M", "G", "T", "P", "E", "Z" };
 
 /**
- * Save the Rplist[] list to disk.
- * Returns VEOK on success, else VERROR */
-int save_ipl(char *fname, word32 *list, word32 len)
+ * Is called after initial accept() or connect()
+ * Adds the connection to Node[] array.
+ * and returns a new NODE * with *np's data.
+*/
+NODE *getslot(NODE *np)
 {
-   static char preface[] = "# Peer list (built by node)\n";
-   char ipaddr[16];  /* for threadsafe ntoa() usage */
-   word32 j;
-   FILE *fp;
+   NODE *newnp;
 
-   pdebug("save_ipl(%s): saving...", fname);
+   /*
+    * Find empty slot
+    */
+   for(newnp = Nodes; newnp < &Nodes[MAXNODES]; newnp++)
+      if(newnp->pid == 0) break;
 
-   /* open file for writing */
-   fp = fopen(fname, "w");
-   if (fp == NULL) {
-      perrno(errno, "save_ipl(%s): fopen failed", fname);
-      return VERROR;
-   };
-
-   /* save non-zero entries */
-   for(j = 0; j < len && list[j] != 0; j++) {
-      ntoa(&list[j], ipaddr);
-      if ((j == 0 && fwrite(preface, strlen(preface), 1, fp) != 1) ||
-         (fwrite(ipaddr, strlen(ipaddr), 1, fp) != 1) ||
-         (fwrite("\n", 1, 1, fp) != 1)) {
-         fclose(fp);
-         remove(fname);
-         perr("save_ipl(%s): *** I/O error writing address line", fname);
-         return VERROR;
-      }
+   if(newnp >= &Nodes[MAXNODES]) {
+      perr("getslot(): Nodes[] full!");
+      Nspace++;
+      return NULL;
    }
 
-   fclose(fp);
-   plog("save_ipl(%s): recent peers saved", fname);
-   return VEOK;
-}  /* end save_ipl() */
+   Nonline++;    /* number of currently connected sockets */
+   pdebug("getslot() added NODE %d", (int) (newnp - Nodes));
+   if (newnp >= Hi_node) Hi_node = newnp + 1;
+   memcpy(newnp, np, sizeof(NODE));
+   return newnp;
+}  /* end getslot() */
 
-/**
- * Read an IP list file, fname, into plist.
- * Valid lines in IP list include:
- *    host.domain.name
- *    1.2.3.4
- * Returns number of  on success, else VERROR. */
-word32 read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
-{
-   char buff[128];
-   word32 count;
-   FILE *fp;
-
-   pdebug("read_ipl(%s): reading...", fname);
-   count = 0;
-
-   /* check valid fname and open for reading */
-   if (fname == NULL || *fname == '\0') return VERROR;
-   fp = fopen(fname, "r");
-   if (fp == NULL) return VERROR;
-
-   /* read file line-by-line */
-   while(fgets(buff, 128, fp)) {
-      if (strtok(buff, " #\r\n\t") == NULL) break;
-      if (*buff == '\0') continue;
-      if (addpeer(aton(buff), plist, plistlen, plistidx)) {
-         pdebug("read_ipl(%s): added %s", fname, buff);
-         count++;
-      }
-   }
-   /* check for read errors */
-   if (ferror(fp)) perr("read_ipl(%s): *** I/O error", fname);
-
-   fclose(fp);
-   return count;
-}  /* end read_ipl() */
-
-/* */
-int readpeers(void)
-{
-   if(fexists("coreip.lst")) {
-      pdebug("init_peers(): adding coreip.lst to Rplist[]...");
-      read_ipl("coreip.lst", Rplist, RPLISTLEN, &Rplistidx);
-   }
-   if(fexists("start.lst")) {
-      pdebug("init_peers(): adding start.lst to Rplist[]...");
-      read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
-      remove("start.lst");
-   }
-   if(fexists("recentip.lst")) {
-      pdebug("init_peers(): adding " "recentip.lst" " to Rplist[]...");
-      read_ipl("recentip.lst", Rplist, RPLISTLEN, &Rplistidx);
-   }
-   if(fexists("trustedip.lst")) {
-      pdebug("init_peers(): adding " "trustedip.lst" " to Rplist[] and Tplist[]...");
-      read_ipl("trustedip.lst", Rplist, RPLISTLEN, &Rplistidx);
-      read_ipl("trustedip.lst", Tplist, TPLISTLEN, &Tplistidx);
-   }
-
-   /* report node count */
-   pdebug("init_peers(): Rplistidx= %" P32u, Rplistidx);
-   pdebug("init_peers(): Tplistidx= %" P32u, Tplistidx);
-
-   return VEOK;
-}
-
-/* Re-read epoch pink list from init(). */
-int readpink(void)
-{
-   pdebug("reading epoch pink list...");
-   return read_ipl("epink.lst", Epinklist, EPINKLEN, &Epinkidx);
-}
-
-/*
- * Save pink lists to disk.
+/* Mark NODE np in Nodes[] empty by setting np->pid to zero.
+ * Adjust Nonline and Hi_node.
+ * Caller must close np->sd if needed.
  */
-int savepink(void)
+int freeslot(NODE *np)
 {
-   int j;
-
-   pdebug("saving epoch pink list...");
-
-   /* save non-zero entries */
-   for(j = 0; j < EPINKLEN; j++)
-      if(Epinklist[j] == 0) break;
-
-   save_ipl("epink.lst", Epinklist, j);
+   if(np->pid == 0)
+      return perr("*** NODE %ld already called freeslot() ***",
+                   (long) (np - Nodes));
+   pdebug("freeslot(): idx=%d  ip = %s pid = %d", (int) (np - Nodes),
+           ntoa(&np->ip, NULL), (int) np->pid);
+   Nonline--;
+   np->pid = 0;
+   /* Update pointer to just beyond highest used slot in Nodes[] */
+   while(Hi_node > Nodes && (Hi_node - 1)->pid == 0)
+      Hi_node--;
+   if(Nonline < 0) { Nonline = 0; return perr("Nonline < 0"); }
    return VEOK;
-}  /* end savepink() */
+}  /* end freeslot() */
 
-
-int pinklisted(word32 ip)
-{
-   if(Disable_pink) return 0;   /* for debug */
-
-   if(search32(ip, Cpinklist, CPINKLEN) != NULL
-      || search32(ip, Lpinklist, LPINKLEN) != NULL
-      || search32(ip, Epinklist, EPINKLEN) != NULL)
-         return 1;
-   return 0;
-}
-
-
-/* Add ip address to current pinklist.
- * Call pinklisted() first to check if already on list.
+/* Return child status of pid.
+ * Add peer ip to lists if needed.
+ * Increment counts.
+ * Returns 1 if child did not call exit(1),
+ * else the exit() code (which can also be 1).
  */
-int cpinklist(word32 ip)
+int child_status(NODE *np, pid_t pid, int status)
 {
-   if(Cpinkidx >= CPINKLEN)
-      Cpinkidx = 0;
-   Cpinklist[Cpinkidx++] = ip;
-   return VEOK;
-}
-
-/* Add ip address to current pinklist and remove it from
- * current and recent peer lists.
- * Checks the list first...
- */
-int pinklist(word32 ip)
-{
-   pdebug("%s pink-listed", ntoa(&ip, NULL));
-
-   if(!pinklisted(ip)) {
-      if(Cpinkidx >= CPINKLEN)
-         Cpinkidx = 0;
-      Cpinklist[Cpinkidx++] = ip;
-   }
-   if(!Disable_pink) {
-      remove32(ip, Rplist, RPLISTLEN, &Rplistidx);
-   }
-   return VEOK;
-}  /* end pinklist() */
-
-
-/* Add ip address to last pinklist.
- * Caller checks if already on list.
- */
-int lpinklist(word32 ip)
-{
-   if(Lpinkidx >= LPINKLEN)
-      Lpinkidx = 0;
-   Lpinklist[Lpinkidx++] = ip;
-   return VEOK;
-}
-
-
-int epinklist(word32 ip)
-{
-   if(Epinkidx >= EPINKLEN) {
-      pdebug("Epoch pink list overflow");
-      Epinkidx = 0;
-   }
-   Epinklist[Epinkidx++] = ip;
-   return VEOK;
-}
-
-
-/* Call after each epoch.
- * Merges current pink list into last pink list
- * and purges current pink list.
- */
-void mergepinklists(void)
-{
-   int j;
-   word32 ip, *ptr;
-
-   for(j = 0; j < CPINKLEN; j++) {
-      ip = Cpinklist[j];
-      if(ip == 0) continue;  /* empty */
-      ptr = search32(ip, Lpinklist, LPINKLEN);
-      if(ptr == NULL) lpinklist(ip);  /* add to last bad list */
-      Cpinklist[j] = 0;
-   }
-   Cpinkidx = 0;
-}
-
-
-/* Erase Epoch Pink List */
-void purge_epoch(void)
-{
-   pdebug("   purging epoch pink list");
-   unlink("epink.lst");
-   memset(Epinklist, 0, sizeof(Epinklist));
-   Epinkidx = 0;
-}
+   pdebug("child_status(): pid = %d  status = 0x%x", pid, status);
+   if(pid > 0) {  /* child existed and called exit() */
+      if(WIFEXITED(status)) {
+         status = WEXITSTATUS(status);
+         if(status != 0) {
+            if(status >= 2) pinklist(np->ip);
+            if(status >= 3) epinklist(np->ip);
+            return status;
+         }
+      } else return 1;  /* error if not exited */
+      return status;  /* 0 */
+   }  /* end if child exit()'ed */
+   return 1;  /* error if child caught signal */
+}  /* end child_status() */
 
 /**
  * Receive next packet from NODE *np.
@@ -369,7 +138,7 @@ int recv_tx(NODE *np, double timeout)
    }
 
    /* compute crc16 checksum and verify packet integrity */
-   hash = crc16(tx, TXCRC_COUNT);
+   hash = crc16(tx, TXCRC_INLEN);
    if (get16(tx->crc16) != hash) {
       pdebug("recv_tx(%s): *** CRC16 mismatch, 0x%" P16X " != 0x%" P16X,
          np->id, get16(tx->crc16), hash);
@@ -509,7 +278,7 @@ int send_tx(NODE *np, double timeout)
    }
 
    /* compute packet crc16 checksum */
-   put16(tx->crc16, crc16(tx, TXCRC_COUNT));
+   put16(tx->crc16, crc16(tx, TXCRC_INLEN));
 
    /* send tx packet */
    ecode = sock_send(np->sd, tx, TXBUFFLEN, 0, timeout);
@@ -587,6 +356,70 @@ int send_file(NODE *np, char *fname)
    return ecode;
 }  /* end send_file() */
 
+/**
+ * Send a ledger.dat balance query to np.
+ * Called from gettx() OP_BALANCE
+ * layout:
+ * on entry:
+ *     np->tx.src_addr    address to query
+ * on return:
+ *     np->tx.send_total = balance of src_addr (0 if not found)
+ *
+ * Returns 1 on I/O errors, else 0.
+*/
+int send_balance(NODE *np)
+{
+   LENTRY le;
+   word16 len;
+
+   len = get16(np->tx.len);
+   memset(np->tx.send_total, 0, 8);
+   memset(np->tx.change_total, 0, 8);
+   /* check for old OP_BALANCE Request with ZEROED Tag */
+   if(len == 0 && ((word8 *) (np->tx.src_addr))[2196] == 0x00) {
+     len = TXADDRLEN - 12;
+   }
+   /* look up source address in ledger */
+   if(le_find(np->tx.src_addr, &le, NULL, len) == TRUE) {
+     put64(np->tx.send_total, le.balance);
+     put64(np->tx.change_total, One); /* indicate address was found */
+     memcpy(np->tx.src_addr, le.addr, TXADDRLEN); /* return found address */
+   }
+   send_op(np, OP_SEND_BAL);
+
+   Nbalance++;
+   return 0;  /* success */
+} /* end send_balance() */
+
+/* Send our recent peer list to NODE np in response to OP_GETIPL.
+ * Called from execute().
+ */
+int send_ipl(NODE *np)
+{
+   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   /* copy recent peer list to TX */
+   memcpy(TRANBUFF(&np->tx), Rplist, RPLISTLEN);
+   put16(np->tx.len, RPLISTLEN);
+   return send_op(np, OP_SEND_IPL);  /* send ip list */
+}
+
+/* Process OP_HASH.  Return VEOK on success, else VERROR.
+ * Called by handle_tx().
+ */
+int send_hash(NODE *np)
+{
+   BTRAILER bt;
+   char fname[128];
+
+   sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(np->tx.blocknum));
+   if(readtrailer(&bt, fname) != VEOK) return VERROR;
+   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   /* copy hash of tx.blocknum to TX */
+   memcpy(TRANBUFF(&np->tx), bt.bhash, HASHLEN);
+   put16(np->tx.len, HASHLEN);
+   return send_op(np, OP_HASH);  /* send back to peer */
+}  /* end send_hash() */
+
 /* Process OP_TF.  Return VEOK on success, else VERROR.
  * Called by child -- execute().
  */
@@ -612,41 +445,115 @@ int send_tf(NODE *np)
 }  /* end send_tf() */
 
 
-/* Process OP_HASH.  Return VEOK on success, else VERROR.
- * Called by gettx().
- */
-int send_hash(NODE *np)
+int send_identify(NODE *np)
 {
-   BTRAILER bt;
-   char fname[128];
-
-   sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(np->tx.blocknum));
-   if(readtrailer(&bt, fname) != VEOK) return VERROR;
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
-   /* copy hash of tx.blocknum to TX */
-   memcpy(TRANBUFF(&np->tx), bt.bhash, HASHLEN);
-   put16(np->tx.len, HASHLEN);
-   return send_op(np, OP_HASH);  /* send back to peer */
-}  /* end send_hash() */
+   /* copy recent peer list to TX */
+   sprintf((char *) TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
+           Sanctuary, Lastday, Myfee[0]);
+   return send_op(np, OP_IDENTIFY);
+}
 
 /**
- * Used for simple one packet responses like OP_GET_IPL.
- * Assumes socket np->sd is connected and non-blocking.
- * Closes socket and sets np->sd to INVALID_SOCKET on return.
- * Returns VEOK on success, else VERROR. */
-int get_op(NODE *np, word16 opcode)
+ * Look-up and return an address tag to np.
+ * Called from handle_tx() opcode == OP_RESOLVE
+ *
+ * on entry:
+ *     tag string at ADDR_TAG_PTR(np->tx.dst_addr)    tag to query
+ * on return:
+ *     np->tx.send_total = 1 if found, or 0 if not found.
+ *     if found: np->tx.dst_addr has full found address with tag.
+ *               np->tx.change_total has balance.
+ *
+ * Returns VEOK if found, else VERROR.
+*/
+int send_resolve(NODE *np)
 {
-   int ecode = VEOK;
+   word8 foundaddr[TXADDRLEN];
+   static word8 zeros[8];
+   word8 balance[TXAMOUNT];
+   int status, ecode = VERROR;
 
-   /* send and receive single packet */
-   ecode = send_op(np, opcode);
-   if(ecode == VEOK) ecode = recv_tx(np, STD_TIMEOUT);
-   /* cleanup */
-   sock_close(np->sd);
-   np->sd = INVALID_SOCKET;
-
+   put64(np->tx.send_total, zeros);
+   put64(np->tx.change_total, zeros);
+   /* find tag in leger.dat */
+   status = tag_find(np->tx.dst_addr, foundaddr, balance, get16(np->tx.len));
+   if(status == VEOK) {
+      memcpy(np->tx.dst_addr, foundaddr, TXADDRLEN);
+      memcpy(np->tx.change_total, balance, TXAMOUNT);
+      put64(np->tx.send_total, One);
+      ecode = VEOK;
+   }
+   send_op(np, OP_RESOLVE);
    return ecode;
-}  /* end get_op() */
+}  /* end send_resolve() */
+
+/* Creates child to send OP_FOUND to all recent peers */
+int send_found(void)
+{
+   word32 *ipp;
+   NODE node;
+   BTRAILER bt;
+   char fname[128];
+   int ecode;
+   TX tx;
+
+   if (Found_pid) {
+      plog("send_found() is already running -- rerun it.");
+      stop_found();
+   }
+
+   Found_pid = fork();
+   if(Found_pid == -1) {
+      Found_pid = 0;
+      return VERROR;  /* fork() failed */
+   }
+   if(Found_pid) return VEOK;          /* parent returns */
+
+   /* in child */
+   show("found");
+
+   /* Check if "found" NG block v.23 */
+   if(Cblocknum[0] == 0) {
+      ecode = 1;
+      /* Back up our Cblocknum in child only to 0x...ff block. */
+      if(sub64(Cblocknum, One, Cblocknum)) goto bad;
+      sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(Cblocknum));
+      ecode = 2;
+      if(readtrailer(&bt, fname) != VEOK
+         || cmp64(Cblocknum, bt.bnum) != 0) {
+bad:
+         exit(perr("send_found(): ecode: %d", ecode));
+      }
+      ecode = 3;
+      if(memcmp(Prevhash, bt.bhash, HASHLEN)) goto bad;
+      memcpy(Cblockhash, bt.bhash, HASHLEN);
+      memcpy(Prevhash, bt.phash, HASHLEN);
+   }  /* end if NG block v.23 */
+
+   if(Trace)
+      plog("send_found(0x%s)", bnum2hex(Cblocknum));
+
+   loadproof(&tx);  /* get proof from tfile.dat */
+   /* Send found message to recent peers */
+   shuffle32(Rplist, RPLISTLEN);
+   for(ipp = Rplist; ipp < &Rplist[RPLISTLEN] && Running; ipp++) {
+      if(*ipp == 0) continue;
+      if(callserver(&node, *ipp) != VEOK) continue;
+      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      send_op(&node, OP_FOUND);
+      sock_close(node.sd);
+   }
+   /* Send found message to trusted peers */
+   for(ipp = Tplist; ipp < &Tplist[TPLISTLEN] && Running; ipp++) {
+      if(*ipp == 0) continue;
+      if(callserver(&node, *ipp) != VEOK) continue;
+      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      send_op(&node, OP_FOUND);
+      sock_close(node.sd);
+   }
+   exit(0);
+}  /* end send_found() */
 
 /**
  * Call peer and complete Three-Way handshake */
@@ -662,7 +569,6 @@ int callserver(NODE *np, word32 ip)
    np->ip = np->id1 = np->id2 = 0;
    memset(&(np->tx), 0, sizeof(TX));   /* clear structure */
    sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
-   pdebug("callserver(%s): connecting...", np->id);
    /* begin connection */
    np->ip = ip;
    np->sd = sock_connect_ip(ip, Dstport, INIT_TIMEOUT);
@@ -675,7 +581,6 @@ int callserver(NODE *np, word32 ip)
    id1 = (word8) (np->id1 >> 8);
    put16(np->tx.opcode, OP_HELLO);
    sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
-   pdebug("callserver(%s): initiating handshake...", np->id);
    if(send_tx(np, ACK_TIMEOUT) || recv_tx(np, ACK_TIMEOUT)) {
       pdebug("callserver(%s): *** incomplete handshake", np->id);
       sock_close(np->sd);
@@ -686,7 +591,6 @@ int callserver(NODE *np, word32 ip)
    np->id2 = get16(np->tx.id2);
    id2 = (word8) np->id2;
    sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
-   pdebug("callserver(%s): validating handshake...", np->id);
    if(get16(np->tx.opcode) != OP_HELLO_ACK || get16(np->tx.id1) != np->id1) {
       pdebug("callserver(%s): *** invalid handshake", np->id);
       sock_close(np->sd);
@@ -794,8 +698,9 @@ int get_ipl(NODE *np, word32 ip)
  * Return VEOK if successful, else error code. */
 int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash)
 {
-   char ipaddr[16];  /* for threadsafe ntoa() usage */
    TX *tx;
+   int ecode;
+   char ipaddr[16];  /* for threadsafe ntoa() usage */
 
    pdebug("get_hash(%s): calling...", ntoa(&ip, ipaddr));
    if (callserver(np, ip) != VEOK) return VERROR;
@@ -807,35 +712,168 @@ int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash)
       put64(tx->blocknum, tx->cblock);
    } else put64(tx->blocknum, bnum);
 
+   /* perform OP_HASH request and receive -- close socket */
    pdebug("get_hash(%s): sending OP_HASH...", np->id);
-   if(get_op(np, OP_HASH) == VEOK) {  /* closes socket */
+   ecode = send_op(np, OP_HASH) || recv_tx(np, STD_TIMEOUT);
+   sock_close(np->sd);
+   np->sd = INVALID_SOCKET;
+
+   if (ecode == VEOK) {
+      /* check response validity */
       if (get16(tx->opcode) != OP_HASH) {
          pdebug("get_hash(%s): unexpected opcode...", np->id);
          return VERROR;
-      }
-      if (get16(tx->len) != HASHLEN) {
+      } else if (get16(tx->len) != HASHLEN) {
          pdebug("get_hash(%s): unexpected len...", np->id);
          return VERROR;
       }
+      /* pass blockhash on success, if not NULL */
       if (blockhash) memcpy(blockhash, TRANBUFF(tx), HASHLEN);
-      return VEOK;
    }
 
-   return VERROR;
+   return ecode;
 }  /* end get_hash() */
+
+/**
+ * Handle an incoming packets from the Mochimo network. Reads a TX structure
+ * from SOCKET sd.  Handles 3-way handshake and validates crc and id's.
+ * Also cares for requests that do not need a child process.
+ *
+ * Returns:
+ *          -1 no data yet
+ *          0 to create child NODE to process read np->tx
+ *          1 to close connection ("You're done, no child")
+ *          2 ip was pinklisted (She was very naughty.)
+ *
+ * On entry: sd is non-blocking.
+ *
+ * Op sequence: OP_HELLO,OP_HELLO_ACK,OP_(?x)
+*/
+int handle_tx(NODE *np, SOCKET sd)
+{
+   char ipaddr[16];  /* for threadsafe ntoa() usage */
+   int status;
+   word32 ip;
+   word16 opcode, id1, id2;
+   TX *tx;
+
+   /* init */
+   tx = &np->tx;
+   ip = opcode = id1 = id2 = 0;
+   memset(np, 0, sizeof(NODE));   /* clear structure */
+
+   np->sd = sd;
+   np->ip = ip = get_sock_ip(sd);  /* uses getpeername() */
+   sprintf(np->id, "%.15s %02x~%02x", ntoa(&ip, ipaddr), id1, id2);
+   pdebug("handle_tx(%s): connected...", np->id);
+
+   /* There are many ways to be bad...
+    * Check pink lists... */
+   if (pinklisted(np->ip)) {
+      pdebug("handle_tx(%s): dropped (pink)", np->id);
+      Nbadlogs++;
+      return VEBAD;
+   }
+
+   /* hello? */
+   if (recv_tx(np, INIT_TIMEOUT)) return VERROR;
+   if (get16(tx->opcode) != OP_HELLO) goto bad1;
+
+   /* hi! */
+   np->id2 = id2 = rand16();
+   np->id1 = id1 = get16(tx->id1);
+   if (send_op(np, OP_HELLO_ACK) != VEOK) return VERROR;
+
+   /* how can I help you? */
+   status = recv_tx(np, INIT_TIMEOUT);
+   opcode = get16(tx->opcode);  /* execute() will check opcode */
+   sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
+   pdebug("handle_tx(%s): got opcode = %d  status = %d", np->id, opcode, status);
+   if (status == VEBAD) goto bad2;
+   if (status != VEOK) return VERROR;  /* bad packet -- timeout? */
+   if (!valid_op(opcode)) goto bad1;  /* she was a bad girl */
+
+   /* check simple responses */
+   switch (opcode) {
+      case OP_GET_IPL:
+         send_ipl(np);
+         if (get16(np->tx.len) == 0) {  /* do not add wallets */
+            addrecent(np->ip);
+         }
+         return 1;
+      case OP_TX:
+         if (txcheck(tx->src_addr) != VEOK) {
+            pdebug("got dup src_addr");
+            Ndups++;
+            return 1;
+         }
+         Nlogins++;  /* raw TX in */
+         status = process_tx(np);
+         if (status > 2) goto bad1;
+         if (status > 1) goto bad2;
+         if (get16(np->tx.len) == 0) {  /* do not add wallets */
+            addrecent(np->ip);
+         }
+         return 1;
+      case OP_FOUND:
+         /* getblock child, catchup, re-sync, or ignore */
+         if(Blockfound) return 1;  /* Already found one so ignore.  */
+         status = contention(np);  /* Do we want this block? */
+         if(status != 1) return 1; /* nothing to do: contention() fixed it */
+
+         /* Get block */
+         /* Check if bcon is running and if so stop her. */
+         stop_bcon();
+         stop_found();
+         /* Now we can fetch the found block, validate it, and update. */
+         Blockfound = 1;
+         break;
+      case OP_BALANCE:
+         send_balance(np);
+         return 1;
+      case OP_RESOLVE:
+         send_resolve(np);
+         send_op(np, OP_RESOLVE);
+         return 1;
+      case OP_GET_CBLOCK:
+         if (!Allowpush || !fexists("miner.tmp")) return 1;
+         break;
+      case OP_MBLOCK:
+         if (!Allowpush || (time(NULL) - Pushtime) < 150) return 1;
+         Pushtime = time(NULL);
+         break;
+      case OP_HASH:
+         send_hash(np);
+         return 1;
+      case OP_IDENTIFY:
+         send_identify(np);
+         return 1;
+      case OP_BUSY:
+      case OP_NACK:
+      case OP_HELLO_ACK:
+         return 1;
+      default:
+         pdebug("handle_tx(%s): requires child...", np->id);
+   }
+
+   /* If too many children in too small a space... */
+   if (crowded(opcode)) return 1;  /* suppress child unless OP_FOUND */
+   return VEOK;  /* success -- fork() child in server() */
+
+bad1: epinklist(np->ip);
+bad2: pinklist(np->ip);
+      Nbadlogs++;
+      pdebug("handle_tx(%s): pinklisted, opcode = %d", np->id, opcode);
+
+   return VEBAD;
+}  /* end handle_tx() */
 
 ThreadProc thread_get_ipl(void *arg)
 {
-   THREAD_SCAN_ARGS *args = (THREAD_SCAN_ARGS *) arg;
-   NODE node;
-   int res;
+   NODE *np = (NODE *) arg;
 
-   res = callserver(&node, args->ip);
-   res = res ? res : get_op(&node, OP_GET_IPL);
-   if (res == VEOK) memcpy(&(args->tx), &(node.tx), sizeof(TX));
-
-   args->tr = res;
-   args->ts = 1;
+   /* embed result and done indicator in np->ts */
+   np->ts = (get_tx(np, np->ip, OP_GET_IPL) << 8) | 1;
    Unthread;
 }
 
@@ -848,7 +886,7 @@ ThreadProc thread_get_ipl(void *arg)
 int scan_network
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum)
 {
-   THREAD_SCAN_ARGS scan[MAXNODES];
+   NODE node[MAXNODES] = { 0 };
    ThreadId tid[MAXNODES] = { 0 };
    char ipaddr[16];  /* for threadsafe ntoa() usage */
    char progress[BUFSIZ];
@@ -872,53 +910,55 @@ int scan_network
          percent, done, Rplistidx, difftime(time(NULL), start));
       psticky(progress);
       /* check threads */
-      for(j = 0; j < MAXNODES; j++) {
-         if (tid[j] > 0 && scan[j].ts) {
+      for (j = 0; j < MAXNODES; j++) {
+         /* check thread status */
+         if (tid[j] > 0 && node[j].ts) {
             /* thread is finished */
             result = thread_join(tid[j]);
             if (result != VEOK) perrno(result, "thread_join()");
-            if ((scan[j].tr) == VEOK) {  /* get ip list from TX */
-               len = get16(scan[j].tx.len);
-               ipp = (word32 *) TRANBUFF(&(scan[j].tx));
+            if ((node[j].ts >> 8) == VEOK) {
+               /* get ip list from TX */
+               len = get16(node[j].tx.len);
+               ipp = (word32 *) TRANBUFF(&(node[j].tx));
                for( ; len > 0; ipp++, len -= 4) {
                   if (*ipp == 0) continue;
                   if (Rplist[RPLISTLEN - 1]) break;
                   addrecent(*ipp);
                }  /* check peer's chain weight against highweight */
-               result = cmp256(scan[j].tx.weight, highweight);
+               result = cmp256(node[j].tx.weight, highweight);
                if (result >= 0) {  /* higher or same chain detection */
                   if (result > 0) {  /* higher chain detection */
                      pdebug("scan_network(): new highweight");
-                     memcpy(highhash, scan[j].tx.cblockhash, HASHLEN);
-                     memcpy(highweight, scan[j].tx.weight, 32);
-                     put64(highbnum, scan[j].tx.cblock);
+                     memcpy(highhash, node[j].tx.cblockhash, HASHLEN);
+                     memcpy(highweight, node[j].tx.weight, 32);
+                     put64(highbnum, node[j].tx.cblock);
                      count = 0;
                      if (quorum) {
                         memset(quorum, 0, qlen);
                         pdebug("scan_network(): higher chain found, quourum reset...");
                      }
                   }  /* check block hash and add to quorum */
-                  if (cmp256(scan[j].tx.cblockhash, highhash) >= 0) {
+                  if (cmp256(node[j].tx.cblockhash, highhash) >= 0) {
                      /* add ip to quorum, or count consensus */
                      if (quorum && count < qlen) {
-                        quorum[count++] = scan[j].ip;
-                        ntoa(&(scan[j].ip), ipaddr);
+                        quorum[count++] = node[j].ip;
+                        ntoa(&(node[j].ip), ipaddr);
                         pdebug("scan_network(): %s qualified", ipaddr);
                      } else if (quorum == NULL) count++;
                   }
                }
             }  /* clear thread data */
-            scan[j].ts = 0;
+            node[j].ts = 0;
             tid[j] = 0;
             done++;
          } else if (tid[j] == 0) {
             if (next < Rplistidx && Rplist[next]) {
-               scan[j].ip = Rplist[next];
-               scan[j].ts = 0;
-               result = thread_create(&(tid[j]), &thread_get_ipl, &scan[j]);
+               node[j].ip = Rplist[next];
+               node[j].ts = 0;
+               result = thread_create(&(tid[j]), &thread_get_ipl, &node[j]);
                if (result != VEOK) {
                   perrno(result, "thread_create()");
-                  scan[j].ts = 0;
+                  node[j].ts = 0;
                   tid[j] = 0;
                } else next++;
             }
@@ -944,6 +984,35 @@ int scan_network
 
    return count;
 }  /* end scan_network() */
+
+/* Refresh the ip list and send_found() to low-weight peer if needed.
+ * Called from server().
+ * Returns result code.
+ */
+int refresh_ipl(void)
+{
+   NODE node;
+   int j, message = 0;
+   word32 ip;
+   TX tx;
+
+   for(j = ip = 0; j < 1000 && ip == 0; j++)
+      ip = Rplist[rand16() % RPLISTLEN];
+   if(ip == 0) BAIL(1);
+   if(get_ipl(&node, ip) != VEOK) BAIL(2);
+   /* Check peer's chain weight against ours. */
+   if(cmp256(node.tx.weight, Weight) < 0) {
+      /* Send found message to low weight peer */
+      loadproof(&tx);  /* get proof from tfile.dat */
+      if(callserver(&node, ip) != VEOK) BAIL(3);
+      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      send_op(&node, OP_FOUND);
+      sock_close(node.sd);
+   }
+bail:
+   pdebug("refresh_ipl(): %d", message);
+   return message;
+}  /* end refresh_ipl() */
 
 /* end include guard */
 #endif

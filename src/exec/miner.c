@@ -80,8 +80,7 @@ int miner(char *blockin, char *blockout)
       }
 
       show("solving");
-      if(Trace)
-         plog("miner: beginning solve: %s block: 0x%s", blockin,
+      pdebug("miner: beginning solve: %s block: 0x%s", blockin,
               bnum2hex(bt.bnum));
 
       if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 and later */
@@ -97,8 +96,7 @@ int miner(char *blockin, char *blockout)
          /* Free allocated memory on CUDA devices */
          free_cuda_peach();
          /* K all g... */
-#endif
-#ifdef CPUNODE
+#else
 
          /* initialize Peach context, adjust diff; solve Peach; increment hash */
          for(peach_init(&bt);
@@ -191,8 +189,7 @@ int miner(char *blockin, char *blockout)
          break;
       }
 
-      if(Trace)
-         plog("miner: solved block 0x%s is now: %s",
+      pdebug("miner: solved block 0x%s is now: %s",
               bnum2hex(bt.bnum), blockout);
       break;
    }  /* end for(;;) exit miner  */

@@ -16,69 +16,225 @@
 
 #include "util.h"
 
-#ifndef _WIN32
-   #include <sys/file.h>  /* for flock() */
-   #include <unistd.h>  /* for open() & close() */
+/* internal support */
+#include "trigg.h"
+#include "peach.h"
+#include "network.h"
+#include "global.h"
+
+/* external support */
+#include <time.h>
+#include <string.h>
+#include <signal.h>
+#include <stdlib.h>
+#include "extprint.h"
+#include "extmath.h"
+#include "extlib.h"
+#include "extio.h"
+#include "extinet.h"
+#include <errno.h>
+#include "crc16.h"
+
+#ifndef NSIG
+   #define NSIG 23
 
 #endif
 
-#include <string.h>  /* for memory handling */
-#include <stdlib.h>  /* for system() */
-#include <time.h>    /* for time_t */
-#include <errno.h>   /* for errno */
-
-#include "extint.h"
-#include "extio.h"
-#include "extlib.h"
-#include "extmath.h"
-#include "extprint.h"
-
-#include "crc16.h"
-
-#include "peach.h"
-#include "trigg.h"
-
-#include "data.c"
-
-#ifndef _WIN32
-
-/* Get exclusive lock on lockfile.
- * Returns: -1 if lock not made within 'seconds' or open() failed
- *          else a descriptor to be used with unlock()
- */
-int lock(char *lockfile, int seconds)
+char *show(char *state)
 {
-   time_t timeout;
-   int fd, status;
-
-   timeout = time(NULL) + seconds;
-   fd = open(lockfile, O_NONBLOCK | O_RDONLY);
-   if(fd == -1) return -1;
-   for(;;) {
-      status = flock(fd, LOCK_EX | LOCK_NB);
-      if(status == 0) return fd;
-      if(time(NULL) >= timeout) {
-         close(fd);
-         return -1;
-      }
-   }
+   if(state == NULL) state = "(null)";
+   if(Statusarg) strncpy(Statusarg, state, 8);
+   return state;
 }
 
-/* Unlock a decriptor returned from lock() */
-int unlock(int fd)
+int get_option_idx(OPTIONS *opts, int len, char *search)
 {
-   int status;
+   char *vid, tmp;
 
-   status =  flock(fd, LOCK_UN);
-   close(fd);
+   /* remove any value identifier, temporarily */
+   vid = strpbrk(search, ":=");
+   if (vid) {
+      tmp = *vid;
+      *vid = '\0';
+   }
+   /* find matching option... */
+   for (len--; len > 0; len--) {
+      if (strcmp(opts[len].id, search) == 0) break;
+      if (strcmp(opts[len].idl, search) == 0) break;
+   }
+   /* replace value identifier */
+   if (vid) *vid = tmp;
+
+   return len;
+}
+
+char *get_option_value(int *idx, char *argv[], int argc)
+{
+   char *value;
+
+   value = strpbrk(argv[*idx], ":=");
+   if (value) value++;
+   else if (++(*idx) < argc) {
+      if (strncmp("--", argv[*idx], 3) != 0) {
+         value = argv[*idx];
+      }
+   }
+
+   return value;
+}
+
+/* kill the block constructor */
+int stop_bcon(void)
+{
+   int status = VETIMEOUT;
+
+   if (Bcon_pid) {
+      pdebug("   Waiting for b_con() to exit");
+      kill(Bcon_pid, SIGTERM);
+      waitpid(Bcon_pid, NULL, 0);
+      Bcon_pid = 0;
+   }
+
    return status;
 }
 
-#endif
+/* kill send_found() */
+int stop_found(void)
+{
+   int status = VETIMEOUT;
+
+   if (Found_pid) {
+      pdebug("   Waiting for send_found() to exit");
+      kill(Found_pid, SIGTERM);
+      waitpid(Found_pid, &status, 0);
+      Found_pid = 0;
+   }
+
+   return status;
+}
+
+/* kill the miner child */
+int stop_miner(int make_idle)
+{
+   int status = VETIMEOUT;
+
+   if (Mpid) {
+      pdebug("   Waiting for miner to exit");
+      kill(Mpid, SIGTERM);
+      waitpid(Mpid, &status, 0);
+      if (make_idle) {
+         remove("cblock.dat");
+         remove("miner.tmp");
+      }
+      Mpid = 0;
+   }
+
+   return status;
+}
+
+/* kill mirror() children and grandchildren */
+void stop_mirror(void)
+{
+   if(Mqpid) {
+      pdebug("   Reaping mirror() zombies...");
+      kill(Mqpid, SIGTERM);
+      waitpid(Mqpid, NULL, 0);
+      Mqpid = 0;
+   }
+}  /* end stop_mirror() */
+
+/**
+ * Kill critical services for clean block updates.
+*/
+void stop4update(void)
+{
+   NODE *np;
+   word16 opcode;
+
+   /* kill and wait for critical services to exit */
+   stop_bcon();
+   stop_found();
+   stop_miner(1);
+
+   /* Reap cblock and mblock-push children... */
+   if (!Ininit && Allowpush) {
+      /* Don't fear the Reaper, baby...It won't hurt... */
+      for(np = Nodes; np < Hi_node; np++) {
+         if(np->pid == 0) continue;
+         opcode = get16(np->tx.opcode);
+         if(opcode == OP_GET_CBLOCK || opcode == OP_MBLOCK) {
+            kill(np->pid, SIGTERM);
+            waitpid(np->pid, NULL, 0);
+            freeslot(np);
+         }
+      }  /* end for(np = Nodes... */
+   }  /* end if (!Ininit && Allowpush... */
+}  /* end stop4update() */
+
+/* Display terminal error message
+ * and exit with exitcode after reaping zombies.
+ */
+void fatal2(int exitcode, char *message)
+{
+   pfatal("%s", message);
+   /* stop all services */
+   stop_bcon();
+   stop_found();
+   stop_miner(0);
+   stop_mirror();
+   /* wait for all children */
+   while(waitpid(-1, NULL, 0) != -1);
+   exit(exitcode);
+}
+
+void resign(char *mess)
+{
+   if(mess) pdebug("resigning in %s (sigterm)", mess);
+   fatal2(0, NULL);
+}
+
+void restart(char *mess)
+{
+   pdebug("restart: %s", mess);
+   remove("epink.lst");
+   fatal2(1, NULL);
+}
+
+double diffclocktime(clock_t to, clock_t from)
+{
+   return (double) (to - from) / CLOCKS_PER_SEC;
+}
+
+int check_directory(char *dirname)
+{
+   char fname[FILENAME_MAX];
+
+   mkdir_p(dirname);
+   snprintf(fname, FILENAME_MAX, "%s/chkfile", dirname);
+   if (ftouch(fname) == VEOK) return remove(fname);
+   return perrno(errno, "Permission failure, %s", dirname);
+}
 
 void crctx(TX *tx)
 {
    put16(tx->crc16, crc16((word8 *) tx, sizeof(TX) - (2+2)));
+}
+
+/**
+ * Get the fixed length header value (hdrlen) of a blockchain file.
+ * @param fname File name of a blockchain file
+ * @returns @a hdrlen value of the blockchain file, else 0
+*/
+word32 gethdrlen(char *fname)
+{
+   FILE *fp;
+   word32 len;
+
+   fp = fopen(fname, "rb");
+   if(fp == NULL) return 0;
+   if(fread(&len, 1, 4, fp) !=  4) { fclose(fp); return 0; }
+   fclose(fp);
+   return len;
 }
 
 /* Seek to end of fname and read block trailer.
@@ -132,7 +288,6 @@ char *bnum2hex(void *bnum)
 }
 
 /* bnum is little-endian on disk and core. */
-#define weight2hex(_weight)   val2hex(_weight, 32, NULL, 0)
 char *val2hex(void *val, int len, char *buf, int bufsize)
 {
    static char str[20];
@@ -192,8 +347,25 @@ char *hash2str(word8 *hash)
    return s;
 }
 
+/**
+ * Get string from terminal input without newline char.
+ * @param buff Pointer to char array to place input
+ * @param len Maximum length of char array @a buff
+ * @returns Pointer to @a buff
+*/
+char *tgets(char *buff, int len)
+{
+   char *cp;
 
-int moveublock(char *ublock, word8 *newnum)
+   if (fgets(buff, len, stdin) == NULL) *buff = '\0';
+   cp = strchr(buff, '\n');
+   if (cp) *cp = '\0';
+
+   return buff;
+}
+
+
+int accept_block(char *ublock, word8 *newnum)
 {
    char buff[256];
    char cmd[288];
@@ -203,18 +375,18 @@ int moveublock(char *ublock, word8 *newnum)
    sprintf(buff, "b%s.bc", bnum);
    sprintf(cmd, "%s/b%s.bc", Bcdir, bnum);
    if(fexists(buff) || fexists(cmd)) {
-      perr("moveublock() failed: %s already exists!", buff);
+      perr("accept_block(): failed: %s already exists!", buff);
       return VERROR;
    }
    if(rename(ublock, buff) != 0) {
-      perrno(errno, "moveublock() failed on rename() %s to %s", ublock, buff);
+      perrno(errno, "accept_block(): failed on rename() %s to %s", ublock, buff);
       return VERROR;
    }
    sprintf(cmd, "mv %s %s", buff, Bcdir);
    if (system(cmd)) return VERROR;
    sprintf(buff, "%s/b%s.bc", Bcdir, bnum);
    if(!fexists(buff)) {
-      perr("moveublock() failed on system(%s): %s missing", cmd, buff);
+      perr("accept_block(): failed on system(%s): %s missing", cmd, buff);
       return VERROR;
    }
    return VEOK;
@@ -235,16 +407,15 @@ int read_global(void)
       count += fread(Cblocknum,    1,  8, fp);
       count += fread(Cblockhash,   1, 32, fp);
       count += fread(Prevhash,     1, 32, fp);
-      count += fread(&Peerip,      1,  4, fp);
       count += fread(&Mfee,        1,  8, fp);
       count += fread(&Difficulty,  1,  4, fp);
       count += fread(&Time0,       1,  4, fp);
       count += fread(&Bgflag,      1,  1, fp);
       fclose(fp);
    }
-   if(count != (8+32+32+4+8+4+4+1)) {
+   if(count != (8+32+32+4+8+4+1)) {
       perr("read_global() failed on fread() for %s: read %zu/%zu bytes",
-         "global.dat", count, (size_t) (8+32+32+4+8+4+4+1));
+         "global.dat", count, (size_t) (8+32+32+4+8+4+1));
       return VERROR;
    }
    return VEOK;
@@ -266,16 +437,15 @@ int write_global(void)
       count += fwrite(Cblocknum,    1,  8, fp);
       count += fwrite(Cblockhash,   1, 32, fp);
       count += fwrite(Prevhash,     1, 32, fp);
-      count += fwrite(&Peerip,      1,  4, fp);
       count += fwrite(&Mfee,        1,  8, fp);
       count += fwrite(&Difficulty,  1,  4, fp);
       count += fwrite(&Time0,       1,  4, fp);
       count += fwrite(&Bgflag,      1,  1, fp);
       fclose(fp);
    }
-   if(count != (8+32+32+4+8+4+4+1)) {
+   if(count != (8+32+32+4+8+4+1)) {
       perr("write_global() failed on fwrite() for %s: wrote %zu/%zu bytes",
-         "global.dat", count, (size_t) (8+32+32+4+8+4+4+1));
+         "global.dat", count, (size_t) (8+32+32+4+8+4+1));
       return VERROR;
    }
    return VEOK;
@@ -404,96 +574,109 @@ word32 set_difficulty(BTRAILER *btp)
    return difficulty;
 }
 
-/* Called from server.c to update globals */
-int bupdata(void)
+#ifdef OS_UNIX
+
+   /* Get exclusive lock on lockfile.
+   * Returns: -1 if lock not made within 'seconds' or open() failed
+   *          else a descriptor to be used with unlock()
+   */
+   int lock(char *lockfile, int seconds)
+   {
+      time_t timeout;
+      int fd, status;
+
+      timeout = time(NULL) + seconds;
+      fd = open(lockfile, O_NONBLOCK | O_RDONLY);
+      if(fd == -1) return -1;
+      for(;;) {
+         status = flock(fd, LOCK_EX | LOCK_NB);
+         if(status == 0) return fd;
+         if(time(NULL) >= timeout) {
+            close(fd);
+            return -1;
+         }
+      }
+   }
+
+   /* Unlock a decriptor returned from lock() */
+   int unlock(int fd)
+   {
+      int status;
+
+      status =  flock(fd, LOCK_UN);
+      close(fd);
+      return status;
+   }
+
+   /**
+    * Segmentation fault handler.
+    * NOTE: compile with "-g -rdynamic" for human readable backtrace
+   */
+   void segfault(int sig) {
+   void *array[10];
+   size_t size;
+
+   // get void*'s for all entries on the stack
+   size = backtrace(array, 10);
+
+   // print out all the frames to stderr
+   fprintf(stderr, "Error: signal %d:\n", sig);
+   backtrace_symbols_fd(array, size, STDERR_FILENO);
+   exit(1);
+   }
+
+#endif
+
+/*
+ * Signal handlers
+ *
+ * Enter monitor on ctrl-C
+ */
+void ctrlc(int sig)
 {
-   BTRAILER bt;
-   char bnumstr[24], haiku[256], *haiku1, *haiku2, *haiku3;
-   unsigned btxs, btime, bdiff;
-   word32 time1;
-   int ecode;
-
-   ecode = VEOK;
-
-   if(add64(Cblocknum, One, Cblocknum)) {  /* increment block number */
-      perr("new blocknum overflow");
-      ecode = VERROR;
-   }
-
-   /* Update block hashes */
-   memcpy(Prevhash, Cblockhash, HASHLEN);
-   if(readtrailer(&bt, "ublock.dat") != VEOK) {
-      perr("bupdata(): cannot read new ublock.dat hash");
-      ecode = VERROR;
-   }
-   memcpy(Cblockhash, bt.bhash, HASHLEN);
-   Difficulty = get32(bt.difficulty);
-   Time0 = get32(bt.time0);
-   time1 = get32(bt.stime);
-   add_weight(Weight, bt.difficulty[0], bt.bnum);
-   /* Update block difficulty */
-   Difficulty = set_difficulty(&bt);
-   pdebug("new: Difficulty = %d  seconds = %d", Difficulty, time1 - Time0);
-   pdebug("Cblockhash: %s for block: 0x%s", hash2str(Cblockhash),
-           bnum2hex(Cblocknum));
-   Time0 = time1;
-   /* display block update stats */
-   btxs = (unsigned) get32(bt.tcount);
-   btime = (unsigned) get32(bt.stime) - get32(bt.time0);
-   bdiff = (unsigned) get32(bt.difficulty);
-   if(!Bgflag && get32(bt.tcount)) {
-      trigg_expand(bt.nonce, haiku);
-      /* separate lines */
-      haiku1 = strtok(haiku, "\n");
-      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
-      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-      /* rebuild one-line haiku */
-      val2hex(bt.bnum, 8, bnumstr, sizeof(bnumstr));
-      print("\nBlock #%" P32u " (0x%s):\n", get32(bt.bnum), bnumstr);
-      print(" │ %s\n │ %s\n │ %s\n", haiku1, haiku2, haiku3);
-      print(" └─ Time: %us / Diff: %u / Txs: %u\n", btime, bdiff, btxs);
-   }
-   return ecode;
-}  /* end bupdata() */
+   pdebug("Got signal %i\n", sig);
+   signal(SIGINT, ctrlc);
+   if (Ininit) Running = 0;
+   else Monitor = 1;
+}
 
 
-/* Build a neo-genesis block -- called from server.c */
-int do_neogen(void)
+/*
+ * Clear run flag, Running on SIGTERM
+ */
+void sigterm(int sig)
 {
-   char cmd[1024];
-   word32 newnum[2];
-   char *cp;
-   int ecode;
-   BTRAILER bt;
+   pdebug("Got signal %i\n", sig);
+   signal(SIGTERM, sigterm);
+   Running = 0;
+}
 
-   unlink("neofail.lck");
-   cp = bnum2hex(Cblocknum);
-   sprintf(cmd, "../neogen %s/b%s.bc ngblock.dat", Bcdir, cp);
-   pdebug("Creating neo-genesis block:\n '%s'", cmd);
-   ecode = system(cmd);
-   pdebug("do_neogen(): system():  ecode = %d", ecode);
-   if(fexists("neofail.lck")) {
-      perr("do_neogen failed");
-      return VERROR;
-   }
-   add64(Cblocknum, One, newnum);
-   cp = bnum2hex((word8 *) newnum);
-   sprintf(cmd, "%s/b%s.bc", Bcdir, cp);
-   if(rename("ngblock.dat", cmd) != 0) {
-      perr("do_neogen failed to rename ngblock.dat to %s", cmd);
-      return VERROR;
-   }
 
-   add64(Cblocknum, One, Cblocknum);
-   /* Update block hashes */
-   memcpy(Prevhash, Cblockhash, HASHLEN);
-   if(readtrailer(&bt, cmd) != VEOK) {
-      perr("do_neogen(): cannot read NG block hash");
-      return VERROR;
-   }
-   memcpy(Cblockhash, bt.bhash, HASHLEN);
-   Eon++;
-   return VEOK;
+void fix_signals(void)
+{
+   int j;
+
+   /*
+    * Ignore all signals.
+    */
+   for(j = 0; j <= NSIG; j++)
+      signal(j, SIG_IGN);
+
+#ifdef OS_UNIX
+   signal(SIGSEGV, segfault);   // install our handler
+
+#endif
+
+   signal(SIGINT, ctrlc);     /* then install ctrl-C handler */
+   signal(SIGTERM, sigterm);  /* ...and software termination */
+}
+
+
+void close_extra(void)
+{
+   int j;
+
+   for(j = 3; j < 50; j++) sock_close(j);
 }
 
 /* end include guard */
