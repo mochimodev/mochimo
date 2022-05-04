@@ -98,6 +98,7 @@ int miner(char *blockin, char *blockout)
                         "%s [%s:%uW:%u°C] %g H/s",
                         D[m].name, D[m].pciId, D[m].pow, D[m].temp,
                         (double) D[m].work / htime);
+                     sp += strlen(sp);
                   }
                   psticky("%s", gpustats);
                }
