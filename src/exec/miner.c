@@ -23,7 +23,7 @@ uint8_t nvml_init = 0;
 /* miner blockin blockout -- child process */
 int miner(char *blockin, char *blockout)
 {
-   BTRAILER bt, btout;
+   BTRAILER bt;
    FILE *fp;
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
 
@@ -34,6 +34,8 @@ int miner(char *blockin, char *blockout)
 
 #ifdef CUDA
    DEVICE_CTX D[GPUMAX] = { 0 };
+   char gpustats[BUFSIZ] = { 0 };
+   char *sp;
    int m, count;
    time_t poll = time(NULL);
 
@@ -80,36 +82,27 @@ int miner(char *blockin, char *blockout)
 #ifdef CUDA
          /* Allocate and initialize necessary memory on CUDA devices */
          for (m = 0, count = peach_init_cuda(D, GPUMAX); Running && count &&
-               peach_solve_cuda(&D[m], &bt, Difficulty, &btout);
+               peach_solve_cuda(&D[m], &bt, Difficulty, &bt);
                millisleep(1))
          {
             if (++m >= count) {
-               htime = difftime(time(NULL), poll);
-               if (htime > 20) {
+               if (difftime(time(NULL), poll)) {
                   time(&poll);
+                  sp = gpustats;
+                  memset(gpustats, 0, BUFSIZ);
                   for (m = 0; m < count; m++) {
+                     if ((sp - gpustats) >= (BUFSIZ - 1)) break;
                      htime = difftime(time(NULL), D[m].last_work);
-                     print("%s [%s%u%%:%uW:%u°C] %g H/s\n",
-                        D[m].name, D[m].pciId, D[m].fan, D[m].pow,
-                        D[m].temp, (double) D[m].work / htime);
+                     if (sp != gpustats) *(sp++) = '\n';
+                     snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
+                        "%s [%s:%uW:%u°C] %g H/s",
+                        D[m].name, D[m].pciId, D[m].pow, D[m].temp,
+                        (double) D[m].work / htime);
                   }
-                  print("\n");
+                  psticky("%s", gpustats);
                }
                m = 0;
             }
-         }
-         memcpy(&bt, &btout, sizeof(BTRAILER));
-         /* final GPU status print */
-         htime = difftime(time(NULL), poll);
-         if (htime > 30) {
-            time(&poll);
-            for (m = 0; m < count; m++) {
-               htime = difftime(time(NULL), D[m].last_work);
-               print("%s [%s%u%%:%uW:%u°C:%u%%] %g H/s\n",
-                  D[m].name, D[m].pciId, D[m].fan, D[m].pow,
-                  D[m].temp, D[m].util, (double) D[m].work / htime);
-            }
-            print("\n");
          }
          /* Free allocated memory on CUDA devices */
          /* free_cuda_peach(); */
