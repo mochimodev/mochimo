@@ -206,7 +206,7 @@ int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
           * already in ledger.dat, tx is not valid.
           */
          if(le_find(dst_addr, &le, NULL, TXADDRLEN) == FALSE) {
-            plog("DST_ADDR Tagged, but Tag is not in ledger!");
+            pdebug("DST_ADDR Tagged, but Tag is not in ledger!");
             goto bad;
          }
       }
@@ -219,14 +219,14 @@ int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
 
    /* If tags are not the same and the src is not default, tx invalid. */
    if(ADDR_HAS_TAG(src_addr)) {
-      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!");
+      pdebug("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!");
       goto bad;
    }
    /* Otherwise, check all queues and ledger.dat for change tag.
     * First, if change tag is in ledger.dat, tx is invalid.
     */
    if(tag_find(chg_addr, NULL, NULL, TXTAGLEN) == VEOK) {
-      plog("New CHG_TAG Already Exists in Ledger!");
+      pdebug("New CHG_TAG Already Exists in Ledger!");
       goto bad;
    }
    if(bnum == NULL) {
@@ -234,7 +234,7 @@ int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
        * and if tag is in txq1.dat or txclean.dat, tx is invalid.
        */
       if(tag_qfind(chg_addr) == VEOK) {
-         plog("Tag is already in queue");
+         pdebug("Tag is already in queue");
          goto bad;
       }
    }
