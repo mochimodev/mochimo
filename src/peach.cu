@@ -563,32 +563,28 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
    if (cudaGetDeviceProperties(&props, id) != cudaSuccess) {
       perr("cudaGetDeviceProperties(%d)", id);
    } else {
-      /* store GPU name - "NVIDIA" may be dropped on LINUX OS */
-      if (strncmp(props.name, "NVIDIA", 6)) {
-         strncpy(devp->name, props.name, sizeof(devp->name));
-      } else strncpy(devp->name, props.name + 7, sizeof(devp->name));
       /* scan nvml devices for match */
+      PeachCudaCTX[id].nvml_enabled = 0;
       for (i = 0; i < nvml_count; i++) {
-         if (nvmlDeviceGetHandleByIndex(i, nvmlp) != NVML_SUCCESS ||
-            (nvmlDeviceGetPciInfo(*nvmlp, &pci) != NVML_SUCCESS) ||
-            (pci.device != props.pciDeviceID) ||
-            (pci.domain != props.pciDomainID) ||
-            (pci.bus != props.pciBusID)) {
-            /* clear nvmlDev property */
-            memset(nvmlp, 0, sizeof(nvmlDevice_t));
-            PeachCudaCTX[id].nvml_enabled = 0;
-            continue;
+         memset(nvmlp, 0, sizeof(nvmlDevice_t));
+         if (nvmlDeviceGetHandleByIndex(i, nvmlp) == NVML_SUCCESS ||
+            (nvmlDeviceGetPciInfo(*nvmlp, &pci) == NVML_SUCCESS) ||
+            (pci.device == props.pciDeviceID) ||
+            (pci.domain == props.pciDomainID) ||
+            (pci.bus == props.pciBusID)) {
+            /* obtain link gen/width */
+            if (nvmlDeviceGetCurrPcieLinkGeneration(*nvmlp, &gen)
+                  != NVML_SUCCESS) gen = 0;
+            if (nvmlDeviceGetCurrPcieLinkWidth(*nvmlp, &width)
+                  != NVML_SUCCESS) width = 0;
+            PeachCudaCTX[id].nvml_enabled = 1;
+            break;
          }
-         /* obtain link gen/width and add to id */
-         if (nvmlDeviceGetCurrPcieLinkGeneration(*nvmlp, &gen)
-               != NVML_SUCCESS) gen = 0;
-         if (nvmlDeviceGetCurrPcieLinkWidth(*nvmlp, &width)
-               != NVML_SUCCESS) width = 0;
-         snprintf(devp->linkId, sizeof(devp->linkId), "Gen%ux%02u#%u",
-            gen, width, pci.device);
-         PeachCudaCTX[id].nvml_enabled = 1;
-         break;
       }
+      /* store GPU name, PCI Id and gen info in nameId */
+      snprintf(devp->nameId, sizeof(devp->nameId),
+         "%04u:%02u:%02u:%s Gen%1ux%02u", props.pciDomainID,
+         props.pciDeviceID, props.pciBusID, props.name, gen, width);
    }
    /* set context to CUDA id */
    cuCHK(cudaSetDevice(id), devp, return VERROR);

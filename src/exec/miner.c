@@ -95,8 +95,8 @@ int miner(char *blockin, char *blockout)
                      htime = difftime(time(NULL), D[m].last_work);
                      if (sp != gpustats) *(sp++) = '\n';
                      snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
-                        "%s [%s:%uW:%u°C] %g H/s",
-                        D[m].name, D[m].linkId, D[m].pow, D[m].temp,
+                        "%s [%uW:%u°C] %g H/s",
+                        D[m].nameId, D[m].pow, D[m].temp,
                         (double) D[m].work / htime);
                      sp += strlen(sp);
                   }
