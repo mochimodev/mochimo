@@ -138,7 +138,7 @@ int txclean_bc(char *fname)
                idx++;
                ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
                bp = (void *) &Tx_ids[*idx * HASHLEN];
-            } while (j < Ntx && cmp256(ap, bp) == 0);
+            } while (j < Ntx && memcmp(ap, bp, HASHLEN) == 0);
          }
          /* if (cond <= 0) the block transaction is not in txclean.dat
          * (Maybe the block is foreign, maybe we're done) */
@@ -151,7 +151,7 @@ int txclean_bc(char *fname)
       /* Check for dups in txclean.dat */
       ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
       bp = (void *) &Tx_ids[*idx * HASHLEN];
-      if (j > 0 && cmp64(ap, bp) == 0) continue;
+      if (j > 0 && memcmp(ap, bp, HASHLEN) == 0) continue;
       /* Read clean TX in sorted order using index. */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
          mErrno(FAIL_IO2, "txclean_bc(): failed to (re)fseek(fp, SET)");

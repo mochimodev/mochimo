@@ -344,25 +344,26 @@ int init(void)
       if (!iszero(Cblocknum, 8)) {  /* we've got a chain */
          status = VEOK;  /* don't panic... EVERYTHING IS FINE! */
          result = cmp256(Weight, netweight);  /* compare network weight */
-         if (result > 0) {
+         if (result < 0) {
+            pdebug("network weight compares higher");
+            plog("\n... an overwhelming sense of confusion ...\n");
+         } else if (result > 0) {
             pdebug("network weight compares lower");
             plog("\n... an overwhelming sense of power ...\n");
             break;  /* we're heavier, finish */
-         } else if (result == 0 && cmp256(Cblockhash, nethash) == 0) {
+         } else if (memcmp(Cblockhash, nethash, HASHLEN) == 0) {
             pdebug("network weight and hash compares equal");
             plog("\n... an overwhelming sense of belonging ...\n");
             break;  /* we're in sync, finish */
-         } else {
-            pdebug("network weight and hash compares equal");
-            plog("\n... an overwhelming sense of confusion ...\n");
          }
          /* have we fallen behind or split from the chain? */
          while((peer = *quorum)) {  /* use quorum to check... */
             if (status == VEOK) {  /* chain status not yet known... */
                plog("Checking blockchain alignment...");
                if (get_hash(&node, peer, Cblocknum, peerhash) == VEOK) {
-                  if (cmp256(Cblockhash, peerhash)) status = VEBAD; /* 2319! */
-                  else status = VERROR;  /* we're just behind */
+                  if (memcmp(Cblockhash, peerhash, HASHLEN)) {
+                     status = VEBAD; /* 2319! Foreign entity (block) */
+                  } else status = VERROR;  /* we're just behind */
                   continue;  /* restart loop with new status */
                }
             } else if (status == VERROR) {  /* chain is fallen... */
@@ -381,7 +382,7 @@ int init(void)
                } else {
                   // acquire same segment of Tfile as above and compare
                   if (get_hash(&node, peer, bnum, peerhash) == VEOK) {}
-                  if (cmp256(Cblockhash, peerhash) == 0) {
+                  if (memcmp(Cblockhash, peerhash, HASHLEN) == 0) {
                      if (syncup(bnum, netbnum, peer) == VEOK) break;
                   } else continue;
                } */

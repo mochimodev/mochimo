@@ -938,7 +938,7 @@ int scan_network
                         pdebug("scan_network(): higher chain found, quourum reset...");
                      }
                   }  /* check block hash and add to quorum */
-                  if (cmp256(node[j].tx.cblockhash, highhash) >= 0) {
+                  if (memcmp(node[j].tx.cblockhash, highhash, HASHLEN) >= 0) {
                      /* add ip to quorum, or count consensus */
                      if (quorum && count < qlen) {
                         quorum[count++] = node[j].ip;

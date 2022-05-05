@@ -801,7 +801,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
       for(sid = 0; sid < 2; sid++) {
          if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
          /* check trailer for block update */
-         if (cmp256(h_phash, bt->phash)) {
+         if (memcmp(h_phash, bt->phash, HASHLEN)) {
             /* wait for both streams */
             if (cudaStreamQuery(P->stream[!sid]) != cudaSuccess) continue;
             dev->status = DEV_INIT;
