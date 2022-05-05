@@ -310,7 +310,7 @@ typedef struct {
    unsigned fan, pow, temp, util;   /**< device monitors */
    time_t last_work, last_monitor;  /**< timestamps */
    word64 work, total_work;         /**< work counters */
-   char name[256], pciId[9];        /**< device properties */
+   char name[256], linkId[16];       /**< device properties */
 } DEVICE_CTX;  /**< (GPU) Device context for managing device data. */
 
 /**

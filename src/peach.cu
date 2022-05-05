@@ -541,7 +541,7 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
    nvmlPciInfo_t pci;
    nvmlDevice_t *nvmlp;
    size_t ictxlen;
-   unsigned i;
+   unsigned i, gen, width;
 
    if (nvml_initialized == 0) {
       /* set nvml initialized */
@@ -568,7 +568,7 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
          strncpy(devp->name, props.name, sizeof(devp->name));
       } else strncpy(devp->name, props.name + 7, sizeof(devp->name));
       /* scan nvml devices for match */
-      for(i = 0; i < nvml_count; i++) {
+      for (i = 0; i < nvml_count; i++) {
          if (nvmlDeviceGetHandleByIndex(i, nvmlp) != NVML_SUCCESS ||
             (nvmlDeviceGetPciInfo(*nvmlp, &pci) != NVML_SUCCESS) ||
             (pci.device != props.pciDeviceID) ||
@@ -578,10 +578,15 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
             memset(nvmlp, 0, sizeof(nvmlDevice_t));
             PeachCudaCTX[id].nvml_enabled = 0;
             continue;
-         } else {
-            strncpy(devp->pciId, pci.busId, sizeof(devp->pciId));
-            PeachCudaCTX[id].nvml_enabled = 1;
          }
+         /* obtain link gen/width and add to id */
+         if (nvmlDeviceGetCurrPcieLinkGeneration(*nvmlp, &gen)
+               != NVML_SUCCESS) gen = 0;
+         if (nvmlDeviceGetCurrPcieLinkWidth(*nvmlp, &width)
+               != NVML_SUCCESS) width = 0;
+         snprintf(devp->linkId, sizeof(devp->linkId), "Gen%ux%02u#%u",
+            gen, width, pci.device);
+         PeachCudaCTX[id].nvml_enabled = 1;
          break;
       }
    }
