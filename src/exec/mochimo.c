@@ -755,7 +755,10 @@ int server(void)
 
    /* cleanup */
    sock_close(lsd);  /* close listening socket */
+   stop_mirror();
    stop_miner(0);
+   stop_found();
+   stop_bcon();
 
    return 0;
 } /* end server() */
