@@ -33,7 +33,7 @@
 */
 int txclean_bc(char *fname)
 {
-   TXQENTRY tx;            /* Holds one transaction in the array */
+   TXQENTRY tx, txc;            /* Holds one transaction in the array */
    BTRAILER bt;
    BHEADER bh;
    FILE *fp, *fpout;       /* input txclean and output txq file pointers */
@@ -124,9 +124,9 @@ int txclean_bc(char *fname)
          if (cond > 0) {
             if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
                mErrno(FAIL_IO2, "txclean_bc(): failed to fseek(fp, SET)");
-            } else if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
+            } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
                mError(FAIL_IO2, "txclean_bc(): failed to fread(tx)");
-            } else if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1)  {
+            } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
                mError(FAIL_IO2, "txclean_bc(): failed to fwrite(tx)");
             }
             nout++;  /* count output records to temp file -- new txclean */
@@ -182,7 +182,7 @@ int txclean_bc(char *fname)
    }
 
    /* clean TX queue is updated */
-   pdebug("txclean_bc(): wrote %u entries to new txclean.dat", nout);
+   pdebug("txclean_bc(): wrote %u/%u entries to txclean.dat", nout, Ntx);
    pdebug("txclean_bc(): completed in %gs", diffclocktime(clock(), ticks));
 
    /* success */
