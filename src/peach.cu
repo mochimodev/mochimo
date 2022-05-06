@@ -328,13 +328,23 @@ __device__ static void cu_peach_generate(word32 index, word8 *tilep)
 __device__ static void cu_peach_jump(word32 *index, word8 *nonce,
    word8 *tilep)
 {
+   __align__(256) word8 seed[PEACHJUMPLEN];
    __align__(32) word32 dhash[SHA256LEN / 4];
-   __align__(32) word8 seed[PEACHJUMPLEN];
+   word32 *sp = (word32 *) (seed + 36);
+   int i;
 
    /* construct seed for use as Nighthash input for this index on the map */
-   memcpy(seed, nonce, HASHLEN);
-   memcpy(seed + HASHLEN, index, 4);
-   memcpy(seed + HASHLEN + 4, tilep, PEACHTILELEN);
+   // memcpy(seed, nonce, HASHLEN);
+   ((word64 *) seed)[0] = ((word64 *) nonce)[0];
+   ((word64 *) seed)[1] = ((word64 *) nonce)[1];
+   ((word64 *) seed)[2] = ((word64 *) nonce)[2];
+   ((word64 *) seed)[3] = ((word64 *) nonce)[3];
+   // memcpy(seed + HASHLEN, index, 4);
+   ((word32 *) seed)[8] = *index;
+   // memcpy(seed + HASHLEN + 4, tilep, PEACHTILELEN);
+   for (i = 0; i < PEACHTILELEN; i += 4) {
+      *(sp++) = *((word32 *) tilep + i);
+   }
    /* perform nighthash on PEACHJUMPLEN bytes of seed */
    cu_peach_nighthash(seed, PEACHJUMPLEN, *index, 0, dhash);
    /* sum hash as 8x 32-bit unsigned integers */
@@ -369,17 +379,17 @@ __global__ void kcu_peach_build(word8 *d_map, word32 offset)
 __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
    word8 *d_solve)
 {
-   word8 __align__(32) hash[SHA256LEN];
-   word8 __align__(32) nonce[32];
-   SHA256_CTX *ictx;
-   word32 *x, mario;
-   int i;
+   __align__(128) SHA256_CTX ictx;
+   __align__(32) word8 hash[SHA256LEN];
+   __align__(32) word8 nonce[32];
+   unsigned int i = (blockIdx.x * blockDim.x) + threadIdx.x;
+   word32 mario, *x;
 
    /* shift ictx to appropriate location and extract nonce */
-   ictx = &d_ictx[(blockIdx.x * blockDim.x) + threadIdx.x];
-   memcpy(nonce, ictx->data + 28, 32);
+   memcpy(&ictx, &d_ictx[i], sizeof(ictx));
+   memcpy(nonce, ictx.data + 28, 32);
    /* finalise incomplete sha256 hash */
-   cu_sha256_final(ictx, hash);
+   cu_sha256_final(&ictx, hash);
    /* initialize mario's starting index on the map, bound to PEACHCACHELEN */
    for(mario = hash[0], i = 1; i < SHA256LEN; i++) mario *= hash[i];
    mario &= PEACHCACHELEN_M1;
@@ -393,10 +403,10 @@ __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
    cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
    cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
    /* hash block trailer with final tile */
-   cu_sha256_init(ictx);
-   cu_sha256_update(ictx, hash, SHA256LEN);
-   cu_sha256_update(ictx, &d_map[mario * PEACHTILELEN], PEACHTILELEN);
-   cu_sha256_final(ictx, hash);
+   cu_sha256_init(&ictx);
+   cu_sha256_update(&ictx, hash, SHA256LEN);
+   cu_sha256_update(&ictx, &d_map[mario * PEACHTILELEN], PEACHTILELEN);
+   cu_sha256_final(&ictx, hash);
    /* Coarse/Fine evaluation checks */
    x = (word32 *) hash;
    for(i = c_diff >> 5; i; i--) if(*(x++) != 0) return;
