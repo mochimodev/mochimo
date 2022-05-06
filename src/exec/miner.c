@@ -86,7 +86,7 @@ int miner(char *blockin, char *blockout)
                millisleep(1))
          {
             if (++m >= count) {
-               if (difftime(time(NULL), poll)) {
+               if (difftime(time(NULL), poll) && !Monitor) {
                   time(&poll);
                   sp = gpustats;
                   memset(gpustats, 0, BUFSIZ);
