@@ -755,11 +755,11 @@ int server(void)
    } /* end while(Running) */
 
    /* cleanup */
-   sock_close(lsd);  /* close listening socket */
-   stop_mirror();
-   stop_miner(0);
-   stop_found();
    stop_bcon();
+   stop_found();
+   stop_miner(0);
+   stop_mirror();
+   sock_close(lsd);  /* close listening socket */
 
    return 0;
 } /* end server() */
