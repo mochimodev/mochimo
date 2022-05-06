@@ -152,7 +152,7 @@ int b_update(char *fname, int mode)
          val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
       print(" └─ Diff: %u, Time: %us, Txs: %u\n", bdiff, btime, btxs);
       print("\n");  /* padding*/
-   }
+   } else pdebug("Block %s: 0x%s", solvestr, bnum2hex(bt.bnum));
 
    /* perform neogenesis block update -- as necessary */
    if (Cblocknum[0] == 0xff) {
@@ -190,9 +190,8 @@ int b_update(char *fname, int mode)
             bnum2hex(bt.bnum), get32(bt.bnum));
          print(" └─ %s...\n", addr2str(Cblockhash));
          print("\n");  /* padding*/
-      }
+      } else pdebug("Block generated: 0x%s", bnum2hex(bt.bnum));
    }
-
 
    /* update pinklists */
    if ((Cblocknum[0] & EPOCHMASK) == 0) purge_epoch();
