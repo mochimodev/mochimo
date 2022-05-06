@@ -755,11 +755,22 @@ int server(void)
    } /* end while(Running) */
 
    /* cleanup */
+   plog("server(): exiting, please wait...");
+   print(" - stopping bcon... ");
    stop_bcon();
+   printf("done\n");
+   print(" - stopping found... ");
    stop_found();
+   printf("done\n");
+   print(" - stopping miner... ");
    stop_miner(0);
+   printf("done\n");
+   print(" - stopping mirror... ");
    stop_mirror();
+   printf("done\n");
+   print(" - closing listening socket...");
    sock_close(lsd);  /* close listening socket */
+   printf("done\n");
 
    return 0;
 } /* end server() */
