@@ -583,7 +583,7 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
       }
       /* store GPU name, PCI Id and gen info in nameId */
       snprintf(devp->nameId, sizeof(devp->nameId),
-         "%04u:%02u:%02u:%s Gen%1ux%02u", props.pciDomainID,
+         "%04u:%02u:%02u:%.128s Gen%1ux%02u", props.pciDomainID,
          props.pciDeviceID, props.pciBusID, props.name, gen, width);
    }
    /* set context to CUDA id */
