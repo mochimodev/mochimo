@@ -342,9 +342,10 @@ __device__ static void cu_peach_jump(word32 *index, word8 *nonce,
    // memcpy(seed + HASHLEN, index, 4);
    ((word32 *) seed)[8] = *index;
    // memcpy(seed + HASHLEN + 4, tilep, PEACHTILELEN);
-   for (i = 0; i < PEACHTILELEN; i += 4) {
-      *(sp++) = *((word32 *) tilep + i);
+   for (i = 0; i < PEACHTILELEN / 4; i++) {
+      ((word32 *) seed)[i + 9] = ((word32 *) tilep)[i];
    }
+
    /* perform nighthash on PEACHJUMPLEN bytes of seed */
    cu_peach_nighthash(seed, PEACHJUMPLEN, *index, 0, dhash);
    /* sum hash as 8x 32-bit unsigned integers */
