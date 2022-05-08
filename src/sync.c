@@ -149,6 +149,134 @@ int extract_gen(char *lfile)
 }
 
 /**
+ * Generate a testnet from a current blockchain.
+ * Must be performed AFTER successfully synchronizing with a blockchain.
+*/
+int testnet(void)
+{
+   TXQENTRY tx;
+   BTRAILER bt;
+   word32 bnum[2], bcount[2];
+   word32 hdrlen;
+   int i, ecode;
+
+   DIR *dp;
+   struct dirent *ep;
+   FILE *fpin, *fpout;
+   char bcfname[FILENAME_MAX] = "\0";
+   char txfname[FILENAME_MAX] = "\0";
+
+   plog("Generating testnet...");
+
+   /* ensure "txclean/" is available for tx transfer */
+   if (check_directory("tx")) return VERROR;
+
+   /* clear tx/ directory */
+   dp = opendir("tx");
+   if (dp == NULL) mErrno(FAIL, "testnet(): failed to open tx/...");
+   while ((ep = readdir(dp))) {
+      snprintf(txfname, FILENAME_MAX, "tx/%.128s", ep->d_name);
+      remove(txfname);
+   }
+   closedir(dp);
+
+   /* find highest block file number in Bcdir */
+   dp = opendir(Bcdir);
+   if (dp == NULL) mErrno(FAIL, "testnet(): failed to open Bcdir...");
+   while ((ep = readdir(dp))) {
+      /* ensure valid blockchain file format "b*.bc" */
+      if (strcmp(strrchr(ep->d_name, '.'), ".bc") != 0) continue;
+      if (ep->d_name[0] != 'b') continue;
+      /* check if filename compares greater */
+      if (strncmp(ep->d_name, bcfname, FILENAME_MAX) > 0) {
+         /* ensure filename hexadecimal is exposed */
+         if (sscanf(ep->d_name, "b%08x%08x", &bnum[1], &bnum[0]) == 2) {
+            strncpy(bcfname, ep->d_name, FILENAME_MAX);
+            bcfname[FILENAME_MAX - 1] = '\0';
+         }
+      }
+   }
+   closedir(dp);
+
+   /* drop bnum to last (not current) neogenesis */
+   bnum[0] = (bnum[0] - 1) & 0xffffff00;
+
+   /* extract ledger from neogenesis */
+   snprintf(bcfname, FILENAME_MAX, "%.64s/b%08x%08x.bc",
+      Bcdir, bnum[1], bnum[0]);
+   if (le_extract(bcfname, "ledger.tmp") != VEOK) {
+      mError(FAIL, "testnet(): failed to le_extract(%s)", bcfname);
+   }
+
+   /* rewrite Trailer file, less dropped blocks */
+   bcount[0] = bcount[1] = 0;
+   fpin = fopen("tfile.dat", "rb");
+   if (fpin == NULL) mErrno(FAIL, "testnet(): fopen(tfile.dat, rb)");
+   fpout = fopen("tfile.tmp", "wb");
+   if (fpout == NULL) mErrno(FAIL2, "testnet(): fopen(tfile.tmp, wb)");
+   while (cmp64(bnum, bcount) >= 0) {
+      if (fread(&bt, sizeof(bt), 1, fpin) != 1) {
+         mError(FAIL3, "testnet(): failed to fread(bt)");
+      } else if (fwrite(&bt, sizeof(bt), 1, fpout) != 1) {
+         mError(FAIL3, "testnet(): failed to fwrite(bt)");
+      } else add64(bcount, One, bcount);
+   }
+   fclose(fpout);
+   fclose(fpin);
+
+   /* transfer transactions from blocks above bnum to tx/ */
+   for (i = 0; i <= 0xff; i++) {
+      add64(bnum, One, bnum);
+      snprintf(bcfname, FILENAME_MAX, "%.64s/b%08x%08x.bc",
+         Bcdir, bnum[1], bnum[0]);
+      snprintf(txfname, FILENAME_MAX, "tx/t%08x%08x.tx", bnum[1], bnum[0]);
+      if (!fexists(bcfname)) break;  /* done */
+      fpin = fopen(bcfname, "rb");
+      if (fpin == NULL) mErrno(FAIL, "testnet(): fopen(%s, rb)", bcfname);
+      fpout = fopen(txfname, "wb");
+      if (fpout == NULL) mErrno(FAIL2, "testnet(): fopen(%s, wb)", txfname);
+      /* seek to transactions */
+      if (fread(&hdrlen, sizeof(hdrlen), 1, fpin) != 1) {
+         mError(FAIL3, "testnet(): failed to fread(hdrlen)");
+      } else if (fseek(fpin, (long) hdrlen, SEEK_SET) != 0) {
+         mErrno(FAIL3, "testnet(): failed to fseek(SET)");
+      }
+      /* ... write txs; relies on sizeof(BTRAILER) < sizeof(TXQENTRY) */
+      while (fread(&tx, sizeof(tx), 1, fpin)) {
+         if (fwrite(&tx, sizeof(tx), 1, fpout) != 1) {
+            mError(FAIL3, "testnet(): failed to fwrite(tx)")
+         }
+      }  /* check errors in fpin */
+      if (ferror(fpin)) mError(FAIL3, "testnet(): failed to fread(tx)");
+      fclose(fpout);
+      fclose(fpin);
+      remove(bcfname);
+   }
+
+   /* transfer Trailer file and ledger */
+   remove("tfile.dat");
+   remove("ledger.dat");
+   rename("tfile.tmp", "tfile.dat");
+   rename("ledger.tmp", "ledger.dat");
+   pdebug("testnet(): tfile.dat and ledger.dat prepared");
+   pdebug("testnet(): created %d txclean files from blocks", i);
+
+   /* success */
+   return VEOK;
+
+   /* failure / error handling */
+FAIL3:
+   fclose(fpout);
+   remove("tfile.tmp");
+   if (*txfname) remove(txfname);
+FAIL2:
+   fclose(fpin);
+FAIL:
+
+   return ecode;
+}  /* end testnet() */
+
+/**
  * Catch up by getting blocks from peers in plist[count].
  * Returns VEOK if updates made, else b_update() error code. */
 int catchup(word32 plist[], word32 count)
