@@ -63,7 +63,6 @@ int b_update(char *fname, int mode)
    /* separate validation process for pseudo-block */
    if (mode != 2) {
       if (mode == 0) remove("mblock.dat");
-      le_close(); /* close server ledger reference */
       tag_free(); /* Erase Tagidx[] to be rebuilt on next tag_find() */
       /* Hotfix for critical bug identified on 09/26/19 */
       if (fexists("cblock.lck")) {
@@ -71,12 +70,11 @@ int b_update(char *fname, int mode)
          solvestr = "pushed";
       }
       /* perform block validation, clean and ledger update chain */
-      ecode = b_val(fname);
-      if (ecode == VEOK) ecode = txclean_bc(fname);
-      if (ecode == VEOK) ecode = le_update();
-      /* clean the queue and (re)open ledger, regardless of above result */
-      txclean_le();
+      ecode = b_val(fname) || txclean_bc(fname) || le_update();
+      /* ... NOTE: le_update() closes reference to the ledger */
+      /* (re)open ledger and clean the queue, regardless of above result */
       le_open("ledger.dat", "rb");
+      txclean_le();
       /* check chain ecode result */
       if (ecode != VEOK) {
          if (mode != 0) remove("mblock.dat");

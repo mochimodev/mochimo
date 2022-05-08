@@ -241,6 +241,9 @@ int le_update(void)
    memset(le_prev, 0, TXADDRLEN);
    memset(lt_prev, 0, TXADDRLEN);
 
+   /* ensure ledger reference is closed for update */
+   le_close();
+
    /* sort the ledger transaction file */
    if (sortlt("ltran.dat") != VEOK) {
       mError(FAIL, "le_update: bad sortlt(ltran.dat)");
