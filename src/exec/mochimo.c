@@ -268,13 +268,16 @@ int init(void)
    /* ensure appropriate directories and permissions exist */
    if (check_directory(Bcdir) || check_directory(Spdir)) return VERROR;
 
-   /* update coreip.lst where available */
+   /* update coreip list where available */
    snprintf(fname, FILENAME_MAX, "../%s", Coreipfname);
    if (fcopy(fname, Coreipfname) != VEOK) {
       if (!fexists(Coreipfname)) {
          pwarn("missing Core ip list..., %s", Coreipfname);
       }
    }
+   /* update trustedip list where available */
+   snprintf(fname, FILENAME_MAX, "../%s", Trustedipfname);
+   fcopy(fname, Trustedipfname);
    /* update maddr.dat - use maddr.MAT as last resort only */
    if (fcopy("../maddr.dat", "maddr.dat") != VEOK) {
       if (!fexists("maddr.dat")) {
