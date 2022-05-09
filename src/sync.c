@@ -155,74 +155,37 @@ int extract_gen(char *lfile)
 int testnet(void)
 {
    TXQENTRY tx;
-   BTRAILER bt;
-   word32 bnum[2], bcount[2];
+   word32 bnum[2];
    word32 hdrlen;
    int i, ecode;
 
-   DIR *dp;
-   struct dirent *ep;
    FILE *fpin, *fpout;
    char bcfname[FILENAME_MAX] = "\0";
    char txfname[FILENAME_MAX] = "\0";
 
    plog("Generating testnet...");
 
-   /* ensure "txclean/" is available for tx transfer */
-   if (check_directory("tx")) return VERROR;
-
-   /* clear tx/ directory */
-   dp = opendir("tx");
-   if (dp == NULL) mErrno(FAIL, "testnet(): failed to open tx/...");
-   while ((ep = readdir(dp))) {
-      snprintf(txfname, FILENAME_MAX, "tx/%.128s", ep->d_name);
-      remove(txfname);
+   /* ensure "tx/" is available (and clear) for block txs transfer */
+   if (check_directory("tx") || clear_directory("tx")) {
+      mError(FAIL, "testnet(): failed to prepare tx directory");
    }
-   closedir(dp);
 
-   /* find highest block file number in Bcdir */
-   dp = opendir(Bcdir);
-   if (dp == NULL) mErrno(FAIL, "testnet(): failed to open Bcdir...");
-   while ((ep = readdir(dp))) {
-      /* ensure valid blockchain file format "b*.bc" */
-      if (strcmp(strrchr(ep->d_name, '.'), ".bc") != 0) continue;
-      if (ep->d_name[0] != 'b') continue;
-      /* check if filename compares greater */
-      if (strncmp(ep->d_name, bcfname, FILENAME_MAX) > 0) {
-         /* ensure filename hexadecimal is exposed */
-         if (sscanf(ep->d_name, "b%08x%08x", &bnum[1], &bnum[0]) == 2) {
-            strncpy(bcfname, ep->d_name, FILENAME_MAX);
-            bcfname[FILENAME_MAX - 1] = '\0';
-         }
-      }
+   /* reset_chain() and calc bnum as last (not current) neogenesis */
+   if (reset_chain() == VEOK) {
+      put64(bnum, Cblocknum);
+      bnum[0] = (bnum[0] - 1) & 0xffffff00;
+   } else mError(FAIL, "testnet(): failed to reset_chain()");
+
+   /* trim Tfile to bnum */
+   if (trim_tfile(bnum) != VEOK) {
+      mError(FAIL, "testnet(): failed to trim_tfile()");
    }
-   closedir(dp);
-
-   /* drop bnum to last (not current) neogenesis */
-   bnum[0] = (bnum[0] - 1) & 0xffffff00;
 
    /* extract ledger from neogenesis */
-   snprintf(bcfname, FILENAME_MAX, "%.64s/b%08x%08x.bc",
-      Bcdir, bnum[1], bnum[0]);
+   snprintf(bcfname, FILENAME_MAX, "%.64s/b%s.bc", Bcdir, bnum2hex(bnum));
    if (le_extract(bcfname, "ledger.tmp") != VEOK) {
       mError(FAIL, "testnet(): failed to le_extract(%s)", bcfname);
    }
-
-   /* rewrite Trailer file, less dropped blocks */
-   bcount[0] = bcount[1] = 0;
-   fpin = fopen("tfile.dat", "rb");
-   if (fpin == NULL) mErrno(FAIL, "testnet(): fopen(tfile.dat, rb)");
-   fpout = fopen("tfile.tmp", "wb");
-   if (fpout == NULL) mErrno(FAIL2, "testnet(): fopen(tfile.tmp, wb)");
-   while (cmp64(bnum, bcount) >= 0) {
-      if (fread(&bt, sizeof(bt), 1, fpin) != 1) {
-         mError(FAIL3, "testnet(): failed to fread(bt)");
-      } else if (fwrite(&bt, sizeof(bt), 1, fpout) != 1) {
-         mError(FAIL3, "testnet(): failed to fwrite(bt)");
-      } else add64(bcount, One, bcount);
-   }
-   fclose(fpout);
-   fclose(fpin);
 
    /* transfer transactions from blocks above bnum to tx/ */
    for (i = 0; i <= 0xff; i++) {
@@ -244,7 +207,7 @@ int testnet(void)
       /* ... write txs; relies on sizeof(BTRAILER) < sizeof(TXQENTRY) */
       while (fread(&tx, sizeof(tx), 1, fpin)) {
          if (fwrite(&tx, sizeof(tx), 1, fpout) != 1) {
-            mError(FAIL3, "testnet(): failed to fwrite(tx)")
+            mError(FAIL3, "testnet(): failed to fwrite(tx)");
          }
       }  /* check errors in fpin */
       if (ferror(fpin)) mError(FAIL3, "testnet(): failed to fread(tx)");
@@ -506,7 +469,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    /* Backup TFILE, Ledger, and blocks to split-tree directory. */
    /* system("mkdir split"); * already exists */
    pdebug("syncup(): Backing up TFILE, ledger.dat, and blocks...");
-   system("rm split/*");
+   system("rm -f split/*");  /* don't complain, just do it */
    system("cp tfile.dat split");
    system("cp ledger.dat split");
    system("mv bc/*.bc split");
@@ -516,24 +479,24 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    /* Compute first previous NG block */
    lastneo[0] = (get32(Cblocknum) & 0xffffff00) - 256;
    pdebug("syncup(): Identified first previous NG block as %s",
-                  bnum2hex((word8 *) &lastneo));
+                  bnum2hex(&lastneo));
 
    /* Delete Ledger and trim T-File */
    if(unlink("ledger.dat") != 0) {
       pdebug("syncup() failed!  Unable to delete ledger.dat");
       goto badsyncup;
    }
-   if(trim_tfile((word8 *) &lastneo) != VEOK) {
+   if(trim_tfile(&lastneo) != VEOK) {
       pdebug("syncup(): T-File trim failed!");
       goto badsyncup;
    }
 
    /* Extract first previous Neogenesis Block to ledger.dat */
    pdebug("syncup(): Expanding Neo-genesis block to ledger.dat...");
-   sprintf(buff, "cp split/b%s.bc bc/b%s.bc", bnum2hex((word8 *) &lastneo), 
-           bnum2hex((word8 *) &lastneo));
+   sprintf(buff, "cp split/b%s.bc bc/b%s.bc", bnum2hex(&lastneo), 
+           bnum2hex(&lastneo));
    system(buff);
-   sprintf(buff, "bc/b%s.bc", bnum2hex((word8 *) &lastneo));
+   sprintf(buff, "bc/b%s.bc", bnum2hex(&lastneo));
    if(le_extract(buff, "ledger.dat") != VEOK) {
       pdebug("syncup(): failed!  Unable to extract ledger!");
       goto badsyncup;
@@ -546,7 +509,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    }
    le_open("ledger.dat", "rb");
 
-   pdebug("Split point is block %s", bnum2hex((word8 *) &sblock));
+   pdebug("Split point is block %s", bnum2hex(&sblock));
    add64(lastneo, One, bnum);
    for( ;cmp64(bnum, sblock) < 0; ) {
       pdebug("syncup(): Copying split/b%s.bc to spblock.tmp",
@@ -566,7 +529,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    put64(bnum, sblock);
    for(j = 0; ; ) {
       if(bnum[0] == 0) add64(bnum, One, bnum);  /* skip NG blocks */
-      sprintf(buff, "b%s.bc", bnum2hex(bnum));
+      sprintf(buff, "b%s.dat", bnum2hex(bnum));
       if(j == 60) {
          pdebug("syncup(): failed while downloading %s from %s",
                         buff, ntoa(&peerip, NULL));
