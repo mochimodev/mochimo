@@ -20,6 +20,8 @@
 
 uint8_t nvml_init = 0;
 
+static const char Metric[8][3] = { "", "K", "M", "G", "T", "P", "E", "Z" };
+
 /* miner blockin blockout -- child process */
 int miner(char *blockin, char *blockout)
 {
@@ -35,8 +37,8 @@ int miner(char *blockin, char *blockout)
    DEVICE_CTX D[GPUMAX] = { 0 };
    char gpustats[BUFSIZ] = { 0 };
    char *sp;
-   int m, count;
-   double htime;
+   int m, n, count;
+   double htime, hps;
    time_t poll = time(NULL);
 
 #else
@@ -90,21 +92,42 @@ int miner(char *blockin, char *blockout)
          {
             if (++m >= count) {
                if (difftime(time(NULL), poll) && !Monitor) {
-                  time(&poll);
                   sp = gpustats;
                   memset(gpustats, 0, BUFSIZ);
                   for (m = 0; m < count; m++) {
                      if ((sp - gpustats) >= (BUFSIZ - 1)) break;
                      htime = difftime(time(NULL), D[m].last_work);
                      if (sp != gpustats) *(sp++) = '\n';
-                     snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
-                        "%s [%uW:%u°C] %g H/s",
-                        D[m].nameId, D[m].pow, D[m].temp,
-                        (double) D[m].work / htime);
+                     switch (D[m].status) {
+                        case DEV_IDLE:
+                           snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
+                           "%s [%uW:%u°C] No txs...",
+                           D[m].nameId, D[m].pow, D[m].temp);
+                           break;
+                        case DEV_INIT:
+                           snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
+                           "%s [%uW:%u°C] Init... (%d%%)",
+                           D[m].nameId, D[m].pow, D[m].temp,
+                           (int) (100 * D[m].work) / PEACHCACHELEN);
+                           break;
+                        case DEV_WORK:
+                           n = 0;
+                           hps = (double) D[m].work / htime;
+                           while (hps > 1000 && ++n < 6) hps /= 1000;
+                           snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
+                           "%s [%uW:%u°C] %.02lf %sH/s", D[m].nameId,
+                           D[m].pow, D[m].temp, hps, Metric[n]);
+                           break;
+                        default:
+                           snprintf(sp, (size_t) (BUFSIZ - (sp - gpustats)),
+                           "%s [%uW:%u°C] Status: %d", D[m].nameId,
+                           D[m].pow, D[m].temp, D[m].status);
+                     }
                      sp += strlen(sp);
                   }
                   psticky("%s", gpustats);
                }
+               time(&poll);
                m = 0;
             }
          }
