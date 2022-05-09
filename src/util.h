@@ -95,6 +95,7 @@ void resign(char *mess);
 void restart(char *mess);
 double diffclocktime(clock_t to, clock_t from);
 int check_directory(char *dirname);
+int clear_directory(char *dname);
 void crctx(TX *tx);
 word32 gethdrlen(char *fname);
 int readtrailer(BTRAILER *trailer, char *fname);

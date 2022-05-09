@@ -35,6 +35,11 @@
 #include <errno.h>
 #include "crc16.h"
 
+#ifdef OS_UNIX
+   #include <dirent.h>
+
+#endif
+
 #ifndef NSIG
    #define NSIG 23
 
@@ -213,6 +218,24 @@ int check_directory(char *dirname)
    snprintf(fname, FILENAME_MAX, "%s/chkfile", dirname);
    if (ftouch(fname) == VEOK) return remove(fname);
    return perrno(errno, "Permission failure, %s", dirname);
+}
+
+int clear_directory(char *dname)
+{
+   DIR *dp;
+   struct dirent *ep;
+   char fname[FILENAME_MAX];
+
+   dp = opendir(dname);
+   if (dp == NULL) return perrno(errno, "failed to open dir %s...", dname);
+   while ((ep = readdir(dp))) {
+      snprintf(fname, FILENAME_MAX, "%s/%s", dname, ep->d_name);
+      remove(fname); /* ignores non-empty directories */
+   }
+   closedir(dp);
+
+   /* success */
+   return VEOK;
 }
 
 void crctx(TX *tx)
