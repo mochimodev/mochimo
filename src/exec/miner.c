@@ -28,7 +28,6 @@ int miner(char *blockin, char *blockout)
    SHA256_CTX bctx;  /* to resume entire block hash after bcon.c */
 
    char phaiku[256];
-   double htime;
    time_t start;
    word32 temp[3] /* , hps, n */;
 
@@ -37,7 +36,11 @@ int miner(char *blockin, char *blockout)
    char gpustats[BUFSIZ] = { 0 };
    char *sp;
    int m, count;
+   double htime;
    time_t poll = time(NULL);
+
+#else
+   int n;
 
 #endif
 
