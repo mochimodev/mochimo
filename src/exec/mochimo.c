@@ -25,6 +25,9 @@
 #define VER_STR   \
    "v" STR(VER_MAJOR) "." STR(VER_MINOR) "." STR(VER_PATCH) VER_EXTRA
 
+#define LICENSELINK \
+   "https://github.com/mochimodev/mochimo/blob/master/LICENSE.PDF"
+
 #ifndef HTTPSTARTPEERS
 #define HTTPSTARTPEERS "https://new-api.mochimap.com/network/peers/start"
 #endif
@@ -60,6 +63,7 @@
 #include "wots.h"
 #include "util.h"       /* server support */
 #include "tx.h"
+#include "txclean.h"
 #include "trigg.h"
 #include "tfile.h"
 #include "sync.h"
@@ -257,7 +261,6 @@ int init(void)
    word8 highblock[8];
 
    /* init */
-   phostinfo();
    show("init");
    plog("Initializing...");
    status = VEOK;
@@ -327,14 +330,14 @@ int init(void)
    remove("start.lst");
 
    /* scan entire network of peers */
-   while(Running) {
+   while (Running) {
       /* scan network for quorum and highest hash/weight/bnum */
       plog("Network scan...");
       qlen = scan_network(quorum, MAXQUORUM, nethash, netweight, netbnum);
       plog("Network scan resulted in %d/%d quorum members", qlen, MAXQUORUM);
       plog("  bnum= 0x%s, weight= 0x%s", val2hex(netbnum, 8, bnumstr, 17),
          val2hex(netweight, 32, weightstr, 65));
-      if (qlen == 0 && iszero(Cblocknum, 8)) break; /* all alone... */
+      if (qlen == 0) break; /* all alone... */
       else if (qlen < Quorum) {  /* insufficient quorum */
          plog("Insufficient quorum size, try again...");
          /* without considering the expansion of acceptable
@@ -404,7 +407,9 @@ int init(void)
    }
 
    write_global();
+   txclean_le();
    Ininit = 0;
+
    return VEOK;
 }  /* end init() */
 
@@ -842,83 +847,81 @@ int main(int argc, char **argv)
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
    if (Bgflag) setpgrp();     /* detach - if necessary */
 
-   /* print header & disclaimer */
-   plog("Mochimo Server " VER_STR " built on " __DATE__ " " __TIME__);
-   plog("(c) 2018-2022 Adequate Systems, LLC. All Rights Reserved.");
-   plog("=========================================================");
-   plog("This software is subject to the terms and conditions of");
-   plog("the Mochimo End User License Agreement v2.0, available");
-   plog("at https://github.com/mochimodev/mochimo/ and included");
-   plog("with this distribution. Read LICENSE.md\n");
-
-   if (Running) sleep(3);  /* for effect */
-
    /* Parse command line arguments. */
    if (Running) {
-      plog("Checking arguments...");
+      pdebug("Checking arguments...");
       for (j = 1; Running && j < argc; j++) {
          if(argv[j][0] != '-') return usage();
          switch(argv[j][1]) {
+            case '-':  /* advanced commands */
+               if (strcmp("testnet", &argv[j][2]) == 0) {
+                  if (testnet() == VEOK) {
+                     plog("Testnet generated successfully!");
+                     plog("Restart the node on an isolated port...");
+                     exit(0);
+                  } else exit(perr("Failed to generated testnet :("));
+               } else if (!argv[j][3]) goto EOA;  /* -- end of args */
+               break;
             case 'c':  /* set core ip list */
                if (!argv[j][2]) {
                   perr("missing coreip list file");
                   exit(usage());
                }
                Coreipfname = &argv[j][2];  /* master network */
-               plog("   Coreip list = %s", Coreipfname);
+               pdebug("   Coreip list = %s", Coreipfname);
                break;
             case 'd':  /* disable pink lists */
                Nopinklist = 1;
-               plog(" + pinklist disabled");
+               pdebug(" + pinklist disabled");
                break;
             case 'D':  /* enable daemon mode */
                Bgflag = 1;
-               plog(" + daemon mode enabled");
+               pdebug(" + daemon mode enabled");
                break;
             case 'F':  /* disable private IPs */
                Noprivate = 1;  /* v.28 */
-               plog(" + private IPs disabled");
+               pdebug(" + private IPs disabled");
                break;
             case 'l':  /* set log level  */
                set_print_level((k = atoi(&argv[j][2])));
                set_output_level(k);
-               plog("   Log level = %d", k);
+               pdebug("   Log level = %d", k);
                break;
             case 'n':  /* disable miner */
                Nominer = 1;
-               plog(" + miner disabled");
+               pdebug(" + miner disabled");
                break;
             case 'P':  /* enabled cblock push */
                Allowpush = 1;
-               plog(" + cblock push enabled");
+               pdebug(" + cblock push enabled");
                Cbits |= C_PUSH;
-               plog(" + C_PUSH was added to Cbits");
+               pdebug(" + C_PUSH was added to Cbits");
                break;
             case 'M':  /* set own Mining fee */
                Myfee[0] = atoi(&argv[j][2]);
                if (Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
                else Cbits |= C_MFEE;
-               plog("   Myfee = %" P32u, Myfee[0]);
-               plog(" + C_MFEE was added to Cbits");
+               pdebug("   Myfee = %" P32u, Myfee[0]);
+               pdebug(" + C_MFEE was added to Cbits");
                break;
             case 'o':  /* open log file used by plog()   */
                if (argv[j][2]) {
                   set_output_file(&argv[j][2], "a");
-                  plog("   Log file = %s", &argv[j][2]);
+                  pdebug("   Log file = %s", &argv[j][2]);
                } else {
                   set_output_file(LOGFNAME, "a");
-                  plog("   Log file = %s", LOGFNAME);
+                  pdebug("   Log file = %s", LOGFNAME);
                }
                Cbits |= C_LOGGING;
-               plog(" + C_LOGGING was added to Cbits");
+               pdebug(" + C_LOGGING was added to Cbits");
                break;
             case 'p':  /* set home/dst communication port */
                Port = Dstport = atoi(&argv[j][2]);
-               plog("   Port = %" P16u, Port);
+               pdebug("   Port = %" P16u, Port);
                break;
             case 'q':  /* set quorum */
                Quorum = atoi(&argv[j][2]);
-               plog("   Quorum = %" P32u, Quorum);
+               pdebug("   Quorum = %" P32u, Quorum);
                if (Quorum > MAXQUORUM) {
                   perr("quorum exceeds MAXQUORUM=%u", MAXQUORUM);
                   exit(usage());
@@ -926,7 +929,7 @@ int main(int argc, char **argv)
                break;
             case 's':  /* set Dynasleep */
                Dynasleep = atoi(&argv[j][2]);  /* usleep time */
-               plog("   Dynasleep = %" P32u, Dynasleep);
+               pdebug("   Dynasleep = %" P32u, Dynasleep);
                break;
             case 'S':  /* Safemode or Sanctuary */
                if (strncmp(argv[j], "-Sanctuary=", 11) == 0) {
@@ -937,9 +940,9 @@ int main(int argc, char **argv)
                   }
                   Sanctuary = strtoul(&argv[j][11], NULL, 0);
                   Lastday = (strtoul(cp + 1, NULL, 0) + 255) & 0xffffff00;
-                  plog(" + Sanctuary enabled");
+                  pdebug(" + Sanctuary enabled");
                   Cbits |= C_SANCTUARY;
-                  plog(" + C_SANCTUARY was added to Cbits");
+                  pdebug(" + C_SANCTUARY was added to Cbits");
                   printf("\nSanctuary=%u  Lastday 0x%0x...", Sanctuary,
                      Lastday); fflush(stdout); sleep(2);
                   printf("\b\b\b accounted for.\n"); sleep(1);
@@ -954,22 +957,22 @@ int main(int argc, char **argv)
                   exit(usage());
                }
                Trustedipfname = &argv[j][2];  /* master network */
-               plog("   Trustedip list = %s", Trustedipfname);
+               pdebug("   Trustedip list = %s", Trustedipfname);
                break;
             case 'T':  /* enabled Trustblock */
                Trustblock = atoi(&argv[j][2]);
-               plog("   Trustblock = %" P32u, Trustblock);
+               pdebug("   Trustblock = %" P32u, Trustblock);
                break;
             case 'v':
                if (argv[j][2] == '2') {
                   Dstport = PORT1;  Port = PORT2;
-                  plog(" + virtual mode 2 enabled");
+                  pdebug(" + virtual mode 2 enabled");
                } else {
                   Dstport = PORT2;  Port = PORT1;
-                  plog(" + virtual mode 1 enabled");
+                  pdebug(" + virtual mode 1 enabled");
                }
-               plog("   Dstport = %" P32u, Dstport);
-               plog("   Port = %" P32u, Port);
+               pdebug("   Dstport = %" P32u, Dstport);
+               pdebug("   Port = %" P32u, Port);
                break;
             case 'V':
                if (strcmp(&argv[j][1], "Veronica") != 0) exit(usage());
@@ -981,23 +984,38 @@ int main(int argc, char **argv)
    #ifdef BX_MYSQL
             case 'X':
                Exportflag = 1;
-               plog(" + export mode enabled");
+               pdebug(" + export mode enabled");
                break;
    #endif
             case 'h':   /* fallthrough */
             default: exit(usage());
          }  /* end switch */
       }  /* end for j */
-      plog("... end of arguments\n");
+      pdebug("... end of arguments\n");
    }
+
+/* end of arguments */
+EOA:
+
+   /* print header & disclaimer */
+   plog("Mochimo Server " VER_STR " built on " __DATE__ " " __TIME__);
+   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
+   plog("See %s for License.", LICENSELINK);
+   plog("Mochimo Mainnet Live Since June 25, 2018 15:43:45 GMT");
+   plog("Mochimo v2 Code Released October 27, 2018");
+   plog("");
 
    /* perform init and start server */
    if (Running) {
-      if (init() == VEOK) server();
-      plog("\nServer exiting . . .");
-      /* save dynamic peer lists */
-      save_ipl(Recentipfname, Rplist, RPLISTLEN);
-      save_ipl(Epinkipfname, Epinklist, EPINKLEN);
+      sleep(3);  /* for effect */
+      phostinfo();  /* for info */
+      if (init() == VEOK) {
+         server();
+         plog("\nServer exiting . . .");
+         /* save dynamic peer lists */
+         save_ipl(Recentipfname, Rplist, RPLISTLEN);
+         save_ipl(Epinkipfname, Epinklist, EPINKLEN);
+      }
    }
 
    /* clear any sticky */
