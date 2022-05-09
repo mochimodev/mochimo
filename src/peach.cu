@@ -54,6 +54,8 @@
          if (_dev != NULL) { \
             cudaDeviceSynchronize(); \
             DEVICE_CTX *_d = _dev; \
+            plog("CUDA#%d->state[%d:%d:%d] <<<%d, %d>>>: %d", _n, _d->id, \
+               _d->type, _d->status, _d->grid, _d->block, _d->threads); \
             _d->status = DEV_FAIL; \
             PEACH_CUDA_CTX *_p = &PeachCudaCTX[_d->id]; \
             if (_p->stream[0]) cudaStreamDestroy(_p->stream[0]); \
@@ -300,20 +302,27 @@ __device__ static void cu_peach_nighthash(void *in, size_t inlen,
  * @param index Index number of tile to generate
  * @param tilep Pointer to location to place generated tile
 */
-__device__ static void cu_peach_generate(word32 index, word8 *tilep)
+__device__ static void cu_peach_generate(word32 index, word32 *tilep)
 {
    int i;
 
    /* place initial data into seed */
-   memcpy(tilep, &index, 4);
-   memcpy(tilep + 4, c_phash, SHA256LEN);
+   tilep[0] = index;
+   tilep[1] = ((word32 *) c_phash)[0];
+   tilep[2] = ((word32 *) c_phash)[1];
+   tilep[3] = ((word32 *) c_phash)[2];
+   tilep[4] = ((word32 *) c_phash)[3];
+   tilep[5] = ((word32 *) c_phash)[4];
+   tilep[6] = ((word32 *) c_phash)[5];
+   tilep[7] = ((word32 *) c_phash)[6];
+   tilep[8] = ((word32 *) c_phash)[7];
    /* perform initial nighthash into first row of tile */
    cu_peach_nighthash(tilep, PEACHGENLEN, index, PEACHGENLEN, tilep);
    /* fill the rest of the tile with the preceding Nighthash result */
-   for (i = 0; i < 992; i += 32) {
-      memcpy(tilep + i + 32, &index, 4);
+   for (i = 0; i < (PEACHTILELEN - 32) / 4; i += 8) {
+      tilep[i + 8] = index;
       cu_peach_nighthash(&tilep[i], PEACHGENLEN, index, SHA256LEN,
-         &tilep[i + 32]);
+         &tilep[i + 8]);
    }
 }  /* end cu_peach_generate() */
 
@@ -325,25 +334,21 @@ __device__ static void cu_peach_generate(word32 index, word8 *tilep)
  * @param tilep Pointer to tile data at @a index
  * @returns 32-bit unsigned index of next tile
 */
-__device__ static void cu_peach_jump(word32 *index, word8 *nonce,
-   word8 *tilep)
+__device__ void cu_peach_jump(word32 *index, word64 *nonce, word32 *tilep)
 {
-   __align__(256) word8 seed[PEACHJUMPLEN];
+   __align__(256) word32 seed[PEACHJUMPLEN / 4];
    __align__(32) word32 dhash[SHA256LEN / 4];
-   word32 *sp = (word32 *) (seed + 36);
    int i;
 
    /* construct seed for use as Nighthash input for this index on the map */
-   // memcpy(seed, nonce, HASHLEN);
-   ((word64 *) seed)[0] = ((word64 *) nonce)[0];
-   ((word64 *) seed)[1] = ((word64 *) nonce)[1];
-   ((word64 *) seed)[2] = ((word64 *) nonce)[2];
-   ((word64 *) seed)[3] = ((word64 *) nonce)[3];
-   // memcpy(seed + HASHLEN, index, 4);
-   ((word32 *) seed)[8] = *index;
-   // memcpy(seed + HASHLEN + 4, tilep, PEACHTILELEN);
+#pragma unroll
+   for (i = 0; i < 4; i++) {
+      ((word64 *) seed)[i] = ((word64 *) nonce)[i];
+   }
+   seed[8] = *index;
+#pragma unroll
    for (i = 0; i < PEACHTILELEN / 4; i++) {
-      ((word32 *) seed)[i + 9] = ((word32 *) tilep)[i];
+      seed[i + 9] = tilep[i];
    }
 
    /* perform nighthash on PEACHJUMPLEN bytes of seed */
@@ -364,7 +369,7 @@ __global__ void kcu_peach_build(word8 *d_map, word32 offset)
 {
    const word32 index = blockDim.x * blockIdx.x + threadIdx.x + offset;
    if (index < PEACHCACHELEN) {
-      cu_peach_generate(index, &d_map[index * PEACHTILELEN]);
+      cu_peach_generate(index, (word32 *) &d_map[index * PEACHTILELEN]);
    }
 }  /* end kcu_peach_build() */
 
@@ -381,28 +386,33 @@ __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
    word8 *d_solve)
 {
    __align__(128) SHA256_CTX ictx;
+   __align__(32) word64 nonce[4];
    __align__(32) word8 hash[SHA256LEN];
-   __align__(32) word8 nonce[32];
-   unsigned int i = (blockIdx.x * blockDim.x) + threadIdx.x;
-   word32 mario, *x;
+   word32 mario, tid, *x;
+   int i;
+
+   tid = (blockIdx.x * blockDim.x) + threadIdx.x;
 
    /* shift ictx to appropriate location and extract nonce */
-   memcpy(&ictx, &d_ictx[i], sizeof(ictx));
-   memcpy(nonce, ictx.data + 28, 32);
+#pragma unroll
+   for (i = 0; i < sizeof(ictx) / 4; i++) {
+      ((word32 *) &ictx)[i] = ((word32 *) &d_ictx[tid])[i];
+   }
+#pragma unroll
+   for (i = 0; i < 8; i++) {
+      ((word32 *) nonce)[i] = ((word32 *) &ictx.data[28])[i];
+   }
    /* finalise incomplete sha256 hash */
    cu_sha256_final(&ictx, hash);
    /* initialize mario's starting index on the map, bound to PEACHCACHELEN */
-   for(mario = hash[0], i = 1; i < SHA256LEN; i++) mario *= hash[i];
+   for (mario = hash[0], i = 1; i < SHA256LEN; i++) {
+      mario *= hash[i];
+   }
    mario &= PEACHCACHELEN_M1;
    /* perform tile jumps to find the final tile x8 */
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
-   cu_peach_jump(&mario, nonce, &d_map[mario * PEACHTILELEN]);
+   for (i = 0; i < PEACHROUNDS; i++) {
+      cu_peach_jump(&mario, nonce, (word32 *) &d_map[mario * PEACHTILELEN]);
+   }
    /* hash block trailer with final tile */
    cu_sha256_init(&ictx);
    cu_sha256_update(&ictx, hash, SHA256LEN);
@@ -415,7 +425,10 @@ __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
 
    /* check first to solve with atomic solve handling */
    if(!atomicCAS((int *) d_solve, 0, *((int *) nonce))) {
-      memcpy(d_solve, nonce, 32);
+      ((word64 *) d_solve)[0] = nonce[0];
+      ((word64 *) d_solve)[1] = nonce[1];
+      ((word64 *) d_solve)[2] = nonce[2];
+      ((word64 *) d_solve)[3] = nonce[3];
    }
 }  /* end kcu_peach_solve() */
 
@@ -430,9 +443,9 @@ __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
 __global__ void kcu_peach_checkhash(SHA256_CTX *ictx, word8 *out,
    word8 *eval)
 {
-   __align__(32) word8 tile[PEACHTILELEN] = { 0 };
+   __align__(32) word64 nonce[4] = { 0 };
+   __align__(32) word32 tile[PEACHTILELEN] = { 0 };
    __align__(32) word8 hash[SHA256LEN] = { 0 };
-   __align__(32) word8 nonce[32] = { 0 };
    word32 *x, mario;
    int i;
 
@@ -440,29 +453,20 @@ __global__ void kcu_peach_checkhash(SHA256_CTX *ictx, word8 *out,
    if ((blockDim.x * blockIdx.x) + threadIdx.x > 0) return;
 
    /* extract nonce */
-   memcpy(nonce, ictx->data + 28, 32);
+#pragma unroll
+   for (i = 0; i < 8; i++) {
+      ((word32 *) nonce)[i] = ((word32 *) &ictx->data[28])[i];
+   }
    /* finalise incomplete sha256 hash */
    cu_sha256_final(ictx, hash);
    /* initialize mario's starting index on the map, bound to PEACHCACHELEN */
    for(mario = hash[0], i = 1; i < SHA256LEN; i++) mario *= hash[i];
    mario &= PEACHCACHELEN_M1;
    /* generate and perform tile jumps to find the final tile x8 */
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
-   cu_peach_generate(mario, tile);
-   cu_peach_jump(&mario, nonce, tile);
+   for (i = 0; i < PEACHROUNDS; i++) {
+      cu_peach_generate(mario, tile);
+      cu_peach_jump(&mario, nonce, tile);
+   }
    /* generate the last tile */
    cu_peach_generate(mario, tile);
    /* hash block trailer with final tile */
@@ -629,9 +633,13 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
    cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_map), PEACHMAPLEN), devp, return VERROR);
    /* clear device/host allocated memory */
    cudaMemsetAsync(PeachCudaCTX[id].d_ictx[0], 0, ictxlen, cudaStreamDefault);
+   cuCHK(cudaGetLastError(), devp, return VERROR);
    cudaMemsetAsync(PeachCudaCTX[id].d_ictx[1], 0, ictxlen, cudaStreamDefault);
+   cuCHK(cudaGetLastError(), devp, return VERROR);
    cudaMemsetAsync(PeachCudaCTX[id].d_solve[0], 0, 32, cudaStreamDefault);
+   cuCHK(cudaGetLastError(), devp, return VERROR);
    cudaMemsetAsync(PeachCudaCTX[id].d_solve[1], 0, 32, cudaStreamDefault);
+   cuCHK(cudaGetLastError(), devp, return VERROR);
    memset(PeachCudaCTX[id].h_bt[0], 0, sizeof(BTRAILER));
    memset(PeachCudaCTX[id].h_bt[1], 0, sizeof(BTRAILER));
    memset(PeachCudaCTX[id].h_ictx[0], 0, ictxlen);
@@ -716,8 +724,6 @@ int peach_init_cuda(DEVICE_CTX devlist[], int max)
 */
 int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
 {
-   static size_t SHA256CTXLEN = sizeof(SHA256_CTX);
-   static size_t BTLEN = sizeof(BTRAILER);
    int i, id, sid, grid, block;
    PEACH_CUDA_CTX *P;
    nvmlReturn_t nr;
@@ -753,25 +759,30 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
             memset(P->h_solve[1], 0, 32);
             cudaMemcpyAsync(P->d_solve[0], P->h_solve[0], 32,
                cudaMemcpyHostToDevice, P->stream[sid]);
+            cuCHK(cudaGetLastError(), dev, return VERROR);
             cudaMemcpyAsync(P->d_solve[1], P->h_solve[1], 32,
                cudaMemcpyHostToDevice, P->stream[sid]);
+            cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update block trailer */
-            memcpy(P->h_bt[0], bt, BTLEN);
-            memcpy(P->h_bt[1], bt, BTLEN);
+            memcpy(P->h_bt[0], bt, sizeof(BTRAILER));
+            memcpy(P->h_bt[1], bt, sizeof(BTRAILER));
             /* ensure phash is set */
             memcpy(h_phash, bt->phash, SHA256LEN);
             /* asynchronous copy to phash and difficulty symbols */
             cudaMemcpyToSymbolAsync(c_phash, h_phash, SHA256LEN, 0,
                cudaMemcpyHostToDevice, P->stream[sid]);
+            cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update h_diff from function diff parameter */
             if (*h_diff != diff) *h_diff = diff;
             /* if h_diff is zero (0) or greater than bt, use bt */
             if (*h_diff == 0 || *h_diff > bt->difficulty[0]) {
                cudaMemcpyToSymbolAsync(c_diff, P->h_bt[0]->difficulty,
                   1, 0, cudaMemcpyHostToDevice, P->stream[sid]);
+               cuCHK(cudaGetLastError(), dev, return VERROR);
             } else {
                cudaMemcpyToSymbolAsync(c_diff, h_diff,
                   1, 0, cudaMemcpyHostToDevice, P->stream[sid]);
+               cuCHK(cudaGetLastError(), dev, return VERROR);
             }
          }
          if (dev->work < PEACHCACHELEN) {
@@ -833,9 +844,10 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
             memset(P->h_solve[sid], 0, 32);
             cudaMemcpyAsync(P->d_solve[sid], P->h_solve[sid], 32,
                cudaMemcpyHostToDevice, P->stream[sid]);
+            cuCHK(cudaGetLastError(), dev, return VERROR);
             /* record stime */
             put32(P->h_bt[sid]->stime, time(NULL));
-            memcpy(out, P->h_bt[sid], BTLEN);
+            memcpy(out, P->h_bt[sid], sizeof(BTRAILER));
             /* return a solve */
             return VEOK;
          }
@@ -849,13 +861,14 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
          sha256_update(P->h_ictx[sid], P->h_bt[sid], 124);
          /* duplicate intermediate state with random second seed */
          for(i = 1; i < dev->threads; i++) {
-            memcpy(&(P->h_ictx[sid][i]), P->h_ictx[sid], SHA256CTXLEN);
+            memcpy(&(P->h_ictx[sid][i]), P->h_ictx[sid], sizeof(SHA256_CTX));
             trigg_generate_fast(P->h_ictx[sid][i].data + 44);
          }
          /* transfer ictx to device */
-         ictxlen = dev->threads * SHA256CTXLEN;
+         ictxlen = sizeof(SHA256_CTX) * dev->threads;
          cudaMemcpyAsync(P->d_ictx[sid], P->h_ictx[sid], ictxlen,
             cudaMemcpyHostToDevice, P->stream[sid]);
+         cuCHK(cudaGetLastError(), dev, return VERROR);
          /* launch kernel to solve Peach */
          kcu_peach_solve<<<dev->grid, dev->block, 0, P->stream[sid]>>>
             (P->d_map, P->d_ictx[sid], P->d_solve[sid]);
@@ -863,6 +876,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
          /* retrieve solve seed */
          cudaMemcpyAsync(P->h_solve[sid], P->d_solve[sid], 32,
             cudaMemcpyDeviceToHost, P->stream[sid]);
+         cuCHK(cudaGetLastError(), dev, return VERROR);
          /* increment progress counters */
          dev->total_work += dev->threads;
          dev->work += dev->threads;
