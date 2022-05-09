@@ -469,7 +469,7 @@ tfval_end:
 }  /* end tf_val() */
 
 
-int trim_tfile(word8 *highbnum)
+int trim_tfile(void *highbnum)
 {
    FILE *fp, *fpout;
    BTRAILER bt;

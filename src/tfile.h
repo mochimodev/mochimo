@@ -26,7 +26,7 @@ int past_weight(word8 *weight, word32 lownum);
 int loadproof(TX *tx);
 int checkproof(TX *tx, word32 *splitblock);
 int tf_val(char *fname, void *bnum, void *weight, int weight_only);
-int trim_tfile(word8 *highbnum);
+int trim_tfile(void *highbnum);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus
