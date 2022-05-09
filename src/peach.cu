@@ -94,7 +94,7 @@ static PEACH_CUDA_CTX *PeachCudaCTX;
 static word8 *h_phash, *h_diff;
 /* device symbol memory (unique per device) */
 __device__ __constant__ static word8 __align__(32) c_phash[SHA256LEN];
-__device__ __constant__ static word8 __align__(32) c_diff;
+__device__ __constant__ static word8 c_diff;
 
 /**
  * @private
@@ -114,11 +114,16 @@ __device__ __constant__ static word8 __align__(32) c_diff;
 __device__ static word32 cu_peach_dflops(void *data, size_t len,
    word32 index, int txf)
 {
+   __constant__ __align__(16) static uint32_t c_float[4] = {
+      WORD32_C(0x26C34), WORD32_C(0x14198),
+      WORD32_C(0x3D6EC), WORD32_C(0x80000000)
+   };
+   word8 *bp;
    float *flp, temp, flv;
-   word8 *bp, shift;
    int32 operand;
    word32 op;
    unsigned i;
+   word8 shift;
 
    /* process entire length of input data; limit to 4 byte multiples */
    /* len = len - (len & 3); // uncomment if (len % 4 != 0) is expected */
@@ -137,14 +142,12 @@ __device__ static word32 cu_peach_dflops(void *data, size_t len,
       /* remaining bytes are selected for 3 different operations based on
        * the first bytes resulting shift on precomputed contants to...
        * ... 1) determine the floating point operation type */
-      op += bp[((WORD32_C(0x26C34) >> shift) & 3)];
+      op += bp[((c_float[0] >> shift) & 3)];
       /* ... 2) determine the value of the operand */
-      operand = bp[((WORD32_C(0x14198) >> shift) & 3)];
+      operand = bp[((c_float[1] >> shift) & 3)];
       /* ... 3) determine the upper most bit of the operand
        *        NOTE: must be performed AFTER the allocation of the operand */
-      if (bp[((WORD32_C(0x3D6EC) >> shift) & 3)] & 1) {
-         operand ^= WORD32_C(0x80000000);
-      }
+      if (bp[((c_float[2] >> shift) & 3)] & 1) operand ^= c_float[3];
       /* interpret operand as SIGNED integer and cast to float */
       flv = __int2float_rn(operand);
       /* Replace pre-operation NaN with index */
@@ -179,23 +182,19 @@ __device__ static word32 cu_peach_dflops(void *data, size_t len,
 */
 __device__ static word32 cu_peach_dmemtx(void *data, size_t len, word32 op)
 {
-   unsigned i, z;
+   word64 *qp = (word64 *) data;
+   word32 *dp = (word32 *) data;
+   word8 *bp = (word8 *) data;
    size_t len16, len32, len64, y;
-   word64 *qp;
-   word32 *dp;
-   word8 *bp, temp;
+   unsigned i, z;
+   word8 temp;
 
    /* prepare memory pointers and lengths */
-   qp = (word64 *) data;
-   dp = (word32 *) data;
-   bp = (word8 *) data;
-   len64 = len >> 3;
-   len32 = len >> 2;
-   len16 = len >> 1;
+   len64 = (len32 = (len16 = len >> 1) >> 1) >> 1;
    /* perform memory transformations multiple times */
    for (i = 0; i < PEACHROUNDS; i++) {
       /* determine operation to use for this iteration */
-      op += bp[i & 31];
+      op += bp[i];
       /* select "random" transformation based on value of `op` */
       switch (op & 7) {
          case 0:  /* flip the first and last bit in every byte */
@@ -249,8 +248,8 @@ __device__ static word32 cu_peach_dmemtx(void *data, size_t len, word32 op)
 __device__ static void cu_peach_nighthash(void *in, size_t inlen,
    word32 index, size_t txlen, void *out)
 {
-   static const word64 key32B[4] = { 0, 0, 0, 0 };
-   static const word64 key64B[8] = {
+   __constant__ __align__(32) static word64 key32B[4] = { 0, 0, 0, 0 };
+   __constant__ __align__(64) static word64 key64B[8] = {
       WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
       WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
       WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
@@ -336,15 +335,15 @@ __device__ static void cu_peach_generate(word32 index, word32 *tilep)
 */
 __device__ void cu_peach_jump(word32 *index, word64 *nonce, word32 *tilep)
 {
-   __align__(256) word32 seed[PEACHJUMPLEN / 4];
+   __align__(32) word32 seed[PEACHJUMPLEN / 4];
    __align__(32) word32 dhash[SHA256LEN / 4];
    int i;
 
    /* construct seed for use as Nighthash input for this index on the map */
-#pragma unroll
-   for (i = 0; i < 4; i++) {
-      ((word64 *) seed)[i] = ((word64 *) nonce)[i];
-   }
+   ((word64 *) seed)[0] = nonce[0];
+   ((word64 *) seed)[1] = nonce[1];
+   ((word64 *) seed)[2] = nonce[2];
+   ((word64 *) seed)[3] = nonce[3];
    seed[8] = *index;
 #pragma unroll
    for (i = 0; i < PEACHTILELEN / 4; i++) {
@@ -385,11 +384,10 @@ __global__ void kcu_peach_build(word8 *d_map, word32 offset)
 __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
    word8 *d_solve)
 {
-   __align__(128) SHA256_CTX ictx;
    __align__(32) word64 nonce[4];
    __align__(32) word8 hash[SHA256LEN];
-   word32 mario, tid, *x;
-   int i;
+   __align__(8) SHA256_CTX ictx;
+   word32 *x, mario, tid, i;
 
    tid = (blockIdx.x * blockDim.x) + threadIdx.x;
 
@@ -443,9 +441,9 @@ __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
 __global__ void kcu_peach_checkhash(SHA256_CTX *ictx, word8 *out,
    word8 *eval)
 {
-   __align__(32) word64 nonce[4] = { 0 };
-   __align__(32) word32 tile[PEACHTILELEN] = { 0 };
-   __align__(32) word8 hash[SHA256LEN] = { 0 };
+   word64 nonce[4] = { 0 };
+   word32 tile[PEACHTILELEN] = { 0 };
+   word8 hash[SHA256LEN] = { 0 };
    word32 *x, mario;
    int i;
 
@@ -884,7 +882,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
    }
 
    /* power and temperature monitoring (1 second interval) */
-   if (P->nvml_device && difftime(time(NULL), dev->last_monitor)) {
+   if (P->nvml_enabled && difftime(time(NULL), dev->last_monitor)) {
       dev->last_monitor = time(NULL);
       /* get GPU device power */
       unsigned int fan;
