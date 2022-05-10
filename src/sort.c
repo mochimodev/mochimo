@@ -87,7 +87,7 @@ int sortlt(char *fname)
    Nlt = offset / sizeof(LTRAN);
    if (Nlt == 0) mError(FAIL_IO, "sortlt(): 0 transactions");
    /* seek to file start */
-   if (fseek(fp, 0, SEEK_SET)) {
+   if (fseek(fp, 0, SEEK_SET) != 0) {
       mErrno(FAIL_IO, "sortlt(): failed to fseek(SET)");
    }
    /* allocate memory */
@@ -95,7 +95,7 @@ int sortlt(char *fname)
    if (Ltidx == NULL) {
       mError(FAIL_Ltidx, "sortlt(): failed to malloc(%zu) Ltidx", len);
    }
-   Ltrans = malloc((Nlt * sizeof(LTRAN)));
+   Ltrans = malloc((len = Nlt * sizeof(LTRAN)));
    if (Ltrans == NULL) {
       mError(FAIL_Ltrans, "sortlt(): failed to malloc(%zu) Ltrans", len);
    }
