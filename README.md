@@ -51,6 +51,9 @@ git commit -m "merge build-c v1.1.2 repository files"
 # │       ├── codeql.yaml
 # │       └── tests.yaml
 - ├── build
+- │   ├── bin
+- │   │   ├── alternate-binary
+- │   │   └── main-binary
 - │   ├── test
 - │   │   ├── sourcetest-cu.d
 - │   │   ├── sourcetest-cu.o
@@ -67,6 +70,9 @@ git commit -m "merge build-c v1.1.2 repository files"
 ! ├── include
 ! │   └── submoduledirs...
 + ├── src
++ │   ├── bin
++ │   │   ├── alternate-binary.c
++ │   │   └── main-binary.c
 + │   ├── test
 # ├── │   ├── _assert.h
 + │   │   ├── sourcetest-cu.c
@@ -89,6 +95,7 @@ By default, the GNUMakefile is automatically configured to operate with the foll
 - `src/*.h:` C header file, for inclusion by other source files
 - `src/*.cu:` CUDA source file, compiled with `$(NVCC)`
 - `src/*.cuh:` CUDA header file, for inclusion ONLY by other CUDA source files
+- `src/bin/*.c:` C source file, for binary execution
 - `src/test/component-*.c:` C source file for testing C functions
 - `src/test/component-*-cu.c:` C source file for testing CUDA functions, compiled with `$(CC)` ONLY if `$(CFLAGS)` contains the `"-DCUDA"` definition
 
@@ -105,10 +112,13 @@ Usage:  make [options] [FLAGS=FLAGVALUES]
 	make coverage      build test coverage file
 	make docs          build documentation files
 	make library       build a library file containing all objects
-	make libraries     build all library files required for binaries
 	make report        build html report from test coverage
+   make sublibraries  build all library files (incl. submodules)
+   make submodules    initialize submodule repositories
 	make test          build and run tests
 	make test-*        build and run sub tests matching *
+   make variable-*    show the value of a variable matching *
+
 ```
 
 ## Configurable Flags
