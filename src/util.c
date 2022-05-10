@@ -657,6 +657,7 @@ word32 set_difficulty(BTRAILER *btp)
  */
 void ctrlc(int sig)
 {
+   print("\n");
    pdebug("Got signal %i\n", sig);
    signal(SIGINT, ctrlc);
    if (Ininit) Running = 0;

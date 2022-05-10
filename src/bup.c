@@ -127,7 +127,7 @@ int b_update(char *fname, int mode)
             write_data(&Nsolved, 4, "solved.dat");
          }
          Nupdated++;  /* block update counter */
-      }
+      } else solvestr = "synced";
       Utime = time(NULL);  /* update time for watchdog */
    }  /* end if not-Ininit */
 
