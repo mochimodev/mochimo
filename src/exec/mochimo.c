@@ -859,13 +859,11 @@ int main(int argc, char **argv)
          if(argv[j][0] != '-') return usage();
          switch(argv[j][1]) {
             case '-':  /* advanced commands */
-               if (strcmp("testnet", &argv[j][2]) == 0) {
-                  if (testnet() == VEOK) {
-                     plog("Testnet generated successfully!");
-                     plog("Restart the node on an isolated port...");
-                     exit(0);
-                  } else exit(perr("Failed to generated testnet :("));
-               } else if (!argv[j][3]) goto EOA;  /* -- end of args */
+               cp = &argv[j][2];
+               if (*cp == '\0') goto EOA;  /* -- end of args */
+               if (strcmp("testnet", cp) == 0) exit(testnet());
+               if (strcmp("veronica", cp) == 0) exit(veronica());
+               plog("Unknown argument, %s", argv[j]);
                break;
             case 'c':  /* set core ip list */
                if (!argv[j][2]) {
