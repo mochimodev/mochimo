@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [1.2.0] - 2022-05-10
-Improvements to submodule handling with fresh repositories that have not initialized the associated submodules.
+Enhanced version identification with GIT_VERSION definition and improvements to submodule handling with fresh repositories that have not initialized the associated submodules.
 
 ## Added
+- GIT_VERSION makefile definition for enhanced version identification
 - `make submodules` for submodule initialization
 - `submodule` make depency on build steps that may require submodules
 
