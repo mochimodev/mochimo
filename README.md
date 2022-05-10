@@ -113,11 +113,11 @@ Usage:  make [options] [FLAGS=FLAGVALUES]
 	make docs          build documentation files
 	make library       build a library file containing all objects
 	make report        build html report from test coverage
-   make sublibraries  build all library files (incl. submodules)
-   make submodules    initialize submodule repositories
+	make sublibraries  build all library files (incl. submodules)
+	make submodules    initialize submodule repositories
 	make test          build and run tests
 	make test-*        build and run sub tests matching *
-   make variable-*    show the value of a variable matching *
+	make variable-*    show the value of a variable matching *
 
 ```
 
