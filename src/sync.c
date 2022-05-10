@@ -155,12 +155,12 @@ int extract_gen(char *lfile)
 int testnet(void)
 {
    TXQENTRY tx;
+   FILE *bcfp, *txfp;
    word32 bnum[2];
    word32 hdrlen;
    int i, ecode;
 
-   FILE *fpin, *fpout;
-   char bcfname[FILENAME_MAX], txfname[FILENAME_MAX];
+   char bcfname[FILENAME_MAX];
 
    plog("Generating testnet...");
 
@@ -182,49 +182,62 @@ int testnet(void)
    }
 
    /* transfer transactions from blocks above bnum to tx/ */
-   for (i = 0; i <= 0xff; i++) {
+   while (cmp64(bnum, Cblocknum) <= 0) {
       add64(bnum, One, bnum);
-      snprintf(bcfname, FILENAME_MAX, "%.64s/b%s.bc", Bcdir, bnum2hex(bnum));
-      snprintf(txfname, FILENAME_MAX, "txclean%03d.dat", bnum[0] & 0xff);
-      if (!fexists(bcfname)) break;  /* done */
-      fpin = fopen(bcfname, "rb");
-      if (fpin == NULL) mErrno(FAIL, "testnet(): fopen(%s, rb)", bcfname);
-      fpout = fopen(txfname, "wb");
-      if (fpout == NULL) mErrno(FAIL2, "testnet(): fopen(%s, wb)", txfname);
-      /* seek to transactions */
-      if (fread(&hdrlen, sizeof(hdrlen), 1, fpin) != 1) {
+      snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
+      if (!fexists(bcfname)) break;  /* no more blocks */
+      /* open block file and check for transactions */
+      bcfp = fopen(bcfname, "rb");
+      if (bcfp == NULL) {
+         mErrno(FAIL, "testnet(): failed to fopen(%s, rb)", bcfname);
+      } else if (fread(&hdrlen, sizeof(hdrlen), 1, bcfp) != 1) {
          mError(FAIL3, "testnet(): failed to fread(hdrlen)");
-      } else if (fseek(fpin, (long) hdrlen, SEEK_SET) != 0) {
+      } else if (hdrlen != sizeof(BHEADER)) {
+         pdebug("testnet(): no txs in %s, skipping...", bcfname);
+      } else if (fseek(bcfp, (long) hdrlen, SEEK_SET) != 0) {
          mErrno(FAIL3, "testnet(): failed to fseek(SET)");
-      }
-      /* ... write txs; relies on sizeof(BTRAILER) < sizeof(TXQENTRY) */
-      while (fread(&tx, sizeof(tx), 1, fpin)) {
-         if (fwrite(&tx, sizeof(tx), 1, fpout) != 1) {
-            mError(FAIL3, "testnet(): failed to fwrite(tx)");
+      } else {  /* bcfp is ready to read transactions */
+         txfp = fopen("txclean.dat", "wb");
+         if (txfp == NULL) {
+            mErrno(FAIL2, "testnet(): failed to fopen(txclean.dat, wb)");
          }
-      }  /* check errors in fpin */
-      if (ferror(fpin)) mError(FAIL3, "testnet(): failed to fread(tx)");
-      fclose(fpout);
-      fclose(fpin);
+         /* ... write txs; relies on sizeof(BTRAILER) < sizeof(TXQENTRY) */
+         while (fread(&tx, sizeof(tx), 1, bcfp)) {
+            if (fwrite(&tx, sizeof(tx), 1, txfp) != 1) {
+               mError(FAIL3, "testnet(): failed to fwrite(tx)");
+            }
+         }
+         /* check errors on bcfp */
+         if (ferror(bcfp)) mError(FAIL3, "testnet(): failed to fread(tx)");
+         fclose(txfp);
+      }
+      fclose(bcfp);
       remove(bcfname);
    }
+   /* delete remaining blocks */
+   delete_blocks(bnum);
 
-   /* transfer Trailer file and ledger */
+   /* apply new ledger */
    remove("ledger.dat");
-   rename("ledger.tmp", "ledger.dat");
-   pdebug("testnet(): tfile.dat and ledger.dat prepared");
-   pdebug("testnet(): created %d txclean files from blocks", i);
+   if (rename("ledger.tmp", "ledger.dat") != 0) {
+      mErrno(FAIL, "testnet(): failed to move ledger.tmp to ledger.dat");
+   }
+
+   plog("Testnet generated successfully!");
+   plog("Restart the node on an isolated");
+   plog("port to start the testnet...");
+   plog("   ./gomochi -p2094\n");
 
    /* success */
    return VEOK;
 
    /* failure / error handling */
 FAIL3:
-   fclose(fpout);
-   remove(txfname);
+   fclose(txfp);
 FAIL2:
-   fclose(fpin);
+   fclose(bcfp);
 FAIL:
+   perr("Failed to generated testnet :(");
 
    return ecode;
 }  /* end testnet() */
