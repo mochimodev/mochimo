@@ -14,24 +14,6 @@
 #define MOCHIMO_C
 
 
-#define STR_NX(x)    #x
-#define STR(x)       STR_NX(x)
-
-#define VER_MAJOR    2
-#define VER_MINOR    4
-#define VER_PATCH    2
-#define VER_EXTRA    "-alpha"
-#define VER_LEVEL    ((VER_MAJOR << 16) | (VER_MINOR << 8) | VER_PATCH)
-#define VER_STR   \
-   "v" STR(VER_MAJOR) "." STR(VER_MINOR) "." STR(VER_PATCH) VER_EXTRA
-
-#define LICENSELINK \
-   "https://github.com/mochimodev/mochimo/blob/master/LICENSE.PDF"
-
-#ifndef HTTPSTARTPEERS
-#define HTTPSTARTPEERS "https://new-api.mochimap.com/network/peers/start"
-#endif
-
 /* Display terminal error message
  * and exit with NO restart (code 0).
  */
@@ -160,9 +142,7 @@ void monitor(void)
     * Print banner if not single stepping.
     */
    if (runmode == 0) {
-      print("\n\n\n");
-      print("Mochimo System Monitor ver %s\n", VER_STR);
-      print("? for help\n\n");
+      print("\n\nMochimo System Monitor " GIT_VERSION "\n? for help\n\n");
    }
 
    show("monitor");
@@ -322,9 +302,9 @@ int init(void)
 
    /* scan entire network of peers */
    while (Running) {
-      /* fresh peer acquisition from mochimap */
-      pdebug("downloading fresh peers from mochimap...");
-      http_get(HTTPSTARTPEERS, "start.lst", STD_TIMEOUT);
+      /* fresh peer acquisition */
+      plog("Downloading fresh peers...");
+      http_get("https://mochimo.org/peers/start", "start.lst", STD_TIMEOUT);
       /* read pinklist and trusted peers, and populate recent peers */
       read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
       read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
@@ -982,18 +962,20 @@ int main(int argc, char **argv)
 EOA:
 
    /* print header & disclaimer */
-   plog("Mochimo Server " VER_STR " built on " __DATE__ " " __TIME__);
-   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
-   plog("See %s for License.", LICENSELINK);
+   plog("Mochimo Server " GIT_VERSION " on " __DATE__ " " __TIME__);
    plog("Mochimo Mainnet Live Since June 25, 2018 15:43:45 GMT");
-   plog("Mochimo v2 Code Released October 27, 2018");
+   plog("Mochimo Codebase v2 Released October 27, 2018");
+   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
+   plog("See the PDF/TEXT versions of the license agreement:");
+   plog("   https://mochimo.org/license.pdf");
+   plog("   https://mochimo.org/license");
    plog("");
 
    /* perform init and start server */
    if (Running) {
       sleep(3);  /* for effect */
       phostinfo();  /* for info */
-      if (init() == VEOK) {
+      if (Running && init() == VEOK) {
          server();
          /* shutdown sockets */
          sock_cleanup();
