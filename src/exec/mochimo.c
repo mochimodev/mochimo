@@ -647,30 +647,36 @@ int server(void)
          Blockfound = 0;
       }
 
-      /*
-       * Time to call Block Constructor?
-       */
-      if(Txcount >= TXQUEBIG)
-         bctime = Ltime;
-      if(Bcon_pid == 0 && Blockfound == 0
-         && Ltime >= bctime
-         && (Txcount > 0 || (Mpid == 0 && fexistsnz("txclean.dat")))) {
-         /* append txq1.dat to txclean.dat */
-         system("cat txq1.dat >>txclean.dat 2>/dev/null");
-         unlink("txq1.dat");
-         stop_miner(0);  /* pause miner during block construction */
-         pdebug("spawning bcon with %d more transactions", Txcount);
-         Txcount = 0;  /* txq1.dat is empty now */
-         put64(Bcbnum, Cblocknum);  /* save current block number */
-         Bcon_pid = fork();
-         if (Bcon_pid == -1) {
-            perr("Cannot fork() for b_con()");
-            Bcon_pid = 0;
-         } else if (Bcon_pid == 0) {
-            /* in child */
-            exit(b_con("cblock.dat"));
+      /* generate pseudo-block in "times of trouble", else check bcon */
+      if(Ltime >= (Time0 + BRIDGE) && TIMES_OF_TROUBLE(Cblocknum)) {
+         if (pseudo() != VEOK) restart("Failed to make pseudo-block");
+         else {
+            stop4update();
+            if (b_update("pblock.dat", 2) != VEOK) {
+               restart("Failed to update pseudo-block");
+            } else Stime = Ltime + 20;  /* hold status display */
          }
-         bctime = Ltime + BCONFREQ;
+      } else {
+         if (Txcount >= TXQUEBIG) bctime = Ltime;
+         if (Bcon_pid == 0 && Blockfound == 0 && Ltime >= bctime &&
+            (Txcount > 0 || (Mpid == 0 && fexistsnz("txclean.dat")))) {
+            /* append txq1.dat to txclean.dat */
+            system("cat txq1.dat >>txclean.dat 2>/dev/null");
+            unlink("txq1.dat");
+            stop_miner(0);  /* pause miner during block construction */
+            pdebug("spawning bcon with %d more transactions", Txcount);
+            Txcount = 0;  /* txq1.dat is empty now */
+            put64(Bcbnum, Cblocknum);  /* save current block number */
+            Bcon_pid = fork();
+            if (Bcon_pid == -1) {
+               perr("Cannot fork() for b_con()");
+               Bcon_pid = 0;
+            } else if (Bcon_pid == 0) {
+               /* in child */
+               exit(b_con("cblock.dat"));
+            }
+            bctime = Ltime + BCONFREQ;
+         }
       }
 
       /* Collect bcon status when she is 'done'.  pid == 0 means she
@@ -711,17 +717,6 @@ int server(void)
          if(pid > 0) {
             Mqpid = 0;
             mqtime = Ltime + 2;
-         }
-      }
-
-      if(Ltime >= (Time0 + BRIDGE) && TIMES_OF_TROUBLE(Cblocknum)) {
-         if (pseudo() != VEOK) {
-            restart("Failed to make pseudo-block");
-         } else {
-            stop4update();
-            if (b_update("pblock.dat", 2) != VEOK) {
-               restart("Failed to update pseudo-block");
-            } else Stime = Ltime + 20;  /* hold status display */
          }
       }
 
