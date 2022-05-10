@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2022-05-10
+Improvements to submodule handling with fresh repositories that have not initialized the associated submodules.
+
+## Added
+- `make submodules` for submodule initialization
+- `submodule` make depency on build steps that may require submodules
+
+### Changed
+- `make libraries` command to more appropriate `make sublibraries`
+
 ## [1.1.3] - 2022-04-15
 Revert CUDA compilation type to Executable Device Code. Relocatable Device Code may still be used by adding `NVCFLAGS=-dc" however, a manually device linking step will be required before creating binaries. Reason:
 > CUDA code likes to be compiled as a whole so it can best optimize the execution of device code. Ignoring this, will almost certainly lead to performance penalties. Therefore, CUDA file includes shall use the "source" files instead of the "header" files, as is sometimes done in C.
@@ -35,7 +45,6 @@ At link time:
 - NVCC links Relocatable Device Code into Executable Device Code as `culink.o`
 - CC links `culink.o` as an additional input file at link time
 
-
 ## [1.1.1] - 2022-04-06
 Visual fixes and change of tag scheme to `build-c-<version>` to avoid conflict with dependency projects version numbers.
 
@@ -58,7 +67,8 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.3...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.0...HEAD
+[1.2.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.3...build-c-1.2.0
 [1.1.3]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.2...build-c-1.1.3
 [1.1.2]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.1...build-c-1.1.2
 [1.1.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.0...build-c-1.1.1
