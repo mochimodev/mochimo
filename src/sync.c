@@ -160,15 +160,9 @@ int testnet(void)
    int i, ecode;
 
    FILE *fpin, *fpout;
-   char bcfname[FILENAME_MAX] = "\0";
-   char txfname[FILENAME_MAX] = "\0";
+   char bcfname[FILENAME_MAX], txfname[FILENAME_MAX];
 
    plog("Generating testnet...");
-
-   /* ensure "tx/" is available (and clear) for block txs transfer */
-   if (check_directory("tx") || clear_directory("tx")) {
-      mError(FAIL, "testnet(): failed to prepare tx directory");
-   }
 
    /* reset_chain() and calc bnum as last (not current) neogenesis */
    if (reset_chain() == VEOK) {
@@ -190,9 +184,8 @@ int testnet(void)
    /* transfer transactions from blocks above bnum to tx/ */
    for (i = 0; i <= 0xff; i++) {
       add64(bnum, One, bnum);
-      snprintf(bcfname, FILENAME_MAX, "%.64s/b%08x%08x.bc",
-         Bcdir, bnum[1], bnum[0]);
-      snprintf(txfname, FILENAME_MAX, "tx/t%08x%08x.tx", bnum[1], bnum[0]);
+      snprintf(bcfname, FILENAME_MAX, "%.64s/b%s.bc", Bcdir, bnum2hex(bnum));
+      snprintf(txfname, FILENAME_MAX, "txclean%03d.dat", bnum[0] & 0xff);
       if (!fexists(bcfname)) break;  /* done */
       fpin = fopen(bcfname, "rb");
       if (fpin == NULL) mErrno(FAIL, "testnet(): fopen(%s, rb)", bcfname);
@@ -217,9 +210,7 @@ int testnet(void)
    }
 
    /* transfer Trailer file and ledger */
-   remove("tfile.dat");
    remove("ledger.dat");
-   rename("tfile.tmp", "tfile.dat");
    rename("ledger.tmp", "ledger.dat");
    pdebug("testnet(): tfile.dat and ledger.dat prepared");
    pdebug("testnet(): created %d txclean files from blocks", i);
@@ -230,8 +221,7 @@ int testnet(void)
    /* failure / error handling */
 FAIL3:
    fclose(fpout);
-   remove("tfile.tmp");
-   if (*txfname) remove(txfname);
+   remove(txfname);
 FAIL2:
    fclose(fpin);
 FAIL:
