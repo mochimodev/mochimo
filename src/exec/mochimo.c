@@ -760,22 +760,8 @@ int server(void)
    } /* end while(Running) */
 
    /* cleanup */
-   plog("server(): exiting, please wait...");
-   print(" - stopping bcon... ");
-   stop_bcon();
-   printf("done\n");
-   print(" - stopping found... ");
-   stop_found();
-   printf("done\n");
-   print(" - stopping miner... ");
-   stop_miner(0);
-   printf("done\n");
-   print(" - stopping mirror... ");
-   stop_mirror();
-   printf("done\n");
-   print(" - closing listening socket...");
+   plog("Server exiting, please wait...");
    sock_close(lsd);  /* close listening socket */
-   printf("done\n");
 
    return 0;
 } /* end server() */
@@ -1009,6 +995,13 @@ EOA:
       phostinfo();  /* for info */
       if (init() == VEOK) {
          server();
+         /* shutdown sockets */
+         sock_cleanup();
+         /* stop services */
+         stop_miner(0);
+         stop_mirror();
+         stop_found();
+         stop_bcon();
          /* save dynamic peer lists */
          save_ipl(Recentipfname, Rplist, RPLISTLEN);
          save_ipl(Epinkipfname, Epinklist, EPINKLEN);
@@ -1017,9 +1010,6 @@ EOA:
 
    /* clear any sticky */
    psticky("");
-
-   /* end in-progress sockets */
-   sock_cleanup();
 
    return 0;
 } /* end main() */
