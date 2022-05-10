@@ -121,7 +121,7 @@ int reset_chain(void)
 /* Delete all blocks above bc/matchblock.
  * Returns number of blocks deleted.
  */
-int delete_blocks(word8 *matchblock)
+int delete_blocks(void *matchblock)
 {
    char fname[128];
    int j;
@@ -158,7 +158,7 @@ int testnet(void)
    FILE *bcfp, *txfp;
    word32 bnum[2];
    word32 hdrlen;
-   int i, ecode;
+   int ecode;
 
    char bcfname[FILENAME_MAX];
 

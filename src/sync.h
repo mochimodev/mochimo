@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 int reset_chain(void);
-int delete_blocks(word8 *matchblock);
+int delete_blocks(void *matchblock);
 int extract_gen(char *lfile);
 int testnet(void);
 int catchup(word32 plist[], word32 count);
