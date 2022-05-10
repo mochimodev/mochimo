@@ -375,7 +375,8 @@ int le_update(void)
       /* if there are entries in ledger.tmp */
       remove("ledger.dat");
       rename("ledger.tmp", "ledger.dat");
-      remove("ltran.dat");   /* may need to archive this */
+      remove("ltran.dat.last");
+      rename("ltran.dat", "ltran.dat.last");
    } else {
       remove("ledger.tmp");  /* remove empty temp file */
       mError(FAIL, "le_update(): the ledger is empty!");

@@ -444,6 +444,7 @@ int b_val(char *fname)
 
       /* look up source address in ledger */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == 0) {
+         pdebug("b_val(): error address %s...", addr2str(tx.src_addr));
          mEdrop(FAIL_TX, "b_val(): src_addr not in ledger: TX#%" P32u, j);
       }
 
@@ -605,6 +606,9 @@ int b_val(char *fname)
    count += fwrite(mfees,    1,         8, ltfp);
    if (count != (TXADDRLEN+1+8) || ferror(ltfp)) {
       mError(FAIL_TX, "b_val(): ltfp IO error");
+   } else {
+      pdebug("b_val(): wrote reward (%08x%08x) to %s...",
+         mreward[1], mreward[0], addr2str(bh.maddr));
    }
 
    /* cleanup */

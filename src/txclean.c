@@ -26,6 +26,9 @@
 #include "extmath.h"
 #include "extlib.h"
 
+#define DEBUG_LE(...)   \
+   { pdebug("txclean_le(): %s, drop %s...", __VA_ARGS__); continue; }
+
 /**
  * Remove TX's from "txclean.dat", that are in a blockchain file.
  * @param fname File name of validated block
@@ -128,11 +131,18 @@ int txclean_bc(char *fname)
                mError(FAIL_IO2, "txclean_bc(): failed to fread(tx)");
             } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
                mError(FAIL_IO2, "txclean_bc(): failed to fwrite(tx)");
-            }
+            } else pdebug("txclean_bc(): pass %s...", addr2str(txc.src_addr));
             nout++;  /* count output records to temp file -- new txclean */
          }
-         /* skip dup transactions */
+         /* skip dup transaction ids */
          if (cond >= 0) {
+            if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) == 0 &&
+                  fread(&txc, sizeof(TXQENTRY), 1, fp)) {
+               pdebug("txclean_bc(): drop %s...", addr2str(tx.src_addr));
+            } else {
+               pdebug("txclean_bc(): drop tx_id %s...",
+                  addr2str(&Tx_ids[*idx * HASHLEN]));
+            }
             do {  /* break on end of clean TX file or non-dup tx */
                j++;
                idx++;
@@ -151,7 +161,17 @@ int txclean_bc(char *fname)
       /* Check for dups in txclean.dat */
       ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
       bp = (void *) &Tx_ids[*idx * HASHLEN];
-      if (j > 0 && memcmp(ap, bp, HASHLEN) == 0) continue;
+      if (j > 0 && memcmp(ap, bp, HASHLEN) == 0) {
+         if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) == 0 &&
+               fread(&tx, sizeof(TXQENTRY), 1, fp)) {
+            pdebug("txclean_bc(): dup tx_id, drop %s...",
+               addr2str(&Tx_ids[*idx * HASHLEN]));
+         } else {
+            pdebug("txclean_bc(): dup tx_id, drop tx_id %s...",
+               addr2str(&Tx_ids[*idx * HASHLEN]));
+         }
+         continue;
+      }
       /* Read clean TX in sorted order using index. */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
          mErrno(FAIL_IO2, "txclean_bc(): failed to (re)fseek(fp, SET)");
@@ -159,7 +179,7 @@ int txclean_bc(char *fname)
          mError(FAIL_IO2, "txclean_bc(): failed to (re)fread(tx)");
       } else if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
          mError(FAIL_IO2, "txclean_bc(): failed to (re)fwrite(tx)");
-      }
+      } else pdebug("txclean_bc(): keep %s...", addr2str(tx.src_addr));
       nout++;
    }  /* end for j */
 
@@ -247,14 +267,19 @@ int txclean_le(void)
 
    /* read TX from txclean.dat and process */
    for(nout = tnum = 0; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
-      /* if src not in ledger continue; */
-      if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) continue;
-      if (cmp64(tx.tx_fee, Myfee) < 0) continue;  /* bad tx fee */
-      /* check total overflow and balance */
-      if (add64(tx.send_total, tx.change_total, total)) continue;
-      if (add64(tx.tx_fee, total, total)) continue;
-      if (cmp64(src_le.balance, total) != 0) continue;  /* bad balance */
-      if (TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+      /* check src in ledger, balances and amounts are good */
+      if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
+         DEBUG_LE("bad le_find", addr2str(tx.src_addr));
+      } else if (cmp64(tx.tx_fee, Myfee) < 0) {  /* bad tx fee */
+         DEBUG_LE("bad tx_fee", addr2str(tx.src_addr));
+      } else if (add64(tx.send_total, tx.change_total, total)) {  /* bad amounts */
+         DEBUG_LE("bad amounts", addr2str(tx.src_addr));
+      } else if (add64(tx.tx_fee, total, total)) {  /* bad total */
+         DEBUG_LE("bad total", addr2str(tx.src_addr));
+      } else if (cmp64(src_le.balance, total) != 0) {  /* bad balance */
+         DEBUG_LE("bad balance", addr2str(tx.src_addr));
+      } else if (TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+         pdebug("txclean_le(): MTX detected...");
          mtx = (MTX *) &tx;
          for(j = 0; j < MDST_NUM_DST; j++) {
             if (iszero(mtx->dst[j].tag, TXTAGLEN)) break;

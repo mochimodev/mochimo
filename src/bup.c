@@ -77,7 +77,11 @@ int b_update(char *fname, int mode)
       txclean_le();
       /* check chain ecode result */
       if (ecode != VEOK) {
-         if (mode != 0) remove("mblock.dat");
+         if (mode != 0) {
+            rename(fname, "mblock.dat.fail");
+            rename("ltran.dat.last", "ltran.dat.fail");
+            remove("mblock.dat");
+         }
          return perr("b_update(): validate-clean-ledger chain failure");
       }
    } else if (p_val(fname) != VEOK) {
