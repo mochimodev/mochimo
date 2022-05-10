@@ -257,13 +257,14 @@ int init(void)
    word8 netweight[32], netbnum[8]; //, bnum[8];
    /* BTRAILER bt; */
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
-   int result, status /*, count */ ;
+   int result, status, attempts /*, count */ ;
    word8 highblock[8];
 
    /* init */
    show("init");
    plog("Initializing...");
    status = VEOK;
+   attempts = 0;
 
    /* ensure appropriate directories and permissions exist */
    if (check_directory(Bcdir) || check_directory(Spdir)) return VERROR;
@@ -310,30 +311,31 @@ int init(void)
    if (reset_chain() != VEOK) return perr("reset_chain() failed");
    /* validate our own tfile.dat to compute Weight */
    if (tf_val("tfile.dat", highblock, Weight, 1)) {
-      if (cmp64(Cblocknum, highblock) != 0) {
-         perr("init(): %d %d", get32(Cblocknum), get32(highblock));
-         perr("init(): %s", weight2hex(Weight));
-         return perr("init(): bad tfile.dat -- gomochi!");
-      }
+      perr("init(): bad tfile.dat -- resync");
+      memset(Cblocknum, 0, 8);  /* flag resync */
+   } else if (cmp64(Cblocknum, highblock)) {
+      pdebug("init(): %d %d", get32(Cblocknum), get32(highblock));
+      pdebug("init(): %s", weight2hex(Weight));
+      perr("init(): tfile mismatch -- resync");
+      memset(Cblocknum, 0, 8);  /* flag resync */
    }
-
-   /* fresh peer acquisition from mochimap */
-   pdebug("downloading fresh peers from mochimap...");
-   http_get(HTTPSTARTPEERS, "start.lst", STD_TIMEOUT);
-   /* read pinklist and trusted peers, and populate recent peers */
-   read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
-   read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
-   /* populate recent peers */
-   read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
-   read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
-   read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
-   /* shuffle recent peer list */
-   shuffle32(Rplist, RPLISTLEN);
-   /* delete start ip list */
-   remove("start.lst");
 
    /* scan entire network of peers */
    while (Running) {
+      /* fresh peer acquisition from mochimap */
+      pdebug("downloading fresh peers from mochimap...");
+      http_get(HTTPSTARTPEERS, "start.lst", STD_TIMEOUT);
+      /* read pinklist and trusted peers, and populate recent peers */
+      read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
+      read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
+      /* populate recent peers */
+      read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
+      read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
+      read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
+      /* shuffle recent peer list */
+      shuffle32(Rplist, RPLISTLEN);
+      /* delete start ip list */
+      remove("start.lst");
       /* scan network for quorum and highest hash/weight/bnum */
       plog("Network scan...");
       qlen = scan_network(quorum, MAXQUORUM, nethash, netweight, netbnum);
@@ -402,7 +404,7 @@ int init(void)
       }  /* ... at this point, we might as well resync */
       if (!qlen) plog("Quorum members exhausted...");
       else {
-         plog("Blockchain recovery failed: resync...");
+         if (attempts++) plog("Blockchain recovery failed: resync...");
          if (resync(quorum, &qlen, netweight, netbnum) == VEOK) break;
       }
       /* we're either out of quorum members, or our resync failed */
@@ -413,7 +415,7 @@ int init(void)
    txclean_le();
    Ininit = 0;
 
-   return VEOK;
+   return Running ? VEOK : VERROR;
 }  /* end init() */
 
 /**
@@ -1014,7 +1016,6 @@ EOA:
       phostinfo();  /* for info */
       if (init() == VEOK) {
          server();
-         plog("\nServer exiting . . .");
          /* save dynamic peer lists */
          save_ipl(Recentipfname, Rplist, RPLISTLEN);
          save_ipl(Epinkipfname, Epinklist, EPINKLEN);
