@@ -14,6 +14,12 @@
 #define MOCHIMO_C
 
 
+/* ensure GIT_VERSION exists */
+#ifndef GIT_VERSION
+   #define GIT_VERSION "no-git-version"
+
+#endif
+
 /* Display terminal error message
  * and exit with NO restart (code 0).
  */
@@ -392,7 +398,7 @@ int init(void)
    }
 
    write_global();
-   txclean_le();
+   txclean(NULL);
    Ininit = 0;
 
    return Running ? VEOK : VERROR;

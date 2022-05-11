@@ -70,11 +70,15 @@ int b_update(char *fname, int mode)
          solvestr = "pushed";
       }
       /* perform block validation, clean and ledger update chain */
-      ecode = b_val(fname) || txclean_bc(fname) || le_update();
+      ecode = b_val(fname) || le_update();
       /* ... NOTE: le_update() closes reference to the ledger */
-      /* (re)open ledger and clean the queue, regardless of above result */
-      le_open("ledger.dat", "rb");
-      txclean_le();
+      /* clean the queue, regardless of the above result */
+      if (txclean(fname) != VEOK) {
+         pdebug("b_update(): forcing clean TX queue...");
+         remove("txclean.dat");
+      } else if (le_open("ledger.dat", "rb") != VEOK) {
+         restart("b_update(): failed to reopen ledger after update");
+      }
       /* check chain ecode result */
       if (ecode != VEOK) {
          if (mode != 0) {
@@ -82,7 +86,7 @@ int b_update(char *fname, int mode)
             rename("ltran.dat.last", "ltran.dat.fail");
             remove("mblock.dat");
          }
-         return perr("b_update(): validate-clean-ledger chain failure");
+         return perr("b_update(): validate -> ledger update, failure");
       }
    } else if (p_val(fname) != VEOK) {
       return perr("b_update(): failed to validate pseudo-block");
@@ -150,11 +154,11 @@ int b_update(char *fname, int mode)
          print("│   \\)    %s\n", haiku3);
       } else print("<{ pseudo-block }>\n");
       /* print block update and stats */
-      print("└┬ Block %s: 0x%s (%" P32u ")\n", solvestr,
+      plog("└┬ Block %s: 0x%s (%" P32u ")", solvestr,
          val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-      print(" └─ Diff: %u, Time: %us, Txs: %u\n", bdiff, btime, btxs);
+      plog(" └─ Diff: %u, Time: %us, Txs: %u", bdiff, btime, btxs);
       print("\n");  /* padding*/
-   } else pdebug("Block %s: 0x%s", solvestr, bnum2hex(bt.bnum));
+   }
 
    /* perform neogenesis block update -- as necessary */
    if (Cblocknum[0] == 0xff) {
@@ -180,19 +184,22 @@ int b_update(char *fname, int mode)
       if (get32(Cblocknum) == Lastday) {
          tag_free();  /* Erase old in-memory Tagidx[] */
          if (le_renew()) restart("b_update(): failed to le_renew()");
-         txclean_le();  /* clean the tx queue */
-         if (le_open("ledger.dat", "rb") != VEOK) {
-             restart("b_update(): failed to re-open ledger");
+         /* clean the tx queue (again), no bc file */
+         if (txclean(fname) != VEOK) {
+            pdebug("b_update(): forcing clean TX queue after neogen...");
+            remove("txclean.dat");
+         } else if (le_open("ledger.dat", "rb") != VEOK) {
+            restart("b_update(): failed to reopen ledger after neogen");
          }
       }
       /* print block update */
       if(!Bgflag) {
          print("<{ neogenesis-block }>\n");
-         print("└┬ Block generated: 0x%s (%" P32u ")\n",
+         plog("└┬ Block generated: 0x%s (%" P32u ")",
             bnum2hex(bt.bnum), get32(bt.bnum));
-         print(" └─ %s...\n", addr2str(Cblockhash));
+         plog(" └─ %s...", addr2str(Cblockhash));
          print("\n");  /* padding*/
-      } else pdebug("Block generated: 0x%s", bnum2hex(bt.bnum));
+      }
    }
 
    /* update pinklists */
