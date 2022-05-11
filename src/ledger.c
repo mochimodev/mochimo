@@ -224,8 +224,8 @@ int le_update(void)
 {
    LENTRY oldle, newle;    /* input/output ledger entries */
    LTRAN lt;               /* ledger transaction  */
-   FILE *fp, *fpout;       /* input txclean and output txq file pointers */
-   FILE *lfp;              /* ledger file pointers */
+   FILE *ltfp, *fp;        /* input ltran and output ledger pointers */
+   FILE *lefp;             /* ledger file pointers */
    clock_t ticks;
    word32 nout;            /* temp file output counter */
    word8 hold;             /* hold ledger entry for next loop */
@@ -249,35 +249,35 @@ int le_update(void)
       mError(FAIL, "le_update: bad sortlt(ltran.dat)");
    }
 
-   /* open input, ledger, temp output ledger files */
-   lfp = fopen("ledger.dat", "rb");
-   if (lfp == NULL) {
+   /* open ledger (local ref), ledger transactions, and new ledger */
+   lefp = fopen("ledger.dat", "rb");
+   if (lefp == NULL) {
       mErrno(FAIL, "le_update(): failed to fopen(ledger.dat)");
    }
-   fp = fopen("ltran.dat", "rb");
-   if (fp == NULL) {
+   ltfp = fopen("ltran.dat", "rb");
+   if (ltfp == NULL) {
       mErrno(FAIL_IN, "le_update(): failed to fopen(ltran.dat)");
    }
-   fpout = fopen("ledger.tmp", "wb");
-   if (fpout == NULL) {
+   fp = fopen("ledger.tmp", "wb");
+   if (fp == NULL) {
       mErrno(FAIL_OUT, "le_update(): failed to fopen(ledger.tmp)");
    }
 
    /* prepare initial ledger transaction */
-   fread(&lt, sizeof(LTRAN), 1, fp);
-   if (ferror(fp)) {
+   fread(&lt, sizeof(LTRAN), 1, ltfp);
+   if (ferror(ltfp)) {
       mErrno(FAIL_IO, "le_update(): failed to fread(lt)");
    }
 
    /* while one of the files is still open */
-   while (feof(lfp) == 0 || feof(fp) == 0) {
+   while (feof(lefp) == 0 || feof(ltfp) == 0) {
       /* if ledger entry on hold, skip read, else do read and sort checks */
       if (hold) hold = 0;
-      else if (feof(lfp) == 0) {
+      else if (feof(lefp) == 0) {
          /* read ledger entry, check sort, and store entry in le_prev */
-         if (fread(&oldle, sizeof(LENTRY), 1, lfp) != 1) {
+         if (fread(&oldle, sizeof(LENTRY), 1, lefp) != 1) {
             /* check file errors, else "continue" loop for eof check */
-            if (ferror(lfp)) {
+            if (ferror(lefp)) {
                mErrno(FAIL_IO, "le_update(): fread(oldle)");
             } else continue;
          } else if (memcmp(oldle.addr, le_prev, TXADDRLEN) < 0) {
@@ -286,22 +286,22 @@ int le_update(void)
       }
       /* compare ledger address to latest transaction address */
       cond = memcmp(oldle.addr, lt.addr, TXADDRLEN);
-      if (cond == 0 && feof(fp) == 0 && feof(lfp) == 0) {
+      if (cond == 0 && feof(ltfp) == 0 && feof(lefp) == 0) {
          /* If ledger and transaction addr match,
           * and both files not at end...
           * copy the old ledger entry to a new struct for editing */
          pdebug("le_update(): editing address %s...", addr2str(lt.addr));
          memcpy(&newle, &oldle, sizeof(LENTRY));
-      } else if ((cond < 0 || feof(fp)) && feof(lfp) == 0) {
+      } else if ((cond < 0 || feof(ltfp)) && feof(lefp) == 0) {
          /* If ledger compares "before" transaction or transaction eof,
           * and ledger file is NOT at end...
           * write the old ledger entry to temp file */
-         if (fwrite(&oldle, sizeof(LENTRY), 1, fpout) != 1) {
+         if (fwrite(&oldle, sizeof(LENTRY), 1, fp) != 1) {
             mError(FAIL_IO, "le_update(): bad write on temp ledger");
          }
          nout++;  /* count records in temp file */
          continue;  /* nothing else to do */
-      } else if((cond > 0 || feof(lfp)) && feof(fp) == 0) {
+      } else if((cond > 0 || feof(lefp)) && feof(ltfp) == 0) {
          /* If ledger compares "after" transaction or ledger eof,
           * and transaction file is NOT at end...
           */
@@ -312,7 +312,7 @@ int le_update(void)
          /* CREATE NEW ADDR
           * Copy address from transaction to new ledger entry.
           */
-         memcpy(&newle, lt.addr, TXADDRLEN);
+         memcpy(&newle.addr, lt.addr, TXADDRLEN);
          memset(newle.balance, 0, 8);  /* but zero balance for apply_tran */
          /* Hold old ledger entry to insert before this addition. */
          hold = 1;
@@ -339,8 +339,8 @@ int le_update(void)
          /* --- ^ shouldn't happen */
          /* read next transaction */
          pdebug("le_update(): apply -- reading transaction");
-         if (fread(&lt, sizeof(LTRAN), 1, fp) != 1) {
-            if (ferror(fp)) mErrno(FAIL_IO, "le_update(): fread(lt)");
+         if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+            if (ferror(ltfp)) mErrno(FAIL_IO, "le_update(): fread(lt)");
             pdebug("le_update(): eof on tran");
             break;
          }
@@ -361,16 +361,16 @@ int le_update(void)
       if (cmp64(newle.balance, Mfee) > 0) {
          pdebug("le_update(): writing new balance");
          /* write new balance to temp file */
-         if (fwrite(&newle, sizeof(LENTRY), 1, fpout) != 1) {
+         if (fwrite(&newle, sizeof(LENTRY), 1, fp) != 1) {
             mError(FAIL_IO, "le_update(): bad write on temp ledger");
          }
          nout++;  /* count output records */
       } else pdebug("le_update(): new balance <= Mfee is not written");
    }  /* end while not both on EOF  -- updating ledger */
 
-   fclose(fpout);
    fclose(fp);
-   fclose(lfp);
+   fclose(ltfp);
+   fclose(lefp);
    if (nout) {
       /* if there are entries in ledger.tmp */
       remove("ledger.dat");
@@ -390,12 +390,12 @@ int le_update(void)
 
    /* failure / error handling */
 FAIL_IO:
-   fclose(fpout);
+   fclose(fp);
    remove("ledger.tmp");
 FAIL_OUT:
-   fclose(lfp);
+   fclose(ltfp);
 FAIL_IN:
-   fclose(lfp);
+   fclose(lefp);
 FAIL:
 
    return ecode;
