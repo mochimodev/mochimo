@@ -256,6 +256,9 @@ BCFAIL:
                mtx->zeros[j] = 1;
             }
          }
+      } else if (tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr,
+            NULL) != VEOK) {
+         DEBUG_LE("invalidated tags", addr2str(tx.src_addr));
       }
       /* write TX to new queue */
       if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
