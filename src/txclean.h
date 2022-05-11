@@ -15,8 +15,7 @@
 extern "C" {
 #endif
 
-int txclean_bc(char *fname);
-int txclean_le(void);
+int txclean(char *bcfname);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus
