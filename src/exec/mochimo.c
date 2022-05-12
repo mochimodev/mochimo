@@ -27,31 +27,31 @@
 
 /* system support */
 #include <unistd.h>
-#include <errno.h>
+#include <time.h>
 #include <sys/wait.h>  /* for waitpid() */
 #include <sys/file.h>  /* for flock() */
-#include <fcntl.h>
-
-/* standard-c support */
-#include <stdio.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <time.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdarg.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <ctype.h>
 
-/* extended-c support */
+/* external support */
+#include "sha256.h"
 #include "extinet.h"    /* socket support */
 #include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
 #include "extprint.h"   /* print/logging support */
+#include "crc32.h"      /* for mirroring */
+#include "crc16.h"
 
 /* Include everything that we need */
 #include "wots.h"
 #include "util.h"       /* server support */
 #include "tx.h"
-#include "txclean.h"
 #include "trigg.h"
 #include "tfile.h"
 #include "sync.h"
@@ -62,13 +62,6 @@
 #include "global.h"     /* System wide globals  */
 #include "bup.h"
 #include "bcon.h"
-
-/* Include global data . . . */
-
-/* crypto support functions  */
-#include "crc16.h"
-#include "crc32.h"      /* for mirroring          */
-#include "sha256.h"
 
 /* Server control */
 #include "miner.c"

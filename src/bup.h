@@ -15,6 +15,7 @@
 extern "C" {
 #endif
 
+int txclean(char *bcfname);
 int b_update(char *fname, int mode);
 
 /* end extern "C" {} for C++ */
