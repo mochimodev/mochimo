@@ -74,9 +74,11 @@ int b_update(char *fname, int mode)
       /* ... NOTE: le_update() closes reference to the ledger */
       /* clean the queue, regardless of the above result */
       if (txclean(fname) != VEOK) {
-         pdebug("b_update(): forcing clean TX queue...");
+         pwarn("b_update(): forcing clean TX queue...");
          remove("txclean.dat");
-      } else if (le_open("ledger.dat", "rb") != VEOK) {
+      }
+      /* (re)open the ledger, regardless of above results */
+      if (le_open("ledger.dat", "rb") != VEOK) {
          restart("b_update(): failed to reopen ledger after update");
       }
       /* check chain ecode result */
@@ -185,11 +187,13 @@ int b_update(char *fname, int mode)
          tag_free();  /* Erase old in-memory Tagidx[] */
          if (le_renew()) restart("b_update(): failed to le_renew()");
          /* clean the tx queue (again), no bc file */
-         if (txclean(fname) != VEOK) {
-            pdebug("b_update(): forcing clean TX queue after neogen...");
+         if (txclean(NULL) != VEOK) {
+            pwarn("b_update(): forcing clean TX queue...");
             remove("txclean.dat");
-         } else if (le_open("ledger.dat", "rb") != VEOK) {
-            restart("b_update(): failed to reopen ledger after neogen");
+         }
+         /* (re)open the ledger, regardless of above results */
+         if (le_open("ledger.dat", "rb") != VEOK) {
+            restart("b_update(): failed to reopen ledger after update");
          }
       }
       /* print block update */
