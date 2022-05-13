@@ -568,7 +568,7 @@ int callserver(NODE *np, word32 ip)
    np->sd = INVALID_SOCKET;
    np->ip = np->id1 = np->id2 = 0;
    memset(&(np->tx), 0, sizeof(TX));   /* clear structure */
-   sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
+   snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    /* begin connection */
    np->ip = ip;
    np->sd = sock_connect_ip(ip, Dstport, INIT_TIMEOUT);
@@ -580,7 +580,7 @@ int callserver(NODE *np, word32 ip)
    np->id1 = rand16();
    id1 = (word8) (np->id1 >> 8);
    put16(np->tx.opcode, OP_HELLO);
-   sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
+   snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    if(send_tx(np, ACK_TIMEOUT) || recv_tx(np, ACK_TIMEOUT)) {
       pdebug("callserver(%s): *** incomplete handshake", np->id);
       sock_close(np->sd);
@@ -590,7 +590,7 @@ int callserver(NODE *np, word32 ip)
    /* validate Three-Way Handshake */
    np->id2 = get16(np->tx.id2);
    id2 = (word8) np->id2;
-   sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
+   snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    if(get16(np->tx.opcode) != OP_HELLO_ACK || get16(np->tx.id1) != np->id1) {
       pdebug("callserver(%s): *** invalid handshake", np->id);
       sock_close(np->sd);
@@ -753,18 +753,18 @@ int handle_tx(NODE *np, SOCKET sd)
 {
    char ipaddr[16];  /* for threadsafe ntoa() usage */
    int status;
-   word32 ip;
    word16 opcode, id1, id2;
    TX *tx;
 
    /* init */
    tx = &np->tx;
-   ip = opcode = id1 = id2 = 0;
+   opcode = id1 = id2 = 0;
    memset(np, 0, sizeof(NODE));   /* clear structure */
 
    np->sd = sd;
-   np->ip = ip = get_sock_ip(sd);  /* uses getpeername() */
-   sprintf(np->id, "%.15s %02x~%02x", ntoa(&ip, ipaddr), id1, id2);
+   np->ip = get_sock_ip(sd);  /* uses getpeername() */
+   ntoa(&np->ip, ipaddr);
+   snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    pdebug("handle_tx(%s): connected...", np->id);
 
    /* There are many ways to be bad...
@@ -782,12 +782,12 @@ int handle_tx(NODE *np, SOCKET sd)
    /* hi! */
    np->id2 = id2 = rand16();
    np->id1 = id1 = get16(tx->id1);
+   snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    if (send_op(np, OP_HELLO_ACK) != VEOK) return VERROR;
 
    /* how can I help you? */
    status = recv_tx(np, INIT_TIMEOUT);
    opcode = get16(tx->opcode);  /* execute() will check opcode */
-   sprintf(np->id, "%.15s %02x~%02x", ipaddr, id1, id2);
    pdebug("handle_tx(%s): got opcode = %d  status = %d", np->id, opcode, status);
    if (status == VEBAD) goto bad2;
    if (status != VEOK) return VERROR;  /* bad packet -- timeout? */
