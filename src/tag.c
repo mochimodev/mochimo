@@ -34,10 +34,6 @@
               type byte
 */
 
-word8 *Tagidx;    /* array of all 12-word8 tags in ledger order */
-word32 Ntagidx;  /* number of tags in Tagidx[] */
-
-
 /* Release tag index */
 void tag_free(void)
 {
