@@ -89,7 +89,7 @@ NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
 
 .SUFFIXES: # disable rules predefined by MAKE
 .PHONY: help all allcuda clean cleanall coverage docs library report \
-	submodules sublibraries test
+	sublibraries test version
 
 help: # default rule prints help information
 	@echo ""
@@ -104,10 +104,10 @@ help: # default rule prints help information
 	@echo "   make report        build html report from test coverage"
 	@echo "   make library       build a library file containing all objects"
 	@echo "   make sublibraries  build all library files (incl. submodules)"
-	@echo "   make submodules    initialize submodule repositories"
 	@echo "   make test          build and run tests"
 	@echo "   make test-*        build and run sub tests matching *"
 	@echo "   make variable-*    show the value of a variable matching *"
+	@echo "   make version       show the git repository version string"
 	@echo ""
 
 # build "all" base objects; redirect (DEFAULT RULE)
@@ -171,6 +171,10 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 # echo the value of a variable matching pattern
 variable-%:
 	@echo $* = $($*)
+
+# echo the value of the GITVERSION
+version:
+	@echo $(GITVERSION)
 
 ############################
 # vv RECIPE CONFIGURATION vv
