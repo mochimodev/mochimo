@@ -126,12 +126,13 @@ int main()
 {  /* check peach_checkhash() final hash results match expected */
    BTRAILER bt;
    word8 digest[SHA256LEN];
-   int j;
+   int result, j;
 
    for (j = 2; j < NUMVECTORS; j++) {
       memset(digest, 0 , SHA256LEN);
       memcpy(&bt, Pvector[j], BTSIZE);
-      ASSERT_EQ(peach_checkhash_cuda(&bt, bt.difficulty[0], digest), 0);
+      result = peach_checkhash_cuda(&bt, bt.difficulty[0], digest);
       ASSERT_CMP(digest, Pexpect[j], SHA256LEN);
+      ASSERT_EQ(result, 0);
    }
 }

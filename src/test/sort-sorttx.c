@@ -42,6 +42,8 @@ int main()
    word8 seed[64] = { 0 };
    int i, compare;
 
+   set_print_level(0);
+
    /* init seed and message */
    time((time_t *) seed);
    rndbytes((word8 *) TXS, sizeof(TXS), seed);

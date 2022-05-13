@@ -2,6 +2,7 @@
 #include "_assert.h"
 #include "extmath.h"
 #include "network.h"
+#include <stdlib.h>
 
 word8 Running = 1;
 
@@ -14,8 +15,11 @@ int main()
 
    sock_startup();  /* enable socket support */
 
-   /* initialize peers and scan network */
-   init_peers();
+   /* download starting peers */
+   http_get("https://mochimo.org/peers/start", "start.lst", STD_TIMEOUT);
+   read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
+
+   /* check peers and scan network */
    ASSERT_NE_MSG(Rplistidx, 0, "Recent peers must have been filled");
    ASSERT_GT_MSG(scan_network(NULL, 0, NULL, NULL, NULL), 0,
       "scan_network() should return greater than 0 consensus peers");
@@ -24,5 +28,8 @@ int main()
    ASSERT_EQ_MSG(iszero(hash, 32), 0, "hash should not be Zero");
    ASSERT_EQ_MSG(iszero(weight, 32), 0, "weight should not be Zero");
    ASSERT_EQ_MSG(iszero(bnum, 8), 0, "bnum should not be Zero");
+
+   /* cleanup */
+   remove("start.lst");
    sock_cleanup();
 }

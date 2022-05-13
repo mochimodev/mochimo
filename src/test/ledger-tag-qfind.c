@@ -1,9 +1,7 @@
 
 #include <stdlib.h>
 #include "_assert.h"
-
-#define EXCLUDE_NODES
-#include "../tag.c"
+#include "tag.c"
 
 int main()
 {
@@ -12,8 +10,8 @@ int main()
    LENTRY bad;
 
    /* init good and bad search tags */
-   memset(ADDR_TAG_PTR(txqe.chg_addr), 0, ADDR_TAG_LEN);
-   memset(ADDR_TAG_PTR(bad.addr), 0, ADDR_TAG_LEN);
+   memset(ADDR_TAG_PTR(txqe.chg_addr), 0, TXTAGLEN);
+   memset(ADDR_TAG_PTR(bad.addr), 0, TXTAGLEN);
    strcpy((char *) ADDR_TAG_PTR(txqe.chg_addr), "456");
    strcpy((char *) ADDR_TAG_PTR(bad.addr), "badtag");
 

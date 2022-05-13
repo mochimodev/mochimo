@@ -127,7 +127,7 @@ int readtf(BTRAILER *bt, word32 bnum, word32 count)
    if(*buff >= 32) put32(bt->bnum, atoi(buff));
    memcpy(&bts, bt, sizeof(bts));
 
-   if(Trace > 1) plog("readtf() read %u trailers", count);
+   pdebug("readtf() read %u trailers", count);
 /*   srand16fast(save); */
    return count;
 }  /* end readtf() */

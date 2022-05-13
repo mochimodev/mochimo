@@ -71,7 +71,7 @@ int readtf(void *buff, word32 bnum, word32 count)
    save = srand16fast(bnum);
    for(bp = buff, n = count * sizeof(BTRAILER); n; n--, bp++)
       *bp = rand16fast();
-   if(Trace > 1) plog("readtf() read %u trailers\n", count);
+   pdebug("readtf() read %u trailers\n", count);
    srand16fast(save);
    return count;
 }  /* end readtf() */

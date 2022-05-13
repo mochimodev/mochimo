@@ -5,9 +5,6 @@
 #include "extmath.h"
 #include "util.h"
 
-
-static word8 One[8] = { 1, 0 };
-
 /* ==================== */
 /* THE OG get_mreward() */
 void og_get_mreward(word32 *reward, word32 *bnum)

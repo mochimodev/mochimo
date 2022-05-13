@@ -1,14 +1,14 @@
 
 #include <stdlib.h>
 #include "_assert.h"
-
-#define EXCLUDE_NODES
-#include "../tag.c"
+#include "tag.c"
 
 int main()
 {
    FILE *fp;
    LENTRY le;
+
+   set_print_level(0);
 
    /* write dummy ledger to disk */
    ASSERT_NE_MSG((fp = fopen("ledger.dat", "wb")), NULL, "expect dummy ledger");
