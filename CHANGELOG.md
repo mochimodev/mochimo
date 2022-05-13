@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1]
+Fixes for slow makefile builds (due to GIT_VERSION shell command) and erroneous rebuilds (due to submodule libraries not being detected as up-to-date). Minor README and CHANGELOG adjustments.
+
+### Changed
+- minor adjustments to README and CHANGELOG 1.2.0 changes
+- `make docs` now uses $(GITVERSION) string
+
+### Fixed
+- erroneous rebuilds due to incorrect submodule dependency detection
+- GIT_VERSION shell command slowing down makefile, due to multiple calls
+
 ## [1.2.0] - 2022-05-10
 Enhanced version identification with GIT_VERSION definition and improvements to submodule handling with fresh repositories that have not initialized the associated submodules.
 
@@ -68,7 +79,8 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.0...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.1...HEAD
+[1.2.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.0...build-c-1.2.1
 [1.2.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.3...build-c-1.2.0
 [1.1.3]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.2...build-c-1.1.3
 [1.1.2]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.1...build-c-1.1.2
