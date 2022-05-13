@@ -195,6 +195,16 @@ install:
 	@echo && echo "Installation complete!"
 	@echo && echo "Cleanup..."
 
+uninstall:
+	@echo && echo "Removing internal data directory..."
+	@rm -r $(BINDIR)/d
+	@echo "Removing Mochimo binaries..."
+	@rm $(addprefix $(BINDIR)/,mochimo)
+	@echo "Installing support files..."
+	@rm $(patsubst $(SOURCEDIR)/_init/%,$(BINDIR)/%, \
+		$(wildcard $(SOURCEDIR)/_init/*))
+	@echo && echo "Uninstall complete!"
+
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
 

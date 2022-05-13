@@ -1,0 +1,51 @@
+##
+# builds.yaml - Build workflow for testing software builds.
+# Copyright 2021-2022 Adequate Systems, LLC. All Rights Reserved.
+#
+
+name: Builds
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev] # MUST be a subset of the branches above
+jobs:
+  mochimo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Make Mochimo
+        run: make mochimo -C ${{ github.workspace }}
+  install-uninstall: # tests the install-uninstall process
+    runs-on: ubuntu-latest
+    needs: mochimo
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Run installation command
+        run: make mochimo install -C ${{ github.workspace }}
+      - name: Check installation
+        run: |
+          if test ! -d ${{ github.workspace }}/bin/d/bc; then
+            echo "Instalation failure. No bin/d/bc/ directory" && exit 1
+          elif test ! -d ${{ github.workspace }}/bin/d/ng; then
+            echo "Instalation failure. No bin/d/ng/ directory" && exit 1
+          elif test ! -d ${{ github.workspace }}/bin/d/split; then
+            echo "Instalation failure. No bin/d/split/ directory" && exit 1
+          elif test ! -f ${{ github.workspace }}/bin/mochimo; then
+            echo "Instalation failure. No bin/mochimo binary" && exit 1
+          elif test ! -f ${{ github.workspace }}/bin/gomochi; then
+            echo "Instalation failure. No bin/gomochi binary" && exit 1
+          fi
+      - name: Run uninstallation command
+        run: echo | make uninstall -C ${{ github.workspace }}
+      - name: Check uninstallation
+        run: |
+          if test -d ${{ github.workspace }}/bin/d; then
+            echo "Uninstall failed, bin/d/ was not removed" && exit 1
+          elif test -f ${{ github.workspace }}/bin/mochimo; then
+            echo "Instalation failure. No bin/mochimo binary" && exit 1
+          elif test -f ${{ github.workspace }}/bin/gomochi; then
+            echo "Instalation failure. No bin/gomochi binary" && exit 1
+          fi
