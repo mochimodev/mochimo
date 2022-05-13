@@ -79,7 +79,7 @@ int reset_chain(void)
    DIR *dp;
    char *ext;
    char fname[FILENAME_MAX];
-   char bcfname[FILENAME_MAX / 2] = "";
+   char bcfname[FILENAME_MAX] = "";
 
    /* find highest named blockchain file in Bcdir */
    dp = opendir(Bcdir);
@@ -102,7 +102,7 @@ int reset_chain(void)
    closedir(dp);
 
    /* read block trailer of file and ensure block numbers match */
-   snprintf(fname, FILENAME_MAX, "%s/%s", Bcdir, bcfname);
+   snprintf(fname, FILENAME_MAX, "%.128s/%.128s", Bcdir, bcfname);
    if (readtrailer(&bt, fname)) {
       return perr("failed to read block trailer, %s", fname);
    } else if (cmp64(bt.bnum, bnum)) return perr("%s bnum mismatch!", fname);
