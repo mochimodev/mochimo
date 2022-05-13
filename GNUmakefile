@@ -26,8 +26,8 @@ TESTBUILDDIR:= $(BUILDDIR)/test
 TESTSOURCEDIR:= $(SOURCEDIR)/test
 
 # build definitions
-GITVERSION=$(shell git describe --always --dirty --tags || echo "<no-ver>")
-GITVERSION_DEF=-DGIT_VERSION="\"$(GITVERSION)\""
+GITVERSION:=$(shell git describe --always --dirty --tags || echo "<no-ver>")
+VERDEF:=-DGIT_VERSION="\"$(GITVERSION)\""
 
 # input flags
 CUDEF:= $(filter -DCUDA,$(CFLAGS))
@@ -89,7 +89,7 @@ NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
 
 .SUFFIXES: # disable rules predefined by MAKE
 .PHONY: help all allcuda clean cleanall coverage docs library report \
-	submodules sublibraries test
+	sublibraries test version
 
 help: # default rule prints help information
 	@echo ""
@@ -104,10 +104,10 @@ help: # default rule prints help information
 	@echo "   make report        build html report from test coverage"
 	@echo "   make library       build a library file containing all objects"
 	@echo "   make sublibraries  build all library files (incl. submodules)"
-	@echo "   make submodules    initialize submodule repositories"
 	@echo "   make test          build and run tests"
 	@echo "   make test-*        build and run sub tests matching *"
 	@echo "   make variable-*    show the value of a variable matching *"
+	@echo "   make version       show the git repository version string"
 	@echo ""
 
 # build "all" base objects; redirect (DEFAULT RULE)
@@ -133,7 +133,7 @@ docs:
 	@mkdir -p docs
 	@doxygen <( cat .github/docs/config; \
 	 echo "PROJECT_NAME=$(MODULE)" | tr '[:lower:]' '[:upper:]'; \
-	 echo "PROJECT_NUMBER=v$$(cat VERSION)" )
+	 echo "PROJECT_NUMBER=$(GITVERSION)" )
 
 # build library file; redirect
 library: $(MODLIB)
@@ -142,12 +142,8 @@ library: $(MODLIB)
 report: $(COVERAGE)
 	genhtml $(COVERAGE) --output-directory $(BUILDDIR)
 
-# build all libraries (incl. submodules); redirect
+# initialize and build build submodule libraries; redirect
 sublibraries: $(SUBLIBS)
-
-# initialize submodule repositories
-submodules:
-	git submodule update --init --recursive
 
 # build and run specific tests matching pattern
 test-%: $(SUBLIBS) $(MODLIB)
@@ -175,6 +171,10 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 # echo the value of a variable matching pattern
 variable-%:
 	@echo $* = $($*)
+
+# echo the value of the GITVERSION
+version:
+	@echo $(GITVERSION)
 
 ############################
 # vv RECIPE CONFIGURATION vv
@@ -214,7 +214,8 @@ $(MODLIB): $(OBJECTS)
 	ar rcs $(MODLIB) $(OBJECTS)
 
 # build submodule libraries, within associated directories
-$(SUBLIBS): %: submodules
+$(SUBLIBS): %:
+	git submodule update --init --recursive
 	@make library -C $(INCLUDEDIR)/$(word 2,$(subst /, ,$@))
 
 # build coverage file, within out directory
@@ -232,19 +233,19 @@ $(COVERAGE):
 		make coverage -C $(INC) DEPTH=$$(($(DEPTH) - 1)); fi; )
 
 # build binaries, within build directory, from associated objects
-$(BUILDDIR)/%: $(BUILDDIR)/%.o $(SUBLIBS) $(MODLIB)
+$(BUILDDIR)/%: $(SUBLIBS) $(MODLIB) $(BUILDDIR)/%.o
 	@mkdir -p $(dir $@)
-	$(CC) $< -o $@ $(LDFLAGS) $(LFLAGS) $(CFLAGS) $(GITVERSION_DEF)
+	$(CC) $(BUILDDIR)/$*.o -o $@ $(LDFLAGS) $(LFLAGS) $(CFLAGS) $(VERDEF)
 
 # build cuda objects, within build directory, from *.cu files
-$(BUILDDIR)/%.cu.o: $(SOURCEDIR)/%.cu submodules
+$(BUILDDIR)/%.cu.o: $(SUBLIBS) $(SOURCEDIR)/%.cu
 	@mkdir -p $(dir $@)
-	$(NVCC) -c $< -o $@ $(NVCCFLAGS) $(NVCFLAGS) $(GITVERSION_DEF)
+	$(NVCC) -c $(SOURCEDIR)/$*.cu -o $@ $(NVCCFLAGS) $(NVCFLAGS) $(VERDEF)
 
 # build c objects, within build directory, from *.c files
-$(BUILDDIR)/%.o: $(SOURCEDIR)/%.c submodules
+$(BUILDDIR)/%.o: $(SUBLIBS) $(SOURCEDIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) -c $< -o $@ $(CCFLAGS) $(CFLAGS) $(GITVERSION_DEF)
+	$(CC) -c $(SOURCEDIR)/$*.c -o $@ $(CCFLAGS) $(CFLAGS) $(VERDEF)
 
 # include depends rules created during "build object file" process
 -include $(DEPENDS)
