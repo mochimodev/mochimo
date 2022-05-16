@@ -180,13 +180,19 @@ version:
 # vv RECIPE CONFIGURATION vv
 
 # include custom recipe configurations here
-mochimo: $(BUILDDIR)/exec/mochimo
+
+cpunode: clean mochimo
+
+cudanode: clean
+	@make mochimo CFLAGS=-DCUDA --no-print-directory
+
+mochimo: $(BUILDDIR)/bin/mochimo
 
 install:
 	@echo && echo "Installing directory structure..."
 	@mkdir -p $(BINDIR)/d
 	@echo "Installing Mochimo binaries..."
-	@mv $(addprefix $(BUILDDIR)/exec/,mochimo) $(BINDIR)/
+	@mv $(addprefix $(BUILDDIR)/bin/,mochimo) $(BINDIR)/
 	@echo "Installing support files..."
 	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
 	@echo "Ensuring permissions..."
