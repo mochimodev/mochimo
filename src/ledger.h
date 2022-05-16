@@ -25,6 +25,7 @@ void le_close(void);
 int le_find(word8 *addr, LENTRY *le, long *position, word16 len);
 int le_extract(char *fname, char *lfile);
 int le_renew(void);
+int le_txclean(void);
 int le_update(void);
 
 /* end extern "C" {} for C++ */

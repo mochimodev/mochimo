@@ -25,6 +25,9 @@
 #include "extlib.h"
 #include <errno.h>
 
+#define DEBUG_LE(...)   \
+   { pdebug("le_txclean(): %s, drop %s...", __VA_ARGS__); continue; }
+
 static FILE *Lefp;
 static unsigned long Nledger;
 
@@ -211,6 +214,110 @@ bail:
    perr("Carousel renewal code: %d (%u,%u)", message, n - m, n);
    return message;
 }  /* end le_renew() */
+
+/**
+ * Remove bad TX's from a txclean file based on the ledger file.
+ * Uses "ledger.dat" as (input) ledger file, "txq.tmp" as temporary (output)
+ * txclean file and renames to "txclean.dat" on success.
+ * @returns VEOK on success, else VERROR
+ * @note Nothing else should be using the ledger.
+ * @note Leaves ledger.dat open on return.
+*/
+int le_txclean(void)
+{
+   TXQENTRY tx;            /* Holds one transaction in the array */
+   LENTRY src_le;          /* for le_find() */
+   FILE *fp, *fpout;       /* input/output txclean file pointers */
+   MTX *mtx;               /* for MTX checks */
+   word32 j;               /* unsigned iteration and comparison */
+   word32 total[2];
+   word32 nout, tnum; /* transaction record counters */
+   word8 addr[TXADDRLEN];  /* for tag_find() (MTX checks) */
+   clock_t ticks;
+   int ecode;
+
+   /* init */
+   ticks = clock();
+   ecode = VEOK;
+
+   /* check txclean exists AND has transactions to clean */
+   if (!fexists("txclean.dat")) {
+      pdebug("le_txclean(): nothing to clean, done...");
+      return VEOK;
+   }
+
+   /* ensure ledger is open */
+   if (le_open("ledger.dat", "rb") != VEOK) {
+      mError(FAIL, "le_txclean(): failed to le_open(ledger.dat)");
+   }
+
+   /* open clean TX queue and new (temp) clean TX queue */
+   fp = fopen("txclean.dat", "rb");
+   if (fp == NULL) mErrno(FAIL, "le_txclean(): cannot open txclean");
+   fpout = fopen("txq.tmp", "wb");
+   if (fpout == NULL) mErrno(FAIL2, "le_txclean(): cannot open txq");
+
+   /* read TX from txclean.dat and process */
+   for(nout = tnum = 0; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
+      /* check src in ledger, balances and amounts are good */
+      if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
+         DEBUG_LE("bad le_find", addr2str(tx.src_addr));
+      } else if (cmp64(tx.tx_fee, Myfee) < 0) {  /* bad tx fee */
+         DEBUG_LE("bad tx_fee", addr2str(tx.src_addr));
+      } else if (add64(tx.send_total, tx.change_total, total)) {  /* bad amounts */
+         DEBUG_LE("bad amounts", addr2str(tx.src_addr));
+      } else if (add64(tx.tx_fee, total, total)) {  /* bad total */
+         DEBUG_LE("bad total", addr2str(tx.src_addr));
+      } else if (cmp64(src_le.balance, total) != 0) {  /* bad balance */
+         DEBUG_LE("bad balance", addr2str(tx.src_addr));
+      } else if (TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
+         pdebug("le_txclean(): MTX detected...");
+         mtx = (MTX *) &tx;
+         for(j = 0; j < MDST_NUM_DST; j++) {
+            if (iszero(mtx->dst[j].tag, TXTAGLEN)) break;
+            memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
+            mtx->zeros[j] = 0;
+            /* If dst[j] tag not found, put error code in zeros[] array. */
+            if (tag_find(addr, NULL, NULL, TXTAGLEN) != VEOK) {
+               mtx->zeros[j] = 1;
+            }
+         }
+      } else if (tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr,
+            NULL) != VEOK) {
+         DEBUG_LE("invalidated tags", addr2str(tx.src_addr));
+      }
+      /* write TX to new queue */
+      if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
+         mError(FAIL_TX, "le_txclean(): failed to fwrite(tx): TX#%u", tnum);
+      }
+      nout++;
+   }  /* end for (nout = tnum = 0... */
+
+   /* cleanup / error handling */
+FAIL_TX:
+   fclose(fpout);
+FAIL2:
+   fclose(fp);
+FAIL:
+
+   /* if no failures */
+   if (ecode == VEOK) {
+      remove("txclean.dat");
+      if (nout == 0) pdebug("le_txclean(): txclean.dat is empty");
+      else if (rename("txq.tmp", "txclean.dat") != VEOK) {
+         mError(FAIL, "le_txclean(): failed to move txq to txclean");
+      }
+
+      /* clean TX queue is updated */
+      pdebug("le_txclean(): wrote %u/%u entries to txclean", nout, tnum);
+      pdebug("le_txclean(): done in %gs", diffclocktime(clock(), ticks));
+   }
+
+   /* final cleanup */
+   remove("txq.tmp");
+
+   return ecode;
+}  /* end le_le_txclean() */
 
 /**
  * Update leadger by applying ledger transaction deltas to a ledger. Uses

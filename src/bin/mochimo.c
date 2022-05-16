@@ -391,7 +391,7 @@ int init(void)
    }
 
    write_global();
-   txclean(NULL);
+   le_txclean();
    Ininit = 0;
 
    return Running ? VEOK : VERROR;
