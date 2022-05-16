@@ -330,7 +330,7 @@ int send_file(NODE *np, char *fname)
    /* open file for writing recv'd data */
    fp = fopen(fname, "rb");
    if(fp == NULL) {
-      perrno(errno, "send_file(%s, %s): fopen() failed", np->id, fname);
+      pdebug("send_file(%s, %s): cannot send file", np->id, fname);
       /* send unable to deliver request acknowledgement */
       put16(tx->opcode, OP_NACK);
       send_tx(np, STD_TIMEOUT);
