@@ -1,11 +1,9 @@
 #!/bin/sh
 # Bring Mochimo online -- from any state
+# Copyright (c) 2022 by Adequate Systems, LLC.  All Rights Reserved.
+# See https://mochimo.org/license.pdf   **** NO WARRANTY ****
 #
-# Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
-# See LICENSE.PDF   **** NO WARRANTY ****
-#
-# Revised: 20 November 2021
-#
+
 ###################
 # Preconfiguration
 
@@ -16,12 +14,14 @@ trap "exit 0" term
 # File security
 umask 077
 
+# Move to script directory
+cd "$( cd "$( dirname "${BASH_SOURCE:-$0}" )" && pwd )"
+
 # Set working directory to...
-WDIR=${WDIR:=$1}   # first argument, or
-WDIR=${WDIR:=d/}   # d/ directory
+WDIR=${1:-d/}  # ... first argument, or d/ directory, AND
+# ... fallback to d/ if first argument starts with a dash "-"
 CHAR=$(printf '%s' $WDIR | cut -c1)
 if test "$CHAR" = "-"; then WDIR="d/"; fi
-mkdir -p $WDIR
 
 ################
 # Sanity checks
@@ -29,7 +29,7 @@ mkdir -p $WDIR
 echo
 if test ! -f mochimo
 then
-   echo "mochimo binary not found: please cd to binary directory."
+   echo "mochimo binary not found: please check your installation."
    echo
    exit 1
 fi
@@ -37,10 +37,10 @@ fi
 ########
 # Start
 
-# Enter working directory
-cd $WDIR
-rm -f *.log *.lck *.tmp *.bc
-# Touch
+# Create and enter working directory
+mkdir -p $WDIR && cd $WDIR
+# Prepare filesystem
+rm -f *.tmp *.lck *.bc
 touch mq.lck
 #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
 ../mochimo -x345678 -o -F -P -s1000 $1 $2 $3 $4 $5 $6 $7 $8 $9
