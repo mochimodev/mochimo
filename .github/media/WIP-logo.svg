@@ -1,0 +1,6 @@
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svgjs="http://svgjs.com/svgjs" viewbox="0 0 64 64" width="64" height="64">
+  <circle cx="32" cy="32" r="29" fill="none" stroke="black" stroke-width="4" /><!-- bounding circle -->
+  <path stroke-linecap="round" fill="none" stroke="black" stroke-width="4" d="M15 48 v-30 a2 2 0 0 1 2 -2 h30 a2 2 0 0 1 2 2 v30" /><!-- square arc -->
+  <path stroke-linecap="round" fill="none" stroke="black" stroke-width="4" d="M8 48 h48 M26 18 v30 M38 18 v30 M26 16 L32 4" /><!-- base, uprights, and accent -->
+  <path stroke-linecap="round" fill="none" stroke="black" stroke-width="4" d="M13 48 L15 46 M15 18 L16 17 M25 17 L26 18 L27 17 M37 17 L38 18 L39 17 M48 17 L49 18 M49 46 L51 48" /><!-- inner corner dampening -->
+</svg>
