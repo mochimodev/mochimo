@@ -243,7 +243,10 @@ int b_update(char *fname, int mode)
    pdebug("b_update(): updating block...");
 
    /* check block file exists */
-   if (!fexists(fname)) return perr("b_update(): %s missing...", fname);
+   if (!fexists(fname)) {
+      pdebug("b_update(): %s missing...", fname);
+      return VERROR;
+   }
 
    /* check for pseudo-block */
    if (gethdrlen(fname) == 4) mode = 2;
