@@ -2,12 +2,12 @@
 #eclipse cpp
 .cproject
 .project
-src/.cproject
-src/.project
+./src/.cproject
+./src/.project
 
 # Visual Studio Code
 .vscode
 
 # Build directories
-bin
-build
+./bin
+./build
