@@ -89,7 +89,6 @@ FAIL:
 /**
  * Generate a neogenesis block.
  * Uses input bc file (0x..ff) to create a output neogen-bc file (0x..00).
- * Requires Cblocknum to equal bnum of input block.
  * @param input Filename of input block (matching bnum 0x..ff)
  * @param output Filename of output block (typically "ngblock.dat")
  * @returns VEOK on success, else VERROR
@@ -117,12 +116,10 @@ int neogen(char *input, char *output)
       mError(FAIL, "neogen(): failed to read_trailer()");
    } else if (bt.bnum[0] != 0xff) {
       mError(FAIL, "neogen(): bad modulus on bt.bnum");
-   } else if(cmp64(bt.bnum, Cblocknum) != 0) {
-      mError(FAIL, "neogen(): bt.bnum != Cblocknum");
    }
 
    /* calculate neogensis block number */
-   add64(Cblocknum, One, neobnum);
+   add64(bt.bnum, One, neobnum);
    if (neobnum[0] != 0) {
       mError(FAIL, "neogen(): bad modulus on Cblocknum");
    }
