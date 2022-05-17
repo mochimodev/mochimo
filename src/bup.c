@@ -235,6 +235,7 @@ int b_update(char *fname, int mode)
    word32 time1, btxs, btime, bdiff;
    char haiku[256], *haiku1, *haiku2, *haiku3;
    char bnumstr[24], *solvestr;
+   char bcfname[FILENAME_MAX];
    int ecode;
 
    /* init */
@@ -356,11 +357,14 @@ int b_update(char *fname, int mode)
 
    /* perform neogenesis block update -- as necessary */
    if (Cblocknum[0] == 0xff) {
-      if (neogen() != VEOK) restart("b_update(): failed to neogen()");
       /* Neogenensis Block Update:
-       * Cblockhash, Cblocknum, Prevhash, and tfile.dat
+       * Determine input block b...ff.bc file with Cblocknum.
+       * Update Cblockhash, Cblocknum, Prevhash, Eon and tfile.dat
        */
-      if (add64(Cblocknum, One, Cblocknum)) {
+      snprintf(bcfname, FILENAME_MAX, BCDIR "/b%s.bc", bnum2hex(Cblocknum));
+      if (neogen(bcfname, "ngblock.dat") != VEOK) {
+         restart("b_update(): failed to neogen()");
+      } else if (add64(Cblocknum, One, Cblocknum)) {
          restart("b_update(): neogenesis blocknum overflow");
       } else if (readtrailer(&bt, "ngblock.dat") != VEOK) {
          restart("b_update(): failed to readtrailer(ngblock.dat)");

@@ -628,8 +628,9 @@ int server(void)
 
       /* generate pseudo-block in "times of trouble", else check bcon */
       if(Ltime >= (Time0 + BRIDGE) && TIMES_OF_TROUBLE(Cblocknum)) {
-         if (pseudo() != VEOK) restart("Failed to make pseudo-block");
-         else {
+         if (pseudo("pblock.dat") != VEOK) {
+            restart("Failed to make pseudo-block");
+         } else {
             stop4update();
             if (b_update("pblock.dat", 2) != VEOK) {
                restart("Failed to update pseudo-block");

@@ -15,8 +15,8 @@
 extern "C" {
 #endif
 
-int pseudo(void);
-int neogen(void);
+int pseudo(char *output);
+int neogen(char *input, char *output);
 int b_con(char *fname);
 
 /* end extern "C" {} for C++ */

@@ -26,9 +26,10 @@
 /**
  * Generate a pseudo-block with bnum = Cblocknum + 1. Uses node state
  * (Cblockhash, Cblocknum, Time0, and Difficulty) to generate block data.
+ * @param output Filename of output block (typically "pblock.dat")
  * @returns VEOK on success, else error code
 */
-int pseudo(void)
+int pseudo(char *output)
 {
    static const word32 pseudo_hdrlen = 4;
 
@@ -41,11 +42,11 @@ int pseudo(void)
    /* init */
    ticks = clock();
 
-   pdebug("pseudo(): generating pseudo-block...");
+   pdebug("pseudo(): generating pseudo-block at %s...", output);
 
    /* open pseudo-block file and write hdrlen */
    fp = fopen("pblock.dat", "wb");
-   if (fp == NULL) mErrno(FAIL, "pseudo(): failed to fopen(pblock.dat)");
+   if (fp == NULL) mErrno(FAIL, "pseudo(): failed to fopen(%s)", output);
    if (fwrite(&pseudo_hdrlen, 4, 1, fp) != 1) {
       mError(FAIL_IO, "pseudo(): failed to fwrite(pseudo_hdrlen)");
    }
@@ -69,27 +70,31 @@ int pseudo(void)
       mError(FAIL_IO, "pseudo(): failed to fwrite(bt)");
    }
 
-   fclose(fp);
    pdebug("pseudo(): completed in %gs", diffclocktime(clock(), ticks));
 
    /* success */
-   return VEOK;
+   ecode = VEOK;
 
-   /* failure / error handling */
+   /* cleanup / error handling */
 FAIL_IO:
    fclose(fp);
-   remove("pblock.dat");
 FAIL:
+
+   /* remove pblock on failure */
+   if (ecode) remove("pblock.dat");
 
    return ecode;
 }  /* end pseudo() */
 
 /**
- * Generate a neogenesis block, "b*00.bc", from "b*ff.bc". Uses node state
- * (Cblocknum) to acquire "b*ff.bc" input blockchain file.
+ * Generate a neogenesis block.
+ * Uses input bc file (0x..ff) to create a output neogen-bc file (0x..00).
+ * Requires Cblocknum to equal bnum of input block.
+ * @param input Filename of input block (matching bnum 0x..ff)
+ * @param output Filename of output block (typically "ngblock.dat")
  * @returns VEOK on success, else VERROR
 */
-int neogen(void)
+int neogen(char *input, char *output)
 {
    SHA256_CTX bctx;     /* (entire) block hash */
    BTRAILER bt, nbt;    /* input and output block trailers */
@@ -98,9 +103,8 @@ int neogen(void)
    size_t total, count; /* size counters */
    long llen;           /* ledger length */
    word32 hdrlen;       /* header length for neo block */
-   word32 neobnum[2];
+   word8 neobnum[8];
    word8 buff[BUFSIZ];
-   char fname[FILENAME_MAX];
    int ecode;
 
    /* init */
@@ -108,15 +112,8 @@ int neogen(void)
 
    pdebug("neogen(): generating neogenesis-block...");
 
-   /* pre-check current blocknum */
-   if (Cblocknum[0] != 0xff) {
-      mError(FAIL, "neogen(): bad modulus on Cblocknum");
-   }
-
-   /* determine b...ff.bc file with Cblocknum */
-   snprintf(fname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(Cblocknum));
-   /* read and check trailer from  b...ff block */
-   if (readtrailer(&bt, fname) != VEOK) {
+   /* read and check trailer from 0x..ff block */
+   if (readtrailer(&bt, input) != VEOK) {
       mError(FAIL, "neogen(): failed to read_trailer()");
    } else if (bt.bnum[0] != 0xff) {
       mError(FAIL, "neogen(): bad modulus on bt.bnum");
@@ -126,6 +123,9 @@ int neogen(void)
 
    /* calculate neogensis block number */
    add64(Cblocknum, One, neobnum);
+   if (neobnum[0] != 0) {
+      mError(FAIL, "neogen(): bad modulus on Cblocknum");
+   }
 
    /* open ledger read-only */
    lfp = fopen("ledger.dat", "rb");
@@ -141,9 +141,9 @@ int neogen(void)
    }
 
    /* open neogenesis output file for writing */
-   nfp = fopen("ngblock.dat", "wb");
+   nfp = fopen(output, "wb");
    if(nfp == NULL) {
-      mErrno(FAIL_IO, "neogen(): failed to fopen(ngblock.dat)");
+      mErrno(FAIL_IO, "neogen(): failed to fopen(%s)", output);
    }
 
    /* Add length of ledger.dat to length of header length field. */
@@ -186,19 +186,21 @@ int neogen(void)
    if (fwrite(&nbt, sizeof(BTRAILER), 1, nfp) != 1) {
       mError(FAIL_IO2, "neogen(): failed to fwrite(nbt)");
    } else if (ferror(nfp)) mErrno(FAIL_IO2, "neogen(): ferror(nfp)");
-   fclose(nfp);
 
    pdebug("neogen(): completed in %gs", diffclocktime(clock(), ticks));
 
-   return VEOK;  /* success */
+   /* success */
+   ecode = VEOK;
 
-   /* failure / error handling */
+   /* cleanup / error handling */
 FAIL_IO2:
    fclose(nfp);
-   remove("ngblock.dat");
 FAIL_IO:
    fclose(lfp);
 FAIL:
+
+   /* remove output file on failure */
+   if (ecode) remove(output);
 
    return ecode;
 }  /* end neogen() */
