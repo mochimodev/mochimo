@@ -52,7 +52,8 @@ int main()
    memcpy(&Time0, BT.time0, 4);
 
    /* generate pblock.dat */
-   pseudo();
+   ASSERT_EQ_MSG(pseudo("pblock.dat"), VEOK,
+      "pseudo() failed to generate pseudo-block");
 
    /* begin checks */
    fp = fopen("pblock.dat", "rb");
