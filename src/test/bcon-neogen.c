@@ -13,6 +13,7 @@
 #define LEFILE "ledger.dat"
 #define BCFILE "b00000000000000ff.bc"
 #define NEOFILE "ngblock.dat"
+#define BADFILE "bad.file"
 
 word8 Zeros[32] = { 0 };
 
@@ -48,6 +49,20 @@ word8 blockdata[4 + sizeof(BTRAILER)] = {
    0x55, 0x3f, 0x14, 0x2c, 0xc6, 0x4b, 0xdd, 0xa9
 };
 
+int write2file(char *fname, const void *data, size_t len)
+{
+   FILE *fp;
+   int ecode;
+
+   ecode = VEOK;
+   fp = fopen(fname, "wb");
+   if (fp == NULL) return VERROR;
+   if (len && fwrite(data, len, 1, fp) != 1) ecode = VERROR;
+   fclose(fp);
+
+   return ecode;
+}
+
 int main()
 {
    FILE *fp;
@@ -63,21 +78,16 @@ int main()
    /* suppress terminal logs */
    set_print_level(PLEVEL_NONE);
 
-   /* write dummy ledger to ledger.dat */
-   ASSERT_NE((fp = fopen(LEFILE, "wb")), NULL);
-   ASSERT_EQ(fwrite(ledgerdata, sizeof(ledgerdata), 1, fp), 1);
-   fclose(fp);
-
-   /* write bc file to ledger.dat */
-   ASSERT_NE((fp = fopen(BCFILE, "wb")), NULL);
-   ASSERT_EQ(fwrite(blockdata, sizeof(blockdata), 1, fp), 1);
-   fclose(fp);
-
-   /* configure Cblocknum for neogen() success */
+   /* CONFIGURE SYSTEM FOR SUCCESSFUL TEST FIRST */
    bt = (BTRAILER *) (blockdata + 4);
-   memcpy(Cblocknum, bt->bnum, 8);
 
-   /* test success first */
+   /* write dummy ledger and blockchain file */
+   ASSERT_EQ(write2file(LEFILE, ledgerdata, sizeof(ledgerdata)), VEOK);
+   ASSERT_EQ(write2file(BCFILE, blockdata, sizeof(blockdata)), VEOK);
+
+   /* PERFORM TEST UNDER SUCCESS CONFIGURATION */
+
+   /* generate neogenesis block */
    ASSERT_EQ_MSG(neogen(BCFILE, NEOFILE), VEOK,
       "neogen() didn't return VEOK");
 
@@ -129,8 +139,28 @@ int main()
    ASSERT_CMP_MSG(nbt.bhash, expect_hash, sizeof(nbt.bhash),
       "neogen bhash did not compare equal to expected hash");
 
+   /* CONFIGURE SYSTEM FOR FAILURE TESTS */
+
+   ASSERT_NE_MSG(neogen(BADFILE, NEOFILE), VEOK,
+      "neogen() returned VEOK with invalid input file name");
+   sub64(bt->bnum, One, bt->bnum);
+   ASSERT_EQ(write2file(BADFILE, blockdata, sizeof(blockdata)), VEOK);
+   add64(bt->bnum, One, bt->bnum);
+   ASSERT_NE_MSG(neogen(BADFILE, NEOFILE), VEOK,
+      "neogen() returned VEOK with bad block number modulo in input file");
+   ASSERT_EQ(write2file(LEFILE, ledgerdata, 1), VEOK);
+   ASSERT_NE_MSG(neogen(BCFILE, NEOFILE), VEOK,
+      "neogen() returned VEOK with bad ledger file size (1 byte)");
+   ASSERT_EQ(write2file(LEFILE, ledgerdata, 0), VEOK);
+   ASSERT_NE_MSG(neogen(BCFILE, NEOFILE), VEOK,
+      "neogen() returned VEOK with empty ledger file (0 bytes)");
+   remove(LEFILE);
+   ASSERT_NE_MSG(neogen(BCFILE, NEOFILE), VEOK,
+      "neogen() returned VEOK with missing ledger file");
+
    /* cleanup */
    remove(LEFILE);
    remove(BCFILE);
    remove(NEOFILE);
+   remove(BADFILE);
 }
