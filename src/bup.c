@@ -238,7 +238,7 @@ int b_update(char *fname, int mode)
    int ecode;
 
    /* init */
-   solvestr = "Update";
+   solvestr = NULL;
 
    pdebug("b_update(): updating block...");
 
@@ -258,7 +258,7 @@ int b_update(char *fname, int mode)
       /* Hotfix for critical bug identified on 09/26/19 */
       if (fexists("cblock.lck")) {
          remove("cblock.lck");
-         solvestr = "Push";
+         solvestr = "push";
       }
       /* perform block validation, clean and ledger update chain */
       /* ... NOTE: le_update() closes server ledger reference */
@@ -320,12 +320,12 @@ int b_update(char *fname, int mode)
    } else if (Ininit == 0) {
       if (Insyncup == 0) {
          if (mode == 1 && solvestr == NULL) {  /* not "pushed" */
-            solvestr = "Solve";
+            solvestr = "solve";
             Nsolved++;  /* our block */
             write_data(&Nsolved, 4, "solved.dat");
          }
          Nupdated++;  /* block update counter */
-      } else solvestr = "Sync";
+      } else solvestr = "sync";
       Utime = time(NULL);  /* update time for watchdog */
    }  /* end if not-Ininit */
 
@@ -340,7 +340,7 @@ int b_update(char *fname, int mode)
             haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
             haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
             print("/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
-         } else solvestr = "Pseudo";
+         } else solvestr = "pseudo";
       }
       /* prepare block stats */
       btxs = get32(bt.tcount);
@@ -348,8 +348,8 @@ int b_update(char *fname, int mode)
       bdiff = get32(bt.difficulty);
       bnum = get32(bt.bnum);
       /* print block update and details */
-      plog("%s: 0x%" P32x " #%s...", solvestr, bnum, addr2str(bt.bhash));
-      plog("(%" P32u ") %" P32u "s; diff %" P32u "; %" P32u " txs",
+      plog("Block (%s): 0x%" P32x " #%s...", solvestr, bnum, addr2str(bt.bhash));
+      plog("(%" P32u ") %" P32u "s; %" P32u " diff; %" P32u " txs\n",
          bnum, btime, bdiff, btxs);
    }
 
@@ -393,7 +393,7 @@ int b_update(char *fname, int mode)
       /* print block update */
       if(!Bgflag) {
          bnum = get32(bt.bnum);
-         plog("Neogenesis: 0x%" P32x " #%s...", bnum, addr2str(bt.bhash));
+         plog("Neogenesis: 0x%" P32x " #%s...\n", bnum, addr2str(bt.bhash));
       }
    }
 
