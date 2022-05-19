@@ -806,160 +806,126 @@ int main(int argc, char **argv)
    srand16(time(NULL), 0, 123456789 ^ getpid());
 
    /* pre-init */
-   Ininit = 1;
-   Running = 1;
    sock_startup();            /* enable socket support */
    fix_signals();             /* redirect signals */
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
-   if (Bgflag) setpgrp();     /* detach - if necessary */
+   set_output_level(PLEVEL_DEBUG);
+   set_print_level(PLEVEL_LOG);
+   Running = Ininit = 1;
 
    /* Parse command line arguments. */
-   if (Running) {
-      pdebug("Checking arguments...");
-      for (j = 1; Running && j < argc; j++) {
-         if(argv[j][0] != '-') return usage();
-         switch(argv[j][1]) {
-            case '-':  /* advanced commands */
-               cp = &argv[j][2];
-               if (*cp == '\0') goto EOA;  /* -- end of args */
-               if (strcmp("testnet", cp) == 0) exit(testnet());
-               if (strcmp("veronica", cp) == 0) exit(veronica());
-               plog("Unknown argument, %s", argv[j]);
-               break;
-            case 'c':  /* set core ip list */
-               if (!argv[j][2]) {
-                  perr("missing coreip list file");
+   for (j = 1; Running && j < argc; j++) {
+      if(argv[j][0] != '-') return usage();
+      switch(argv[j][1]) {
+         case '-':  /* advanced commands */
+            cp = &argv[j][2];
+            if (*cp == '\0') goto EOA;  /* -- end of args */
+            else if (strcmp("help", cp) == 0) exit(usage());
+            else if (strcmp("testnet", cp) == 0) exit(testnet());
+            else if (strcmp("veronica", cp) == 0) exit(veronica());
+            else perr("Unknown argument, %s", argv[j]);
+            break;
+         case 'c':  /* set core ip list */
+            if (!argv[j][2]) {
+               perr("missing coreip list file");
+               exit(usage());
+            }
+            Coreipfname = &argv[j][2];  /* master network */
+            break;
+         case 'd':  /* disable pink lists */
+            Nopinklist = 1;
+            break;
+         case 'D':  /* enable daemon mode */
+            Bgflag = 1;
+            setpgrp();
+            break;
+         case 'F':  /* disable private IPs */
+            Noprivate = 1;  /* v.28 */
+            break;
+         case 'l':  /* set log level  */
+            if (!argv[j][2]) {
+               perr("missing log level value\n");
+               exit(usage());
+            }
+            set_print_level((k = atoi(&argv[j][2])));
+            set_output_level(k);
+            break;
+         case 'n':  /* disable miner */
+            Nominer = 1;
+            break;
+         case 'P':  /* enabled cblock push */
+            Allowpush = 1;
+            Cbits |= C_PUSH;
+            break;
+         case 'M':  /* set own Mining fee */
+            Myfee[0] = atoi(&argv[j][2]);
+            if (Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
+            else Cbits |= C_MFEE;
+            break;
+         case 'o':  /* open log file used by plog() */
+            if (argv[j][2]) set_output_file(&argv[j][2], "a");
+            else set_output_file(LOGFNAME, "a");
+            Cbits |= C_LOGGING;
+            break;
+         case 'p':  /* set home/dst communication port */
+            Port = Dstport = atoi(&argv[j][2]);
+            break;
+         case 'q':  /* set quorum */
+            Quorum = atoi(&argv[j][2]);
+            if (Quorum > MAXQUORUM) {
+               perr("quorum exceeds MAXQUORUM=%u", MAXQUORUM);
+               exit(usage());
+            }
+            break;
+         case 's':  /* set Dynasleep */
+            Dynasleep = atoi(&argv[j][2]);  /* usleep time */
+            break;
+         case 'S':  /* Safemode or Sanctuary */
+            if (strncmp(argv[j], "-Sanctuary=", 11) == 0) {
+               cp = strchr(argv[j], ',');
+               if (cp == NULL) {
+                  perr("Invalid Sanctuary Protocol");
                   exit(usage());
                }
-               Coreipfname = &argv[j][2];  /* master network */
-               pdebug("   Coreip list = %s", Coreipfname);
+               Sanctuary = strtoul(&argv[j][11], NULL, 0);
+               Lastday = (strtoul(cp + 1, NULL, 0) + 255) & 0xffffff00;
+               Cbits |= C_SANCTUARY;
+               printf("\nSanctuary=%u  Lastday 0x%0x...", Sanctuary,
+                  Lastday); fflush(stdout); sleep(2);
+               printf("\b\b\b accounted for.\n"); sleep(1);
                break;
-            case 'd':  /* disable pink lists */
-               Nopinklist = 1;
-               pdebug(" + pinklist disabled");
-               break;
-            case 'D':  /* enable daemon mode */
-               Bgflag = 1;
-               pdebug(" + daemon mode enabled");
-               break;
-            case 'F':  /* disable private IPs */
-               Noprivate = 1;  /* v.28 */
-               pdebug(" + private IPs disabled");
-               break;
-            case 'l':  /* set log level  */
-               set_print_level((k = atoi(&argv[j][2])));
-               set_output_level(k);
-               pdebug("   Log level = %d", k);
-               break;
-            case 'n':  /* disable miner */
-               Nominer = 1;
-               pdebug(" + miner disabled");
-               break;
-            case 'P':  /* enabled cblock push */
-               Allowpush = 1;
-               pdebug(" + cblock push enabled");
-               Cbits |= C_PUSH;
-               pdebug(" + C_PUSH was added to Cbits");
-               break;
-            case 'M':  /* set own Mining fee */
-               Myfee[0] = atoi(&argv[j][2]);
-               if (Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
-               else Cbits |= C_MFEE;
-               pdebug("   Myfee = %" P32u, Myfee[0]);
-               pdebug(" + C_MFEE was added to Cbits");
-               break;
-            case 'o':  /* open log file used by plog()   */
-               if (argv[j][2]) {
-                  set_output_file(&argv[j][2], "a");
-                  pdebug("   Log file = %s", &argv[j][2]);
-               } else {
-                  set_output_file(LOGFNAME, "a");
-                  pdebug("   Log file = %s", LOGFNAME);
-               }
-               Cbits |= C_LOGGING;
-               pdebug(" + C_LOGGING was added to Cbits");
-               break;
-            case 'p':  /* set home/dst communication port */
-               Port = Dstport = atoi(&argv[j][2]);
-               pdebug("   Port = %" P16u, Port);
-               break;
-            case 'q':  /* set quorum */
-               Quorum = atoi(&argv[j][2]);
-               pdebug("   Quorum = %" P32u, Quorum);
-               if (Quorum > MAXQUORUM) {
-                  perr("quorum exceeds MAXQUORUM=%u", MAXQUORUM);
-                  exit(usage());
-               }
-               break;
-            case 's':  /* set Dynasleep */
-               Dynasleep = atoi(&argv[j][2]);  /* usleep time */
-               pdebug("   Dynasleep = %" P32u, Dynasleep);
-               break;
-            case 'S':  /* Safemode or Sanctuary */
-               if (strncmp(argv[j], "-Sanctuary=", 11) == 0) {
-                  cp = strchr(argv[j], ',');
-                  if (cp == NULL) {
-                     perr("Invalid Sanctuary Protocol");
-                     exit(usage());
-                  }
-                  Sanctuary = strtoul(&argv[j][11], NULL, 0);
-                  Lastday = (strtoul(cp + 1, NULL, 0) + 255) & 0xffffff00;
-                  pdebug(" + Sanctuary enabled");
-                  Cbits |= C_SANCTUARY;
-                  pdebug(" + C_SANCTUARY was added to Cbits");
-                  printf("\nSanctuary=%u  Lastday 0x%0x...", Sanctuary,
-                     Lastday); fflush(stdout); sleep(2);
-                  printf("\b\b\b accounted for.\n"); sleep(1);
-                  break;
-               }
-               if (argv[j][2]) exit(usage());
-               Safemode = 1;
-               break;
-            case 't':  /* set trusted ip list */
-               if (!argv[j][2]) {
-                  perr("missing trusted ip list file");
-                  exit(usage());
-               }
-               Trustedipfname = &argv[j][2];  /* master network */
-               pdebug("   Trustedip list = %s", Trustedipfname);
-               break;
-            case 'T':  /* enabled Trustblock */
-               Trustblock = atoi(&argv[j][2]);
-               pdebug("   Trustblock = %" P32u, Trustblock);
-               break;
-            case 'v':
-               if (argv[j][2] == '2') {
-                  Dstport = PORT1;  Port = PORT2;
-                  pdebug(" + virtual mode 2 enabled");
-               } else {
-                  Dstport = PORT2;  Port = PORT1;
-                  pdebug(" + virtual mode 1 enabled");
-               }
-               pdebug("   Dstport = %" P32u, Dstport);
-               pdebug("   Port = %" P32u, Port);
-               break;
-            case 'V':
-               if (strcmp(&argv[j][1], "Veronica") != 0) exit(usage());
-               exit(veronica());
-            case 'x':
-               if (strlen(argv[j]) != 8) exit(usage());
-               Statusarg = argv[j];
-               break;
+            }
+            if (argv[j][2]) exit(usage());
+            Safemode = 1;
+            break;
+         case 't':  /* set trusted ip list */
+            if (!argv[j][2]) {
+               perr("missing trusted ip list file");
+               exit(usage());
+            }
+            Trustedipfname = &argv[j][2];  /* master network */
+            break;
+         case 'T':  /* enabled Trustblock */
+            Trustblock = atoi(&argv[j][2]);
+            break;
+         case 'v':
+            if (argv[j][2] == '2') { Dstport = PORT1; Port = PORT2; }
+            else { Dstport = PORT2; Port = PORT1; }
+            break;
+         case 'x':
+            if (strlen(argv[j]) != 8) exit(usage());
+            Statusarg = argv[j];
+            break;
    #ifdef BX_MYSQL
-            case 'X':
-               Exportflag = 1;
-               pdebug(" + export mode enabled");
-               break;
+         case 'X':
+            Exportflag = 1;
+            break;
    #endif
-            case 'h':   /* fallthrough */
-            default: exit(usage());
-         }  /* end switch */
-      }  /* end for j */
-      pdebug("... end of arguments\n");
-   }
-
-/* end of arguments */
-EOA:
+         case 'h':   /* fallthrough */
+         default: exit(usage());
+      }  /* end switch */
+   }  /* end for j */
+EOA:  /* end of arguments */
 
    /* print header & disclaimer */
    plog("Mochimo Server " GIT_VERSION " on " __DATE__ " " __TIME__);
