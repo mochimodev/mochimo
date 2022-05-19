@@ -35,7 +35,7 @@
 #define WOTSLEN      (WOTSLEN1 + WOTSLEN2)
 #define WOTSSIGBYTES (WOTSLEN * PARAMSN)
 
-/* C/C++ compatible function prototypes for wots.c */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,9 +47,8 @@ void wots_pkgen(word8 *pk, const word8 *seed, const word8 *pub_seed,
 void wots_pk_from_sig(word8 *pk, const word8 *sig, const word8 *msg,
                       const word8 *pub_seed, word32 addr[8]);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

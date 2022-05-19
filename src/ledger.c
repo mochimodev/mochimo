@@ -25,11 +25,10 @@
 #include "extlib.h"
 #include <errno.h>
 
-#define DEBUG_LE(...)   \
-   { pdebug("le_txclean(): %s, drop %s...", __VA_ARGS__); continue; }
-
 static FILE *Lefp;
 static unsigned long Nledger;
+word32 Sanctuary;
+word32 Lastday;
 
 /* Open ledger "ledger.dat" */
 int le_open(char *ledger, char *fopenmode)
@@ -261,15 +260,20 @@ int le_txclean(void)
    for(nout = tnum = 0; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
       /* check src in ledger, balances and amounts are good */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
-         DEBUG_LE("bad le_find", addr2str(tx.src_addr));
-      } else if (cmp64(tx.tx_fee, Myfee) < 0) {  /* bad tx fee */
-         DEBUG_LE("bad tx_fee", addr2str(tx.src_addr));
-      } else if (add64(tx.send_total, tx.change_total, total)) {  /* bad amounts */
-         DEBUG_LE("bad amounts", addr2str(tx.src_addr));
-      } else if (add64(tx.tx_fee, total, total)) {  /* bad total */
-         DEBUG_LE("bad total", addr2str(tx.src_addr));
-      } else if (cmp64(src_le.balance, total) != 0) {  /* bad balance */
-         DEBUG_LE("bad balance", addr2str(tx.src_addr));
+         pdebug("le_txclean(): le_find, drop %s...", addr2str(tx.tx_id));
+         continue;
+      } else if (cmp64(tx.tx_fee, Myfee) < 0) {
+         pdebug("le_txclean(): tx_fee, drop %s...", addr2str(tx.tx_id));
+         continue;
+      } else if (add64(tx.send_total, tx.change_total, total)) {
+         pdebug("le_txclean(): amounts, drop %s...", addr2str(tx.tx_id));
+         continue;
+      } else if (add64(tx.tx_fee, total, total)) {
+         pdebug("le_txclean(): total, drop %s...", addr2str(tx.tx_id));
+         continue;
+      } else if (cmp64(src_le.balance, total) != 0) {
+         pdebug("le_txclean(): balance, drop %s...", addr2str(tx.tx_id));
+         continue;
       } else if (TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
          pdebug("le_txclean(): MTX detected...");
          mtx = (MTX *) &tx;
@@ -284,7 +288,8 @@ int le_txclean(void)
          }
       } else if (tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr,
             NULL) != VEOK) {
-         DEBUG_LE("invalidated tags", addr2str(tx.src_addr));
+         pdebug("le_txclean(): tags, drop %s...", addr2str(tx.tx_id));
+         continue;
       }
       /* write TX to new queue */
       if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {

@@ -28,9 +28,8 @@ int checkproof(TX *tx, word32 *splitblock);
 int tf_val(char *fname, void *bnum, void *weight, int weight_only);
 int trim_tfile(void *highbnum);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

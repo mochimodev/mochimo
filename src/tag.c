@@ -26,13 +26,8 @@
 #include <errno.h>
 #include "crc16.h"
 
-/*
-   [<---2196 Bytes Address--->][<--12 Bytes Tag-->]
-
-   12-byte tag:  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-                 ^
-              type byte
-*/
+word8 *Tagidx;    /* array of all 12-word8 tags in ledger order */
+word32 Ntagidx;   /* number of tags in Tagidx[] */
 
 /* Release tag index */
 void tag_free(void)

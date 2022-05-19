@@ -13,21 +13,21 @@
 /* external support */
 #include "extint.h"
 
+/* global variables */
+extern word8 *Tx_ids;
+extern word32 *Txidx;
+extern word32 Ntx;
+
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-word8 *Tx_ids;  /* malloc'd Tx_ids[] Ntx*32 bytes */
-word32 *Txidx;  /* malloc'd Txidx[] Ntx*4 bytes */
-word32 Ntx;     /* number of transactions in clean TX queue */
-
 int sortlt(char *fname);
 int sorttx(char *fname);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

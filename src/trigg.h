@@ -94,7 +94,7 @@ typedef struct {
 /* Check Trigg's Proof of Work without passing the final hash */
 #define trigg_check(btp)  trigg_checkhash(btp, (btp)->difficulty[0], NULL)
 
-/* C/C++ compatible function prototypes for wots.c */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -107,9 +107,8 @@ int trigg_syntax(void *nonce);
 int trigg_checkhash(BTRAILER *bt, word8 diff, void *out);
 int trigg_solve(BTRAILER *bt, word8 diff, void *out);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

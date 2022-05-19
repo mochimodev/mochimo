@@ -10,7 +10,7 @@
 #define MOCHIMO_BUP_H
 
 
-/* C/C++ compatible prototypes */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,9 +18,8 @@ extern "C" {
 int b_txclean(char *bcfname);
 int b_update(char *fname, int mode);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

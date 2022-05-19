@@ -14,7 +14,7 @@
 #include "network.h"
 #include "types.h"
 
-/* C/C++ compatible prototypes */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,9 +28,8 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum);
 int syncup(word32 splitblock, word8 *txcblock, word32 peerip);
 int contention(NODE *np);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

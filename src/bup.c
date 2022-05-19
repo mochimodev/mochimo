@@ -339,6 +339,8 @@ int b_update(char *fname, int mode)
       bdiff = (unsigned) get32(bt.difficulty);
       /* print haiku if non-pseudo block */
       if (mode != 2) {
+         pdebug("Block %s: 0x%s (%" P32u ")", solvestr,
+            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
          /* expand and split haiku into lines for printing */
          trigg_expand(bt.nonce, haiku);
          haiku1 = strtok(haiku, "\n");
@@ -347,12 +349,15 @@ int b_update(char *fname, int mode)
          print("  __/)  %s\n", haiku1);
          print(".(__(=:  %s\n", haiku2);
          print("│   \\)    %s\n", haiku3);
-      } else print("<{ pseudo-block }>\n");
+      } else {
+         pdebug("Pseudo-block %s: 0x%s (%" P32u ")", solvestr,
+            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
+         print("<{ pseudo-block }>\n");
+      }
       /* print block update and stats */
-      plog("└┬ Block %s: 0x%s (%" P32u ")", solvestr,
+      print("└┬ Block %s: 0x%s (%" P32u ")\n", solvestr,
          val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-      plog(" └─ Diff: %u, Time: %us, Txs: %u", bdiff, btime, btxs);
-      print("\n");  /* padding*/
+      print(" └─ Diff: %u, Time: %us, Txs: %u\n\n", bdiff, btime, btxs);
    }
 
    /* perform neogenesis block update -- as necessary */
@@ -361,7 +366,7 @@ int b_update(char *fname, int mode)
        * Determine input block b...ff.bc file with Cblocknum.
        * Update Cblockhash, Cblocknum, Prevhash, Eon and tfile.dat
        */
-      snprintf(bcfname, FILENAME_MAX, BCDIR "/b%s.bc", bnum2hex(Cblocknum));
+      snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(Cblocknum));
       if (neogen(bcfname, "ngblock.dat") != VEOK) {
          restart("b_update(): failed to neogen()");
       } else if (add64(Cblocknum, One, Cblocknum)) {
@@ -394,11 +399,12 @@ int b_update(char *fname, int mode)
       }
       /* print block update */
       if(!Bgflag) {
+         pdebug("Neogenesis-block generated: 0x%s (%" P32u ")",
+            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
          print("<{ neogenesis-block }>\n");
-         plog("└┬ Block generated: 0x%s (%" P32u ")",
-            bnum2hex(bt.bnum), get32(bt.bnum));
-         plog(" └─ %s...", addr2str(Cblockhash));
-         print("\n");  /* padding*/
+         print("└┬ Block generated: 0x%s (%" P32u ")\n",
+            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
+         print(" └─ Hash: %s...\n\n", addr2str(Cblockhash));
       }
    }
 

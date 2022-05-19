@@ -13,7 +13,7 @@
 /* internal support */
 #include "types.h"
 
-/* C/C++ compatible prototypes */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -22,9 +22,8 @@ int p_val(char *fname);
 int ng_val(char *fname, word8 *bnum);
 int b_val(char *fname);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

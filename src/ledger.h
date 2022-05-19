@@ -12,13 +12,14 @@
 
 #include "types.h"
 
+/* global variables */
+extern word32 Sanctuary;
+extern word32 Lastday;
+
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-word32 Sanctuary;
-word32 Lastday;
 
 int le_open(char *ledger, char *fopenmode);
 void le_close(void);

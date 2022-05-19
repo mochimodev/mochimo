@@ -1,12 +1,8 @@
 /**
- * util.c - Mochimo specific utilities support
- *
- * Copyright (c) 2018-2021 Adequate Systems, LLC. All Rights Reserved.
- * For more information, please refer to ../LICENSE
- *
- * Date: 2 January 2018
- * Revised: 28 October 2021
- *
+ * @private
+ * @headerfile util.h <util.h>
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
@@ -51,6 +47,24 @@ char *show(char *state)
    if(Statusarg) strncpy(Statusarg, state, 8);
    return state;
 }
+
+/**
+ * Print local host info on stdout.
+ * @returns 0 on succesful operation, or (-1) on error.
+*/
+void phostinfo(void)
+{
+   char hostname[64] = "";
+   char addrname[64] = "";
+
+   /* get local machine name and IP address */
+   gethostname(hostname, sizeof(hostname));
+   gethostip(addrname, sizeof(addrname));
+   print("Local Machine Info\n");
+   print("  Machine name: %s\n", *hostname ? hostname : "unknown");
+   print("  IPv4 address: %s\n", *addrname ? addrname : "0.0.0.0");
+   print("\n");
+}  /* end phostinfo() */
 
 int get_option_idx(OPTIONS *opts, int len, char *search)
 {

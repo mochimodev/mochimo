@@ -24,6 +24,10 @@
 
 static LTRAN *Ltrans;   /* malloc'd Ltrans[]: Nlt * sizeof(LTRAN) - sort */
 
+word8 *Tx_ids;  /* malloc'd Tx_ids[] Ntx*32 bytes */
+word32 *Txidx;  /* malloc'd Txidx[] Ntx*4 bytes */
+word32 Ntx;     /* number of transactions in clean TX queue */
+
 /**
  * @private
  * Comparison function to sort index to ledger transactions, LTRAN Ltrans[]:

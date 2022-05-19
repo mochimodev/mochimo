@@ -312,7 +312,7 @@ int catchup(word32 plist[], word32 count)
             if (res != VEOK) {
                perr("catchup(): failed to update block file %s", fname2);
                /* wait for all threads to finish and return res */
-               thread_multijoin(tid, n);
+               thread_join_list(tid, n);
                return res;
             }
          }

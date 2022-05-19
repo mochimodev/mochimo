@@ -24,6 +24,17 @@ char *Epinkipfname = "epink.lst";
 char *Recentipfname = "recent.lst";
 char *Trustedipfname = "trusted.lst";
 
+word32 Rplist[RPLISTLEN], Rplistidx;  /* Recent peer list */
+word32 Tplist[TPLISTLEN], Tplistidx;  /* Trusted peer list - preserved */
+
+/* pink lists of EVIL IP addresses read in from disk */
+word32 Cpinklist[CPINKLEN], Cpinkidx;
+word32 Lpinklist[LPINKLEN], Lpinkidx;
+word32 Epinklist[EPINKLEN], Epinkidx;
+
+word8 Nopinklist;  /* disable pinklist IP's when set */
+word8 Noprivate;     /* filter out private IP's when set v.28 */
+
 /**
  * Search a list[] of 32-bit unsigned integers for a non-zero value.
  * A zero value marks the end of list (zero cannot be in the list).

@@ -10,7 +10,7 @@
 #define MOCHIMO_BCON_H
 
 
-/* C/C++ compatible prototypes */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,9 +19,8 @@ int pseudo(char *output);
 int neogen(char *input, char *output);
 int b_con(char *fname);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

@@ -15,26 +15,23 @@
 
 #define addrecent(ip)   addpeer(ip, Rplist, RPLISTLEN, &Rplistidx)
 
-/* C/C++ compatible prototypes */
+/* global variables */
+extern char *Coreipfname;
+extern char *Epinkipfname;
+extern char *Recentipfname;
+extern char *Trustedipfname;
+extern word32 Rplist[RPLISTLEN], Rplistidx;
+extern word32 Tplist[TPLISTLEN], Tplistidx;
+extern word32 Cpinklist[CPINKLEN], Cpinkidx;
+extern word32 Lpinklist[LPINKLEN], Lpinkidx;
+extern word32 Epinklist[EPINKLEN], Epinkidx;
+extern word8 Nopinklist;
+extern word8 Noprivate;
+
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-char *Coreipfname;
-char *Epinkipfname;
-char *Recentipfname;
-char *Trustedipfname;
-
-word32 Rplist[RPLISTLEN], Rplistidx;  /* Recent peer list */
-word32 Tplist[TPLISTLEN], Tplistidx;  /* Trusted peer list - preserved */
-
-/* pink lists of EVIL IP addresses read in from disk */
-word32 Cpinklist[CPINKLEN], Cpinkidx;
-word32 Lpinklist[LPINKLEN], Lpinkidx;
-word32 Epinklist[EPINKLEN], Epinkidx;
-
-word8 Nopinklist;  /* disable pinklist IP's when set */
-word8 Noprivate;     /* filter out private IP's when set v.28 */
 
 word32 *search32(word32 val, word32 *list, unsigned len);
 word32 remove32(word32 bad, word32 *list, unsigned maxlen, word32 *idx);
@@ -53,9 +50,8 @@ int epinklist(word32 ip);
 void mergepinklists(void);
 void purge_epoch(void);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

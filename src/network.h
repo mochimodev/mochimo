@@ -34,18 +34,18 @@ typedef struct {
    SOCKET sd;
 } NODE;
 
+/* global variables */
+extern NODE Nodes[MAXNODES];
+extern NODE *Hi_node;
+extern word32 Nrecvs;
+extern word32 Nsends;
+extern word32 Nrecverrs;
+extern word32 Nsenderrs;
+
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-NODE Nodes[MAXNODES];   /* data structure for connected NODE's */
-NODE *Hi_node;          /* points one beyond last logged in NODE */
-
-word32 Nrecvs;          /* number of receive errors */
-word32 Nsends;          /* number of send errors */
-word32 Nrecverrs;       /* number of receive errors */
-word32 Nsenderrs;       /* number of send errors */
 
 NODE *getslot(NODE *np);
 int freeslot(NODE *np);
@@ -72,10 +72,8 @@ int scan_network
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum);
 int refresh_ipl(void);
 
-
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

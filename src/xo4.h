@@ -1,15 +1,10 @@
 /**
- * xo4.h - Crypto support header for shylock.c
- *
- * Copyright (c) 2021 by Adequate Systems, LLC.  All Rights Reserved.
- * For more information, please refer to ../LICENSE
- *
- * Date: 20 September 2021
- * Revised: 26 October 2021
- *
- * --------  XO4 Cipher package  --------
- * Courtesy Patrick Cargill -- EYES ONLY!
- *
+ * @file xo4.h
+ * @brief Crypto support header for shylock.
+ * @details --------  XO4 Cipher package  --------
+ * <br/>Courtesy Patrick Cargill -- EYES ONLY!
+ * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
@@ -26,7 +21,7 @@ typedef struct {
    int j;         /**< Seed hash byte iterator */
 } XO4_CTX;  /**< XO4 encryption context */
 
-/* C/C++ compatible function prototypes for wots.c */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,9 +29,8 @@ extern "C" {
 void xo4_init(XO4_CTX *ctx, void *key, size_t len);
 void xo4_crypt(XO4_CTX *ctx, void *input, void *output, size_t len);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

@@ -18,7 +18,7 @@
 #include "extprint.h"
 #include "extint.h"
 
-/* C/C++ compatible function prototypes for wots.c */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,9 +32,8 @@ pid_t mirror1(word32 *iplist, int len);
 pid_t mirror(void);
 int process_tx(NODE *np);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

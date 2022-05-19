@@ -117,9 +117,8 @@ int peach_solve(BTRAILER *bt, word8 diff, void *out);
 
 #endif
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

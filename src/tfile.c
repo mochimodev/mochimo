@@ -332,7 +332,7 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
                      perr("tf_val(0x%s) failed on POW validation",
                         bnum2hex(targp[tidx].bt.bnum));
                      /* wait for all threads to finish */
-                     thread_multijoin(tid, tlen);
+                     thread_join_list(tid, tlen);
                      ecode = 9;
                      break;
                   }
@@ -457,7 +457,7 @@ next:
       add64(highblock, One, highblock);  /* bnum in next trailer */
    }  /* end for */
    /* ensure all threads are finished */
-   if (tactive) thread_multijoin(tid, tlen);
+   if (tactive) thread_join_list(tid, tlen);
    sub64(highblock, One, bnum);     /* fix high block number */
    memcpy(weight, highweight, HASHLEN);
    fclose(fp);

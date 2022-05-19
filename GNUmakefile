@@ -196,6 +196,7 @@ install:
 	@echo "Installing support files..."
 	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
 	@echo "Ensuring permissions..."
+	@chmod +x $(BINDIR)/*-external.sh
 	@chmod +x $(BINDIR)/gomochi
 	@chmod +x $(BINDIR)/mochimo
 	@echo && echo "Installation complete!"

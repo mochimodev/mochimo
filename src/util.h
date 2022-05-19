@@ -77,12 +77,13 @@ typedef struct {
    char *idl;
 } OPTIONS;
 
-/* C/C++ compatible function prototypes for wots.c */
+/* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 char *show(char *state);
+void phostinfo(void);
 int get_option_idx(OPTIONS *opts, int len, char *search);
 char *get_option_value(int *idx, char *argv[], int argc);
 int stop_bcon(void);
@@ -125,9 +126,8 @@ void sigterm(int sig);
 void fix_signals(void);
 void close_extra(void);
 
-/* end extern "C" {} for C++ */
 #ifdef __cplusplus
-}
+}  /* end extern "C" */
 #endif
 
 /* end include guard */

@@ -35,10 +35,13 @@
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
 #define can_fork_tx() (Nonline <= (MAXNODES - 5))
 
-NODE Nodes[MAXNODES];  /* data structure for connected NODE's     */
-NODE *Hi_node = Nodes; /* points one beyond last logged in NODE   */
-
 static const char Metric[8][3] = { "", "K", "M", "G", "T", "P", "E", "Z" };
+NODE Nodes[MAXNODES];   /* data structure for connected NODE's */
+NODE *Hi_node = Nodes;  /* points one beyond last logged in NODE */
+word32 Nrecvs;          /* number of receive errors */
+word32 Nsends;          /* number of send errors */
+word32 Nrecverrs;       /* number of receive errors */
+word32 Nsenderrs;       /* number of send errors */
 
 /**
  * Is called after initial accept() or connect()
@@ -312,7 +315,7 @@ int send_op(NODE *np, int opcode)
  * Returns: VEOK (0) = good, else error code. */
 int send_file(NODE *np, char *fname)
 {
-   char name[32];
+   char name[128];
    int ecode;
    word16 len;
    FILE *fp;
@@ -322,7 +325,7 @@ int send_file(NODE *np, char *fname)
    len = TRANLEN;
    tx = &(np->tx);
    if (fname == NULL) {
-      sprintf(name, "%.6s/b%.16s.bc", Bcdir, bnum2hex(tx->blocknum));
+      sprintf(name, "%.64s/b%.16s.bc", Bcdir, bnum2hex(tx->blocknum));
       fname = name;
    }
    pdebug("send_file(%s, %s): sending...", np->id, fname);
@@ -968,7 +971,7 @@ int scan_network
       if (!Running) {
          psticky("");
          plog("Waiting for scanning threads to finish...");
-         thread_multijoin(tid, MAXNODES);
+         thread_join_list(tid, MAXNODES);
          break;
       }
    } while(done < next || (next < Rplistidx && Rplist[next]));
