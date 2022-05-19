@@ -351,7 +351,7 @@ int init(void)
             break;  /* we're in sync, finish */
          }
          /* have we fallen behind or split from the chain? */
-         while((peer = *quorum)) {  /* use quorum to check... */
+         while (Running && (peer = *quorum)) {  /* use quorum to check... */
             if (status == VEOK) {  /* chain status not yet known... */
                plog("Checking blockchain alignment...");
                if (get_hash(&node, peer, Cblocknum, peerhash) == VEOK) {
@@ -464,9 +464,9 @@ int server(void)
    nsd = INVALID_SOCKET;
 
    if (Safemode && !iszero(Cblocknum, 8)) {
-      plog("Safemode");
+      plog("\nSafemode...\n");
       send_found();
-   } else plog("Listening...\n");
+   } else plog("\nListening...\n");
 
    unlink("vstart.lck");  /* signal Verisimility that we are up. */
 

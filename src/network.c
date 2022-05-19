@@ -184,17 +184,16 @@ int recv_tx(NODE *np, double timeout)
 int recv_file(NODE *np, char *fname)
 {
    static long mlen = (long) sizeof(Metric);
-   long expect, current, lastsec, persec, eta, mps, m;
-   time_t start, now;
+   long expect, current, lastsec, total, persec, m, m2;
    float percent;
+   time_t now;
    word16 len;
    FILE *fp;
    TX *tx;
 
    /* init recv_file() */
    tx = &(np->tx);
-   start = time(&now);
-   percent = expect = current = lastsec = persec = eta = mps = m = 0;
+   percent = expect = current = lastsec = persec = total = m = m2 = 0;
    if (get16(np->tx.opcode) == OP_GET_TFILE) {
       expect = (long) get32(np->tx.blocknum) * sizeof(BTRAILER);
    }
@@ -212,19 +211,21 @@ int recv_file(NODE *np, char *fname)
       /* update progress */
       current = ftell(fp);
       if (difftime(time(NULL), now)) {
+         persec = current - lastsec;
+         lastsec = current;
          now = time(NULL);
-         mps = persec = current - lastsec;
-         for(m = 0; mps > 999 && (m + 1) < mlen; mps /= 1000, m++);
+         for (m = 0; persec > 999 && mlen > (m + 1); persec /= 1000, m++);
       }
       /* print sticky progress */
       if (expect) {
          percent = 100.0 * current / expect;
-         eta = persec ? expect / persec : 0;
-         psticky("Downloading %s... %.02f%% (%ld%sB/s) | ETA: %lds",
-            fname, percent, mps, Metric[m], eta);
+         psticky("⇓ %s... %.02f%% (%ld%sB/s)",
+            fname, percent, persec, Metric[m]);
       } else {
-         psticky("Downloading %s... %ld (%ld%sB/s) | Elapsed: %gs",
-            fname, current, mps, Metric[m], difftime(start, now));
+         total = current;
+         for (m2 = 0; total > 999 && mlen > (m2 + 1); total /= 1000, m2++);
+         psticky("⇓ %s... %ld%sB (%ld%sB/s)",
+            fname, total, Metric[m2], persec, Metric[m]);
       }
       /* check recv'd packet */
       if(get16(tx->opcode) != OP_SEND_FILE) {
@@ -909,8 +910,8 @@ int scan_network
    do {
       /* update sticky progress */
       percent = 100.0 * done / Rplistidx;
-      sprintf(progress, "Network Scan %.2f%% (%d/%d) | Elapsed %.0fs",
-         percent, done, Rplistidx, difftime(time(NULL), start));
+      sprintf(progress, "Network Scan %.2f%% (%d/%d)",
+         percent, done, Rplistidx);
       psticky(progress);
       /* check threads */
       for (j = 0; j < MAXNODES; j++) {

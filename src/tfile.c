@@ -353,10 +353,11 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
       if (bt.bnum[0] == 0 && endblock) {
          percent = 100.0 * get32(bt.bnum) / endblock;
          if (weight_only) {
-            psticky("Tfile check %.02f%% (0x%08x)", percent, get32(bt.bnum));
+            psticky("Tfile check %.02f%% (0x%" P32x ")",
+               percent, get32(bt.bnum));
          } else {
-            psticky("Validating Tfile %.2f%% (0x%08x) | Elapsed %gs",
-               percent, get32(bt.bnum), difftime(time(NULL), start));
+            psticky("Validating Tfile %.2f%% (0x%" P32x ")",
+               percent, get32(bt.bnum));
          }
       }
 

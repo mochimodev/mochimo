@@ -232,7 +232,7 @@ FAIL:
 int b_update(char *fname, int mode)
 {
    BTRAILER bt;
-   word32 time1, btxs, btime, bdiff, bnum;
+   word32 bnum, btxs, btime, bdiff;
    char haiku[256], *haiku1, *haiku2, *haiku3, *solvestr;
    char bcfname[FILENAME_MAX];
    int ecode;
@@ -258,7 +258,7 @@ int b_update(char *fname, int mode)
       /* Hotfix for critical bug identified on 09/26/19 */
       if (fexists("cblock.lck")) {
          remove("cblock.lck");
-         solvestr = "push";
+         solvestr = "Pushed";
       }
       /* perform block validation, clean and ledger update chain */
       /* ... NOTE: le_update() closes server ledger reference */
@@ -300,13 +300,10 @@ int b_update(char *fname, int mode)
    }
    memcpy(Prevhash, Cblockhash, HASHLEN);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
-   Difficulty = get32(bt.difficulty);
-   Time0 = get32(bt.time0);
-   time1 = get32(bt.stime);
    add_weight(Weight, bt.difficulty[0], bt.bnum);
    /* Update block difficulty */
    Difficulty = set_difficulty(&bt);
-   Time0 = time1;
+   Time0 = get32(bt.stime);
    /* add block trailer to tfile and accept block */
    if (append_tfile(fname, "tfile.dat") != VEOK) {
       restart("b_update(): failed to append_tfile()");
@@ -320,37 +317,37 @@ int b_update(char *fname, int mode)
    } else if (Ininit == 0) {
       if (Insyncup == 0) {
          if (mode == 1 && solvestr == NULL) {  /* not "pushed" */
-            solvestr = "solve";
+            solvestr = "Solved";
             Nsolved++;  /* our block */
             write_data(&Nsolved, 4, "solved.dat");
          }
          Nupdated++;  /* block update counter */
-      } else solvestr = "sync";
+      } else solvestr = "Synced";
       Utime = time(NULL);  /* update time for watchdog */
    }  /* end if not-Ininit */
 
    /* print update log */
    if(!Bgflag) {
-      /* print haiku if non-pseudo block */
-      if (!Insyncup) {
-         if (mode != 2) {
-            /* expand and split haiku into lines for printing */
-            trigg_expand(bt.nonce, haiku);
-            haiku1 = strtok(haiku, "\n");
-            haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
-            haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-            print("/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
-         } else solvestr = "pseudo";
-      }
+      if (solvestr == NULL) solvestr = "Update";
       /* prepare block stats */
+      bnum = get32(bt.bnum);
       btxs = get32(bt.tcount);
       btime = get32(bt.stime) - get32(bt.time0);
       bdiff = get32(bt.difficulty);
-      bnum = get32(bt.bnum);
-      /* print block update and details */
-      plog("Block (%s): 0x%" P32x " #%s...", solvestr, bnum, addr2str(bt.bhash));
-      plog("(%" P32u ") %" P32u "s; %" P32u " diff; %" P32u " txs\n",
-         bnum, btime, bdiff, btxs);
+      /* print haiku if non-pseudo block */
+      if (!Insyncup && mode != 2) {
+         /* expand and split haiku into lines for printing */
+         trigg_expand(bt.nonce, haiku);
+         haiku1 = strtok(haiku, "\n");
+         haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+         haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+         print("\n/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
+         /* print block update and details */
+         plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
+            btime, bdiff, btxs);
+      }
+      if (mode == 2) solvestr = "Pseudo";
+      plog("%s-block: 0x%" P32x " #%s...", solvestr, bnum, addr2str(bt.bhash));
    }
 
    /* perform neogenesis block update -- as necessary */
@@ -393,7 +390,7 @@ int b_update(char *fname, int mode)
       /* print block update */
       if(!Bgflag) {
          bnum = get32(bt.bnum);
-         plog("Neogenesis: 0x%" P32x " #%s...\n", bnum, addr2str(bt.bhash));
+         plog("Neogenesis: 0x%" P32x " #%s...", bnum, addr2str(bt.bhash));
       }
    }
 

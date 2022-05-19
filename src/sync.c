@@ -45,12 +45,12 @@ typedef struct {
 ThreadProc thread_get_block(void *arg)
 {
    BIP_THREAD_ARGS *args = (BIP_THREAD_ARGS *) arg;
-   char fname[FILENAME_MAX], fname2[FILENAME_MAX], bnumstr[24];
+   char fname[FILENAME_MAX], fname2[FILENAME_MAX];
    int res;
 
    /* initialize */
-   sprintf(fname, "b%.16s.tmp", val2hex64(args->bnum, bnumstr));
-   sprintf(fname2, "b%.16s.dat", val2hex64(args->bnum, bnumstr));
+   sprintf(fname, "b%" P32x ".tmp", get32(args->bnum));
+   sprintf(fname2, "b%" P32x ".dat", get32(args->bnum));
    res = get_file(args->ip, args->bnum, fname);
    if (res == VEOK) {
       res = rename(fname, fname2);
@@ -247,7 +247,7 @@ FAIL:
  * Returns VEOK if updates made, else b_update() error code. */
 int catchup(word32 plist[], word32 count)
 {
-   char fname[FILENAME_MAX], fname2[FILENAME_MAX], bnumstr[24];
+   char fname[FILENAME_MAX], fname2[FILENAME_MAX];
    ThreadId tid[MAXQUORUM] = { 0 };
    BIP_THREAD_ARGS args[MAXQUORUM] = { 0 };
    word8 bnum[8], bclear[8];
@@ -279,8 +279,8 @@ int catchup(word32 plist[], word32 count)
             do {  /* determine next required block - skip neogenesis */
                add64(bnum, One, bnum);
                if (bnum[0] == 0) add64(bnum, One, bnum);
-               sprintf(fname, "b%.16s.tmp", val2hex64(bnum, bnumstr));
-               sprintf(fname2, "b%.16s.dat", val2hex64(bnum, bnumstr));
+               sprintf(fname, "b%" P32x ".tmp", get32(bnum));
+               sprintf(fname2, "b%" P32x ".dat", get32(bnum));
                if (cmp64(bnum, bclear) > 0) {
                   /* clear a safe path for the incoming blocks */
                   put64(bclear, bnum);
@@ -306,7 +306,7 @@ int catchup(word32 plist[], word32 count)
       }
       do {
          add64(Cblocknum, One, bnum);
-         sprintf(fname2, "b%.16s.dat", val2hex64(bnum, bnumstr));
+         sprintf(fname2, "b%" P32x ".dat", get32(bnum));
          if (fexists(fname2)) {
             res = b_update(fname2, 0);
             if (res != VEOK) {
