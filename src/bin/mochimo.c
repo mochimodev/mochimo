@@ -318,12 +318,11 @@ int init(void)
       /* scan network for quorum and highest hash/weight/bnum */
       plog("Network scan...");
       qlen = scan_network(quorum, MAXQUORUM, nethash, netweight, netbnum);
-      plog("Network scan resulted in %d/%d quorum members", qlen, MAXQUORUM);
-      plog("  bnum= 0x%s, weight= 0x%s", val2hex(netbnum, 8, bnumstr, 17),
+      plog(" - %d/%d 0x%" P32x " 0x%s", qlen, MAXQUORUM, get32(netbnum),
          val2hex(netweight, 32, weightstr, 65));
       if (qlen == 0) break; /* all alone... */
       else if (qlen < Quorum) {  /* insufficient quorum */
-         plog("Insufficient quorum size, try again...");
+         plog("Insufficient quorum, try again...");
          /* without considering the expansion of acceptable
           * quorum size, infinite loop is possible... */
          continue;
@@ -333,14 +332,23 @@ int init(void)
          result = cmp256(Weight, netweight);  /* compare network weight */
          if (result < 0) {
             pdebug("network weight compares higher");
-            plog("\n... an overwhelming sense of confusion ...\n");
+            print("\n");
+            print("┌────────────────────────────────────┐\n");
+            print("│ an overwhelming sense of confusion │\n");
+            print("└────────────────────────────────────┘\n\n");
          } else if (result > 0) {
             pdebug("network weight compares lower");
-            plog("\n... an overwhelming sense of power ...\n");
+            print("\n");
+            print("┌────────────────────────────────────┐\n");
+            print("│   an overwhelming sense of power   │\n");
+            print("└────────────────────────────────────┘\n\n");
             break;  /* we're heavier, finish */
          } else if (memcmp(Cblockhash, nethash, HASHLEN) == 0) {
             pdebug("network weight and hash compares equal");
-            plog("\n... an overwhelming sense of belonging ...\n");
+            print("\n");
+            print("┌────────────────────────────────────┐\n");
+            print("│ an overwhelming sense of belonging │\n");
+            print("└────────────────────────────────────┘\n\n");
             break;  /* we're in sync, finish */
          }
          /* have we fallen behind or split from the chain? */
@@ -354,7 +362,7 @@ int init(void)
                   continue;  /* restart loop with new status */
                }
             } else if (status == VERROR) {  /* chain is fallen... */
-               plog("Blockchain is aligned, perform catchup...");
+               plog("Blockchain is aligned, catchup...");
                catchup(quorum, qlen);  /* try to catchup with blockchain */
                break;
             } else if (status == VEBAD) {  /* chain is split... */

@@ -232,14 +232,13 @@ FAIL:
 int b_update(char *fname, int mode)
 {
    BTRAILER bt;
-   word32 time1, btxs, btime, bdiff;
-   char haiku[256], *haiku1, *haiku2, *haiku3;
-   char bnumstr[24], *solvestr;
+   word32 time1, btxs, btime, bdiff, bnum;
+   char haiku[256], *haiku1, *haiku2, *haiku3, *solvestr;
    char bcfname[FILENAME_MAX];
    int ecode;
 
    /* init */
-   solvestr = NULL;
+   solvestr = "Update";
 
    pdebug("b_update(): updating block...");
 
@@ -259,7 +258,7 @@ int b_update(char *fname, int mode)
       /* Hotfix for critical bug identified on 09/26/19 */
       if (fexists("cblock.lck")) {
          remove("cblock.lck");
-         solvestr = "pushed";
+         solvestr = "Push";
       }
       /* perform block validation, clean and ledger update chain */
       /* ... NOTE: le_update() closes server ledger reference */
@@ -321,43 +320,37 @@ int b_update(char *fname, int mode)
    } else if (Ininit == 0) {
       if (Insyncup == 0) {
          if (mode == 1 && solvestr == NULL) {  /* not "pushed" */
-            solvestr = "solved";
+            solvestr = "Solve";
             Nsolved++;  /* our block */
             write_data(&Nsolved, 4, "solved.dat");
          }
          Nupdated++;  /* block update counter */
-      } else solvestr = "synced";
+      } else solvestr = "Sync";
       Utime = time(NULL);  /* update time for watchdog */
    }  /* end if not-Ininit */
 
    /* print update log */
    if(!Bgflag) {
-      /* prepare block stats */
-      if (solvestr == NULL) solvestr = "updated";
-      btxs = (unsigned) get32(bt.tcount);
-      btime = (unsigned) get32(bt.stime) - get32(bt.time0);
-      bdiff = (unsigned) get32(bt.difficulty);
       /* print haiku if non-pseudo block */
-      if (mode != 2) {
-         pdebug("Block %s: 0x%s (%" P32u ")", solvestr,
-            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-         /* expand and split haiku into lines for printing */
-         trigg_expand(bt.nonce, haiku);
-         haiku1 = strtok(haiku, "\n");
-         haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
-         haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-         print("  __/)  %s\n", haiku1);
-         print(".(__(=:  %s\n", haiku2);
-         print("│   \\)    %s\n", haiku3);
-      } else {
-         pdebug("Pseudo-block %s: 0x%s (%" P32u ")", solvestr,
-            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-         print("<{ pseudo-block }>\n");
+      if (!Insyncup) {
+         if (mode != 2) {
+            /* expand and split haiku into lines for printing */
+            trigg_expand(bt.nonce, haiku);
+            haiku1 = strtok(haiku, "\n");
+            haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+            haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+            print("/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
+         } else solvestr = "Pseudo";
       }
-      /* print block update and stats */
-      print("└┬ Block %s: 0x%s (%" P32u ")\n", solvestr,
-         val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-      print(" └─ Diff: %u, Time: %us, Txs: %u\n\n", bdiff, btime, btxs);
+      /* prepare block stats */
+      btxs = get32(bt.tcount);
+      btime = get32(bt.stime) - get32(bt.time0);
+      bdiff = get32(bt.difficulty);
+      bnum = get32(bt.bnum);
+      /* print block update and details */
+      plog("%s: 0x%" P32x " #%s...", solvestr, bnum, addr2str(bt.bhash));
+      plog("(%" P32u ") %" P32u "s; diff %" P32u "; %" P32u " txs",
+         bnum, btime, bdiff, btxs);
    }
 
    /* perform neogenesis block update -- as necessary */
@@ -399,12 +392,8 @@ int b_update(char *fname, int mode)
       }
       /* print block update */
       if(!Bgflag) {
-         pdebug("Neogenesis-block generated: 0x%s (%" P32u ")",
-            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-         print("<{ neogenesis-block }>\n");
-         print("└┬ Block generated: 0x%s (%" P32u ")\n",
-            val2hex(bt.bnum, 8, bnumstr, 24), get32(bt.bnum));
-         print(" └─ Hash: %s...\n\n", addr2str(Cblockhash));
+         bnum = get32(bt.bnum);
+         plog("Neogenesis: 0x%" P32x " #%s...", bnum, addr2str(bt.bhash));
       }
    }
 
