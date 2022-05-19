@@ -113,6 +113,7 @@ int main()
    /* ... check block trailer data */
    ASSERT_EQ(fseek(fp, -(sizeof(nbt)), SEEK_END), 0);
    ASSERT_EQ(fread(&nbt, sizeof(nbt), 1, fp), 1);
+   fclose(fp);
    ASSERT_CMP_MSG(nbt.phash, bt->bhash, sizeof(nbt.phash),
       "neogen phash did not compare equal to previous bhash");
    add64(bt->bnum, One, expect_bnum);
