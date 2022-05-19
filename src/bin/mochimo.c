@@ -229,8 +229,7 @@ void monitor(void)
 int init(void)
 {
    /* static word8 FortyEight[8] = { 48, }; */
-   char fname[FILENAME_MAX];
-   char bnumstr[17], weightstr[65];
+   char fname[FILENAME_MAX], weightstr[65];
    word32 peer, qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
    word8 netweight[32], netbnum[8]; //, bnum[8];
