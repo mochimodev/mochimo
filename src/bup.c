@@ -134,16 +134,14 @@ int b_txclean(char *bcfname)
                   addr2str(&Tx_ids[*idx * HASHLEN]));
             }
             nout++;  /* count output records to temp file -- new txclean */
-         } else {
-            pdebug("b_txclean(): drop tx_id %s...",
-                  addr2str(&Tx_ids[*idx * HASHLEN]));
          }
          /* skip dup transaction ids */
          if (cond >= 0) {
             do {  /* break on end of clean TX file or non-dup tx_id */
+               pdebug("b_txclean(): drop tx_id %s...",
+                  addr2str(&Tx_ids[*idx * HASHLEN]));
                j++;
-               idx++;
-               ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
+               ap = (void *) &Tx_ids[*(idx++) * HASHLEN];
                bp = (void *) &Tx_ids[*idx * HASHLEN];
             } while (j < Ntx && memcmp(ap, bp, HASHLEN) == 0);
          }
@@ -260,13 +258,17 @@ int b_update(char *fname, int mode)
          remove("cblock.lck");
          solvestr = "Pushed";
       }
-      /* perform block validation, clean and ledger update chain */
+      /* perform block validation and update... then clean tx queue */
       /* ... NOTE: le_update() closes server ledger reference */
-      ecode = b_val(fname) || b_txclean(fname) || le_update();
-      /* clean the queue, regardless of above results */
+      ecode = b_val(fname) || le_update();
+      /* ... NOTE: transaction queues should be combined before clean */
+      if (fexists("txq1.dat")) {
+         system("cat txq1.dat >>txclean.dat 2>/dev/null");
+         remove("txq1.dat");
+      }
       /* ... NOTE: le_txclean() opens server ledger reference */
-      if (le_txclean() != VEOK) {
-         pwarn("b_update(): forcing clean TX queue...");
+      if ((b_txclean(fname) | le_txclean()) != VEOK) {
+         pwarn("b_update(): txclean failure, forcing clean TX queue...");
          remove("txclean.dat");
       }
       /* (re)open the ledger, regardless of above results */
@@ -280,7 +282,7 @@ int b_update(char *fname, int mode)
             rename("ltran.dat.last", "ltran.dat.fail");
             remove("mblock.dat");
          }
-         return perr("b_update(): validate -> ledger update, failure");
+         return perr("b_update(): (validate -> update) failure");
       }
    } else if (p_val(fname) != VEOK) {
       return perr("b_update(): failed to validate pseudo-block");

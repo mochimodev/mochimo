@@ -648,8 +648,10 @@ int server(void)
          if (Bcon_pid == 0 && Blockfound == 0 && Ltime >= bctime &&
             (Txcount > 0 || (Mpid == 0 && fexistsnz("txclean.dat")))) {
             /* append txq1.dat to txclean.dat */
-            system("cat txq1.dat >>txclean.dat 2>/dev/null");
-            unlink("txq1.dat");
+            if (fexists("txq1.dat")) {
+               system("cat txq1.dat >>txclean.dat 2>/dev/null");
+               remove("txq1.dat");
+            }
             stop_miner(0);  /* pause miner during block construction */
             pdebug("spawning bcon with %d more transactions", Txcount);
             Txcount = 0;  /* txq1.dat is empty now */
