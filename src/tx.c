@@ -23,6 +23,7 @@
 
 /* external support */
 #include <sys/wait.h>
+#include "exttime.h"
 #include "extmath.h"
 #include "extlib.h"
 #include <errno.h>
@@ -327,6 +328,7 @@ pid_t mirror1(word32 *iplist, int len)
          if(pid <= 0) busy = 1; else peer[j] = 0;
       }
       if(!busy) exit(0);
+      else millisleep(1);
    }  /* end while Running */
    /* got SIGTERM */
    for(j = 0; j < len; j++) {
