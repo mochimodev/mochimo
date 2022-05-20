@@ -192,6 +192,7 @@ int recv_file(NODE *np, char *fname)
    TX *tx;
 
    /* init recv_file() */
+   time(&now);
    tx = &(np->tx);
    percent = expect = current = lastsec = persec = total = m = m2 = 0;
    if (get16(np->tx.opcode) == OP_GET_TFILE) {

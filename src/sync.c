@@ -191,11 +191,11 @@ int testnet(void)
       if (bcfp == NULL) {
          mErrno(FAIL, "testnet(): failed to fopen(%s, rb)", bcfname);
       } else if (fread(&hdrlen, sizeof(hdrlen), 1, bcfp) != 1) {
-         mError(FAIL3, "testnet(): failed to fread(hdrlen)");
+         mError(FAIL2, "testnet(): failed to fread(hdrlen)");
       } else if (hdrlen != sizeof(BHEADER)) {
          pdebug("testnet(): no txs in %s, skipping...", bcfname);
       } else if (fseek(bcfp, (long) hdrlen, SEEK_SET) != 0) {
-         mErrno(FAIL3, "testnet(): failed to fseek(SET)");
+         mErrno(FAIL2, "testnet(): failed to fseek(SET)");
       } else {  /* bcfp is ready to read transactions */
          txfp = fopen("txclean.dat", "wb");
          if (txfp == NULL) {

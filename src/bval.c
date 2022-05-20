@@ -197,8 +197,8 @@ err:
       }
    }
    add64(premine, sum, sum);
-   pdebug("premine: %lu  0x%lx\n", *((long *) premine), *((long *) premine));
-   pdebug("sum:  %lu  0x%lx\n", *((long *) sum), *((long *) sum));
+   pdebug("premine: %lu  0x%lx\n", *((unsigned long *) premine), *((long *) premine));
+   pdebug("sum:  %lu  0x%lx\n", *((unsigned long *) sum), *((long *) sum));
    /* Check sum of amounts in NG ledger. */
    fseek(fp, 4, SEEK_SET);
    for(memset(sum2, 0, 8); ; ) {
@@ -214,8 +214,8 @@ err:
    if(fp == NULL) return 11;
    put64(temp, bnum);
    mult64(temp, tlen, temp);
-   if(sizeof(toffset) == 8) put64(&toffset, temp);
-   if(sizeof(toffset) != 8) *((word32 *) &toffset) = *((word32 *) temp);
+   if (sizeof(toffset) == 8) put64(&toffset, temp);
+   else put32(&toffset, get32(temp));
    if(fseek(fp, toffset, SEEK_SET)) NGERROR(12);
    if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER))
       NGERROR(13);

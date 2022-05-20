@@ -28,7 +28,7 @@ typedef struct {
    word32 ip;        /* source ip *//*
    word16 port;      // unused... */
    word16 id1, id2;  /* from tx handshake */
-   char id[24];      /* "0.0.0.0 AB~EF" - for logging identification */
+   char id[32];      /* "0.0.0.0 AB~EF" - for logging identification */
    pid_t pid;        /* process id of child -- zero if empty slot */
    volatile int ts;  /* thread status -- set by thread */
    SOCKET sd;

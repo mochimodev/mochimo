@@ -238,6 +238,8 @@ int le_txclean(void)
    /* init */
    ticks = clock();
    ecode = VEOK;
+   nout = 0;
+   tnum = 0;
 
    /* check txclean exists AND has transactions to clean */
    if (!fexists("txclean.dat")) {
@@ -257,7 +259,7 @@ int le_txclean(void)
    if (fpout == NULL) mErrno(FAIL2, "le_txclean(): cannot open txq");
 
    /* read TX from txclean.dat and process */
-   for(nout = tnum = 0; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
+   for(; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
       /* check src in ledger, balances and amounts are good */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
          pdebug("le_txclean(): le_find, drop %s...", addr2str(tx.tx_id));
@@ -322,7 +324,7 @@ FAIL:
    remove("txq.tmp");
 
    return ecode;
-}  /* end le_le_txclean() */
+}  /* end le_txclean() */
 
 /**
  * Update leadger by applying ledger transaction deltas to a ledger. Uses
