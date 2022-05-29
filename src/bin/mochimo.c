@@ -647,13 +647,10 @@ int server(void)
          if (Txcount >= TXQUEBIG) bctime = Ltime;
          if (Bcon_pid == 0 && Blockfound == 0 && Ltime >= bctime &&
             (Txcount > 0 || (Mpid == 0 && fexistsnz("txclean.dat")))) {
-            /* append txq1.dat to txclean.dat */
-            if (fexists("txq1.dat")) {
-               system("cat txq1.dat >>txclean.dat 2>/dev/null");
-               remove("txq1.dat");
-            }
-            stop_miner(0);  /* pause miner during block construction */
             pdebug("spawning bcon with %d more transactions", Txcount);
+            /* append txq1.dat to txclean.dat */
+            system("cat txq1.dat >>txclean.dat 2>/dev/null");
+            remove("txq1.dat");
             Txcount = 0;  /* txq1.dat is empty now */
             put64(Bcbnum, Cblocknum);  /* save current block number */
             Bcon_pid = fork();

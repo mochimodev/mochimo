@@ -258,17 +258,26 @@ int b_update(char *fname, int mode)
          remove("cblock.lck");
          solvestr = "Pushed";
       }
-      /* perform block validation and update... then clean tx queue */
+      /* perform block validation, update and tx queue clean... */
       /* ... NOTE: le_update() closes server ledger reference */
-      ecode = b_val(fname) || le_update();
+      ecode = b_val(fname);
+      if (ecode == VEOK) ecode = le_update();
       /* ... NOTE: transaction queues should be combined before clean */
       if (fexists("txq1.dat")) {
          system("cat txq1.dat >>txclean.dat 2>/dev/null");
          remove("txq1.dat");
+         /* txq1.dat is empty now */
+         Txcount = 0;
+      }
+      /* clean the transaction queue, with the block and the ledger */
+      /* ... NOTE: blockchain clean only occurs on successful update */
+      if (ecode == VEOK && b_txclean(fname) != VEOK) {
+         pwarn("b_update(): b_txclean() failure, forcing clean...");
+         remove("txclean.dat");
       }
       /* ... NOTE: le_txclean() opens server ledger reference */
-      if ((b_txclean(fname) | le_txclean()) != VEOK) {
-         pwarn("b_update(): txclean failure, forcing clean TX queue...");
+      if (le_txclean() != VEOK) {
+         pwarn("b_update(): le_txclean failure, forcing clean...");
          remove("txclean.dat");
       }
       /* (re)open the ledger, regardless of above results */
