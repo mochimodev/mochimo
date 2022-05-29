@@ -41,7 +41,7 @@ int isprivate(word32 ip);
 word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx);
 void print_ipl(word32 *list, word32 len);
 int save_ipl(char *fname, word32 *list, word32 len);
-word32 read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx);
+int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx);
 int pinklisted(word32 ip);
 int cpinklist(word32 ip);
 int pinklist(word32 ip);

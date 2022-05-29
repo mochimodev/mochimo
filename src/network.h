@@ -8,12 +8,15 @@
 */
 
 /* include guard */
-
 #ifndef MOCHIMO_NETWORK_H
 #define MOCHIMO_NETWORK_H
 
+
 /* system support */
 #include <sys/types.h>  /* for pid_t */
+#ifdef _WIN32  /* Windows no likey */
+   #define pid_t  int
+#endif
 
 /* extended-c support */
 #include "extinet.h"
@@ -24,13 +27,12 @@
 
 /* The Node struct */
 typedef struct {
-   TX tx;            /* packet buffer */
-   word32 ip;        /* source ip *//*
-   word16 port;      // unused... */
-   word16 id1, id2;  /* from tx handshake */
-   char id[32];      /* "0.0.0.0 AB~EF" - for logging identification */
-   pid_t pid;        /* process id of child -- zero if empty slot */
-   volatile int ts;  /* thread status -- set by thread */
+   TX tx;               /* packet buffer */
+   word32 ip;           /* source ip *//*
+   word16 port;         // unused... */
+   word16 id1, id2;     /* from tx handshake */
+   char id[32];         /* "0.0.0.0 AB~EF" - for logging identification */
+   pid_t pid;           /* process id of child -- zero if empty slot */
    SOCKET sd;
 } NODE;
 
@@ -63,11 +65,10 @@ int send_identify(NODE *np);
 int send_resolve(NODE *np);
 int send_found(void);
 int callserver(NODE *np, word32 ip);
-int get_tx(NODE *np, word32 ip, word16 opcode);
 int get_file(word32 ip, word8 *bnum, char *fname);
 int get_ipl(NODE *np, word32 ip);
 int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash);
-int handle_tx(NODE *np, SOCKET sd);
+int gettx(NODE *np, SOCKET sd);
 int scan_network
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum);
 int refresh_ipl(void);

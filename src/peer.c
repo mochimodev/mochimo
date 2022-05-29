@@ -173,8 +173,9 @@ int save_ipl(char *fname, word32 *list, word32 len)
  * Valid lines in IP list include:
  *    host.domain.name
  *    1.2.3.4
- * Returns number of  on success, else VERROR. */
-word32 read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
+ * @returns Number of peers read into list, else (-1) on error
+*/
+int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
 {
    char buff[128];
    word32 count;
@@ -184,9 +185,9 @@ word32 read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
    count = 0;
 
    /* check valid fname and open for reading */
-   if (fname == NULL || *fname == '\0') return VERROR;
+   if (fname == NULL || *fname == '\0') return (-1);
    fp = fopen(fname, "r");
-   if (fp == NULL) return VERROR;
+   if (fp == NULL) return (-1);
 
    /* read file line-by-line */
    while(fgets(buff, 128, fp)) {

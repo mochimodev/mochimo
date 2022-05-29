@@ -84,11 +84,12 @@ extern "C" {
 
 char *show(char *state);
 void phostinfo(void);
-int get_option_idx(OPTIONS *opts, int len, char *search);
-char *get_option_value(int *idx, char *argv[], int argc);
+int argument(char *argv, char *chk1, char *chk2);
+char *argvalue(int *idx, int argc, char *argv[]);
+char *metric_reduce(double *value);
 int stop_bcon(void);
 int stop_found(void);
-int stop_miner(int make_idle);
+int stop_miner(void);
 void stop_mirror(void);
 void stop4update(void);
 void fatal2(int exitcode, char *message);
@@ -105,6 +106,7 @@ char *bnum2hex(void *bnum);
 char *val2hex(void *val, int len, char *buf, int bufsize);
 char *addr2str(void *addr);
 char *hash2str(word8 *hash);
+char *block2str(void *bnum, void *bhash, char *buf, size_t bufsz);
 char *tgets(char *buff, int len);
 int accept_block(char *ublock, word8 *newnum);
 int read_global(void);
@@ -121,6 +123,8 @@ word32 set_difficulty(BTRAILER *btp);
 
 #endif
 
+void print_bup(BTRAILER *bt, char *solvestr);
+void print_splash(char *execname, char *version);
 void ctrlc(int sig);
 void sigterm(int sig);
 void fix_signals(void);

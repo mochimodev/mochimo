@@ -181,11 +181,15 @@ int testnet(void)
       mError(FAIL, "testnet(): failed to le_extract(%s)", bcfname);
    }
 
-   /* transfer transactions from blocks above bnum to tx/ */
+   /* delete blocks above bnum storing first transactions as txclean.dat */
    while (cmp64(bnum, Cblocknum) <= 0) {
       add64(bnum, One, bnum);
       snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
       if (!fexists(bcfname)) break;  /* no more blocks */
+      if (fexists("txclean.dat")) {
+         remove(bcfname);
+         continue;
+      }
       /* open block file and check for transactions */
       bcfp = fopen(bcfname, "rb");
       if (bcfp == NULL) {
@@ -214,8 +218,6 @@ int testnet(void)
       fclose(bcfp);
       remove(bcfname);
    }
-   /* delete remaining blocks */
-   delete_blocks(bnum);
 
    /* apply new ledger */
    remove("ledger.dat");
@@ -337,7 +339,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    pdebug("resync(): fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
    while(Running && *quorum) {
       remove("tfile.dat");
-      if(get_file(*quorum, NULL, "tfile.tmp") == VEOK) {
+      if (get_file(*quorum, NULL, "tfile.tmp") == VEOK) {
          if (rename("tfile.tmp", "tfile.dat") == 0) break;
          perrno(errno, "resync(): failed to rename tfile.dat");
       }

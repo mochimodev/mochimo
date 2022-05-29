@@ -35,7 +35,6 @@
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
 #define can_fork_tx() (Nonline <= (MAXNODES - 5))
 
-static const char Metric[8][3] = { "", "K", "M", "G", "T", "P", "E", "Z" };
 NODE Nodes[MAXNODES];   /* data structure for connected NODE's */
 NODE *Hi_node = Nodes;  /* points one beyond last logged in NODE */
 word32 Nrecvs;          /* number of receive errors */
@@ -139,7 +138,6 @@ int recv_tx(NODE *np, double timeout)
       }
       return ecode;
    }
-
    /* compute crc16 checksum and verify packet integrity */
    hash = crc16(tx, TXCRC_INLEN);
    if (get16(tx->crc16) != hash) {
@@ -183,67 +181,63 @@ int recv_tx(NODE *np, double timeout)
  * Returns: VEOK (0) = good, else error code. */
 int recv_file(NODE *np, char *fname)
 {
-   static long mlen = (long) sizeof(Metric);
-   long expect, current, lastsec, total, persec, m, m2;
-   float percent;
-   time_t now;
-   word16 len;
-   FILE *fp;
    TX *tx;
+   FILE *fp;
+   char *m, *m2;
+   long expect, curr, prev;
+   double percent, persec;
+   time_t prevtime;
+   word16 len;
 
    /* init recv_file() */
-   time(&now);
+   time(&prevtime);
    tx = &(np->tx);
-   percent = expect = current = lastsec = persec = total = m = m2 = 0;
+   m2 = m = "";
+   percent = persec = 0.0;
+   expect = curr = prev = 0;
    if (get16(np->tx.opcode) == OP_GET_TFILE) {
-      expect = (long) get32(np->tx.blocknum) * sizeof(BTRAILER);
+      expect = (long) (get32(np->tx.blocknum) * sizeof(BTRAILER));
    }
 
    /* open file for writing recv'd data */
    fp = fopen(fname, "wb");
-   if(fp == NULL) {
+   if (fp == NULL) {
       perrno(errno, "recv_file(%s, %s): fopen() failed", np->id, fname);
       return VERROR;
    }
 
    /* receive packets and write */
    pdebug("recv_file(%s, %s): receiving...", np->id, fname);
-   while(recv_tx(np, STD_TIMEOUT) == VEOK) {
+   while (recv_tx(np, STD_TIMEOUT) == VEOK) {
       /* update progress */
-      current = ftell(fp);
-      if (difftime(time(NULL), now)) {
-         persec = current - lastsec;
-         lastsec = current;
-         now = time(NULL);
-         for (m = 0; persec > 999 && mlen > (m + 1); persec /= 1000, m++);
+      curr = ftell(fp);
+      if (difftime(time(NULL), prevtime)) {
+         persec = curr - prev;
+         prev = curr;
+         m = metric_reduce(&persec);
+         time(&prevtime);
       }
       /* print sticky progress */
-      if (expect) {
-         percent = 100.0 * current / expect;
-         psticky("⇓ %s... %.02f%% (%ld%sB/s)",
-            fname, percent, persec, Metric[m]);
-      } else {
-         total = current;
-         for (m2 = 0; total > 999 && mlen > (m2 + 1); total /= 1000, m2++);
-         psticky("⇓ %s... %ld%sB (%ld%sB/s)",
-            fname, total, Metric[m2], persec, Metric[m]);
-      }
+      percent = (double) (expect ? (100.0 * curr / expect) : curr);
+      m2 = metric_reduce(&percent);
+      psticky("%s... %.2lf%s%s (%.2lf%sB/s)",
+         fname, percent, m2, expect ? "%" : "B", persec, m);
       /* check recv'd packet */
-      if(get16(tx->opcode) != OP_SEND_FILE) {
+      if (get16(tx->opcode) != OP_SEND_FILE) {
          pdebug("recv_file(%s, %s): *** invalid opcode", np->id, fname);
          break;
       }
       len = get16(tx->len);
-      if(len > TRANLEN) {
-         pdebug("recv_file(%s, %s): *** oversized TX length", np->id, fname);
+      if (len > TRANLEN) {
+         pdebug("recv_file(%s, %s): *** oversized TX", np->id, fname);
          break;
       }
-      if(len && fwrite(TRANBUFF(tx), len, 1, fp) != 1) {
+      if (len && fwrite(TRANBUFF(tx), len, 1, fp) != 1) {
          pdebug("recv_file(%s, %s): *** I/O error", np->id, fname);
          break;
       }
       /* check EOF */
-      if(len < TRANLEN) {
+      if (len < TRANLEN) {
          fclose(fp);
          psticky("");
          pdebug("recv_file(%s, %s): EOF", np->id, fname);
@@ -251,8 +245,10 @@ int recv_file(NODE *np, char *fname)
       } /* end if EOF */
    }  /* end for */
    fclose(fp);
-   remove(fname);  /* delete partial downloads */
+   /* delete partial downloads */
+   remove(fname);
    psticky("");
+
    return VERROR;
 }  /* end recv_file() */
 
@@ -278,7 +274,7 @@ int send_tx(NODE *np, double timeout)
    memcpy(tx->cblockhash, Cblockhash, HASHLEN);
    memcpy(tx->pblockhash, Prevhash, HASHLEN);
    /* ... but, do not overwrite TX ip map */
-   if(get16(tx->opcode) != OP_TX) {
+   if (get16(tx->opcode) != OP_TX) {
       memcpy(tx->weight, Weight, HASHLEN);
    }
 
@@ -334,7 +330,7 @@ int send_file(NODE *np, char *fname)
 
    /* open file for writing recv'd data */
    fp = fopen(fname, "rb");
-   if(fp == NULL) {
+   if (fp == NULL) {
       pdebug("send_file(%s, %s): cannot send file", np->id, fname);
       /* send unable to deliver request acknowledgement */
       put16(tx->opcode, OP_NACK);
@@ -347,15 +343,14 @@ int send_file(NODE *np, char *fname)
       put16(tx->len, len);
       ecode = send_op(np, OP_SEND_FILE);
       /* Make upload bandwidth dynamic. */
-      if(Nonline > 1) millisleep((Nonline - 1) * UBANDWIDTH);
-   } while(ecode == VEOK && len == TRANLEN);
+      if (Nonline > 1) millisleep(Nonline - 1);
+   } while (ecode == VEOK && len == TRANLEN);
    /* check for errors */
    if (len < TRANLEN) {
-      if (feof(fp)) pdebug("send_file(%s, %s): EOF", np->id, fname);
-      else {  /* likely file error */
-         perr("send_file(%s, %s): *** I/O error", np->id, fname);
+      if (ferror(fp)) {
          ecode = VERROR;
-      }
+         perr("send_file(%s, %s): *** I/O error", np->id, fname);
+      } else pdebug("send_file(%s, %s): EOF", np->id, fname);
    }
    fclose(fp);
    return ecode;
@@ -409,14 +404,16 @@ int send_ipl(NODE *np)
 }
 
 /* Process OP_HASH.  Return VEOK on success, else VERROR.
- * Called by handle_tx().
+ * Called by gettx().
  */
 int send_hash(NODE *np)
 {
    BTRAILER bt;
-   char fname[128];
+   word32 *dp;
+   char fname[FILENAME_MAX];
 
-   sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(np->tx.blocknum));
+   dp = (word32 *) np->tx.blocknum;
+   snprintf(fname, FILENAME_MAX, "%s/b%08x%08x.bc", Bcdir, dp[1], dp[0]);
    if(readtrailer(&bt, fname) != VEOK) return VERROR;
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy hash of tx.blocknum to TX */
@@ -461,7 +458,7 @@ int send_identify(NODE *np)
 
 /**
  * Look-up and return an address tag to np.
- * Called from handle_tx() opcode == OP_RESOLVE
+ * Called from gettx() opcode == OP_RESOLVE
  *
  * on entry:
  *     tag string at ADDR_TAG_PTR(np->tx.dst_addr)    tag to query
@@ -564,6 +561,7 @@ bad:
  * Call peer and complete Three-Way handshake */
 int callserver(NODE *np, word32 ip)
 {
+   int ecode;
    char ipaddr[16];  /* for threadsafe ntoa() usage */
    word8 id1, id2;
 
@@ -579,31 +577,42 @@ int callserver(NODE *np, word32 ip)
    np->sd = sock_connect_ip(ip, Dstport, INIT_TIMEOUT);
    if(np->sd == INVALID_SOCKET) {
       pdebug("callserver(%s): failed to connect", np->id);
-      return VERROR;
+      mEcode(FAIL_SOCK, VERROR);
    }
    /* initiate Three-Way Handshake */
    np->id1 = rand16();
    id1 = (word8) (np->id1 >> 8);
    put16(np->tx.opcode, OP_HELLO);
    snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
-   if(send_tx(np, ACK_TIMEOUT) || recv_tx(np, ACK_TIMEOUT)) {
-      pdebug("callserver(%s): *** incomplete handshake", np->id);
-      sock_close(np->sd);
-      np->sd = INVALID_SOCKET;
-      return VERROR;
+   if (send_tx(np, ACK_TIMEOUT) != VEOK) {
+      pdebug("callserver(%s): failed to send handshake", np->id);
+      mEcode(FAIL_3WAY, VERROR);
+   } else if (recv_tx(np, ACK_TIMEOUT) != VEOK) {
+      pdebug("callserver(%s): *** handshake not recv'd", np->id);
+      mEcode(FAIL_3WAY, VERROR);
    }
    /* validate Three-Way Handshake */
    np->id2 = get16(np->tx.id2);
    id2 = (word8) np->id2;
    snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
-   if(get16(np->tx.opcode) != OP_HELLO_ACK || get16(np->tx.id1) != np->id1) {
-      pdebug("callserver(%s): *** invalid handshake", np->id);
-      sock_close(np->sd);
-      np->sd = INVALID_SOCKET;
-      return VEBAD;
+   if (get16(np->tx.opcode) != OP_HELLO_ACK) {
+      pdebug("callserver(%s): *** missing hello acknowledgement", np->id);
+      mEcode(FAIL_3WAY, VEBAD);
+   } else if (get16(np->tx.id1) != np->id1) {
+      pdebug("callserver(%s): *** handshake ID mismatch", np->id);
+      mEcode(FAIL_3WAY, VEBAD);
    }
 
-   return VEOK;  /* made a new friend */
+   /* success -- made a new friend */
+   return VEOK;
+
+   /* failure -- cleanup/error handling */
+FAIL_3WAY:
+   sock_close(np->sd);
+   np->sd = INVALID_SOCKET;
+FAIL_SOCK:
+
+   return ecode;
 }  /* end callserver() */
 
 /**
@@ -675,25 +684,22 @@ int get_file(word32 ip, word8 *bnum, char *fname)
 int get_ipl(NODE *np, word32 ip)
 {
    char ipaddr[16];  /* for threadsafe ntoa() usage */
-   word16 len;
-   word32 *ipp;
+   int ecode;
 
-   pdebug("get_ipl(%s): sending get_tx(OP_GET_IPL)", ntoa(&ip, ipaddr));
-   if(get_tx(np, ip, OP_GET_IPL) == VEOK) {  /* closes socket */
-      len = get16(np->tx.len);  /* ^^ get_tx() checks len <= TRANLEN */
-      for(ipp = (word32 *) TRANBUFF(&np->tx); len > 0; ipp++, len -= 4) {
-         if(*ipp) {
-            if (Rplist[RPLISTLEN - 1]) {
-               pdebug("get_ipl(%s): Rplist[] is full...", np->id);
-               break;
-            } else if (addrecent(*ipp)) {
-               pdebug("get_ipl(%s): TX added %s", np->id, ntoa(ipp, ipaddr));
-            }
-         }
-      }
-      return VEOK;
+   pdebug("get_ipl(%s): sending OP_GET_IPL...", ntoa(&ip, ipaddr));
+
+   /* initiate connection with ip */
+   ecode = callserver(np, ip);
+   if (ecode == VEOK) {
+      /* send OP_GET_IPL and receive single packet response */
+      ecode = send_op(np, OP_GET_IPL);
+      if (ecode == VEOK) ecode = recv_tx(np, STD_TIMEOUT);
+      /* cleanup */
+      sock_close(np->sd);
+      np->sd = INVALID_SOCKET;
    }
-   return VERROR;
+
+   return ecode;
 }  /* end get_ipl() */
 
 /**
@@ -754,7 +760,7 @@ int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash)
  *
  * Op sequence: OP_HELLO,OP_HELLO_ACK,OP_(?x)
 */
-int handle_tx(NODE *np, SOCKET sd)
+int gettx(NODE *np, SOCKET sd)
 {
    char ipaddr[16];  /* for threadsafe ntoa() usage */
    int status;
@@ -770,12 +776,12 @@ int handle_tx(NODE *np, SOCKET sd)
    np->ip = get_sock_ip(sd);  /* uses getpeername() */
    ntoa(&np->ip, ipaddr);
    snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
-   pdebug("handle_tx(%s): connected...", np->id);
+   pdebug("gettx(%s): connected...", np->id);
 
    /* There are many ways to be bad...
     * Check pink lists... */
    if (pinklisted(np->ip)) {
-      pdebug("handle_tx(%s): dropped (pink)", np->id);
+      pdebug("gettx(%s): dropped (pink)", np->id);
       Nbadlogs++;
       return VEBAD;
    }
@@ -793,20 +799,21 @@ int handle_tx(NODE *np, SOCKET sd)
    /* how can I help you? */
    status = recv_tx(np, INIT_TIMEOUT);
    opcode = get16(tx->opcode);  /* execute() will check opcode */
-   pdebug("handle_tx(%s): got opcode = %d  status = %d", np->id, opcode, status);
+   pdebug("gettx(%s): got opcode = %d  status = %d", np->id, opcode, status);
    if (status == VEBAD) goto bad2;
    if (status != VEOK) return VERROR;  /* bad packet -- timeout? */
    if (!valid_op(opcode)) goto bad1;  /* she was a bad girl */
 
    /* check simple responses */
    switch (opcode) {
-      case OP_GET_IPL:
+      case OP_GET_IPL: {
          send_ipl(np);
          if (get16(np->tx.len) == 0) {  /* do not add wallets */
             addrecent(np->ip);
          }
          return 1;
-      case OP_TX:
+      }
+      case OP_TX: {
          if (txcheck(tx->src_addr) != VEOK) {
             pdebug("got dup src_addr");
             Ndups++;
@@ -820,7 +827,8 @@ int handle_tx(NODE *np, SOCKET sd)
             addrecent(np->ip);
          }
          return 1;
-      case OP_FOUND:
+      }
+      case OP_FOUND: {
          /* getblock child, catchup, re-sync, or ignore */
          if(Blockfound) return 1;  /* Already found one so ignore.  */
          status = contention(np);  /* Do we want this block? */
@@ -853,126 +861,131 @@ int handle_tx(NODE *np, SOCKET sd)
 bad1: epinklist(np->ip);
 bad2: pinklist(np->ip);
       Nbadlogs++;
-      pdebug("handle_tx(%s): pinklisted, opcode = %d", np->id, opcode);
+      pdebug("gettx(%s): pinklisted, opcode = %d", np->id, opcode);
 
    return VEBAD;
-}  /* end handle_tx() */
+}  /* end gettx() */
 
-ThreadProc thread_get_ipl(void *arg)
+typedef struct {
+   TX tx;               /* holds resulting transaction data */
+   word32 ip;           /* target peer to acquire peers from */
+   int result;          /* ecode result of thread operation */
+   volatile int join;   /* indicates thread is ready for join */
+} THARG_GETIPL;
+
+ThreadProc th_get_ipl(void *args)
 {
-   NODE *np = (NODE *) arg;
+   THARG_GETIPL *tharg = (THARG_GETIPL *) args;
+   NODE node;
 
-   /* embed result and done indicator in np->ts */
-   np->ts = (get_tx(np, np->ip, OP_GET_IPL) << 8) | 1;
+   /* perform iplist request */
+   tharg->result = get_ipl(&node, tharg->ip);
+   /* copy iplist data and mark thread as ready for join */
+   memcpy(&tharg->tx, &node.tx, sizeof(TX));
+   tharg->join = 1;
+
    Unthread;
 }
 
 /**
  * Perform a network scan, refreshing Rplist[] with available nodes.
- * The highest advertised network weight is placed in *highweight.
+ * The highest advertised network hash, weight and bnum is placed in
+ * @a *hash, @a *weight, and @a bnum, respectively.
  * Qualifying Quorum members are placed in quorum[qlen].
  * Returns number of qualifying quorum members, or number of
  * consensus nodes on the highest chain, if quorum is NULL. */
 int scan_network
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum)
 {
-   NODE node[MAXNODES] = { 0 };
+   THARG_GETIPL tharg[MAXNODES] = { 0 };
    ThreadId tid[MAXNODES] = { 0 };
-   char ipaddr[16];  /* for threadsafe ntoa() usage */
-   char progress[BUFSIZ];
    int j, result;
-   word32 done, next, count;
+   word32 *ipp, done, next, qcount;
+   word16 len;
    word8 highhash[HASHLEN] = { 0 };
    word8 highweight[32] = { 0 };
    word8 highbnum[8] = { 0 };
-   word32 *ipp;
-   word16 len;
-   time_t start;
    float percent;
 
+   done = next = qcount = 0;
    pdebug("scan_network(): begin scan... ");
-   done = next = count = 0;
-   time(&start);
-   do {
+   while (done < next || (next < Rplistidx && Rplist[next])) {
       /* update sticky progress */
       percent = 100.0 * done / Rplistidx;
-      sprintf(progress, "Network Scan %.2f%% (%d/%d)",
-         percent, done, Rplistidx);
-      psticky(progress);
+      psticky("Network Scan %.2f%% (%d/%d)", percent, done, Rplistidx);
       /* check threads */
       for (j = 0; j < MAXNODES; j++) {
-         /* check thread status */
-         if (tid[j] > 0 && node[j].ts) {
+         /* check available threads */
+         if (tid[j] == 0) {
+            if (next < Rplistidx && Rplist[next]) {
+               tharg[j].ip = Rplist[next];
+               tharg[j].join = 0;
+               result = thread_create(&tid[j], &th_get_ipl, &tharg[j]);
+               if (result != VEOK) {
+                  perrno(result, "thread_create()");
+                  tharg[j].join = 0;
+                  tid[j] = 0;
+               } else next++;
+            }
+         } else if (tharg[j].join) {
             /* thread is finished */
             result = thread_join(tid[j]);
             if (result != VEOK) perrno(result, "thread_join()");
-            if ((node[j].ts >> 8) == VEOK) {
+            if ((tharg[j].join >> 8) == VEOK) {
                /* get ip list from TX */
-               len = get16(node[j].tx.len);
-               ipp = (word32 *) TRANBUFF(&(node[j].tx));
+               len = get16(tharg[j].tx.len);
+               ipp = (word32 *) TRANBUFF(&tharg[j].tx);
                for( ; len > 0; ipp++, len -= 4) {
                   if (*ipp == 0) continue;
                   if (Rplist[RPLISTLEN - 1]) break;
                   addrecent(*ipp);
-               }  /* check peer's chain weight against highweight */
-               result = cmp256(node[j].tx.weight, highweight);
+               }
+               /* check peer's chain weight against highweight */
+               result = cmp256(tharg[j].tx.weight, highweight);
                if (result >= 0) {  /* higher or same chain detection */
                   if (result > 0) {  /* higher chain detection */
                      pdebug("scan_network(): new highweight");
-                     memcpy(highhash, node[j].tx.cblockhash, HASHLEN);
-                     memcpy(highweight, node[j].tx.weight, 32);
-                     put64(highbnum, node[j].tx.cblock);
-                     count = 0;
+                     memcpy(highhash, tharg[j].tx.cblockhash, HASHLEN);
+                     memcpy(highweight, tharg[j].tx.weight, 32);
+                     put64(highbnum, tharg[j].tx.cblock);
+                     qcount = 0;
                      if (quorum) {
                         memset(quorum, 0, qlen);
                         pdebug("scan_network(): higher chain found, quourum reset...");
                      }
                   }  /* check block hash and add to quorum */
-                  if (memcmp(node[j].tx.cblockhash, highhash, HASHLEN) >= 0) {
-                     /* add ip to quorum, or count consensus */
-                     if (quorum && count < qlen) {
-                        quorum[count++] = node[j].ip;
-                        ntoa(&(node[j].ip), ipaddr);
-                        pdebug("scan_network(): %s qualified", ipaddr);
-                     } else if (quorum == NULL) count++;
+                  if (memcmp(tharg[j].tx.cblockhash, highhash, HASHLEN) >= 0) {
+                     /* add ip to quorum, or q consensus */
+                     if (quorum && qcount < qlen) {
+                        quorum[qcount++] = tharg[j].ip;
+                        pdebug("scan_network(): %s qualified", ntoa(&tharg[j].ip, NULL));
+                     } else if (quorum == NULL) qcount++;
                   }
                }
             }  /* clear thread data */
-            node[j].ts = 0;
+            tharg[j].join = 0;
             tid[j] = 0;
             done++;
-         } else if (tid[j] == 0) {
-            if (next < Rplistidx && Rplist[next]) {
-               node[j].ip = Rplist[next];
-               node[j].ts = 0;
-               result = thread_create(&(tid[j]), &thread_get_ipl, &node[j]);
-               if (result != VEOK) {
-                  perrno(result, "thread_create()");
-                  node[j].ts = 0;
-                  tid[j] = 0;
-               } else next++;
-            }
          }
       }
-      millisleep(1);
       if (!Running) {
          psticky("");
-         plog("Waiting for scanning threads to finish...");
-         thread_join_list(tid, MAXNODES);
+         plog("Terminating threads in scan_network()...");
+         thread_terminate_list(tid, MAXNODES);
          break;
-      }
-   } while(done < next || (next < Rplistidx && Rplist[next]));
-   pdebug("scan_network(): found %d qualifying nodes...", count);
+      } else millisleep(1);
+   }
+   pdebug("scan_network(): found %d qualifying nodes...", qcount);
    pdebug("scan_network(): qualifying weight 0x%s", weight2hex(highweight));
    pdebug("scan_network(): qualifying block 0x%s", bnum2hex(highbnum));
    psticky("");
 
-   /* set highest weight and block number */
+   /* set highest hash, weight and block number */
    if (hash) memcpy(hash, highhash, HASHLEN);
    if (weight) memcpy(weight, highweight, 32);
    if (bnum) put64(bnum, highbnum);
 
-   return count;
+   return qcount;
 }  /* end scan_network() */
 
 /* Refresh the ip list and send_found() to low-weight peer if needed.
@@ -983,13 +996,23 @@ int refresh_ipl(void)
 {
    NODE node;
    int j, message = 0;
-   word32 ip;
+   word32 ip, *ipp;
+   word16 len;
    TX tx;
 
    for(j = ip = 0; j < 1000 && ip == 0; j++)
       ip = Rplist[rand16() % RPLISTLEN];
    if(ip == 0) BAIL(1);
-   if(get_ipl(&node, ip) != VEOK) BAIL(2);
+   if (get_ipl(&node, ip) == VEOK) {
+      /* add iplist to recent peers */
+      len = get16(node.tx.len);
+      ipp = (word32 *) TRANBUFF(&node.tx);
+      for( ; len > 0; ipp++, len -= 4) {
+         if (*ipp == 0) continue;
+         if (Rplist[RPLISTLEN - 1]) break;
+         addrecent(*ipp);
+      }
+   } else BAIL(2);
    /* Check peer's chain weight against ours. */
    if(cmp256(node.tx.weight, Weight) < 0) {
       /* Send found message to low weight peer */

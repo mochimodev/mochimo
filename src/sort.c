@@ -54,6 +54,17 @@ static int compare_tx(const void *va, const void *vb)
 }
 
 /**
+ * Free resources allocated by sorttx().
+*/
+void sorttx_free(void)
+{
+   if (Tx_ids) free(Tx_ids);
+   if (Txidx) free(Txidx);
+   Tx_ids = NULL;
+   Txidx = NULL;
+}
+
+/**
  * Creates a malloc'd sort index and ledger transaction list:
  * - `word32 Ltidx[Nlt];`
  * - `LTRAN Ltrans[Nlt];`
@@ -139,7 +150,6 @@ FAIL_IO:
 
    return ecode;
 }  /* end sortlt() */
-
 
 /**
  * Creates a malloc'd sort index and transaction ID list:

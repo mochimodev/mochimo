@@ -66,40 +66,74 @@ void phostinfo(void)
    print("\n");
 }  /* end phostinfo() */
 
-int get_option_idx(OPTIONS *opts, int len, char *search)
+/**
+ * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.
+ * Compatible with appended values using " " or ":" or "=".<br/>
+ * e.g. `--arg <value>1 or `--arg:<value>` or `--arg=<value>`
+ * @param argv Pointer to argument list item to check
+ * @param chk1 First option to check against @a argv
+ * @param chk2 Second option to check against @a argv
+ * @returns 1 if either options match argument, else 0 for no match.
+*/
+int argument(char *argv, char *chk1, char *chk2)
 {
-   char *vid, tmp;
+   int result = 0;
+   char tmp, *vp;
 
-   /* remove any value identifier, temporarily */
-   vid = strpbrk(search, ":=");
-   if (vid) {
-      tmp = *vid;
-      *vid = '\0';
+   /* remove value identifier, temporarily */
+   vp = strpbrk(argv, ":=");
+   if (vp) {
+      tmp = *vp;
+      *vp = '\0';
    }
-   /* find matching option... */
-   for (len--; len > 0; len--) {
-      if (strcmp(opts[len].id, search) == 0) break;
-      if (strcmp(opts[len].idl, search) == 0) break;
+   /* check argv for match */
+   if (argv != NULL && *argv) {
+      if (chk1 != NULL && strcmp(argv, chk1) == 0) result = 1;
+      else if (chk2 != NULL && strcmp(argv, chk2) == 0) result = 1;
    }
    /* replace value identifier */
-   if (vid) *vid = tmp;
+   if (vp) *vp = tmp;
 
-   return len;
-}
+   return result;
+}  /* end argument() */
 
-char *get_option_value(int *idx, char *argv[], int argc)
+
+/**
+ * Obtain the value associated with the current argument index.
+ * Compatible with appended values using " " or ":" or "=".<br/>
+ * e.g. `--arg <value>1 or `--arg:<value>` or `--arg=<value>`
+ * @param idx Pointer to current argument index (i.e. argv[*idx])
+ * @param argc Number of total arguments
+ * @param argv Pointer to argument list
+ * @returns Char pointer to argument value, else NULL for no value.
+*/
+ char *argvalue(int *idx, int argc, char *argv[])
 {
-   char *value;
+   char *vp = NULL;
 
-   value = strpbrk(argv[*idx], ":=");
-   if (value) value++;
-   else if (++(*idx) < argc) {
-      if (strncmp("--", argv[*idx], 3) != 0) {
-         value = argv[*idx];
-      }
-   }
+   /* check index */
+   if (*idx >= argc) return NULL;
+   /* remove value identifier, temporarily */
+   vp = strpbrk(argv[*idx], ":=");
+   if (vp) vp++;
+   else if (++(*idx) < argc && argv[*idx][0] != '-') {
+      vp = argv[*idx];
+   } else --(*idx);
 
-   return value;
+   return vp;
+}  /* end argvalue() */
+
+char *metric_reduce(double *value)
+{
+   static char M[8][3] = { "", "K", "M", "G", "T", "P", "E", "Z" };
+   static int MLEN = sizeof(M) / sizeof (*M);
+   int m;
+
+   m = (*value >= 1.0) ? (int) (log10(*value) / 3) : 0;
+   if (m >= MLEN) m = MLEN - 1;
+   *value /= pow(1000.0, (double) m);
+
+   return M[m];
 }
 
 /* kill the block constructor */
@@ -384,6 +418,37 @@ char *hash2str(word8 *hash)
 }
 
 /**
+ * Convert block number and block hash to a BlockID string.
+ * @param bnum Pointer to 8 byte block number
+ * @param bhash Pointer to 32 byte block hash
+ * @param buf Character buffer to place resulting BlockID
+ * @param bufsz Byte length of @a buf
+ * @returns @a buf containing BlockID string or, where @a buf is NULL,
+ * an internal character buffer containing the BlockID str.
+*/
+char *block2str(void *bnum, void *bhash, char *buf, size_t bufsz)
+{
+   static const char fmt[] = "0x%" P32x "%08" P32x " #%02x%02x%02x%02x";
+   static const char fmt_shrt[] = "0x%" P32x " #%02x%02x%02x%02x";
+   static char str[32];
+   word32 *dp;
+   word8 *bp;
+
+   bp = (word8 *) bhash;
+   dp = (word32 *) bnum;
+   if (buf == NULL) {
+      bufsz = 32;
+      buf = str;
+   }
+   if (dp[1]) {
+      /* print bnum as 2x 32-bit words if bnum value > 32-bit */
+      snprintf(buf, bufsz, fmt, dp[1], dp[0], bp[0], bp[1], bp[2], bp[3]);
+   } else snprintf(buf, bufsz, fmt_shrt, dp[0], bp[0], bp[1], bp[2], bp[3]);
+
+   return buf;
+}  /* end blockid2str() */
+
+/**
  * Get string from terminal input without newline char.
  * @param buff Pointer to char array to place input
  * @param len Maximum length of char array @a buff
@@ -646,19 +711,19 @@ word32 set_difficulty(BTRAILER *btp)
 
    /**
     * Segmentation fault handler.
-    * NOTE: compile with "-g -rdynamic" for human readable backtrace
+    * @note compile with "-g -rdynamic" for readable backtrace
    */
    void segfault(int sig) {
-   void *array[10];
-   size_t size;
+      void *array[10];
+      size_t size;
 
-   // get void*'s for all entries on the stack
-   size = backtrace(array, 10);
+      /* get void*'s for all entries on the stack */
+      size = backtrace(array, 10);
 
-   // print out all the frames to stderr
-   fprintf(stderr, "Error: signal %d:\n", sig);
-   backtrace_symbols_fd(array, size, STDERR_FILENO);
-   exit(1);
+      /* print out all the frames to stderr */
+      fprintf(stderr, "Error: signal %d:\n", sig);
+      backtrace_symbols_fd(array, size, STDERR_FILENO);
+      exit(1);
    }
 
 #endif
@@ -699,13 +764,11 @@ void fix_signals(void)
    for(j = 0; j <= NSIG; j++)
       signal(j, SIG_IGN);
 
-#ifdef OS_UNIX
-   signal(SIGSEGV, segfault);   // install our handler
-
-#endif
-
    signal(SIGINT, ctrlc);     /* then install ctrl-C handler */
    signal(SIGTERM, sigterm);  /* ...and software termination */
+#ifdef OS_UNIX
+   signal(SIGSEGV, segfault);   /* segmentation fault handler*/
+#endif
 }
 
 
@@ -714,6 +777,48 @@ void close_extra(void)
    int j;
 
    for(j = 3; j < 50; j++) sock_close(j);
+}
+
+void print_bup(BTRAILER *bt, char *solvestr)
+{
+   word32 bnum, btxs, btime, bdiff;
+   char haiku[256], *haiku1, *haiku2, *haiku3;
+
+   /* prepare block stats */
+   bnum = get32(bt->bnum);
+   btxs = get32(bt->tcount);
+   btime = get32(bt->stime) - get32(bt->time0);
+   bdiff = get32(bt->difficulty);
+   /* print haiku if non-pseudo block */
+   if (!Insyncup && btxs) {
+      /* expand and split haiku into lines for printing */
+      trigg_expand(bt->nonce, haiku);
+      haiku1 = strtok(haiku, "\n");
+      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+      print("\n/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
+      /* print block update and details */
+      plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
+         btime, bdiff, btxs);
+   }
+   /* print block identification */
+   plog("%s-block: 0x%" P32x " #%s...",
+      solvestr, bnum, addr2str(bt->bhash));
+   /* print miner data if enabled */
+   if (!Ininit && !Insyncup && !Nominer) {
+      read_data(&Hps, sizeof(Hps), "hps.dat");
+      print("Solved: %" P32u "  Hps: %" P32u "\n", Nsolved, Hps);
+   }
+}
+
+void print_splash(char *execname, char *version)
+{
+   plog("%s %s, " __DATE__ " " __TIME__, execname, version);
+   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
+   plog("See the License Agreement at the links below:");
+   plog("   https://mochimo.org/license.pdf (PDF version)");
+   plog("   https://mochimo.org/license (TEXT version)");
+   print("\n");
 }
 
 /* end include guard */

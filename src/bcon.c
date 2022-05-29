@@ -238,13 +238,13 @@ int b_con(char *fname)
    /* re-open the clean TX queue (txclean.dat) to read */
    fp = fopen("txclean.dat", "rb");
    if (fp == NULL) {
-      mErrno(FAIL_IN, "b_con(): failed to fopen(txclean.dat)");
+      mErrno(FAIL, "b_con(): failed to fopen(txclean.dat)");
    }
 
    /* create cblock.tmp */
    fpout = fopen("cblock.tmp", "wb");
    if (fpout == NULL) {
-      mErrno(FAIL_OUT, "b_con(): failed to fopen(cblock.tmp)");
+      mErrno(FAIL, "b_con(): failed to fopen(cblock.tmp)");
    }
 
    /* compute new block number, mining reward */
@@ -256,6 +256,7 @@ int b_con(char *fname)
    memcpy(bh.maddr, maddr, TXADDRLEN);
    put64(bh.mreward, mreward);
    /* ... and trailer */
+   memset(&bt, 0, sizeof(bt));
    memcpy(bt.phash, Cblockhash, HASHLEN);
    put64(bt.bnum, bnum);
    put64(bt.mfee, Mfee);
@@ -270,7 +271,7 @@ int b_con(char *fname)
 
    /* write header to disk */
    if (fwrite(&bh, sizeof(bh), 1, fpout) != 1) {
-      mError(FAIL_IO, "b_con(): failed to fwrite(bh)");
+      mError(FAIL, "b_con(): failed to fwrite(bh)");
    }
 
    ntx = 0;
@@ -281,31 +282,34 @@ int b_con(char *fname)
          cond = memcmp(&Tx_ids[*idx * HASHLEN], prev_tx_id, HASHLEN);
          if (cond <= 0) {
             if (cond == 0) continue;  /* ignore duplicate transaction */
-            mError(FAIL_IO, "b_con(): txclean sort error: TX#%" P32u, num);
+            mError(FAIL, "b_con(): txclean sort error: TX#%" P32u, num);
          }
       }
       /* remember tx_id for next iteration */
       memcpy(prev_tx_id, &Tx_ids[*idx * HASHLEN], HASHLEN);
       /* seek to and read TXQENTRY */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-         mErrno(FAIL_IO, "b_con(): bad fseek(TX): TX#%" P32u, num);
+         mErrno(FAIL, "b_con(): bad fseek(TX): TX#%" P32u, num);
       } else if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
-         mError(FAIL_IO, "b_con(): bad fread(TX): TX#%" P32u, num);
+         mError(FAIL, "b_con(): bad fread(TX): TX#%" P32u, num);
       }
       /* add transaction to block hash and merkel array */
       sha256_update(&bctx, &tx, sizeof(TXQENTRY));
       sha256_update(&mctx, &tx, sizeof(TXQENTRY));
       /* write transaction to block */
       if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
-         mError(FAIL_IO, "b_con(): bad fwrite(TX): TX#%" P32u, num);
+         mError(FAIL, "b_con(): bad fwrite(TX): TX#%" P32u, num);
       }
       /* increment actual transactions for block */
       ntx++;
    }  /* end for num */
+   /* finished with input */
+   fclose(fp);
+   fp = NULL;
 
    /* Put tran count in trailer */
    if (ntx) put32(bt.tcount, ntx);
-   else mError(FAIL_IO, "b_con(): no good transactions");
+   else mError(FAIL, "b_con(): no good transactions");
 
    /* finalize merkel array - (phash+bnum+mfee+tcount+time0+difficulty)*/
    if (NEWYEAR(bt.bnum)) sha256_update(&mctx, &bt, (HASHLEN+8+8+4+4+4));
@@ -315,23 +319,30 @@ int b_con(char *fname)
 
    /* Let the miner put final hash[] and stime[] at end of BTRAILER struct
     * with the calls to sha256_final() and put32().
-    * Gift bctx to miner using write_data().
+    * Gift bctx to miner using write_data() + rename().
     */
 
    /* write trailer to disk */
    if (fwrite(&bt, sizeof(BTRAILER), 1, fpout) != 1) {
-      mError(FAIL_IO, "b_con(): failed to fwrite(bt)");
+      mError(FAIL, "b_con(): failed to fwrite(bt)");
    }
+   /* finished with output */
+   fclose(fpout);
+   fpout = NULL;
 
-   /* save bctx to disk for miner */
-   remove("bctx.dat");
-   if (write_data(&bctx, sizeof(bctx), "bctx.dat") != sizeof(bctx)) {
-      mError(FAIL_IO, "b_con(): failed to write_data(bctx)");
-   }
-
+   /* move temporary output (*.tmp) to working output (*.dat) */
    remove(fname);
    if (rename("cblock.tmp", fname)) {
-      mErrno(FAIL_IO, "b_con(): rename cblock.tmp to %s", fname);
+      mErrno(FAIL, "b_con(): rename cblock.tmp to %s", fname);
+   } else if (!Nominer) {
+      /* save bctx to disk for miner */
+      remove("bctx.tmp");
+      remove("bctx.dat");
+      if (write_data(&bctx, sizeof(bctx), "bctx.tmp") != sizeof(bctx)) {
+         perr("b_con(): failed to write_data(bctx)");
+      } else if (rename("bctx.tmp", "bctx.dat") != 0) {
+         perr("b_con(): rename bctx");
+      }
    }
 
    pdebug("b_con(): completed in %gs", diffclocktime(clock(), ticks));
@@ -340,17 +351,10 @@ int b_con(char *fname)
    ecode = VEOK;
 
    /* cleanup / error handling */
-FAIL_IO:
-   fclose(fpout);
-FAIL_OUT:
-   fclose(fp);
-FAIL_IN:
-   /* sorttx() allocated these two */
-   free(Tx_ids);
-   free(Txidx);
-   Tx_ids = NULL;
-   Txidx = NULL;
 FAIL:
+   if (fpout) fclose(fpout);
+   if (fp) fclose(fp);
+   sorttx_free();
 
    return ecode;
 }  /* end b_con() */

@@ -23,6 +23,7 @@ extern word32 Ntx;
 extern "C" {
 #endif
 
+void sorttx_free(void);
 int sortlt(char *fname);
 int sorttx(char *fname);
 

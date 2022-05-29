@@ -230,10 +230,9 @@ FAIL:
 int b_update(char *fname, int mode)
 {
    BTRAILER bt;
-   word32 bnum, btxs, btime, bdiff;
-   char haiku[256], *haiku1, *haiku2, *haiku3, *solvestr;
-   char bcfname[FILENAME_MAX];
+   word32 bnum;
    int ecode;
+   char bcfname[FILENAME_MAX], *solvestr;
 
    /* init */
    solvestr = NULL;
@@ -318,11 +317,12 @@ int b_update(char *fname, int mode)
    /* add block trailer to tfile and accept block */
    if (append_tfile(fname, "tfile.dat") != VEOK) {
       restart("b_update(): failed to append_tfile()");
-   } else if (accept_block(fname, Cblocknum) != VEOK){
+   } else if (accept_block(fname, Cblocknum) != VEOK) {
       restart("b_update(): failed to accept_block()");
    }
 
    /* update server data */
+   remove("cblock.dat");
    if (write_global() != VEOK) {
       restart("b_update(): failed to write_global()");
    } else if (Ininit == 0) {
@@ -338,28 +338,9 @@ int b_update(char *fname, int mode)
    }  /* end if not-Ininit */
 
    /* print update log */
-   if(!Bgflag) {
-      if (solvestr == NULL) solvestr = "Update";
-      /* prepare block stats */
-      bnum = get32(bt.bnum);
-      btxs = get32(bt.tcount);
-      btime = get32(bt.stime) - get32(bt.time0);
-      bdiff = get32(bt.difficulty);
-      /* print haiku if non-pseudo block */
-      if (!Insyncup && mode != 2) {
-         /* expand and split haiku into lines for printing */
-         trigg_expand(bt.nonce, haiku);
-         haiku1 = strtok(haiku, "\n");
-         haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
-         haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-         print("\n/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
-         /* print block update and details */
-         plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
-            btime, bdiff, btxs);
-      }
-      if (mode == 2) solvestr = "Pseudo";
-      plog("%s-block: 0x%" P32x " #%s...", solvestr, bnum, addr2str(bt.bhash));
-   }
+   if (mode == 2) solvestr = "Pseudo";
+   if (solvestr == NULL) solvestr = "Update";
+   if (!Bgflag) print_bup(&bt, solvestr);
 
    /* perform neogenesis block update -- as necessary */
    if (Cblocknum[0] == 0xff) {

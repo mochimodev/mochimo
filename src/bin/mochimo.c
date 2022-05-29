@@ -177,10 +177,12 @@ void monitor(void)
          Running = 0;
          return;
       } else if (strcmp(buff, "p") == 0) {   /* print peers command */
-         print("Trusted peer list:\n");
+         print("Trusted peers:\n");
          print_ipl(Tplist, TPLISTLEN);
-         print("Recent peer list:\n");
+         print("Recent peers:\n");
          print_ipl(Rplist, RPLISTLEN);
+         print("Pinklisted:\n");
+         print_ipl(Epinklist, RPLISTLEN);
          continue;
       } else if (strcmp(buff, "o") == 0) {   /* toggle log file */
          set_output_file(NULL, NULL);
@@ -235,7 +237,7 @@ int init(void)
    word8 netweight[32], netbnum[8]; //, bnum[8];
    /* BTRAILER bt; */
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
-   int result, status, attempts /*, count */ ;
+   int result, status, attempts, count;
    word8 highblock[8];
 
    /* init */
@@ -285,6 +287,7 @@ int init(void)
       }
    }
 
+   plog("Init chain...");
    /* Find the last block in bc/ and reset Time0, and Difficulty */
    if (reset_chain() != VEOK) return perr("reset_chain() failed");
    /* validate our own tfile.dat to compute Weight */
@@ -296,26 +299,29 @@ int init(void)
       pdebug("init(): %s", weight2hex(Weight));
       perr("init(): tfile mismatch -- resync");
       memset(Cblocknum, 0, 8);  /* flag resync */
+   } else if (!iszero(Cblocknum, 8)) {
+      plog(" - 0x%" P32x " 0x%s", get32(Cblocknum),
+         val2hex(Weight, 32, weightstr, 65));
    }
 
    /* scan entire network of peers */
    while (Running) {
-      /* fresh peer acquisition */
-      plog("Downloading fresh peers...");
-      http_get("https://mochimo.org/peers/start", "start.lst", STD_TIMEOUT);
-      /* read pinklist and trusted peers, and populate recent peers */
-      read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
-      read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
-      /* populate recent peers */
-      read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
-      read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
-      read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
-      /* shuffle recent peer list */
-      shuffle32(Rplist, RPLISTLEN);
-      /* delete start ip list */
+      /* reset peers, download start peers, initialize peer lists */
+      plog("Init peers...");
       remove("start.lst");
+      http_get("https://mochimo.org/peers/start", "start.lst", STD_TIMEOUT);
+      count = read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
+      if (count > 0) plog(" - added %" P32u " pinklisted peers", count);
+      count = read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
+      if (count > 0) plog(" - added %" P32u " trusted peers", count);
+      count = read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
+      count += read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
+      count += read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
+      if (count > 0) plog(" - added %" P32u " recent peers", count);
+      /* ensure recent peers list is shuffled */
+      shuffle32(Rplist, RPLISTLEN);
       /* scan network for quorum and highest hash/weight/bnum */
-      plog("Network scan...");
+      plog("Init network...");
       qlen = scan_network(quorum, MAXQUORUM, nethash, netweight, netbnum);
       plog(" - %d/%d 0x%" P32x " 0x%s", qlen, MAXQUORUM, get32(netbnum),
          val2hex(netweight, 32, weightstr, 65));
@@ -332,22 +338,22 @@ int init(void)
          if (result < 0) {
             pdebug("network weight compares higher");
             print("\n");
-            print("┌────────────────────────────────────┐\n");
-            print("│ an overwhelming sense of confusion │\n");
-            print("└────────────────────────────────────┘\n\n");
+            print(" ┌────────────────────────────────────┐\n");
+            print(" │ an overwhelming sense of confusion │\n");
+            print(" └────────────────────────────────────┘\n\n");
          } else if (result > 0) {
             pdebug("network weight compares lower");
             print("\n");
-            print("┌────────────────────────────────────┐\n");
-            print("│   an overwhelming sense of power   │\n");
-            print("└────────────────────────────────────┘\n\n");
+            print(" ┌────────────────────────────────────┐\n");
+            print(" │   an overwhelming sense of power   │\n");
+            print(" └────────────────────────────────────┘\n\n");
             break;  /* we're heavier, finish */
          } else if (memcmp(Cblockhash, nethash, HASHLEN) == 0) {
             pdebug("network weight and hash compares equal");
             print("\n");
-            print("┌────────────────────────────────────┐\n");
-            print("│ an overwhelming sense of belonging │\n");
-            print("└────────────────────────────────────┘\n\n");
+            print(" ┌────────────────────────────────────┐\n");
+            print(" │ an overwhelming sense of belonging │\n");
+            print(" └────────────────────────────────────┘\n\n");
             break;  /* we're in sync, finish */
          }
          /* have we fallen behind or split from the chain? */
@@ -411,9 +417,7 @@ int init(void)
  */
 int server(void)
 {
-   /*
-   * real time of current server loop - set by server()
-   */
+   /* real time of current server loop - set by server() */
    static time_t Ltime;
    static time_t Stime;    /* status display update time */
    static time_t nsd_time;  /* event timers */
@@ -533,13 +537,13 @@ int server(void)
        * try to read data from socket, nsd, using gettx().
        */
       if(nsd != INVALID_SOCKET) {
-         /* handle_tx() completes the initial handshake and fills node
+         /* gettx() completes the initial handshake and fills node
           * and some parent tables.  It returns -1 if no data yet.
-          * If handle_tx() completes the transaction, it returns 0, 1, 2, or 3;
+          * If gettx() completes the transaction, it returns 0, 1, 2, or 3;
           * otherwise it returns sizeof(TX) and needs help from child
           * so getslot() allocates a new np and copies node into it.
           */
-         status = handle_tx(&node, nsd);  /* fills in node */
+         status = gettx(&node, nsd);  /* fills in node */
          if(status != -1) {
             if(status == VEOK && (np = getslot(&node)) != NULL) {
                pid = fork();  /* create child to handle TX */
@@ -981,7 +985,7 @@ EOA:  /* end of arguments */
    psticky("");
 
    return 0;
-} /* end main() */
+}  /* end main() */
 
 /* end include guard */
 #endif
