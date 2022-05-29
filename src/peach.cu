@@ -93,7 +93,7 @@ static PEACH_CUDA_CTX *PeachCudaCTX;
 /* host phash and diff (paged memory txfer) */
 static word8 *h_phash, *h_diff;
 /* device symbol memory (unique per device) */
-__device__ __constant__ static word8 __align__(32) c_phash[SHA256LEN];
+__device__ __constant__ static word8 c_phash[SHA256LEN];
 __device__ __constant__ static word8 c_diff;
 
 /**
@@ -114,7 +114,7 @@ __device__ __constant__ static word8 c_diff;
 __device__ static word32 cu_peach_dflops(void *data, size_t len,
    word32 index, int txf)
 {
-   __constant__ __align__(16) static uint32_t c_float[4] = {
+   __constant__ static uint32_t c_float[4] = {
       WORD32_C(0x26C34), WORD32_C(0x14198),
       WORD32_C(0x3D6EC), WORD32_C(0x80000000)
    };
@@ -248,8 +248,8 @@ __device__ static word32 cu_peach_dmemtx(void *data, size_t len, word32 op)
 __device__ static void cu_peach_nighthash(void *in, size_t inlen,
    word32 index, size_t txlen, void *out)
 {
-   __constant__ __align__(32) static word64 key32B[4] = { 0, 0, 0, 0 };
-   __constant__ __align__(64) static word64 key64B[8] = {
+   __constant__ static word64 key32B[4] = { 0, 0, 0, 0 };
+   __constant__ static word64 key64B[8] = {
       WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
       WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
       WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
@@ -335,8 +335,8 @@ __device__ static void cu_peach_generate(word32 index, word32 *tilep)
 */
 __device__ void cu_peach_jump(word32 *index, word64 *nonce, word32 *tilep)
 {
-   __align__(32) word32 seed[PEACHJUMPLEN / 4];
-   __align__(32) word32 dhash[SHA256LEN / 4];
+   word32 seed[PEACHJUMPLEN / 4];
+   word32 dhash[SHA256LEN / 4];
    int i;
 
    /* construct seed for use as Nighthash input for this index on the map */
@@ -384,9 +384,9 @@ __global__ void kcu_peach_build(word8 *d_map, word32 offset)
 __global__ void kcu_peach_solve(word8 *d_map, SHA256_CTX *d_ictx,
    word8 *d_solve)
 {
-   __align__(32) word64 nonce[4];
-   __align__(32) word8 hash[SHA256LEN];
-   __align__(8) SHA256_CTX ictx;
+   word64 nonce[4];
+   word8 hash[SHA256LEN];
+   SHA256_CTX ictx;
    word32 *x, mario, tid, i;
 
    tid = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -717,10 +717,10 @@ int peach_init_cuda(DEVICE_CTX devlist[], int max)
  * @param dev Pointer to DEVICE_CTX to perform work with
  * @param bt Pointer to block trailer to solve for
  * @param diff Difficulty to test against entropy of final hash
- * @param out Pointer to location to place solved block trailer
+ * @param btout Pointer to location to place solved block trailer
  * @returns VEOK on solve, else VERROR
 */
-int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
+int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
 {
    int i, id, sid, grid, block;
    PEACH_CUDA_CTX *P;
@@ -811,9 +811,8 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
 
    /* check for solvable work in block trailer */
    if (dev->status == DEV_IDLE && get32(bt->tcount)) {
-      dev->status = DEV_WORK;
-   } else if (get32(bt->tcount) == 0) {
-      dev->status = DEV_IDLE;
+      /* remain idle if btout contains a solve for current block number */
+      if (cmp64(bt->bnum, btout->bnum)) dev->status = DEV_WORK;
    }
 
    /* solve work in block trailer */
@@ -828,8 +827,8 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
             dev->work = 0;
             continue;
          }
-         /* check for solvable work in block trailer */
-         if (get32(bt->tcount) == 0) {
+         /* switch to idle mode if no transactions or already solved bnum */
+         if (get32(bt->tcount) == 0 || cmp64(bt->bnum, btout->bnum) == 0) {
             dev->status = DEV_IDLE;
             dev->work = 0;
             continue;
@@ -843,9 +842,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, void *out)
             cudaMemcpyAsync(P->d_solve[sid], P->h_solve[sid], 32,
                cudaMemcpyHostToDevice, P->stream[sid]);
             cuCHK(cudaGetLastError(), dev, return VERROR);
-            /* record stime */
-            put32(P->h_bt[sid]->stime, time(NULL));
-            memcpy(out, P->h_bt[sid], sizeof(BTRAILER));
+            memcpy(btout, P->h_bt[sid], sizeof(BTRAILER));
             /* return a solve */
             return VEOK;
          }

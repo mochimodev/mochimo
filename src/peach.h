@@ -113,7 +113,7 @@ int peach_solve(BTRAILER *bt, word8 diff, void *out);
    int peach_init_cuda_device(DEVICE_CTX *devp);
    int peach_init_cuda(DEVICE_CTX devlist[], int max);
    int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff,
-      void *out);
+      BTRAILER *out);
 
 #endif
 
