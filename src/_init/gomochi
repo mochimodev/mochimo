@@ -28,10 +28,7 @@ if test "$CHAR" = "-"; then WDIR="d/"; fi
 
 echo
 if test ! -f mochimo
-then
-   echo "mochimo binary not found: please check your installation."
-   echo
-   exit 1
+then echo -e "Missing 'mochimo' binary: check installation\n" && exit 1
 fi
 
 ########
