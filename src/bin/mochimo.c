@@ -14,6 +14,8 @@
 #define MOCHIMO_C
 
 
+#define GPUMAX 64
+
 /* ensure GIT_VERSION exists */
 #ifndef GIT_VERSION
    #define GIT_VERSION "no-git-version"
@@ -62,9 +64,6 @@
 #include "global.h"     /* System wide globals  */
 #include "bup.h"
 #include "bcon.h"
-
-/* Server control */
-#include "miner.c"
 
 int veronica(void)
 {
@@ -224,6 +223,169 @@ void monitor(void)
 
    }  /* end command loop */
 }  /* end monitor() */
+
+/* miner blockin blockout -- child process */
+int miner(char *blockin, char *blockout)
+{
+#ifdef CUDA
+   DEVICE_CTX GPU[GPUMAX] = { 0 };
+   DEVICE_CTX *CudaGPUs = NULL;
+   int num_cuda_gpus = 0;
+   int m;
+
+#endif
+   BTRAILER bt, btout;
+   SHA256_CTX bctx;
+   FILE *fp;
+   time_t start, prev;
+   word32 n;
+   char phaiku[256];
+   int ecode;
+
+   show("solving");
+
+   /* pre-checks */
+   if (!fexists(blockin)) {
+      mError(FAIL, "miner(): missing blockin %s", blockin);
+   }
+
+   /* init */
+   memset(&btout, 0, sizeof(btout));
+   time(&start);
+   time(&prev);
+   n = 0;
+
+#ifdef CUDA
+      CudaGPUs = GPU;
+      num_cuda_gpus = peach_init_cuda(CudaGPUs, GPUMAX);
+      pdebug("Cuda Devices = %d", num_cuda_gpus);
+
+#endif
+
+   /* begin miner loop */
+   while (Running) {
+      /* read candidate block file and bctx */
+      if (read_data(&bctx, sizeof(bctx), "bctx.dat") != sizeof(bctx)) {
+         mError(FAIL, "miner(): failed to read_data(bctx)");
+      } else if (readtrailer(&bt, blockin) != VEOK) {
+         mError(FAIL, "miner(): failed to read %s trailer", blockin);
+      }
+      /* remove miner files */
+      remove("bctx.dat");
+      remove("miner.tmp");
+      /* copy blockin to miner.tmp to perform current work */
+      if (fcopy(blockin, "miner.tmp") != 0) {
+         mError(FAIL, "miner(): failed to copy %s to miner.tmp", blockin);
+      }
+
+
+         pdebug("miner(): solving block: 0x%s", bnum2hex(bt.bnum));
+#ifdef CUDA
+         for (m = 0, n = 0; Running; m++, usleep(Dynasleep)) {
+            if (m >= num_cuda_gpus) m = 0;
+
+#else
+         for (peach_init(&bt); Running; n++) {
+
+#endif
+            /* check time every 256 iterations -- or always if -DCUDA */
+            if ((n & 0xff) == 0) {
+               /* check for new bctx.dat file every second */
+               if (difftime(time(NULL), prev)) {
+                  time(&prev);
+                  /* on new bctx, break inner loop for efficient restart */
+                  if (fexists("bctx.dat")) break;
+               }
+            }
+
+#ifdef CUDA
+            /* perform solve work -- cpu */
+            if (peach_solve_cuda(&CudaGPUs[m], &bt, 0, &btout) == VEOK) {
+               memcpy(bt.nonce, btout.nonce, HASHLEN);
+
+#else
+            /* perform solve work -- cpu */
+            if (peach_solve(&bt, bt.difficulty[0], btout.nonce) == VEOK) {
+
+#endif
+               /* double check solve is valid */
+               if (peach_check(&bt) != VEOK) {
+                  mError(FAIL, "miner(): invalid solve!\n");
+                  memset(&btout, 0, sizeof(btout));
+               } else {
+                  /* solve is valid */
+                  show("solved");
+                  trigg_expand(bt.nonce, phaiku);
+                  if (!Bgflag) print("\nSOLVED!!!\n\n%s\n", phaiku);
+                  /* ensure solve time is valid */
+                  while (Running) {
+                     if (difftime(time(NULL), get32(bt.time0)) > 0) break;
+                     pwarn("miner(): early solve! Check system clock...");
+                     sleep(1);
+                  }
+                  /* put solve time in trailer */
+                  put32(bt.stime, time(NULL));
+                  /* add nonce and stime to bctx; put hash in trailer */
+                  sha256_update(&bctx, bt.nonce, HASHLEN + 4);
+                  sha256_final(&bctx, bt.bhash);
+                  /* write trailer to miner.tmp */
+                  fp = fopen("miner.tmp", "r+b");
+                  if (fp == NULL) {
+                     mError(FAIL, "miner(): cannot re-open miner.tmp");
+                  } else if (fseek(fp, -(sizeof(bt)), SEEK_END) != 0) {
+                     mError(FAIL_FP, "miner(): fseek(bt) on miner.tmp");
+                  } else if (fwrite(&bt, sizeof(bt), 1, fp) != 1) {
+                     mError(FAIL_FP, "miner(): fwrite(bt) on miner.tmp");
+                  } else fclose(fp);
+                  /* move mblock.tmp to blockout */
+                  remove(blockout);
+                  if (rename("miner.tmp", blockout) != 0) {
+                     mError(FAIL, "miner(): cannot rename miner.tmp");
+                  }
+                  /* final log */
+                  pdebug("miner: solved 0x%s", bnum2hex(bt.bnum));
+                  Running = 0;
+               }  /* end if (peach_check(&bt)... else... */
+            }  /* end if (peach_solve(&bt, diff, bt.nonce)... */
+         }  /* end for (peach_init(&bt)... */
+
+
+      /* record hps */
+#ifdef CUDA
+      for (Hps = 0, m = 0; m < num_cuda_gpus; m++) {
+         Hps += (word32)
+            (CudaGPUs[m].total_work / difftime(time(NULL), start));
+      }
+#else
+      Hps = n / (word32) difftime(time(NULL), start);
+#endif
+      write_data(&Hps, sizeof(Hps), "hps.dat");
+   }  /* end while(Running) */
+
+   /* finish -- gracefully */
+   return VEOK;
+
+   /* failure -- cleanup/error handling */
+FAIL_FP:
+   fclose(fp);
+FAIL:
+
+   return ecode;
+}  /* end miner() */
+
+/* Start the miner as a child process */
+int start_miner(void)
+{
+   pid_t pid;
+
+   if(Mpid) return VEOK;
+   pid = fork();
+   if(pid < 0) return VERROR;
+   if(pid) { Mpid = pid; return VEOK; }  /* parent */
+   /* child */
+   miner("cblock.dat", "mblock.dat");
+   exit(0);
+}  /* end start_miner() */
 
 /**
  * Initialize the server/client from any state
