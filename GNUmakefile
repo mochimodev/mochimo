@@ -181,36 +181,43 @@ version:
 
 # include custom recipe configurations here
 
-cpunode: clean mochimo
+install-cudaminer:
+	@echo && echo "Checking Build..."
+	@make miner CFLAGS=-DCUDA --no-print-directory
+	@echo && echo "Installing (Cuda) Miner..."
+	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/miner $(BINDIR)/
+	@echo "Ensuring permissions..."
+	@chmod +x $(BINDIR)/miner
+	@echo && echo "Mochimo (Cuda) Miner Installed!"
+	@echo
 
-cudanode: clean
-	@make mochimo CFLAGS=-DCUDA --no-print-directory
-
-mochimo: $(BUILDDIR)/bin/mochimo
-
-install:
-	@echo && echo "Installing directory structure..."
-	@mkdir -p $(BINDIR)/d
-	@echo "Installing Mochimo binaries..."
-	@mv $(addprefix $(BUILDDIR)/bin/,mochimo) $(BINDIR)/
+install-mochimo:
+	@echo && echo "Checking Build..."
+	@make mochimo --no-print-directory
+	@echo && echo "Installing Mochimo Server..."
+	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/mochimo $(BINDIR)/
 	@echo "Installing support files..."
 	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
 	@echo "Ensuring permissions..."
 	@chmod +x $(BINDIR)/*-external.sh
 	@chmod +x $(BINDIR)/gomochi
 	@chmod +x $(BINDIR)/mochimo
-	@echo && echo "Installation complete!"
-	@echo && echo "Cleanup..."
+	@echo && echo "Mochimo Server Installed!"
+	@echo
+
+miner: $(BUILDDIR)/bin/miner
+
+mochimo: $(BUILDDIR)/bin/mochimo
 
 uninstall:
-	@echo && echo "Removing internal data directory..."
-	@rm -r $(BINDIR)/d
-	@echo "Removing Mochimo binaries..."
-	@rm $(addprefix $(BINDIR)/,mochimo)
-	@echo "Installing support files..."
+	@echo "Removing support files..."
 	@rm $(patsubst $(SOURCEDIR)/_init/%,$(BINDIR)/%, \
-		$(wildcard $(SOURCEDIR)/_init/*))
-	@echo && echo "Uninstall complete!"
+		$(wildcard $(SOURCEDIR)/_init/*)) 2>/dev/null || :
+	@echo "Removing binaries..."
+	@rm $(addprefix $(BINDIR)/,mochimo miner) 2>/dev/null || :
+	@echo && echo "Uninstall complete!" && echo
+	@echo "NOTE: remove build files with: \`make clean\`"
+	@echo "NOTE: remove the working directly within bin/, manually"
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
