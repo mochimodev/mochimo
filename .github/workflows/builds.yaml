@@ -15,5 +15,5 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-      - name: Make Mochimo
-        run: make mochimo -C ${{ github.workspace }}
+      - name: Make Mochimo Install
+        run: make install-mochimo -C ${{ github.workspace }}
