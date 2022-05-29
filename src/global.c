@@ -43,7 +43,6 @@ char *Statusarg;     /* Statusarg->"message_string" shows on ps */
 char *Bcdir = BCDIR; /* block chain directory */
 char *Spdir = SPDIR; /* split chain directory */
 
-time_t Pushtime;     /* time of last OP_MBLOCK */
 time_t Utime;        /* update time for watchdog */
 word8 Allowpush;     /* set by -P flag in mochimo.c */
 word8 Cbits = CBITS; /* 8 capability bits */

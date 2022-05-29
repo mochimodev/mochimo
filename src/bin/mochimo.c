@@ -563,10 +563,11 @@ int server(void)
                         break;
                      case OP_GET_CBLOCK:
                         /* send out cblock.dat to peer via file copy */
-                        status = VERROR;
-                        if (fexists("cblock.dat")) {
+                        status = fexists("cblock.dat") ? VEOK : VERROR;
+                        if (status == VEOK) {
                            sprintf(fname, "cb%u.tmp", (unsigned) getpid());
-                           if (fcopy("cblock.dat", fname) == VEOK) {
+                           status = fcopy("cblock.dat", fname);
+                           if (status == VEOK) {
                               status = send_file(np, fname);
                               remove(fname);
                            }
@@ -574,7 +575,13 @@ int server(void)
                         break;
                      case OP_MBLOCK:
                         /* receive mined block as mblock.dat from peer */
-                        status = recv_file(np, "mblock.dat");
+                        status = recv_file(np, "mblock.tmp");
+                        if (status != VEOK || fexists("mblock.dat")) {
+                           remove("mblock.tmp");
+                        } else {
+                           rename("mblock.tmp", "mblock.dat");
+                           ftouch("cblock.lck");
+                        }
                         break;
                      case OP_TF:
                         /* send tfile.dat section to peer */
@@ -952,7 +959,7 @@ EOA:  /* end of arguments */
          /* shutdown sockets */
          sock_cleanup();
          /* stop services */
-         stop_miner(0);
+         stop_miner();
          stop_mirror();
          stop_found();
          stop_bcon();

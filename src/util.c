@@ -133,7 +133,7 @@ int stop_found(void)
 }
 
 /* kill the miner child */
-int stop_miner(int make_idle)
+int stop_miner(void)
 {
    int status = VETIMEOUT;
 
@@ -141,10 +141,9 @@ int stop_miner(int make_idle)
       pdebug("   Waiting for miner to exit");
       kill(Mpid, SIGTERM);
       waitpid(Mpid, &status, 0);
-      if (make_idle) {
-         remove("cblock.dat");
-         remove("miner.tmp");
-      }
+      /* remove miner files */
+      remove("miner.tmp");
+      remove("bctx.dat");
       Mpid = 0;
    }
 
@@ -173,7 +172,7 @@ void stop4update(void)
    /* kill and wait for critical services to exit */
    stop_bcon();
    stop_found();
-   stop_miner(1);
+   stop_miner();
 
    /* Reap cblock and mblock-push children... */
    if (!Ininit && Allowpush) {
@@ -199,7 +198,7 @@ void fatal2(int exitcode, char *message)
    /* stop all services */
    stop_bcon();
    stop_found();
-   stop_miner(0);
+   stop_miner();
    stop_mirror();
    /* wait for all children */
    while(waitpid(-1, NULL, 0) != -1);

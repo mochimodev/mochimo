@@ -43,7 +43,6 @@ extern char *Statusarg;     /* Statusarg->"message_string" shows on ps */
 extern char *Bcdir;         /* block chain directory */
 extern char *Spdir;         /* block chain directory */
 
-extern time_t Pushtime;     /* time of last OP_MBLOCK */
 extern time_t Utime;        /* update time for watchdog */
 extern word8 Allowpush;     /* set by -P flag in mochimo.c */
 extern word8 Cbits;         /* 8 capability bits */

@@ -833,32 +833,17 @@ int handle_tx(NODE *np, SOCKET sd)
          /* Now we can fetch the found block, validate it, and update. */
          Blockfound = 1;
          break;
-      case OP_BALANCE:
-         send_balance(np);
-         return 1;
-      case OP_RESOLVE:
-         send_resolve(np);
-         send_op(np, OP_RESOLVE);
-         return 1;
-      case OP_GET_CBLOCK:
-         if (!Allowpush || !fexists("miner.tmp")) return 1;
-         break;
-      case OP_MBLOCK:
-         if (!Allowpush || (time(NULL) - Pushtime) < 150) return 1;
-         Pushtime = time(NULL);
-         break;
-      case OP_HASH:
-         send_hash(np);
-         return 1;
-      case OP_IDENTIFY:
-         send_identify(np);
-         return 1;
-      case OP_BUSY:
-      case OP_NACK:
-      case OP_HELLO_ACK:
-         return 1;
-      default:
-         pdebug("handle_tx(%s): requires child...", np->id);
+      }
+      case OP_BALANCE:     send_balance(np); return 1;
+      case OP_RESOLVE:     send_resolve(np); return 1;
+      case OP_GET_CBLOCK:  /* fallthrough */
+      case OP_MBLOCK:      if (!Allowpush) return 1; break;
+      case OP_HASH:        send_hash(np); return 1;
+      case OP_IDENTIFY:    send_identify(np); return 1;
+      case OP_BUSY:        /* fallthrough */
+      case OP_NACK:        /* fallthrough */
+      case OP_HELLO_ACK:   return 1;
+      default: pdebug("gettx(%s): requires child...", np->id);
    }
 
    /* If too many children in too small a space... */
