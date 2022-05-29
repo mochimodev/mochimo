@@ -104,8 +104,8 @@ int child_status(NODE *np, pid_t pid, int status)
       if(WIFEXITED(status)) {
          status = WEXITSTATUS(status);
          if(status != 0) {
-            if(status >= 2) pinklist(np->ip);
-            if(status >= 3) epinklist(np->ip);
+            if(status >= 2) epinklist(np->ip);
+            if(status >= 3) pinklist(np->ip);
             return status;
          }
       } else return 1;  /* error if not exited */

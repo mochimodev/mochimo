@@ -545,14 +545,17 @@ int server(void)
                pid = fork();  /* create child to handle TX */
                if(pid == 0) {
                   /* in child -- execute() */
-                  pdebug("execute(): opcode = %d", get16(np->tx.opcode));
-                  switch (get16(np->tx.opcode)) {
+                  opcode = get16(np->tx.opcode);
+                  pdebug("execute(): opcode = %d", opcode);
+                  switch (opcode) {
                      case OP_FOUND:
                         /* get the advertised found block -- synchronous
                         * Blockfound was set by gettx()
                         */
                         sock_close(np->sd);  /* close initial connection */
-                        exit(get_file(np->ip, np->tx.cblock, "rblock.dat"));
+                        status =
+                           get_file(np->ip, np->tx.cblock, "rblock.dat");
+                        break;
                      case OP_GET_BLOCK:
                         /* send np->tx.blocknum to peer */
                         status = send_file(np, NULL);
@@ -585,14 +588,19 @@ int server(void)
                         break;
                      case OP_TF:
                         /* send tfile.dat section to peer */
-                        send_tf(np);
+                        status = send_tf(np);
                         break;
                      default:
                         Nbadlogs++;  /* bad OP's */
-                        pdebug("execute(): bad opcode: %d", get16(np->tx.opcode));
-                        exit(VEBAD);
+                        pdebug("execute(): bad opcode: %d", opcode);
+                        status = VEBAD;
                   }  /* end switch op */
                   sock_close(np->sd);
+                  /* IMPORTANT: the exit status MUST NOT be less than 0.
+                   * When the parent calls WEXITSTATUS(), only 8-bits of
+                   * the status are returned. VETIMEOUT results in an
+                   * underflow and (currently) causes pinklisted peers! */
+                  if (status < 0) status = VERROR;
                   exit(status);  /* parent calls waitpid() for status */
                }
                /* parent puts valid child pid in parent table */
