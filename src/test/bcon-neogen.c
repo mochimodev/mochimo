@@ -10,58 +10,12 @@
 #include "ledger.h"
 #include "bcon.h"
 
+#include "_testutils.h"
+
 #define LEFILE "ledger.dat"
-#define BCFILE "b00000000000000ff.bc"
+#define BCFILE "block.dat"
 #define NEOFILE "ngblock.dat"
 #define BADFILE "bad.file"
-
-word8 Zeros[32] = { 0 };
-
-/* dummy ledger.dat (for testing purposes) */
-LENTRY ledgerdata[10] = {
-   { .addr = { 0, 1, 2, 3, 4, 5 }, .balance = { 255, 255, 0 }},
-   { .addr = { 1, 2, 3, 4, 5 }, .balance = { 255, 255, 1 }},
-   { .addr = { 2, 3, 4, 5 }, .balance = { 255, 255, 2 }},
-   { .addr = { 3, 4, 5 }, .balance = { 255, 255, 3 }},
-   { .addr = { 4, 5 }, .balance = { 255, 255, 4 }},
-   { .addr = { 5 }, .balance = { 255, 255, 5 }},
-   { .addr = { 5, 6 }, .balance = { 255, 255, 6 }},
-   { .addr = { 5, 6, 7 }, .balance = { 255, 255, 7 }},
-   { .addr = { 5, 6, 7, 8 }, .balance = { 255, 255, 8 }},
-   { .addr = { 5, 6, 7, 8, 9 }, .balance = { 255, 255, 9 }}
-};
-
-/* pseudo-block b000000000005c4ff.bc */
-word8 blockdata[4 + sizeof(BTRAILER)] = {
-   0x04, 0x00, 0x00, 0x00, 0x1a, 0xcf, 0xfc, 0xd4, 0x18, 0x96, 0x01, 0xca,
-   0xfd, 0x5c, 0x04, 0x52, 0x69, 0x04, 0xa5, 0x11, 0x73, 0xeb, 0x49, 0x6d,
-   0xcc, 0x86, 0xa3, 0x05, 0x06, 0xae, 0x8a, 0xcd, 0x77, 0xc8, 0x88, 0x4b,
-   0xff, 0xc4, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x07, 0x80, 0x62,
-   0x26, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x59, 0x0b, 0x80, 0x62,
-   0x8b, 0x65, 0x8b, 0x1e, 0x39, 0x22, 0xd7, 0xd4, 0x6c, 0xaf, 0x24, 0x03,
-   0x4b, 0x3f, 0xd8, 0x22, 0xbb, 0xf2, 0x54, 0xcb, 0xd4, 0x1c, 0x1e, 0x21,
-   0x55, 0x3f, 0x14, 0x2c, 0xc6, 0x4b, 0xdd, 0xa9
-};
-
-int write2file(char *fname, const void *data, size_t len)
-{
-   FILE *fp;
-   int ecode;
-
-   ecode = VEOK;
-   fp = fopen(fname, "wb");
-   if (fp == NULL) return VERROR;
-   if (len && fwrite(data, len, 1, fp) != 1) ecode = VERROR;
-   fclose(fp);
-
-   return ecode;
-}
 
 int main()
 {
@@ -79,11 +33,11 @@ int main()
    set_print_level(PLEVEL_NONE);
 
    /* CONFIGURE SYSTEM FOR SUCCESSFUL TEST FIRST */
-   bt = (BTRAILER *) (blockdata + 4);
+   bt = (BTRAILER *) (b5c4ff + 4);
 
    /* write dummy ledger and blockchain file */
    ASSERT_EQ(write2file(LEFILE, ledgerdata, sizeof(ledgerdata)), VEOK);
-   ASSERT_EQ(write2file(BCFILE, blockdata, sizeof(blockdata)), VEOK);
+   ASSERT_EQ(write2file(BCFILE, b5c4ff, sizeof(b5c4ff)), VEOK);
 
    /* PERFORM TEST UNDER SUCCESS CONFIGURATION */
 
@@ -145,7 +99,7 @@ int main()
    ASSERT_NE_MSG(neogen(BADFILE, NEOFILE), VEOK,
       "neogen() returned VEOK with invalid input file name");
    sub64(bt->bnum, One, bt->bnum);
-   ASSERT_EQ(write2file(BADFILE, blockdata, sizeof(blockdata)), VEOK);
+   ASSERT_EQ(write2file(BADFILE, b5c4ff, sizeof(b5c4ff)), VEOK);
    add64(bt->bnum, One, bt->bnum);
    ASSERT_NE_MSG(neogen(BADFILE, NEOFILE), VEOK,
       "neogen() returned VEOK with bad block number modulo in input file");

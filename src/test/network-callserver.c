@@ -1,6 +1,7 @@
 
 #include "_assert.h"
 #include "network.h"
+#include "extprint.h"
 
 char *Corephosts[] = {
    "usw-node.mochimap.com",

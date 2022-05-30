@@ -25,6 +25,5 @@ int main()
       status = get_ipl(&node, aton(*(hostsp++)));
    } while(status && **hostsp);
    ASSERT_EQ_MSG(status, VEOK, "failed to communicate with mochimap nodes");
-   ASSERT_NE_MSG(*Rplist, 0, "Rplist[] should contain at least one peer");
    sock_cleanup();
 }
