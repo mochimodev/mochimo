@@ -23,7 +23,7 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 </div>
 
 <hr><hr>
-<h1 align="right"><strong>REQUIREMENTS</strong></h1>
+<h1 align="center"><strong>REQUIREMENTS</strong></h1>
 
 ## Recommended ~ <sub>![Ubuntu 20.04 LTS](https://img.shields.io/badge/Ubuntu-20.04_LTS-E95420?style=flat&logo=ubuntu&logoColor=white)
 - Ubuntu 20.04 LTS (OS)
@@ -45,7 +45,7 @@ sudo apt install build-essential git -y
 - [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads)
 
 <hr><hr>
-<h1 align="right"><strong>USAGE</strong></h1>
+<h1 align="center"><strong>USAGE</strong></h1>
 
 ## Quickstart Instructions (relay-node)
 ```sh
@@ -68,7 +68,7 @@ mochimo/bin/gomochi -n
 See the [Mochimo Wiki](http://www.mochiwiki.com).
 
 <hr><hr>
-<h1 align="right"><strong>LICENSE</strong></h1>
+<h1 align="center"><strong>LICENSE</strong></h1>
 
 <sup>**The license to use versions of the code prior to v2.0 expired on December 31st, 2018. Use of the old code is strictly prohibited.**</sup><br/>
 The current version of the code is released under an MPL2.0 derivative Open Source license.<br/>
@@ -81,7 +81,7 @@ Please read the license file in the package for additional restrictions.
 Contact: support@mochimo.org
 
 <hr><hr>
-<h1 align="right"><strong>COMMUNITY</strong></h1>
+<h1 align="center"><strong>COMMUNITY</strong></h1>
 
 Discord is our most active social forum where you can discuss Mochimo with the rest of the developer and beta testing community.
 - [![Discord](https://img.shields.io/discord/460867662977695765?label=Discord%20Mochimo%20Official&logo=discord&style=social)](https://discord.mochimap.com)
@@ -92,7 +92,7 @@ Discord is our most active social forum where you can discuss Mochimo with the r
 - [![Medium Articles](https://img.shields.io/badge/Medium-_-white?style=social&logo=medium&logoColor=12100E)](https://medium.com/mochimo-official)
 
 <hr><hr>
-<h1 align="right"><strong>BLOCKCHAIN</strong></h1>
+<h1 align="center"><strong>BLOCKCHAIN</strong></h1>
 
 <div align="center">
 	<h2><strong>Overview</strong></h2>
