@@ -24,6 +24,7 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 
 <hr><hr>
 <h1 align="center"><strong>REQUIREMENTS</strong></h1>
+<sup><strong>Please Note: support cannot be guaranteed for systems that do not meet the recommended requirements.</strong></sup>
 
 ## Recommended ~ <sub>![Ubuntu 20.04 LTS](https://img.shields.io/badge/Ubuntu-20.04_LTS-E95420?style=flat&logo=ubuntu&logoColor=white)
 - Ubuntu 20.04 LTS (OS)
@@ -49,20 +50,22 @@ sudo apt install build-essential git -y
 
 ## Quickstart Instructions (relay-node)
 ```sh
-git clone https://github.com/mochimodev/mochimo mochimo
-make cpunode install -C mochimo
+git clone https://github.com/mochimodev/mochimo
+make install-mochimo -C mochimo
 mochimo/bin/gomochi -n
 ```
 
 ## Detailed Instructions (mining-node)
 1) Clone the repository: `git clone https://github.com/mochimodev/mochimo`
 2) Enter repository directory: `cd mochimo`
-3) a) Make CPU mining node: `make cpunode`, or<br/>
-   b) Make GPU mining node (CUDA/NVIDIA): `make cudanode`
-4) Install the software to the `bin/` directory: `make install`
-5) Enter the binary directory: `cd bin`
-6) Optionally; copy your mining address `maddr.dat` to this directory
-7) Run Mochimo Node: `./gomochi`
+3) Build and install the mining-node<br/>
+   a) Make CPU mining node: `make install-mochimo`, or<br/>
+   b) Make CUDA mining node: `make install-mochimo CFLAGS=-DCUDA`
+4) Enter the binary directory: `cd bin`
+5) Copy (or create) your mining address `maddr.dat` in this directory
+6) Run Mochimo Node (server)<br/>
+   a) Mining mode: `./gomochi`, or<br/>
+   b) Relay mode: `./gomochi -n`
 
 ## Additional Instructions
 See the [Mochimo Wiki](http://www.mochiwiki.com).
