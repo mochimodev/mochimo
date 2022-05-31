@@ -12,15 +12,14 @@
 #include "extint.h"
 #include "extprint.h"
 #include "exttime.h"
+
+#include "util.h"
 #include "peach.h"
 
 #define MINDIFF     18
-#define MAXDIFF     22
+#define MAXDIFF     28
 #define MAXDELTA    10.0f
 #define GPUMAX      16
-
-/* Metric prefix array */
-static char Metric[9][3] = { "", "K", "M", "G", "T", "P", "E", "Z", "Y" };
 
 /* Block 0x1 trailer data taken directly from the Mochimo Blockchain Tfile */
 static word8 Block1[BTSIZE] = {
@@ -44,61 +43,49 @@ static word8 Block1[BTSIZE] = {
 
 int main()
 {
-   BTRAILER bt, btout;
-   word8 diff, digest[SHA256LEN];
    DEVICE_CTX D[GPUMAX] = { 0 };
-   float delta, hps;
-   int m, n, count;
-   // time_t now = 0;
+   BTRAILER bt, btout;
+   double delta, hps;
+   int n, count;
+   word32 seed;
+   word8 diff, digest[SHA256LEN];
+   char *m;
 
    set_print_level(PLEVEL_DEBUG);
    count = peach_init_cuda(D, GPUMAX);
 
-   delta = hps = n = 0;
-   srand16((word32) time(NULL), (word32) time(NULL), (word32) time(NULL));
-   memcpy(&bt, Block1, BTSIZE);
-   /* increment difficulty until solve time hits 1 second */
-   for (diff = MINDIFF, m = 0; diff < MAXDIFF && delta < MAXDELTA; diff++, m=0) {
-      /* update block trailer with diff */
+   m = "";
+   delta = hps = 0.0;
+   time((time_t *) &seed);
+   srand16(seed, seed, seed);
+   memcpy(&bt, Block1, sizeof(bt));
+   memset(&btout, 0, sizeof(btout));
+   /* increment difficulty until solve time hits MAXDELTA */
+   for (diff = MINDIFF; diff < MAXDIFF && delta < MAXDELTA; diff++) {
+      /* update block trailer */
       bt.difficulty[0] = diff;
-      bt.phash[0] = diff;
-      /* initialize Peach context, adjust diff; solve Peach; increment hash */
-      while(peach_solve_cuda(&D[m], &bt, diff, &btout)) {
-         if (++m >= count) m = 0;
-         millisleep(1); /*
-         psticky("CUDA#%d: status: %d, progress: %" P64u ", "
-            "hps: %g H/s, "
-            "fan/pow/temp/util: %u/%u/%u/%u, "
-            "grid/block/threads: %d/%d/%d",
-            D->status, 0, (double) D->work / difftime(time(NULL), D->last_work),
-            D->work, D->fan, D->pow, D->temp, D->util,
-            D->grid, D->block, D->threads); */
+      bt.phash[0]++;
+      bt.bnum[0]++;
+      /* solve Peach algorithm */
+      for (n = 0; ; ) {
+         if (peach_solve_cuda(&D[n], &bt, 0, &btout) == VEOK) break;
+         if (++n >= count) n = 0;
+         millisleep(1);
       }
       /* calculate performance of algorithm */
-      for(hps = n = 0; n < count; n++) {
+      for(hps = 0.0, n = 0; n < count; n++) {
          delta = difftime(time(NULL), D[n].last_work);
-         if (delta == 0) hps += (float) D->work;
-         else hps += (float) D->work / difftime(time(NULL), D[n].last_work);
+         if (delta == 0) delta = 1.0;
+         hps += (double) D->work / delta;
       }
-      n = hps ? (log10f(hps) / 3) : 0;
-      hps /= powf(1000, n);
-      ASSERT_DEBUG("Diff(%d) perf: ~%g %sH/s", diff, hps, Metric[n]);
+      m = metric_reduce(&hps);
+      ASSERT_DEBUG("Diff(%d) perf: ~%.2lf %sH/s\n", diff, hps, m);
       /* ensure solution is correct */
-      ASSERT_EQ(peach_checkhash(&btout, btout.difficulty[0], digest), VEOK);
-      /*
-      psticky("CUDA#%d: progress: %" P64u ", "
-         "fan/pow/temp/util: %u/%u/%u/%u, "
-         "grid/block/threads: %d/%d/%d",
-         0, D->work, D->fan, D->pow, D->temp, D->util,
-         D->grid, D->block, D->threads); */
-   } /*
-   plog("CUDA#%d: progress: %" P64u ", "
-      "fan/pow/temp/util: %u/%u/%u/%u, "
-      "grid/block/threads: %d/%d/%d",
-      0, D->work, D->fan, D->pow, D->temp, D->util,
-      D->grid, D->block, D->threads); */
+      n = peach_checkhash(&btout, btout.difficulty[0], digest);
+      ASSERT_EQ(n, VEOK);
+   }
    /* check difficulty met requirement */
    ASSERT_GE_MSG(diff, MINDIFF, "should meet minimum diff requirement");
    /* output final performance on success */
-   printf("Peach CUDA mining performance: ~%.02f %sH/s\n", hps, Metric[n]);
+   print("Peach CUDA mining performance: ~%.2lf %sH/s\n", hps, m);
 }
