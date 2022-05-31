@@ -748,18 +748,19 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
 
    /* build peach map */
    if (dev->status == DEV_INIT) {
-      for(sid = 0; sid < 2; sid++) {
-         if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
-         /* build peach map */
+      /* ensure both streams have finished */
+      if (cudaStreamQuery(P->stream[1]) == cudaSuccess
+         && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
+         /* build peach map -- init */
          if (dev->work == 0) {
             /* clear any late solves */
             memset(P->h_solve[0], 0, 32);
             memset(P->h_solve[1], 0, 32);
             cudaMemcpyAsync(P->d_solve[0], P->h_solve[0], 32,
-               cudaMemcpyHostToDevice, P->stream[sid]);
+               cudaMemcpyHostToDevice, P->stream[0]);
             cuCHK(cudaGetLastError(), dev, return VERROR);
             cudaMemcpyAsync(P->d_solve[1], P->h_solve[1], 32,
-               cudaMemcpyHostToDevice, P->stream[sid]);
+               cudaMemcpyHostToDevice, P->stream[0]);
             cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update block trailer */
             memcpy(P->h_bt[0], bt, sizeof(BTRAILER));
@@ -768,21 +769,22 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             memcpy(h_phash, bt->phash, SHA256LEN);
             /* asynchronous copy to phash and difficulty symbols */
             cudaMemcpyToSymbolAsync(c_phash, h_phash, SHA256LEN, 0,
-               cudaMemcpyHostToDevice, P->stream[sid]);
+               cudaMemcpyHostToDevice, P->stream[0]);
             cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update h_diff from function diff parameter */
             if (*h_diff != diff) *h_diff = diff;
             /* if h_diff is zero (0) or greater than bt, use bt */
             if (*h_diff == 0 || *h_diff > bt->difficulty[0]) {
                cudaMemcpyToSymbolAsync(c_diff, P->h_bt[0]->difficulty,
-                  1, 0, cudaMemcpyHostToDevice, P->stream[sid]);
+                  1, 0, cudaMemcpyHostToDevice, P->stream[0]);
                cuCHK(cudaGetLastError(), dev, return VERROR);
             } else {
                cudaMemcpyToSymbolAsync(c_diff, h_diff,
-                  1, 0, cudaMemcpyHostToDevice, P->stream[sid]);
+                  1, 0, cudaMemcpyHostToDevice, P->stream[0]);
                cuCHK(cudaGetLastError(), dev, return VERROR);
             }
          }
+         /* build peach map -- build */
          if (dev->work < PEACHCACHELEN) {
             /* set CUDA configuration for generating peach map */
             if (cudaOccupancyMaxPotentialBlockSize(&grid, &block,
@@ -793,18 +795,16 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
                block = 128;
             }
             /* launch kernel to generate map */
-            kcu_peach_build<<<grid, block, 0, P->stream[sid]>>>
+            kcu_peach_build<<<grid, block, 0, P->stream[0]>>>
                (P->d_map, (word32) dev->work);
             cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update build progress */
             dev->work += grid * block;
          } else {
-            /* wait for both streams */
-            if (cudaStreamQuery(P->stream[!sid]) != cudaSuccess) continue;
+            /* build is complete */
             dev->last_work = time(NULL);
             dev->status = DEV_IDLE;
             dev->work = 0;
-            break;
          }
       }
    }
@@ -821,17 +821,15 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
          /* check trailer for block update */
          if (memcmp(h_phash, bt->phash, HASHLEN)) {
-            /* wait for both streams */
-            if (cudaStreamQuery(P->stream[!sid]) != cudaSuccess) continue;
             dev->status = DEV_INIT;
             dev->work = 0;
-            continue;
+            break;
          }
          /* switch to idle mode if no transactions or already solved bnum */
          if (get32(bt->tcount) == 0 || cmp64(bt->bnum, btout->bnum) == 0) {
             dev->status = DEV_IDLE;
             dev->work = 0;
-            continue;
+            break;
          }
          /* check for solves */
          if (*(P->h_solve[sid])) {
