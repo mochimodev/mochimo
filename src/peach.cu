@@ -18,19 +18,19 @@
 #define MOCHIMO_PEACH_CU
 
 
+#include "peach.cuh"
+
+/* external support */
 #include "extint.h"
 #include "extmath.h"
 #include "extprint.h"
-
-#include "peach.cuh"
-
-/* hashing functions used by Peach's nighthash */
-#include "blake2b.cu"
-#include "md2.cu"
-#include "md5.cu"
-#include "sha1.cu"
+/* external support -- Nighthash */
+#include "blake2b.h"
+#include "md2.h"
+#include "md5.h"
+#include "sha1.h"
 #include "sha256.cu"
-#include "sha3.cu"
+#include "sha3.h"
 
 /**
  * @private
@@ -98,6 +98,1484 @@ __device__ __constant__ static word8 c_diff;
 
 /**
  * @private
+ * 256-bit Blake2b (w/ key) computation optimized for the Peach algorithm.
+ * Places the resulting hash in @a out.
+ * @param in Pointer to data to hash
+ * @param inlen Length of @a in data, in bytes
+ * @param keylen Length of optional @a key input, in bytes
+ * @param out Pointer to location to place the message digest
+*/
+__device__ void cu_peach_blake2b(const void *in, size_t inlen, int keylen,
+   const void *out)
+{
+   static word8 c_sigma[12][16] = {
+      { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+      { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+      { 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+      { 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+      { 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+      { 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+      { 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+      { 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+      { 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+      { 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
+      { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+      { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 }
+   };
+   static word64 c_iv[8] = {
+      0x6A09E667F3BCC908, 0xBB67AE8584CAA73B,
+      0x3C6EF372FE94F82B, 0xA54FF53A5F1D36F1,
+      0x510E527FADE682D1, 0x9B05688C2B3E6C1F,
+      0x1F83D9ABFB41BD6B, 0x5BE0CD19137E2179
+   };
+
+   /* blake2b_init - outlen is always 256-bits in Peach */
+   word64 v[16];
+   word64 final[16];
+   word64 state[8];
+   word64 t = 128;
+   word64 *in64 = (word64 *) in;
+   int i;
+
+   if (keylen == 64) {
+      state[0] = WORD64_C(0x00b8aa23c261ef69);
+      state[1] = WORD64_C(0xd38ae6abca237b9e);
+      state[2] = WORD64_C(0x67fb881e5ee89069);
+      state[3] = WORD64_C(0x3e5b8bd06b58d002);
+      state[4] = WORD64_C(0x252d3f68395aae91);
+      state[5] = WORD64_C(0xd25465e23c6c1b27);
+      state[6] = WORD64_C(0x852b4cc2e13303b5);
+      state[7] = WORD64_C(0x3f38b9ff245be7c1);
+   } else {
+      state[0] = WORD64_C(0x63320ace264383eb);
+      state[1] = WORD64_C(0x012af5fd045a2737);
+      state[2] = WORD64_C(0xf4f49c55e6be39df);
+      state[3] = WORD64_C(0x791c5bc8affb11a7);
+      state[4] = WORD64_C(0xc9bcacc002c0ea21);
+      state[5] = WORD64_C(0x8295b8abe2fdedd6);
+      state[6] = WORD64_C(0xb711490e5f9f41c8);
+      state[7] = WORD64_C(0x3f8e4d1d9ebeaf1a);
+   }
+
+   /* blake2b_update */
+   for(; inlen > 128; inlen -= 128, in64 = &in64[16]) {
+      t += 128;
+
+      v[0] = state[0];
+      v[1] = state[1];
+      v[2] = state[2];
+      v[3] = state[3];
+      v[4] = state[4];
+      v[5] = state[5];
+      v[6] = state[6];
+      v[7] = state[7];
+      v[8] = c_iv[0];
+      v[9] = c_iv[1];
+      v[10] = c_iv[2];
+      v[11] = c_iv[3];
+      v[12] = c_iv[4] ^ t;
+      v[13] = c_iv[5];
+      v[14] = c_iv[6];
+      v[15] = c_iv[7];
+
+      for (i = 0; i < BLAKE2BROUNDS; i++) {
+         B2B_G( 0, 4,  8, 12, in64[c_sigma[i][ 0]], in64[c_sigma[i][ 1]]);
+         B2B_G( 1, 5,  9, 13, in64[c_sigma[i][ 2]], in64[c_sigma[i][ 3]]);
+         B2B_G( 2, 6, 10, 14, in64[c_sigma[i][ 4]], in64[c_sigma[i][ 5]]);
+         B2B_G( 3, 7, 11, 15, in64[c_sigma[i][ 6]], in64[c_sigma[i][ 7]]);
+         B2B_G( 0, 5, 10, 15, in64[c_sigma[i][ 8]], in64[c_sigma[i][ 9]]);
+         B2B_G( 1, 6, 11, 12, in64[c_sigma[i][10]], in64[c_sigma[i][11]]);
+         B2B_G( 2, 7,  8, 13, in64[c_sigma[i][12]], in64[c_sigma[i][13]]);
+         B2B_G( 3, 4,  9, 14, in64[c_sigma[i][14]], in64[c_sigma[i][15]]);
+      }
+
+      state[0] ^= v[0] ^ v[8];
+      state[1] ^= v[1] ^ v[9];
+      state[2] ^= v[2] ^ v[10];
+      state[3] ^= v[3] ^ v[11];
+      state[4] ^= v[4] ^ v[12];
+      state[5] ^= v[5] ^ v[13];
+      state[6] ^= v[6] ^ v[14];
+      state[7] ^= v[7] ^ v[15];
+   }
+
+   /* blake2b_final - somewhat conveniently (and exclusive to Peach)...
+    * the remaining datalen will always be 36... */
+   final[0] = in64[0];
+   final[1] = in64[1];
+   final[2] = in64[2];
+   final[3] = in64[3];
+   final[4] = (word64) ((word32 *) in64)[8];
+   final[5] = 0;
+   final[6] = 0;
+   final[7] = 0;
+   final[8] = 0;
+   final[9] = 0;
+   final[10] = 0;
+   final[11] = 0;
+   final[12] = 0;
+   final[13] = 0;
+   final[14] = 0;
+   final[15] = 0;
+
+   t += 36;
+
+   v[0] = state[0];
+   v[1] = state[1];
+   v[2] = state[2];
+   v[3] = state[3];
+   v[4] = state[4];
+   v[5] = state[5];
+   v[6] = state[6];
+   v[7] = state[7];
+   v[8] = c_iv[0];
+   v[9] = c_iv[1];
+   v[10] = c_iv[2];
+   v[11] = c_iv[3];
+   v[12] = c_iv[4] ^ t;
+   v[13] = c_iv[5];
+   v[14] = ~c_iv[6];
+   v[15] = c_iv[7];
+
+   for (i = 0; i < BLAKE2BROUNDS; i++) {
+      B2B_G( 0, 4,  8, 12, final[c_sigma[i][ 0]], final[c_sigma[i][ 1]]);
+      B2B_G( 1, 5,  9, 13, final[c_sigma[i][ 2]], final[c_sigma[i][ 3]]);
+      B2B_G( 2, 6, 10, 14, final[c_sigma[i][ 4]], final[c_sigma[i][ 5]]);
+      B2B_G( 3, 7, 11, 15, final[c_sigma[i][ 6]], final[c_sigma[i][ 7]]);
+      B2B_G( 0, 5, 10, 15, final[c_sigma[i][ 8]], final[c_sigma[i][ 9]]);
+      B2B_G( 1, 6, 11, 12, final[c_sigma[i][10]], final[c_sigma[i][11]]);
+      B2B_G( 2, 7,  8, 13, final[c_sigma[i][12]], final[c_sigma[i][13]]);
+      B2B_G( 3, 4,  9, 14, final[c_sigma[i][14]], final[c_sigma[i][15]]);
+   }
+
+   /* blake2b_output */
+   ((word64 *) out)[0] = state[0] ^ v[0] ^ v[8];
+   ((word64 *) out)[1] = state[1] ^ v[1] ^ v[9];
+   ((word64 *) out)[2] = state[2] ^ v[2] ^ v[10];
+   ((word64 *) out)[3] = state[3] ^ v[3] ^ v[11];
+}  /* end cu_peach_blake2b() */
+
+/**
+ * @private
+ * 128-bit MD2 computation optimized for the Peach algorithm.
+ * Places the resulting hash in @a out.
+ * @param in Pointer to data to hash
+ * @param inlen Length of @a in data, in bytes
+ * @param out Pointer to location to place the message digest
+*/
+__device__ void cu_peach_md2(const void *in, size_t inlen,
+   void *out)
+{
+   static word8 s[256] = {
+      41, 46, 67, 201, 162, 216, 124, 1, 61, 54, 84, 161, 236, 240, 6,
+      19, 98, 167, 5, 243, 192, 199, 115, 140, 152, 147, 43, 217, 188,
+      76, 130, 202, 30, 155, 87, 60, 253, 212, 224, 22, 103, 66, 111, 24,
+      138, 23, 229, 18, 190, 78, 196, 214, 218, 158, 222, 73, 160, 251,
+      245, 142, 187, 47, 238, 122, 169, 104, 121, 145, 21, 178, 7, 63,
+      148, 194, 16, 137, 11, 34, 95, 33, 128, 127, 93, 154, 90, 144, 50,
+      39, 53, 62, 204, 231, 191, 247, 151, 3, 255, 25, 48, 179, 72, 165,
+      181, 209, 215, 94, 146, 42, 172, 86, 170, 198, 79, 184, 56, 210,
+      150, 164, 125, 182, 118, 252, 107, 226, 156, 116, 4, 241, 69, 157,
+      112, 89, 100, 113, 135, 32, 134, 91, 207, 101, 230, 45, 168, 2, 27,
+      96, 37, 173, 174, 176, 185, 246, 28, 70, 97, 105, 52, 64, 126, 15,
+      85, 71, 163, 35, 221, 81, 175, 58, 195, 92, 249, 206, 186, 197,
+      234, 38, 44, 83, 13, 110, 133, 40, 132, 9, 211, 223, 205, 244, 65,
+      129, 77, 82, 106, 220, 55, 200, 108, 193, 171, 250, 36, 225, 123,
+      8, 12, 189, 177, 74, 120, 136, 149, 139, 227, 99, 232, 109, 233,
+      203, 213, 254, 59, 0, 29, 57, 242, 239, 183, 14, 102, 88, 208, 228,
+      166, 119, 114, 248, 235, 117, 75, 10, 49, 68, 80, 180, 143, 237,
+      31, 26, 219, 153, 141, 51, 159, 17, 131, 20
+   };
+
+   /* md2_init */
+   word8 state[48] = { 0 };
+   word8 checksum[16] = { 0 };
+   word64 *checksum64 = (word64 *) checksum;
+   word64 *state64 = (word64 *) state;
+   word64 *in64 = (word64 *) in;
+   word8 *in8 = (word8 *) in;
+   size_t j, k;
+
+   word8 pad = 16 - (inlen & 0xf);
+
+   /* md2_update */
+   for (; inlen >= 16; inlen -= 16, in8 = &in8[16], in64 = &in64[2]) {
+      state64[2] = in64[0];
+      state64[3] = in64[1];
+      state64[4] = state64[2] ^ state64[0];
+      state64[5] = state64[3] ^ state64[1];
+
+	   state[0] ^= s[0];
+      for (k = 1; k < 48; ++k) {
+	   	state[k] ^= s[state[k - 1]];
+	   }
+	   for (j = 1; j < 18; ++j) {
+         state[0] ^= s[(state[47] + (j - 1)) & 0xFF];
+         for (k = 1; k < 48; ++k) {
+            state[k] ^= s[state[k - 1]];
+         }
+	   }
+      checksum[0] ^= s[in8[0] ^ checksum[15]];
+      for (j = 1; j < 16; ++j) {
+         checksum[j] ^= s[in8[j] ^ checksum[j - 1]];
+      }
+   }
+
+   /* md2_final - only 4 bytes left, so 12 remaining bytes are pad *//*
+   state64[2] = *((word32 *) in64) | (pad64 & WORD64_C(0xFFFFFFFF00000000));
+   state64[3] = pad64; */
+   for(j = 0; j < inlen; j++) state[j + 16] = in8[j];
+   for(; j < 16; j++) state[j + 16] = pad;
+   state64[4] = state64[2] ^ state64[0];
+   state64[5] = state64[3] ^ state64[1];
+
+   state[0] ^= s[0];
+   for (k = 1; k < 48; ++k) {
+		state[k] ^= s[state[k - 1]];
+	}
+	for (j = 1; j < 18; ++j) {
+      state[0] ^= s[(state[47] + (j - 1)) & 0xFF];
+      for (k = 1; k < 48; ++k) {
+         state[k] ^= s[state[k - 1]];
+      }
+	}
+   checksum[0] ^= s[in8[0] ^ checksum[15]];
+   checksum[1] ^= s[in8[1] ^ checksum[0]];
+   checksum[2] ^= s[in8[2] ^ checksum[1]];
+   checksum[3] ^= s[in8[3] ^ checksum[2]];
+   for (j = 4; j < 16; ++j) {
+      checksum[j] ^= s[pad ^ checksum[j - 1]];
+   }
+
+   state64[2] = checksum64[0];
+   state64[3] = checksum64[1];
+   state64[4] = state64[2] ^ state64[0];
+   state64[5] = state64[3] ^ state64[1];
+
+   state[0] ^= s[0];
+   for (k = 1; k < 48; ++k) {
+		state[k] ^= s[state[k - 1]];
+	}
+	for (j = 1; j < 18; ++j) {
+      state[0] ^= s[(state[47] + (j - 1)) & 0xFF];
+      for (k = 1; k < 48; ++k) {
+         state[k] ^= s[state[k - 1]];
+      }
+	}
+
+   /* md2_output */
+   ((word64 *) out)[0] = state64[0];
+   ((word64 *) out)[1] = state64[1];
+   /* MD2 hash = 128 bits, zero fill remaining... */
+   ((word64 *) out)[2] = 0;
+   ((word64 *) out)[3] = 0;
+}  /* end cu_peach_md2 */
+
+/**
+ * @private
+ * 128-bit MD5 computation optimized for the Peach algorithm.
+ * Places the resulting hash in @a out.
+ * @param in Pointer to data to hash
+ * @param inlen Length of @a in data, in bytes
+ * @param out Pointer to location to place the message digest
+*/
+__device__ void cu_peach_md5(const void *in, size_t inlen, void *out)
+{
+   /* md5_init -- NOT STATIC */
+   word32 state[4] = {
+      0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
+   };
+   word32 a, b, c, d;
+   word32 bitlen = inlen << 3;
+   word32 *in32 = (word32 *) in;
+
+   /* md5_update */
+   for (; inlen >= 64; inlen -= 64, in32 = &in32[16]) {
+      a = state[0];
+      b = state[1];
+      c = state[2];
+      d = state[3];
+
+      FF(a, b, c, d, in32[0],   7, 0xd76aa478);
+      FF(d, a, b, c, in32[1],  12, 0xe8c7b756);
+      FF(c, d, a, b, in32[2],  17, 0x242070db);
+      FF(b, c, d, a, in32[3],  22, 0xc1bdceee);
+      FF(a, b, c, d, in32[4],   7, 0xf57c0faf);
+      FF(d, a, b, c, in32[5],  12, 0x4787c62a);
+      FF(c, d, a, b, in32[6],  17, 0xa8304613);
+      FF(b, c, d, a, in32[7],  22, 0xfd469501);
+      FF(a, b, c, d, in32[8],   7, 0x698098d8);
+      FF(d, a, b, c, in32[9],  12, 0x8b44f7af);
+      FF(c, d, a, b, in32[10], 17, 0xffff5bb1);
+      FF(b, c, d, a, in32[11], 22, 0x895cd7be);
+      FF(a, b, c, d, in32[12],  7, 0x6b901122);
+      FF(d, a, b, c, in32[13], 12, 0xfd987193);
+      FF(c, d, a, b, in32[14], 17, 0xa679438e);
+      FF(b, c, d, a, in32[15], 22, 0x49b40821);
+
+      GG(a, b, c, d, in32[1],   5, 0xf61e2562);
+      GG(d, a, b, c, in32[6],   9, 0xc040b340);
+      GG(c, d, a, b, in32[11], 14, 0x265e5a51);
+      GG(b, c, d, a, in32[0],  20, 0xe9b6c7aa);
+      GG(a, b, c, d, in32[5],   5, 0xd62f105d);
+      GG(d, a, b, c, in32[10],  9, 0x02441453);
+      GG(c, d, a, b, in32[15], 14, 0xd8a1e681);
+      GG(b, c, d, a, in32[4],  20, 0xe7d3fbc8);
+      GG(a, b, c, d, in32[9],   5, 0x21e1cde6);
+      GG(d, a, b, c, in32[14],  9, 0xc33707d6);
+      GG(c, d, a, b, in32[3],  14, 0xf4d50d87);
+      GG(b, c, d, a, in32[8],  20, 0x455a14ed);
+      GG(a, b, c, d, in32[13],  5, 0xa9e3e905);
+      GG(d, a, b, c, in32[2],   9, 0xfcefa3f8);
+      GG(c, d, a, b, in32[7],  14, 0x676f02d9);
+      GG(b, c, d, a, in32[12], 20, 0x8d2a4c8a);
+
+      HH(a, b, c, d, in32[5],   4, 0xfffa3942);
+      HH(d, a, b, c, in32[8],  11, 0x8771f681);
+      HH(c, d, a, b, in32[11], 16, 0x6d9d6122);
+      HH(b, c, d, a, in32[14], 23, 0xfde5380c);
+      HH(a, b, c, d, in32[1],   4, 0xa4beea44);
+      HH(d, a, b, c, in32[4],  11, 0x4bdecfa9);
+      HH(c, d, a, b, in32[7],  16, 0xf6bb4b60);
+      HH(b, c, d, a, in32[10], 23, 0xbebfbc70);
+      HH(a, b, c, d, in32[13],  4, 0x289b7ec6);
+      HH(d, a, b, c, in32[0],  11, 0xeaa127fa);
+      HH(c, d, a, b, in32[3],  16, 0xd4ef3085);
+      HH(b, c, d, a, in32[6],  23, 0x04881d05);
+      HH(a, b, c, d, in32[9],   4, 0xd9d4d039);
+      HH(d, a, b, c, in32[12], 11, 0xe6db99e5);
+      HH(c, d, a, b, in32[15], 16, 0x1fa27cf8);
+      HH(b, c, d, a, in32[2],  23, 0xc4ac5665);
+
+      II(a, b, c, d, in32[0],   6, 0xf4292244);
+      II(d, a, b, c, in32[7],  10, 0x432aff97);
+      II(c, d, a, b, in32[14], 15, 0xab9423a7);
+      II(b, c, d, a, in32[5],  21, 0xfc93a039);
+      II(a, b, c, d, in32[12],  6, 0x655b59c3);
+      II(d, a, b, c, in32[3],  10, 0x8f0ccc92);
+      II(c, d, a, b, in32[10], 15, 0xffeff47d);
+      II(b, c, d, a, in32[1],  21, 0x85845dd1);
+      II(a, b, c, d, in32[8],   6, 0x6fa87e4f);
+      II(d, a, b, c, in32[15], 10, 0xfe2ce6e0);
+      II(c, d, a, b, in32[6],  15, 0xa3014314);
+      II(b, c, d, a, in32[13], 21, 0x4e0811a1);
+      II(a, b, c, d, in32[4],   6, 0xf7537e82);
+      II(d, a, b, c, in32[11], 10, 0xbd3af235);
+      II(c, d, a, b, in32[2],  15, 0x2ad7d2bb);
+      II(b, c, d, a, in32[9],  21, 0xeb86d391);
+
+      state[0] += a;
+      state[1] += b;
+      state[2] += c;
+      state[3] += d;
+   }
+
+   /* md5_final - somewhat conveniently (and exclusive to Peach)...
+    * the remaining datalen will always be 36, so:
+    * in32[9] = 0x80; and in32[10+] = 0; */
+   a = state[0];
+   b = state[1];
+   c = state[2];
+   d = state[3];
+
+   FF(a, b, c, d, in32[0],  7, 0xd76aa478);
+   FF(d, a, b, c, in32[1], 12, 0xe8c7b756);
+   FF(c, d, a, b, in32[2], 17, 0x242070db);
+   FF(b, c, d, a, in32[3], 22, 0xc1bdceee);
+   FF(a, b, c, d, in32[4],  7, 0xf57c0faf);
+   FF(d, a, b, c, in32[5], 12, 0x4787c62a);
+   FF(c, d, a, b, in32[6], 17, 0xa8304613);
+   FF(b, c, d, a, in32[7], 22, 0xfd469501);
+   FF(a, b, c, d, in32[8],  7, 0x698098d8);
+   FF(d, a, b, c,    0x80, 12, 0x8b44f7af);
+   FF(c, d, a, b,    0x00, 17, 0xffff5bb1);
+   FF(b, c, d, a,    0x00, 22, 0x895cd7be);
+   FF(a, b, c, d,    0x00,  7, 0x6b901122);
+   FF(d, a, b, c,    0x00, 12, 0xfd987193);
+   FF(c, d, a, b,  bitlen, 17, 0xa679438e);
+   FF(b, c, d, a,    0x00, 22, 0x49b40821);
+
+   GG(a, b, c, d, in32[1],  5, 0xf61e2562);
+   GG(d, a, b, c, in32[6],  9, 0xc040b340);
+   GG(c, d, a, b,    0x00, 14, 0x265e5a51);
+   GG(b, c, d, a, in32[0], 20, 0xe9b6c7aa);
+   GG(a, b, c, d, in32[5],  5, 0xd62f105d);
+   GG(d, a, b, c,    0x00,  9, 0x02441453);
+   GG(c, d, a, b,    0x00, 14, 0xd8a1e681);
+   GG(b, c, d, a, in32[4], 20, 0xe7d3fbc8);
+   GG(a, b, c, d,    0x80,  5, 0x21e1cde6);
+   GG(d, a, b, c,  bitlen,  9, 0xc33707d6);
+   GG(c, d, a, b, in32[3], 14, 0xf4d50d87);
+   GG(b, c, d, a, in32[8], 20, 0x455a14ed);
+   GG(a, b, c, d,    0x00,  5, 0xa9e3e905);
+   GG(d, a, b, c, in32[2],  9, 0xfcefa3f8);
+   GG(c, d, a, b, in32[7], 14, 0x676f02d9);
+   GG(b, c, d, a,    0x00, 20, 0x8d2a4c8a);
+
+   HH(a, b, c, d, in32[5],  4, 0xfffa3942);
+   HH(d, a, b, c, in32[8], 11, 0x8771f681);
+   HH(c, d, a, b,    0x00, 16, 0x6d9d6122);
+   HH(b, c, d, a,  bitlen, 23, 0xfde5380c);
+   HH(a, b, c, d, in32[1], 4, 0xa4beea44);
+   HH(d, a, b, c, in32[4], 11, 0x4bdecfa9);
+   HH(c, d, a, b, in32[7], 16, 0xf6bb4b60);
+   HH(b, c, d, a,    0x00, 23, 0xbebfbc70);
+   HH(a, b, c, d,    0x00,  4, 0x289b7ec6);
+   HH(d, a, b, c, in32[0], 11, 0xeaa127fa);
+   HH(c, d, a, b, in32[3], 16, 0xd4ef3085);
+   HH(b, c, d, a, in32[6], 23, 0x04881d05);
+   HH(a, b, c, d,    0x80,  4, 0xd9d4d039);
+   HH(d, a, b, c,    0x00, 11, 0xe6db99e5);
+   HH(c, d, a, b,    0x00, 16, 0x1fa27cf8);
+   HH(b, c, d, a, in32[2], 23, 0xc4ac5665);
+
+   II(a, b, c, d, in32[0],  6, 0xf4292244);
+   II(d, a, b, c, in32[7], 10, 0x432aff97);
+   II(c, d, a, b,  bitlen, 15, 0xab9423a7);
+   II(b, c, d, a, in32[5], 21, 0xfc93a039);
+   II(a, b, c, d,    0x00,  6, 0x655b59c3);
+   II(d, a, b, c, in32[3], 10, 0x8f0ccc92);
+   II(c, d, a, b,    0x00, 15, 0xffeff47d);
+   II(b, c, d, a, in32[1], 21, 0x85845dd1);
+   II(a, b, c, d, in32[8], 6, 0x6fa87e4f);
+   II(d, a, b, c,    0x00, 10, 0xfe2ce6e0);
+   II(c, d, a, b, in32[6], 15, 0xa3014314);
+   II(b, c, d, a,    0x00, 21, 0x4e0811a1);
+   II(a, b, c, d, in32[4], 6, 0xf7537e82);
+   II(d, a, b, c,    0x00, 10, 0xbd3af235);
+   II(c, d, a, b, in32[2], 15, 0x2ad7d2bb);
+   II(b, c, d, a,    0x80, 21, 0xeb86d391);
+
+   state[0] += a;
+   state[1] += b;
+   state[2] += c;
+   state[3] += d;
+
+   /* md5_output */
+   ((word64 *) out)[0] = ((word64 *) state)[0];
+   ((word64 *) out)[1] = ((word64 *) state)[1];
+   /* MD5 hash = 128 bits, zero fill remaining... */
+   ((word64 *) out)[2] = 0;
+   ((word64 *) out)[3] = 0;
+}  /* end cuda_peach_md5 */
+
+/**
+ * @private
+ * 160-bit Sha1 computation optimized for the Peach algorithm.
+ * Places the resulting hash in @a out.
+ * @param in Pointer to data to hash
+ * @param inlen Length of @a in data, in bytes
+ * @param out Pointer to location to place the message digest
+*/
+__device__ void cu_peach_sha1(const void *in, size_t inlen, void *out)
+{
+   static word32 k[4] = {
+      0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6
+   };
+
+   /* Since this implementation uses little endian byte ordering and
+    * SHA uses big endian, reverse all the bytes upon input, and
+    * re-reverse them on output */
+
+   /* sha1_init */
+   word32 state[5]  = {
+      0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0
+   };
+   word32 bitlen = inlen << 3;
+   word32 W[16], a, b, c, d, e;
+   word32 *in32 = (word32 *) in;
+
+   /* sha1_update */
+   for(; inlen >= 64; inlen -= 64, in32 = &in32[16]) {
+      W[0] = in32[0];
+      W[1] = in32[1];
+      W[2] = in32[2];
+      W[3] = in32[3];
+      W[4] = in32[4];
+      W[5] = in32[5];
+      W[6] = in32[6];
+      W[7] = in32[7];
+      W[8] = in32[8];
+      W[9] = in32[9];
+      W[10] = in32[10];
+      W[11] = in32[11];
+      W[12] = in32[12];
+      W[13] = in32[13];
+      W[14] = in32[14];
+      W[15] = in32[15];
+
+      a = state[0];
+      b = state[1];
+      c = state[2];
+      d = state[3];
+      e = state[4];
+
+      /* SHA1 round 1 */
+      sha1_r0(a, b, c, d, e, 0);
+      sha1_r0(e, a, b, c, d, 1);
+      sha1_r0(d, e, a, b, c, 2);
+      sha1_r0(c, d, e, a, b, 3);
+      sha1_r0(b, c, d, e, a, 4);
+      sha1_r0(a, b, c, d, e, 5);
+      sha1_r0(e, a, b, c, d, 6);
+      sha1_r0(d, e, a, b, c, 7);
+      sha1_r0(c, d, e, a, b, 8);
+      sha1_r0(b, c, d, e, a, 9);
+      sha1_r0(a, b, c, d, e, 10);
+      sha1_r0(e, a, b, c, d, 11);
+      sha1_r0(d, e, a, b, c, 12);
+      sha1_r0(c, d, e, a, b, 13);
+      sha1_r0(b, c, d, e, a, 14);
+      sha1_r0(a, b, c, d, e, 15);
+      /* alternate round computation */
+      sha1_r1(e, a, b, c, d, 16);
+      sha1_r1(d, e, a, b, c, 17);
+      sha1_r1(c, d, e, a, b, 18);
+      sha1_r1(b, c, d, e, a, 19);
+      sha1_r2(a, b, c, d, e, 20);
+
+      /* SHA1 round 2 */
+      sha1_r2(e, a, b, c, d, 21);
+      sha1_r2(d, e, a, b, c, 22);
+      sha1_r2(c, d, e, a, b, 23);
+      sha1_r2(b, c, d, e, a, 24);
+      sha1_r2(a, b, c, d, e, 25);
+      sha1_r2(e, a, b, c, d, 26);
+      sha1_r2(d, e, a, b, c, 27);
+      sha1_r2(c, d, e, a, b, 28);
+      sha1_r2(b, c, d, e, a, 29);
+      sha1_r2(a, b, c, d, e, 30);
+      sha1_r2(e, a, b, c, d, 31);
+      sha1_r2(d, e, a, b, c, 32);
+      sha1_r2(c, d, e, a, b, 33);
+      sha1_r2(b, c, d, e, a, 34);
+      sha1_r2(a, b, c, d, e, 35);
+      sha1_r2(e, a, b, c, d, 36);
+      sha1_r2(d, e, a, b, c, 37);
+      sha1_r2(c, d, e, a, b, 38);
+      sha1_r2(b, c, d, e, a, 39);
+
+      /* SHA1 round 3 */
+      sha1_r3(a, b, c, d, e, 40);
+      sha1_r3(e, a, b, c, d, 41);
+      sha1_r3(d, e, a, b, c, 42);
+      sha1_r3(c, d, e, a, b, 43);
+      sha1_r3(b, c, d, e, a, 44);
+      sha1_r3(a, b, c, d, e, 45);
+      sha1_r3(e, a, b, c, d, 46);
+      sha1_r3(d, e, a, b, c, 47);
+      sha1_r3(c, d, e, a, b, 48);
+      sha1_r3(b, c, d, e, a, 49);
+      sha1_r3(a, b, c, d, e, 50);
+      sha1_r3(e, a, b, c, d, 51);
+      sha1_r3(d, e, a, b, c, 52);
+      sha1_r3(c, d, e, a, b, 53);
+      sha1_r3(b, c, d, e, a, 54);
+      sha1_r3(a, b, c, d, e, 55);
+      sha1_r3(e, a, b, c, d, 56);
+      sha1_r3(d, e, a, b, c, 57);
+      sha1_r3(c, d, e, a, b, 58);
+      sha1_r3(b, c, d, e, a, 59);
+
+      /* SHA1 round 4 */
+      sha1_r4(a, b, c, d, e, 60);
+      sha1_r4(e, a, b, c, d, 61);
+      sha1_r4(d, e, a, b, c, 62);
+      sha1_r4(c, d, e, a, b, 63);
+      sha1_r4(b, c, d, e, a, 64);
+      sha1_r4(a, b, c, d, e, 65);
+      sha1_r4(e, a, b, c, d, 66);
+      sha1_r4(d, e, a, b, c, 67);
+      sha1_r4(c, d, e, a, b, 68);
+      sha1_r4(b, c, d, e, a, 69);
+      sha1_r4(a, b, c, d, e, 70);
+      sha1_r4(e, a, b, c, d, 71);
+      sha1_r4(d, e, a, b, c, 72);
+      sha1_r4(c, d, e, a, b, 73);
+      sha1_r4(b, c, d, e, a, 74);
+      sha1_r4(a, b, c, d, e, 75);
+      sha1_r4(e, a, b, c, d, 76);
+      sha1_r4(d, e, a, b, c, 77);
+      sha1_r4(c, d, e, a, b, 78);
+      sha1_r4(b, c, d, e, a, 79);
+
+      state[0] += a;
+      state[1] += b;
+      state[2] += c;
+      state[3] += d;
+      state[4] += e;
+   }
+
+   /* sha1_final - somewhat conveniently (and exclusive to Peach)...
+    * the remaining datalen will always be 36, so in32[9] = 0x80. */
+   W[0] = in32[0];
+   W[1] = in32[1];
+   W[2] = in32[2];
+   W[3] = in32[3];
+   W[4] = in32[4];
+   W[5] = in32[5];
+   W[6] = in32[6];
+   W[7] = in32[7];
+   W[8] = in32[8];
+   W[9] = 0x80;
+   W[10] = 0;
+   W[11] = 0;
+   W[12] = 0;
+   W[13] = 0;
+   W[14] = 0;
+   W[15] = bswap32(bitlen);
+
+   a = state[0];
+   b = state[1];
+   c = state[2];
+   d = state[3];
+   e = state[4];
+
+   /* SHA1 round 1 */
+   sha1_r0(a, b, c, d, e, 0);
+   sha1_r0(e, a, b, c, d, 1);
+   sha1_r0(d, e, a, b, c, 2);
+   sha1_r0(c, d, e, a, b, 3);
+   sha1_r0(b, c, d, e, a, 4);
+   sha1_r0(a, b, c, d, e, 5);
+   sha1_r0(e, a, b, c, d, 6);
+   sha1_r0(d, e, a, b, c, 7);
+   sha1_r0(c, d, e, a, b, 8);
+   sha1_r0(b, c, d, e, a, 9);
+   sha1_r0(a, b, c, d, e, 10);
+   sha1_r0(e, a, b, c, d, 11);
+   sha1_r0(d, e, a, b, c, 12);
+   sha1_r0(c, d, e, a, b, 13);
+   sha1_r0(b, c, d, e, a, 14);
+   sha1_r0(a, b, c, d, e, 15);
+   /* alternate round computation */
+   sha1_r1(e, a, b, c, d, 16);
+   sha1_r1(d, e, a, b, c, 17);
+   sha1_r1(c, d, e, a, b, 18);
+   sha1_r1(b, c, d, e, a, 19);
+   sha1_r2(a, b, c, d, e, 20);
+
+   /* SHA1 round 2 */
+   sha1_r2(e, a, b, c, d, 21);
+   sha1_r2(d, e, a, b, c, 22);
+   sha1_r2(c, d, e, a, b, 23);
+   sha1_r2(b, c, d, e, a, 24);
+   sha1_r2(a, b, c, d, e, 25);
+   sha1_r2(e, a, b, c, d, 26);
+   sha1_r2(d, e, a, b, c, 27);
+   sha1_r2(c, d, e, a, b, 28);
+   sha1_r2(b, c, d, e, a, 29);
+   sha1_r2(a, b, c, d, e, 30);
+   sha1_r2(e, a, b, c, d, 31);
+   sha1_r2(d, e, a, b, c, 32);
+   sha1_r2(c, d, e, a, b, 33);
+   sha1_r2(b, c, d, e, a, 34);
+   sha1_r2(a, b, c, d, e, 35);
+   sha1_r2(e, a, b, c, d, 36);
+   sha1_r2(d, e, a, b, c, 37);
+   sha1_r2(c, d, e, a, b, 38);
+   sha1_r2(b, c, d, e, a, 39);
+
+   /* SHA1 round 3 */
+   sha1_r3(a, b, c, d, e, 40);
+   sha1_r3(e, a, b, c, d, 41);
+   sha1_r3(d, e, a, b, c, 42);
+   sha1_r3(c, d, e, a, b, 43);
+   sha1_r3(b, c, d, e, a, 44);
+   sha1_r3(a, b, c, d, e, 45);
+   sha1_r3(e, a, b, c, d, 46);
+   sha1_r3(d, e, a, b, c, 47);
+   sha1_r3(c, d, e, a, b, 48);
+   sha1_r3(b, c, d, e, a, 49);
+   sha1_r3(a, b, c, d, e, 50);
+   sha1_r3(e, a, b, c, d, 51);
+   sha1_r3(d, e, a, b, c, 52);
+   sha1_r3(c, d, e, a, b, 53);
+   sha1_r3(b, c, d, e, a, 54);
+   sha1_r3(a, b, c, d, e, 55);
+   sha1_r3(e, a, b, c, d, 56);
+   sha1_r3(d, e, a, b, c, 57);
+   sha1_r3(c, d, e, a, b, 58);
+   sha1_r3(b, c, d, e, a, 59);
+
+   /* SHA1 round 4 */
+   sha1_r4(a, b, c, d, e, 60);
+   sha1_r4(e, a, b, c, d, 61);
+   sha1_r4(d, e, a, b, c, 62);
+   sha1_r4(c, d, e, a, b, 63);
+   sha1_r4(b, c, d, e, a, 64);
+   sha1_r4(a, b, c, d, e, 65);
+   sha1_r4(e, a, b, c, d, 66);
+   sha1_r4(d, e, a, b, c, 67);
+   sha1_r4(c, d, e, a, b, 68);
+   sha1_r4(b, c, d, e, a, 69);
+   sha1_r4(a, b, c, d, e, 70);
+   sha1_r4(e, a, b, c, d, 71);
+   sha1_r4(d, e, a, b, c, 72);
+   sha1_r4(c, d, e, a, b, 73);
+   sha1_r4(b, c, d, e, a, 74);
+   sha1_r4(a, b, c, d, e, 75);
+   sha1_r4(e, a, b, c, d, 76);
+   sha1_r4(d, e, a, b, c, 77);
+   sha1_r4(c, d, e, a, b, 78);
+   sha1_r4(b, c, d, e, a, 79);
+
+   state[0] += a;
+   state[1] += b;
+   state[2] += c;
+   state[3] += d;
+   state[4] += e;
+
+   /* sha1_output */
+   ((word32 *) out)[0] = bswap32(state[0]);
+   ((word32 *) out)[1] = bswap32(state[1]);
+   ((word32 *) out)[2] = bswap32(state[2]);
+   ((word32 *) out)[3] = bswap32(state[3]);
+   ((word32 *) out)[4] = bswap32(state[4]);
+   /* sha1 hash = 160 bits, zero fill remaining... */
+   ((word32 *) out)[5] = 0;
+   ((word64 *) out)[3] = 0;
+}  /* end cu_peach_sha1() */
+
+/**
+ * @private
+ * 256-bit SHA256 computation optimized for the Peach algorithm.
+ * Places the resulting hash in @a out.
+ * @param in Pointer to data to hash
+ * @param inlen Length of @a in data, in bytes
+ * @param out Pointer to location to place the message digest
+*/
+__device__ void cu_peach_sha256(const void *in, size_t inlen, void *out)
+{
+   static word32 k[64] = {
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+      0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+      0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+      0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+      0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+      0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+      0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+      0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+      0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+   };
+
+   /* Since this implementation uses little endian byte ordering and
+    * SHA uses big endian, reverse all the bytes upon input, and
+    * re-reverse them on output */
+
+   /* sha256_init */
+   word32 state[8] = {
+      0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+   };
+   uint32_t W[16], a, b, c, d, e, f, g, h;
+   word32 bitlen = inlen << 3;
+   word32 *in32 = (word32 *) in;
+
+   /* sha256_update */
+   for(; inlen >= 64; inlen -= 64, in32 = &in32[16]) {
+      W[0] = in32[0];
+      W[1] = in32[1];
+      W[2] = in32[2];
+      W[3] = in32[3];
+      W[4] = in32[4];
+      W[5] = in32[5];
+      W[6] = in32[6];
+      W[7] = in32[7];
+      W[8] = in32[8];
+      W[9] = in32[9];
+      W[10] = in32[10];
+      W[11] = in32[11];
+      W[12] = in32[12];
+      W[13] = in32[13];
+      W[14] = in32[14];
+      W[15] = in32[15];
+
+      a = state[0];
+      b = state[1];
+      c = state[2];
+      d = state[3];
+      e = state[4];
+      f = state[5];
+      g = state[6];
+      h = state[7];
+
+      /* initial 16 rounds */
+      RX0_8(0); RX0_8(8);
+      /* rounds 16 - 32 */
+      RX_8(0, 16); RX_8(8, 16);
+      /* rounds 32 - 48 */
+      RX_8(0, 32); RX_8(8, 32);
+      /* rounds 48 - 64 */
+      RX_8(0, 48); RX_8(8, 48);
+
+      state[0] += a;
+      state[1] += b;
+      state[2] += c;
+      state[3] += d;
+      state[4] += e;
+      state[5] += f;
+      state[6] += g;
+      state[7] += h;
+   }
+
+   /* sha256_final - somewhat conveniently (and exclusive to Peach)...
+    * the remaining datalen will always be 36, so in32[9] = 0x80. */
+   W[0] = in32[0];
+   W[1] = in32[1];
+   W[2] = in32[2];
+   W[3] = in32[3];
+   W[4] = in32[4];
+   W[5] = in32[5];
+   W[6] = in32[6];
+   W[7] = in32[7];
+   W[8] = in32[8];
+   W[9] = 0x80;
+   W[10] = 0;
+   W[11] = 0;
+   W[12] = 0;
+   W[13] = 0;
+   W[14] = 0;
+   W[15] = bswap32(bitlen);
+
+   a = state[0];
+   b = state[1];
+   c = state[2];
+   d = state[3];
+   e = state[4];
+   f = state[5];
+   g = state[6];
+   h = state[7];
+
+   /* initial 16 rounds */
+   RX0_8(0); RX0_8(8);
+   /* rounds 16 - 32 */
+   RX_8(0, 16); RX_8(8, 16);
+   /* rounds 32 - 48 */
+   RX_8(0, 32); RX_8(8, 32);
+   /* rounds 48 - 64 */
+   RX_8(0, 48); RX_8(8, 48);
+
+   state[0] += a;
+   state[1] += b;
+   state[2] += c;
+   state[3] += d;
+   state[4] += e;
+   state[5] += f;
+   state[6] += g;
+   state[7] += h;
+
+   /* Since this implementation uses little endian byte ordering and
+    * SHA uses big endian, reverse all the bytes when copying the
+    * final state to the output hash. */
+   ((uint32_t *) out)[0] = bswap32(state[0]);
+   ((uint32_t *) out)[1] = bswap32(state[1]);
+   ((uint32_t *) out)[2] = bswap32(state[2]);
+   ((uint32_t *) out)[3] = bswap32(state[3]);
+   ((uint32_t *) out)[4] = bswap32(state[4]);
+   ((uint32_t *) out)[5] = bswap32(state[5]);
+   ((uint32_t *) out)[6] = bswap32(state[6]);
+   ((uint32_t *) out)[7] = bswap32(state[7]);
+}  /* end cu_peach_sha256() */
+
+/**
+ * @private
+ * 256-bit Sha3 (Keccak) computation optimized for the Peach algorithm.
+ * Places the resulting hash in @a out.
+ * @param in Pointer to data to hash
+ * @param inlen Length of @a in data, in bytes
+ * @param keccak_final Flag indicates hash should be finalized as Keccak
+ * @param out Pointer to location to place the message digest
+*/
+__device__ void cu_peach_sha3(const void *in, size_t inlen,
+   int keccak_final, void *out)
+{
+   static word64 keccakf_rndc[24] = {
+      WORD64_C(0x0000000000000001), WORD64_C(0x0000000000008082),
+      WORD64_C(0x800000000000808a), WORD64_C(0x8000000080008000),
+      WORD64_C(0x000000000000808b), WORD64_C(0x0000000080000001),
+      WORD64_C(0x8000000080008081), WORD64_C(0x8000000000008009),
+      WORD64_C(0x000000000000008a), WORD64_C(0x0000000000000088),
+      WORD64_C(0x0000000080008009), WORD64_C(0x000000008000000a),
+      WORD64_C(0x000000008000808b), WORD64_C(0x800000000000008b),
+      WORD64_C(0x8000000000008089), WORD64_C(0x8000000000008003),
+      WORD64_C(0x8000000000008002), WORD64_C(0x8000000000000080),
+      WORD64_C(0x000000000000800a), WORD64_C(0x800000008000000a),
+      WORD64_C(0x8000000080008081), WORD64_C(0x8000000000008080),
+      WORD64_C(0x0000000080000001), WORD64_C(0x8000000080008008)
+   };
+
+   /* sha3_init */
+   word8 state[200] = { 0 };
+	uint64_t Ba, Be, Bi, Bo, Bu;
+	uint64_t Ca, Ce, Ci, Co, Cu;
+	uint64_t Da, De, Di, Do, Du;
+   word64 *st64 = (word64 *) state;
+   word64 *in64 = (word64 *) in;
+	int r;
+
+   /* sha3_update - 136 is ctx->rsiz, fill only 17x 64-bit words in state */
+   for(; inlen >= 136; inlen -= 136, in64 = &in64[17]) {
+      for (r = 0; r < 17; r++) st64[r] ^= in64[r];
+      for (r = 0; r < KECCAKFROUNDS; r += 4) {
+         /* Unrolled 4 rounds at a time */
+
+         Ca = st64[0] ^ st64[5] ^ st64[10] ^ st64[15] ^ st64[20];
+         Ce = st64[1] ^ st64[6] ^ st64[11] ^ st64[16] ^ st64[21];
+         Ci = st64[2] ^ st64[7] ^ st64[12] ^ st64[17] ^ st64[22];
+         Co = st64[3] ^ st64[8] ^ st64[13] ^ st64[18] ^ st64[23];
+         Cu = st64[4] ^ st64[9] ^ st64[14] ^ st64[19] ^ st64[24];
+         Da = Cu ^ rol64(Ce, 1);
+         De = Ca ^ rol64(Ci, 1);
+         Di = Ce ^ rol64(Co, 1);
+         Do = Ci ^ rol64(Cu, 1);
+         Du = Co ^ rol64(Ca, 1);
+
+         Ba = (st64[0] ^ Da);
+         Be = rol64((st64[6] ^ De), 44);
+         Bi = rol64((st64[12] ^ Di), 43);
+         Bo = rol64((st64[18] ^ Do), 21);
+         Bu = rol64((st64[24] ^ Du), 14);
+         st64[0]  = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r];
+         st64[6]  = Be ^ ((~Bi) & Bo);
+         st64[12] = Bi ^ ((~Bo) & Bu);
+         st64[18] = Bo ^ ((~Bu) & Ba);
+         st64[24] = Bu ^ ((~Ba) & Be);
+
+         Bi = rol64((st64[10] ^ Da), 3);
+         Bo = rol64((st64[16] ^ De), 45);
+         Bu = rol64((st64[22] ^ Di), 61);
+         Ba = rol64((st64[3] ^ Do), 28);
+         Be = rol64((st64[9] ^ Du), 20);
+         st64[10] = Ba ^ ((~Be) & Bi);
+         st64[16] = Be ^ ((~Bi) & Bo);
+         st64[22] = Bi ^ ((~Bo) & Bu);
+         st64[3] = Bo ^ ((~Bu) & Ba);
+         st64[9] = Bu ^ ((~Ba) & Be);
+
+         Bu = rol64((st64[20] ^ Da), 18);
+         Ba = rol64((st64[1] ^ De), 1);
+         Be = rol64((st64[7] ^ Di), 6);
+         Bi = rol64((st64[13] ^ Do), 25);
+         Bo = rol64((st64[19] ^ Du), 8);
+         st64[20] = Ba ^ ((~Be) & Bi);
+         st64[1] = Be ^ ((~Bi) & Bo);
+         st64[7] = Bi ^ ((~Bo) & Bu);
+         st64[13] = Bo ^ ((~Bu) & Ba);
+         st64[19] = Bu ^ ((~Ba) & Be);
+
+         Be = rol64((st64[5] ^ Da), 36);
+         Bi = rol64((st64[11] ^ De), 10);
+         Bo = rol64((st64[17] ^ Di), 15);
+         Bu = rol64((st64[23] ^ Do), 56);
+         Ba = rol64((st64[4] ^ Du), 27);
+         st64[5] = Ba ^ ((~Be) & Bi);
+         st64[11] = Be ^ ((~Bi) & Bo);
+         st64[17] = Bi ^ ((~Bo) & Bu);
+         st64[23] = Bo ^ ((~Bu) & Ba);
+         st64[4] = Bu ^ ((~Ba) & Be);
+
+         Bo = rol64((st64[15] ^ Da), 41);
+         Bu = rol64((st64[21] ^ De), 2);
+         Ba = rol64((st64[2] ^ Di), 62);
+         Be = rol64((st64[8] ^ Do), 55);
+         Bi = rol64((st64[14] ^ Du), 39);
+         st64[15] = Ba ^ ((~Be) & Bi);
+         st64[21] = Be ^ ((~Bi) & Bo);
+         st64[2] = Bi ^ ((~Bo) & Bu);
+         st64[8] = Bo ^ ((~Bu) & Ba);
+         st64[14] = Bu ^ ((~Ba) & Be);
+
+         Ca = st64[0] ^ st64[10] ^ st64[20] ^ st64[5] ^ st64[15];
+         Ce = st64[6] ^ st64[16] ^ st64[1] ^ st64[11] ^ st64[21];
+         Ci = st64[12] ^ st64[22] ^ st64[7] ^ st64[17] ^ st64[2];
+         Co = st64[18] ^ st64[3] ^ st64[13] ^ st64[23] ^ st64[8];
+         Cu = st64[24] ^ st64[9] ^ st64[19] ^ st64[4] ^ st64[14];
+         Da = Cu ^ rol64(Ce, 1);
+         De = Ca ^ rol64(Ci, 1);
+         Di = Ce ^ rol64(Co, 1);
+         Do = Ci ^ rol64(Cu, 1);
+         Du = Co ^ rol64(Ca, 1);
+
+         Ba = (st64[0] ^ Da);
+         Be = rol64((st64[16] ^ De), 44);
+         Bi = rol64((st64[7] ^ Di), 43);
+         Bo = rol64((st64[23] ^ Do), 21);
+         Bu = rol64((st64[14] ^ Du), 14);
+         st64[0] = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r + 1];
+         st64[16] = Be ^ ((~Bi) & Bo);
+         st64[7] = Bi ^ ((~Bo) & Bu);
+         st64[23] = Bo ^ ((~Bu) & Ba);
+         st64[14] = Bu ^ ((~Ba) & Be);
+
+         Bi = rol64((st64[20] ^ Da), 3);
+         Bo = rol64((st64[11] ^ De), 45);
+         Bu = rol64((st64[2] ^ Di), 61);
+         Ba = rol64((st64[18] ^ Do), 28);
+         Be = rol64((st64[9] ^ Du), 20);
+         st64[20] = Ba ^ ((~Be) & Bi);
+         st64[11] = Be ^ ((~Bi) & Bo);
+         st64[2] = Bi ^ ((~Bo) & Bu);
+         st64[18] = Bo ^ ((~Bu) & Ba);
+         st64[9] = Bu ^ ((~Ba) & Be);
+
+         Bu = rol64((st64[15] ^ Da), 18);
+         Ba = rol64((st64[6] ^ De), 1);
+         Be = rol64((st64[22] ^ Di), 6);
+         Bi = rol64((st64[13] ^ Do), 25);
+         Bo = rol64((st64[4] ^ Du), 8);
+         st64[15] = Ba ^ ((~Be) & Bi);
+         st64[6] = Be ^ ((~Bi) & Bo);
+         st64[22] = Bi ^ ((~Bo) & Bu);
+         st64[13] = Bo ^ ((~Bu) & Ba);
+         st64[4] = Bu ^ ((~Ba) & Be);
+
+         Be = rol64((st64[10] ^ Da), 36);
+         Bi = rol64((st64[1] ^ De), 10);
+         Bo = rol64((st64[17] ^ Di), 15);
+         Bu = rol64((st64[8] ^ Do), 56);
+         Ba = rol64((st64[24] ^ Du), 27);
+         st64[10] = Ba ^ ((~Be) & Bi);
+         st64[1] = Be ^ ((~Bi) & Bo);
+         st64[17] = Bi ^ ((~Bo) & Bu);
+         st64[8] = Bo ^ ((~Bu) & Ba);
+         st64[24] = Bu ^ ((~Ba) & Be);
+
+         Bo = rol64((st64[5] ^ Da), 41);
+         Bu = rol64((st64[21] ^ De), 2);
+         Ba = rol64((st64[12] ^ Di), 62);
+         Be = rol64((st64[3] ^ Do), 55);
+         Bi = rol64((st64[19] ^ Du), 39);
+         st64[5] = Ba ^ ((~Be) & Bi);
+         st64[21] = Be ^ ((~Bi) & Bo);
+         st64[12] = Bi ^ ((~Bo) & Bu);
+         st64[3] = Bo ^ ((~Bu) & Ba);
+         st64[19] = Bu ^ ((~Ba) & Be);
+
+         Ca = st64[0] ^ st64[20] ^ st64[15] ^ st64[10] ^ st64[5];
+         Ce = st64[16] ^ st64[11] ^ st64[6] ^ st64[1] ^ st64[21];
+         Ci = st64[7] ^ st64[2] ^ st64[22] ^ st64[17] ^ st64[12];
+         Co = st64[23] ^ st64[18] ^ st64[13] ^ st64[8] ^ st64[3];
+         Cu = st64[14] ^ st64[9] ^ st64[4] ^ st64[24] ^ st64[19];
+         Da = Cu ^ rol64(Ce, 1);
+         De = Ca ^ rol64(Ci, 1);
+         Di = Ce ^ rol64(Co, 1);
+         Do = Ci ^ rol64(Cu, 1);
+         Du = Co ^ rol64(Ca, 1);
+
+         Ba = (st64[0] ^ Da);
+         Be = rol64((st64[11] ^ De), 44);
+         Bi = rol64((st64[22] ^ Di), 43);
+         Bo = rol64((st64[8] ^ Do), 21);
+         Bu = rol64((st64[19] ^ Du), 14);
+         st64[0] = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r + 2];
+         st64[11] = Be ^ ((~Bi) & Bo);
+         st64[22] = Bi ^ ((~Bo) & Bu);
+         st64[8] = Bo ^ ((~Bu) & Ba);
+         st64[19] = Bu ^ ((~Ba) & Be);
+
+         Bi = rol64((st64[15] ^ Da), 3);
+         Bo = rol64((st64[1] ^ De), 45);
+         Bu = rol64((st64[12] ^ Di), 61);
+         Ba = rol64((st64[23] ^ Do), 28);
+         Be = rol64((st64[9] ^ Du), 20);
+         st64[15] = Ba ^ ((~Be) & Bi);
+         st64[1] = Be ^ ((~Bi) & Bo);
+         st64[12] = Bi ^ ((~Bo) & Bu);
+         st64[23] = Bo ^ ((~Bu) & Ba);
+         st64[9] = Bu ^ ((~Ba) & Be);
+
+         Bu = rol64((st64[5] ^ Da), 18);
+         Ba = rol64((st64[16] ^ De), 1);
+         Be = rol64((st64[2] ^ Di), 6);
+         Bi = rol64((st64[13] ^ Do), 25);
+         Bo = rol64((st64[24] ^ Du), 8);
+         st64[5] = Ba ^ ((~Be) & Bi);
+         st64[16] = Be ^ ((~Bi) & Bo);
+         st64[2] = Bi ^ ((~Bo) & Bu);
+         st64[13] = Bo ^ ((~Bu) & Ba);
+         st64[24] = Bu ^ ((~Ba) & Be);
+
+         Be = rol64((st64[20] ^ Da), 36);
+         Bi = rol64((st64[6] ^ De), 10);
+         Bo = rol64((st64[17] ^ Di), 15);
+         Bu = rol64((st64[3] ^ Do), 56);
+         Ba = rol64((st64[14] ^ Du), 27);
+         st64[20] = Ba ^ ((~Be) & Bi);
+         st64[6] = Be ^ ((~Bi) & Bo);
+         st64[17] = Bi ^ ((~Bo) & Bu);
+         st64[3] = Bo ^ ((~Bu) & Ba);
+         st64[14] = Bu ^ ((~Ba) & Be);
+
+         Bo = rol64((st64[10] ^ Da), 41);
+         Bu = rol64((st64[21] ^ De), 2);
+         Ba = rol64((st64[7] ^ Di), 62);
+         Be = rol64((st64[18] ^ Do), 55);
+         Bi = rol64((st64[4] ^ Du), 39);
+         st64[10] = Ba ^ ((~Be) & Bi);
+         st64[21] = Be ^ ((~Bi) & Bo);
+         st64[7] = Bi ^ ((~Bo) & Bu);
+         st64[18] = Bo ^ ((~Bu) & Ba);
+         st64[4] = Bu ^ ((~Ba) & Be);
+
+         Ca = st64[0] ^ st64[15] ^ st64[5] ^ st64[20] ^ st64[10];
+         Ce = st64[11] ^ st64[1] ^ st64[16] ^ st64[6] ^ st64[21];
+         Ci = st64[22] ^ st64[12] ^ st64[2] ^ st64[17] ^ st64[7];
+         Co = st64[8] ^ st64[23] ^ st64[13] ^ st64[3] ^ st64[18];
+         Cu = st64[19] ^ st64[9] ^ st64[24] ^ st64[14] ^ st64[4];
+         Da = Cu ^ rol64(Ce, 1);
+         De = Ca ^ rol64(Ci, 1);
+         Di = Ce ^ rol64(Co, 1);
+         Do = Ci ^ rol64(Cu, 1);
+         Du = Co ^ rol64(Ca, 1);
+
+         Ba = (st64[0] ^ Da);
+         Be = rol64((st64[1] ^ De), 44);
+         Bi = rol64((st64[2] ^ Di), 43);
+         Bo = rol64((st64[3] ^ Do), 21);
+         Bu = rol64((st64[4] ^ Du), 14);
+         st64[0] = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r + 3];
+         st64[1] = Be ^ ((~Bi) & Bo);
+         st64[2] = Bi ^ ((~Bo) & Bu);
+         st64[3] = Bo ^ ((~Bu) & Ba);
+         st64[4] = Bu ^ ((~Ba) & Be);
+
+         Bi = rol64((st64[5] ^ Da), 3);
+         Bo = rol64((st64[6] ^ De), 45);
+         Bu = rol64((st64[7] ^ Di), 61);
+         Ba = rol64((st64[8] ^ Do), 28);
+         Be = rol64((st64[9] ^ Du), 20);
+         st64[5] = Ba ^ ((~Be) & Bi);
+         st64[6] = Be ^ ((~Bi) & Bo);
+         st64[7] = Bi ^ ((~Bo) & Bu);
+         st64[8] = Bo ^ ((~Bu) & Ba);
+         st64[9] = Bu ^ ((~Ba) & Be);
+
+         Bu = rol64((st64[10] ^ Da), 18);
+         Ba = rol64((st64[11] ^ De), 1);
+         Be = rol64((st64[12] ^ Di), 6);
+         Bi = rol64((st64[13] ^ Do), 25);
+         Bo = rol64((st64[14] ^ Du), 8);
+         st64[10] = Ba ^ ((~Be) & Bi);
+         st64[11] = Be ^ ((~Bi) & Bo);
+         st64[12] = Bi ^ ((~Bo) & Bu);
+         st64[13] = Bo ^ ((~Bu) & Ba);
+         st64[14] = Bu ^ ((~Ba) & Be);
+
+         Be = rol64((st64[15] ^ Da), 36);
+         Bi = rol64((st64[16] ^ De), 10);
+         Bo = rol64((st64[17] ^ Di), 15);
+         Bu = rol64((st64[18] ^ Do), 56);
+         Ba = rol64((st64[19] ^ Du), 27);
+         st64[15] = Ba ^ ((~Be) & Bi);
+         st64[16] = Be ^ ((~Bi) & Bo);
+         st64[17] = Bi ^ ((~Bo) & Bu);
+         st64[18] = Bo ^ ((~Bu) & Ba);
+         st64[19] = Bu ^ ((~Ba) & Be);
+
+         Bo = rol64((st64[20] ^ Da), 41);
+         Bu = rol64((st64[21] ^ De), 2);
+         Ba = rol64((st64[22] ^ Di), 62);
+         Be = rol64((st64[23] ^ Do), 55);
+         Bi = rol64((st64[24] ^ Du), 39);
+         st64[20] = Ba ^ ((~Be) & Bi);
+         st64[21] = Be ^ ((~Bi) & Bo);
+         st64[22] = Bi ^ ((~Bo) & Bu);
+         st64[23] = Bo ^ ((~Bu) & Ba);
+         st64[24] = Bu ^ ((~Ba) & Be);
+      }
+   }
+
+   for (r = 0; inlen >= 8; inlen -= 8, r++) st64[r] ^= in64[r];
+   ((word32 *) st64)[r << 1] ^= *((word32 *) &in64[r]);
+
+   /* sha3_final */
+   state[(r << 3) + 4] ^= keccak_final ? 0x01 : 0x06;
+   state[135] ^= 0x80;
+   for (r = 0; r < KECCAKFROUNDS; r += 4) {
+      /* Unrolled 4 rounds at a time */
+
+      Ca = st64[0] ^ st64[5] ^ st64[10] ^ st64[15] ^ st64[20];
+      Ce = st64[1] ^ st64[6] ^ st64[11] ^ st64[16] ^ st64[21];
+      Ci = st64[2] ^ st64[7] ^ st64[12] ^ st64[17] ^ st64[22];
+      Co = st64[3] ^ st64[8] ^ st64[13] ^ st64[18] ^ st64[23];
+      Cu = st64[4] ^ st64[9] ^ st64[14] ^ st64[19] ^ st64[24];
+      Da = Cu ^ rol64(Ce, 1);
+      De = Ca ^ rol64(Ci, 1);
+      Di = Ce ^ rol64(Co, 1);
+      Do = Ci ^ rol64(Cu, 1);
+      Du = Co ^ rol64(Ca, 1);
+
+      Ba = (st64[0] ^ Da);
+      Be = rol64((st64[6] ^ De), 44);
+      Bi = rol64((st64[12] ^ Di), 43);
+      Bo = rol64((st64[18] ^ Do), 21);
+      Bu = rol64((st64[24] ^ Du), 14);
+      st64[0]  = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r];
+      st64[6]  = Be ^ ((~Bi) & Bo);
+      st64[12] = Bi ^ ((~Bo) & Bu);
+      st64[18] = Bo ^ ((~Bu) & Ba);
+      st64[24] = Bu ^ ((~Ba) & Be);
+
+      Bi = rol64((st64[10] ^ Da), 3);
+      Bo = rol64((st64[16] ^ De), 45);
+      Bu = rol64((st64[22] ^ Di), 61);
+      Ba = rol64((st64[3] ^ Do), 28);
+      Be = rol64((st64[9] ^ Du), 20);
+      st64[10] = Ba ^ ((~Be) & Bi);
+      st64[16] = Be ^ ((~Bi) & Bo);
+      st64[22] = Bi ^ ((~Bo) & Bu);
+      st64[3] = Bo ^ ((~Bu) & Ba);
+      st64[9] = Bu ^ ((~Ba) & Be);
+
+      Bu = rol64((st64[20] ^ Da), 18);
+      Ba = rol64((st64[1] ^ De), 1);
+      Be = rol64((st64[7] ^ Di), 6);
+      Bi = rol64((st64[13] ^ Do), 25);
+      Bo = rol64((st64[19] ^ Du), 8);
+      st64[20] = Ba ^ ((~Be) & Bi);
+      st64[1] = Be ^ ((~Bi) & Bo);
+      st64[7] = Bi ^ ((~Bo) & Bu);
+      st64[13] = Bo ^ ((~Bu) & Ba);
+      st64[19] = Bu ^ ((~Ba) & Be);
+
+      Be = rol64((st64[5] ^ Da), 36);
+      Bi = rol64((st64[11] ^ De), 10);
+      Bo = rol64((st64[17] ^ Di), 15);
+      Bu = rol64((st64[23] ^ Do), 56);
+      Ba = rol64((st64[4] ^ Du), 27);
+      st64[5] = Ba ^ ((~Be) & Bi);
+      st64[11] = Be ^ ((~Bi) & Bo);
+      st64[17] = Bi ^ ((~Bo) & Bu);
+      st64[23] = Bo ^ ((~Bu) & Ba);
+      st64[4] = Bu ^ ((~Ba) & Be);
+
+      Bo = rol64((st64[15] ^ Da), 41);
+      Bu = rol64((st64[21] ^ De), 2);
+      Ba = rol64((st64[2] ^ Di), 62);
+      Be = rol64((st64[8] ^ Do), 55);
+      Bi = rol64((st64[14] ^ Du), 39);
+      st64[15] = Ba ^ ((~Be) & Bi);
+      st64[21] = Be ^ ((~Bi) & Bo);
+      st64[2] = Bi ^ ((~Bo) & Bu);
+      st64[8] = Bo ^ ((~Bu) & Ba);
+      st64[14] = Bu ^ ((~Ba) & Be);
+
+      Ca = st64[0] ^ st64[10] ^ st64[20] ^ st64[5] ^ st64[15];
+      Ce = st64[6] ^ st64[16] ^ st64[1] ^ st64[11] ^ st64[21];
+      Ci = st64[12] ^ st64[22] ^ st64[7] ^ st64[17] ^ st64[2];
+      Co = st64[18] ^ st64[3] ^ st64[13] ^ st64[23] ^ st64[8];
+      Cu = st64[24] ^ st64[9] ^ st64[19] ^ st64[4] ^ st64[14];
+      Da = Cu ^ rol64(Ce, 1);
+      De = Ca ^ rol64(Ci, 1);
+      Di = Ce ^ rol64(Co, 1);
+      Do = Ci ^ rol64(Cu, 1);
+      Du = Co ^ rol64(Ca, 1);
+
+      Ba = (st64[0] ^ Da);
+      Be = rol64((st64[16] ^ De), 44);
+      Bi = rol64((st64[7] ^ Di), 43);
+      Bo = rol64((st64[23] ^ Do), 21);
+      Bu = rol64((st64[14] ^ Du), 14);
+      st64[0] = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r + 1];
+      st64[16] = Be ^ ((~Bi) & Bo);
+      st64[7] = Bi ^ ((~Bo) & Bu);
+      st64[23] = Bo ^ ((~Bu) & Ba);
+      st64[14] = Bu ^ ((~Ba) & Be);
+
+      Bi = rol64((st64[20] ^ Da), 3);
+      Bo = rol64((st64[11] ^ De), 45);
+      Bu = rol64((st64[2] ^ Di), 61);
+      Ba = rol64((st64[18] ^ Do), 28);
+      Be = rol64((st64[9] ^ Du), 20);
+      st64[20] = Ba ^ ((~Be) & Bi);
+      st64[11] = Be ^ ((~Bi) & Bo);
+      st64[2] = Bi ^ ((~Bo) & Bu);
+      st64[18] = Bo ^ ((~Bu) & Ba);
+      st64[9] = Bu ^ ((~Ba) & Be);
+
+      Bu = rol64((st64[15] ^ Da), 18);
+      Ba = rol64((st64[6] ^ De), 1);
+      Be = rol64((st64[22] ^ Di), 6);
+      Bi = rol64((st64[13] ^ Do), 25);
+      Bo = rol64((st64[4] ^ Du), 8);
+      st64[15] = Ba ^ ((~Be) & Bi);
+      st64[6] = Be ^ ((~Bi) & Bo);
+      st64[22] = Bi ^ ((~Bo) & Bu);
+      st64[13] = Bo ^ ((~Bu) & Ba);
+      st64[4] = Bu ^ ((~Ba) & Be);
+
+      Be = rol64((st64[10] ^ Da), 36);
+      Bi = rol64((st64[1] ^ De), 10);
+      Bo = rol64((st64[17] ^ Di), 15);
+      Bu = rol64((st64[8] ^ Do), 56);
+      Ba = rol64((st64[24] ^ Du), 27);
+      st64[10] = Ba ^ ((~Be) & Bi);
+      st64[1] = Be ^ ((~Bi) & Bo);
+      st64[17] = Bi ^ ((~Bo) & Bu);
+      st64[8] = Bo ^ ((~Bu) & Ba);
+      st64[24] = Bu ^ ((~Ba) & Be);
+
+      Bo = rol64((st64[5] ^ Da), 41);
+      Bu = rol64((st64[21] ^ De), 2);
+      Ba = rol64((st64[12] ^ Di), 62);
+      Be = rol64((st64[3] ^ Do), 55);
+      Bi = rol64((st64[19] ^ Du), 39);
+      st64[5] = Ba ^ ((~Be) & Bi);
+      st64[21] = Be ^ ((~Bi) & Bo);
+      st64[12] = Bi ^ ((~Bo) & Bu);
+      st64[3] = Bo ^ ((~Bu) & Ba);
+      st64[19] = Bu ^ ((~Ba) & Be);
+
+      Ca = st64[0] ^ st64[20] ^ st64[15] ^ st64[10] ^ st64[5];
+      Ce = st64[16] ^ st64[11] ^ st64[6] ^ st64[1] ^ st64[21];
+      Ci = st64[7] ^ st64[2] ^ st64[22] ^ st64[17] ^ st64[12];
+      Co = st64[23] ^ st64[18] ^ st64[13] ^ st64[8] ^ st64[3];
+      Cu = st64[14] ^ st64[9] ^ st64[4] ^ st64[24] ^ st64[19];
+      Da = Cu ^ rol64(Ce, 1);
+      De = Ca ^ rol64(Ci, 1);
+      Di = Ce ^ rol64(Co, 1);
+      Do = Ci ^ rol64(Cu, 1);
+      Du = Co ^ rol64(Ca, 1);
+
+      Ba = (st64[0] ^ Da);
+      Be = rol64((st64[11] ^ De), 44);
+      Bi = rol64((st64[22] ^ Di), 43);
+      Bo = rol64((st64[8] ^ Do), 21);
+      Bu = rol64((st64[19] ^ Du), 14);
+      st64[0] = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r + 2];
+      st64[11] = Be ^ ((~Bi) & Bo);
+      st64[22] = Bi ^ ((~Bo) & Bu);
+      st64[8] = Bo ^ ((~Bu) & Ba);
+      st64[19] = Bu ^ ((~Ba) & Be);
+
+      Bi = rol64((st64[15] ^ Da), 3);
+      Bo = rol64((st64[1] ^ De), 45);
+      Bu = rol64((st64[12] ^ Di), 61);
+      Ba = rol64((st64[23] ^ Do), 28);
+      Be = rol64((st64[9] ^ Du), 20);
+      st64[15] = Ba ^ ((~Be) & Bi);
+      st64[1] = Be ^ ((~Bi) & Bo);
+      st64[12] = Bi ^ ((~Bo) & Bu);
+      st64[23] = Bo ^ ((~Bu) & Ba);
+      st64[9] = Bu ^ ((~Ba) & Be);
+
+      Bu = rol64((st64[5] ^ Da), 18);
+      Ba = rol64((st64[16] ^ De), 1);
+      Be = rol64((st64[2] ^ Di), 6);
+      Bi = rol64((st64[13] ^ Do), 25);
+      Bo = rol64((st64[24] ^ Du), 8);
+      st64[5] = Ba ^ ((~Be) & Bi);
+      st64[16] = Be ^ ((~Bi) & Bo);
+      st64[2] = Bi ^ ((~Bo) & Bu);
+      st64[13] = Bo ^ ((~Bu) & Ba);
+      st64[24] = Bu ^ ((~Ba) & Be);
+
+      Be = rol64((st64[20] ^ Da), 36);
+      Bi = rol64((st64[6] ^ De), 10);
+      Bo = rol64((st64[17] ^ Di), 15);
+      Bu = rol64((st64[3] ^ Do), 56);
+      Ba = rol64((st64[14] ^ Du), 27);
+      st64[20] = Ba ^ ((~Be) & Bi);
+      st64[6] = Be ^ ((~Bi) & Bo);
+      st64[17] = Bi ^ ((~Bo) & Bu);
+      st64[3] = Bo ^ ((~Bu) & Ba);
+      st64[14] = Bu ^ ((~Ba) & Be);
+
+      Bo = rol64((st64[10] ^ Da), 41);
+      Bu = rol64((st64[21] ^ De), 2);
+      Ba = rol64((st64[7] ^ Di), 62);
+      Be = rol64((st64[18] ^ Do), 55);
+      Bi = rol64((st64[4] ^ Du), 39);
+      st64[10] = Ba ^ ((~Be) & Bi);
+      st64[21] = Be ^ ((~Bi) & Bo);
+      st64[7] = Bi ^ ((~Bo) & Bu);
+      st64[18] = Bo ^ ((~Bu) & Ba);
+      st64[4] = Bu ^ ((~Ba) & Be);
+
+      Ca = st64[0] ^ st64[15] ^ st64[5] ^ st64[20] ^ st64[10];
+      Ce = st64[11] ^ st64[1] ^ st64[16] ^ st64[6] ^ st64[21];
+      Ci = st64[22] ^ st64[12] ^ st64[2] ^ st64[17] ^ st64[7];
+      Co = st64[8] ^ st64[23] ^ st64[13] ^ st64[3] ^ st64[18];
+      Cu = st64[19] ^ st64[9] ^ st64[24] ^ st64[14] ^ st64[4];
+      Da = Cu ^ rol64(Ce, 1);
+      De = Ca ^ rol64(Ci, 1);
+      Di = Ce ^ rol64(Co, 1);
+      Do = Ci ^ rol64(Cu, 1);
+      Du = Co ^ rol64(Ca, 1);
+
+      Ba = (st64[0] ^ Da);
+      Be = rol64((st64[1] ^ De), 44);
+      Bi = rol64((st64[2] ^ Di), 43);
+      Bo = rol64((st64[3] ^ Do), 21);
+      Bu = rol64((st64[4] ^ Du), 14);
+      st64[0] = Ba ^ ((~Be) & Bi) ^ keccakf_rndc[r + 3];
+      st64[1] = Be ^ ((~Bi) & Bo);
+      st64[2] = Bi ^ ((~Bo) & Bu);
+      st64[3] = Bo ^ ((~Bu) & Ba);
+      st64[4] = Bu ^ ((~Ba) & Be);
+
+      Bi = rol64((st64[5] ^ Da), 3);
+      Bo = rol64((st64[6] ^ De), 45);
+      Bu = rol64((st64[7] ^ Di), 61);
+      Ba = rol64((st64[8] ^ Do), 28);
+      Be = rol64((st64[9] ^ Du), 20);
+      st64[5] = Ba ^ ((~Be) & Bi);
+      st64[6] = Be ^ ((~Bi) & Bo);
+      st64[7] = Bi ^ ((~Bo) & Bu);
+      st64[8] = Bo ^ ((~Bu) & Ba);
+      st64[9] = Bu ^ ((~Ba) & Be);
+
+      Bu = rol64((st64[10] ^ Da), 18);
+      Ba = rol64((st64[11] ^ De), 1);
+      Be = rol64((st64[12] ^ Di), 6);
+      Bi = rol64((st64[13] ^ Do), 25);
+      Bo = rol64((st64[14] ^ Du), 8);
+      st64[10] = Ba ^ ((~Be) & Bi);
+      st64[11] = Be ^ ((~Bi) & Bo);
+      st64[12] = Bi ^ ((~Bo) & Bu);
+      st64[13] = Bo ^ ((~Bu) & Ba);
+      st64[14] = Bu ^ ((~Ba) & Be);
+
+      Be = rol64((st64[15] ^ Da), 36);
+      Bi = rol64((st64[16] ^ De), 10);
+      Bo = rol64((st64[17] ^ Di), 15);
+      Bu = rol64((st64[18] ^ Do), 56);
+      Ba = rol64((st64[19] ^ Du), 27);
+      st64[15] = Ba ^ ((~Be) & Bi);
+      st64[16] = Be ^ ((~Bi) & Bo);
+      st64[17] = Bi ^ ((~Bo) & Bu);
+      st64[18] = Bo ^ ((~Bu) & Ba);
+      st64[19] = Bu ^ ((~Ba) & Be);
+
+      Bo = rol64((st64[20] ^ Da), 41);
+      Bu = rol64((st64[21] ^ De), 2);
+      Ba = rol64((st64[22] ^ Di), 62);
+      Be = rol64((st64[23] ^ Do), 55);
+      Bi = rol64((st64[24] ^ Du), 39);
+      st64[20] = Ba ^ ((~Be) & Bi);
+      st64[21] = Be ^ ((~Bi) & Bo);
+      st64[22] = Bi ^ ((~Bo) & Bu);
+      st64[23] = Bo ^ ((~Bu) & Ba);
+      st64[24] = Bu ^ ((~Ba) & Be);
+   }
+
+   /* sha3_output */
+   ((word64 *) out)[0] = st64[0];
+   ((word64 *) out)[1] = st64[1];
+   ((word64 *) out)[2] = st64[2];
+   ((word64 *) out)[3] = st64[3];
+}  /* end cu_peach_sha3 */
+
+/**
+ * @private
  * Perform deterministic (single precision) floating point operations on
  * @a len bytes of @a data (in 4 byte operations).
  * @param data Pointer to data to use in operations
@@ -111,7 +1589,7 @@ __device__ __constant__ static word8 c_diff;
  * - __fdiv_rn(), __fmul_rn(), __fsub_rn(), __fadd_rn() operations, and
  * - __int2float_rn(), __uint2float_rn() conversions
 */
-__device__ static word32 cu_peach_dflops(void *data, size_t len,
+__device__ word32 cu_peach_dflops(void *data, size_t len,
    word32 index, int txf)
 {
    __constant__ static uint32_t c_float[4] = {
@@ -180,7 +1658,7 @@ __device__ static word32 cu_peach_dflops(void *data, size_t len,
  * @param op Operating code from previous Peach algo steps
  * @returns 32-bit unsigned operation code for subsequent Peach algo steps
 */
-__device__ static word32 cu_peach_dmemtx(void *data, size_t len, word32 op)
+__device__ word32 cu_peach_dmemtx(void *data, size_t len, word32 op)
 {
    word64 *qp = (word64 *) data;
    word32 *dp = (word32 *) data;
@@ -245,17 +1723,9 @@ __device__ static word32 cu_peach_dmemtx(void *data, size_t len, word32 op)
  * @param txlen Length of data from @a in, used in transform steps
  * @param out Pointer to location to place resulting hash
 */
-__device__ static void cu_peach_nighthash(void *in, size_t inlen,
+__device__ void cu_peach_nighthash(void *in, size_t inlen,
    word32 index, size_t txlen, void *out)
 {
-   __constant__ static word64 key32B[4] = { 0, 0, 0, 0 };
-   __constant__ static word64 key64B[8] = {
-      WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
-      WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
-      WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
-      WORD64_C(0x0101010101010101), WORD64_C(0x0101010101010101),
-   };
-
    /* Perform flops to determine initial algo type.
     * When txlen is non-zero the transformation of input data is enabled,
     * as well as the additional memory transformation process. */
@@ -266,32 +1736,14 @@ __device__ static void cu_peach_nighthash(void *in, size_t inlen,
 
    /* reduce algorithm selection to 1 of 8 choices */
    switch (index & 7) {
-      case 0: cu_blake2b(in, inlen, key32B, 32, out, BLAKE2BLEN256); break;
-      case 1: cu_blake2b(in, inlen, key64B, 64, out, BLAKE2BLEN256); break;
-      case 2: {
-         cu_sha1(in, inlen, out);
-         /* SHA1 hash is only 20 bytes long, zero fill remaining... */
-         ((word32 *) out)[5] = 0;
-         ((word64 *) out)[3] = 0;
-         break;
-      }
-      case 3: cu_sha256(in, inlen, out); break;
-      case 4: cu_sha3(in, inlen, out, SHA3LEN256); break;
-      case 5: cu_keccak(in, inlen, out, KECCAKLEN256); break;
-      case 6: {
-         cu_md2(in, inlen, out);
-         /* MD2 hash is only 16 bytes long, zero fill remaining... */
-         ((word64 *) out)[2] = 0;
-         ((word64 *) out)[3] = 0;
-         break;
-      }
-      case 7: {
-         cu_md5(in, inlen, out);
-         /* MD5 hash is only 16 bytes long, zero fill remaining... */
-         ((word64 *) out)[2] = 0;
-         ((word64 *) out)[3] = 0;
-         break;
-      }
+      case 0: cu_peach_blake2b(in, inlen, 32, out); break;
+      case 1: cu_peach_blake2b(in, inlen, 64, out); break;
+      case 2: cu_peach_sha1(in, inlen, out); break;
+      case 3: cu_peach_sha256(in, inlen, out); break;
+      case 4: cu_peach_sha3(in, inlen, 0, out); break;
+      case 5: cu_peach_sha3(in, inlen, 1, out); break;
+      case 6: cu_peach_md2(in, inlen, out); break;
+      case 7: cu_peach_md5(in, inlen, out); break;
    }  /* end switch(algo_type)... */
 }  /* end cu_peach_nighthash() */
 
@@ -301,7 +1753,7 @@ __device__ static void cu_peach_nighthash(void *in, size_t inlen,
  * @param index Index number of tile to generate
  * @param tilep Pointer to location to place generated tile
 */
-__device__ static void cu_peach_generate(word32 index, word32 *tilep)
+__device__ void cu_peach_generate(word32 index, word32 *tilep)
 {
    int i;
 
