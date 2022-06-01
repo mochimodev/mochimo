@@ -1818,7 +1818,7 @@ __device__ void cu_peach_jump(word32 *index, word64 *nonce, word32 *tilep)
  */
 __global__ void kcu_peach_build(word8 *d_map, word32 offset)
 {
-   const word32 index = blockDim.x * blockIdx.x + threadIdx.x + offset;
+   const word32 index = ((blockDim.x * blockIdx.x) + threadIdx.x) + offset;
    if (index < PEACHCACHELEN) {
       cu_peach_generate(index, (word32 *) &d_map[index * PEACHTILELEN]);
    }
@@ -2174,7 +2174,7 @@ int peach_init_cuda(DEVICE_CTX devlist[], int max)
 */
 int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
 {
-   int i, id, sid, grid, block;
+   int i, id, sid, grid, block, build;
    PEACH_CUDA_CTX *P;
    nvmlReturn_t nr;
    size_t ictxlen;
@@ -2200,44 +2200,42 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
 
    /* build peach map */
    if (dev->status == DEV_INIT) {
-      /* ensure both streams have finished */
-      if (cudaStreamQuery(P->stream[1]) == cudaSuccess
-         && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
-         /* build peach map -- init */
-         if (dev->work == 0) {
+      /* build peach map -- init */
+      if (dev->work == 0) {
+         /* ensure both streams have finished */
+         if (cudaStreamQuery(P->stream[1]) == cudaSuccess
+            && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
+            /* synchronize device before initializing new peach map */
+            cudaDeviceSynchronize();
             /* clear any late solves */
+            cuCHK(cudaMemset(P->d_solve[0], 0, 32), dev, return VERROR);
+            cuCHK(cudaMemset(P->d_solve[1], 0, 32), dev, return VERROR);
             memset(P->h_solve[0], 0, 32);
             memset(P->h_solve[1], 0, 32);
-            cudaMemcpyAsync(P->d_solve[0], P->h_solve[0], 32,
-               cudaMemcpyHostToDevice, P->stream[0]);
-            cuCHK(cudaGetLastError(), dev, return VERROR);
-            cudaMemcpyAsync(P->d_solve[1], P->h_solve[1], 32,
-               cudaMemcpyHostToDevice, P->stream[0]);
-            cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update block trailer */
             memcpy(P->h_bt[0], bt, sizeof(BTRAILER));
             memcpy(P->h_bt[1], bt, sizeof(BTRAILER));
             /* ensure phash is set */
             memcpy(h_phash, bt->phash, SHA256LEN);
             /* asynchronous copy to phash and difficulty symbols */
-            cudaMemcpyToSymbolAsync(c_phash, h_phash, SHA256LEN, 0,
-               cudaMemcpyHostToDevice, P->stream[0]);
-            cuCHK(cudaGetLastError(), dev, return VERROR);
-            /* update h_diff from function diff parameter */
-            if (*h_diff != diff) *h_diff = diff;
-            /* if h_diff is zero (0) or greater than bt, use bt */
-            if (*h_diff == 0 || *h_diff > bt->difficulty[0]) {
-               cudaMemcpyToSymbolAsync(c_diff, P->h_bt[0]->difficulty,
-                  1, 0, cudaMemcpyHostToDevice, P->stream[0]);
-               cuCHK(cudaGetLastError(), dev, return VERROR);
-            } else {
-               cudaMemcpyToSymbolAsync(c_diff, h_diff,
-                  1, 0, cudaMemcpyHostToDevice, P->stream[0]);
-               cuCHK(cudaGetLastError(), dev, return VERROR);
-            }
+            cuCHK(cudaMemcpyToSymbol(c_phash, h_phash, SHA256LEN, 0,
+               cudaMemcpyHostToDevice), dev, return VERROR);
+            /* update h_diff with diff or bt->difficulty[0] */
+            *h_diff = diff ? diff : bt->difficulty[0];
+            if (*h_diff > bt->difficulty[0]) *h_diff = bt->difficulty[0];
+            cuCHK(cudaMemcpyToSymbol(c_diff, P->h_bt[0]->difficulty, 1, 0,
+               cudaMemcpyHostToDevice), dev, return VERROR);
+            /* synchronize memory transfers before building peach map */
+            cudaDeviceSynchronize();
+            /* flag build ready */
+            build = 1;
          }
-         /* build peach map -- build */
-         if (dev->work < PEACHCACHELEN) {
+      }
+      /* build peach map -- build */
+      if (dev->work < PEACHCACHELEN) {
+         for (sid = 0; sid < 2 && (build || dev->work > 0); sid++) {
+            /* ensure stream is ready for next section of build */
+            if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
             /* set CUDA configuration for generating peach map */
             if (cudaOccupancyMaxPotentialBlockSize(&grid, &block,
                   kcu_peach_build, 0, 0) != cudaSuccess) {
@@ -2247,12 +2245,17 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
                block = 128;
             }
             /* launch kernel to generate map */
-            kcu_peach_build<<<grid, block, 0, P->stream[0]>>>
+            kcu_peach_build<<<grid, block, 0, P->stream[sid]>>>
                (P->d_map, (word32) dev->work);
             cuCHK(cudaGetLastError(), dev, return VERROR);
             /* update build progress */
             dev->work += grid * block;
-         } else {
+         }
+      } else {
+         /* ensure both streams have finished */
+         if (cudaStreamQuery(P->stream[1]) == cudaSuccess
+            && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
+            print("initialized GPU#%d\n", id);
             /* build is complete */
             dev->last_work = time(NULL);
             dev->status = DEV_IDLE;
@@ -2261,9 +2264,8 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
       }
    }
 
-   /* check for solvable work in block trailer */
+   /* check for unsolved work in block trailer */
    if (dev->status == DEV_IDLE && get32(bt->tcount)) {
-      /* remain idle if btout contains a solve for current block number */
       if (cmp64(bt->bnum, btout->bnum)) dev->status = DEV_WORK;
    }
 
@@ -2272,7 +2274,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
       for(sid = 0; sid < 2; sid++) {
          if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
          /* check trailer for block update */
-         if (memcmp(h_phash, bt->phash, HASHLEN)) {
+         if (memcmp(P->h_bt[sid]->phash, bt->phash, HASHLEN)) {
             dev->status = DEV_INIT;
             dev->work = 0;
             break;
@@ -2288,10 +2290,9 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             /* move solved nonce */
             memcpy(P->h_bt[sid]->nonce, P->h_solve[sid], 32);
             /* clear solve from host/device */
+            cudaMemsetAsync(P->d_solve[sid], 0, 32, P->stream[sid]);
             memset(P->h_solve[sid], 0, 32);
-            cudaMemcpyAsync(P->d_solve[sid], P->h_solve[sid], 32,
-               cudaMemcpyHostToDevice, P->stream[sid]);
-            cuCHK(cudaGetLastError(), dev, return VERROR);
+            /* move solved block trailer to btout */
             memcpy(btout, P->h_bt[sid], sizeof(BTRAILER));
             /* return a solve */
             return VEOK;
