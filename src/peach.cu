@@ -2296,6 +2296,13 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             /* return a solve */
             return VEOK;
          }
+         /* check for "on-the-fly" difficulty changes */
+         diff = diff && diff < bt->difficulty[0] ? diff : bt->difficulty[0];
+         if (diff != *h_diff) {
+            *h_diff = diff;
+            cuCHK(cudaMemcpyToSymbol(c_diff, h_diff, 1, 0,
+               cudaMemcpyHostToDevice), dev, return VERROR);
+         }
          /* ensure block trailer is updated */
          memcpy(P->h_bt[sid], bt, BTSIZE);
          /* generate nonce directly into block trailer */
