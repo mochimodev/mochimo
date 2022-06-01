@@ -2223,7 +2223,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             /* update h_diff with diff or bt->difficulty[0] */
             *h_diff = diff ? diff : bt->difficulty[0];
             if (*h_diff > bt->difficulty[0]) *h_diff = bt->difficulty[0];
-            cuCHK(cudaMemcpyToSymbol(c_diff, P->h_bt[0]->difficulty, 1, 0,
+            cuCHK(cudaMemcpyToSymbol(c_diff, h_diff, 1, 0,
                cudaMemcpyHostToDevice), dev, return VERROR);
             /* synchronize memory transfers before building peach map */
             cudaDeviceSynchronize();
