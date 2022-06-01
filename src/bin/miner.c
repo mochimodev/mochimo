@@ -478,7 +478,7 @@ USAGE:   return usage(ecode);
          }
          continue;
       }
-      if (argument(argv[j], "-p", "--pool")) {
+      if (argument(argv[j], "-P", "--pool")) {
          vp = argvalue(&j, argc, argv);
          if (vp) hostip = aton(vp);
          Solo = 0;
