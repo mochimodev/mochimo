@@ -2255,7 +2255,6 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          /* ensure both streams have finished */
          if (cudaStreamQuery(P->stream[1]) == cudaSuccess
             && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
-            print("initialized GPU#%d\n", id);
             /* build is complete */
             dev->last_work = time(NULL);
             dev->status = DEV_IDLE;
