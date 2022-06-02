@@ -622,9 +622,9 @@ USAGE:   return usage(ecode);
             memset(&tharg_cblock, 0, sizeof(THREADBLOCK));
          }
 #ifdef CUDA
-         btp = MEMBLOCKBTp(&cblock);
          /* check CUDA miners -- Peach algo solo mining */
          for (n = 0; n < num_cuda_gpus; n++) {
+            btp = MEMBLOCKBTp(&cblock);
             /* ensure we're working with the current blocks trailer */
             if (peach_solve_cuda(&CudaGPUs[n], btp, 0, &bt) == VEOK) {
                /* check block solve */
