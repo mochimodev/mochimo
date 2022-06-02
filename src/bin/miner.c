@@ -411,8 +411,8 @@ int main(int argc, char *argv[])
    static THREADBLOCK tharg_cblock, tharg_mblock[RPLISTLEN];
    /* miner solve handling -- blocks(Solo), btrailers/diffs(pool/proxy) */
    static MALLOC cblock, pblock, *blkp;
-   static BTRAILER bt, cbt, pbt, *btp;
-   static word32 cdiff, pdiff, *diffp;
+   static BTRAILER bt, cbt, *btp;
+   static word32 cdiff;
 
    static double solvework, sharework;
    static double allhps, /* avghps, */ hps;
@@ -700,9 +700,6 @@ USAGE:   return usage(ecode);
             /* handle thread results... */
             if (tharg_work.tr == VEOK) {
                time(&worktime);
-               /* shift current work to previous */
-               memcpy(&pbt, &cbt, sizeof(pbt));
-               pdiff = cdiff;
                /* introduce latest work */
                memcpy(&cbt, &tharg_work.bt, sizeof(cbt));
                cdiff = tharg_work.diff;
@@ -727,45 +724,32 @@ USAGE:   return usage(ecode);
                   /* add to shares and calc estimated work */
                   shares++;
                   sharework += pow(2, cdiff);
-                  /* find block trailer with matching mroot */
-                  if (memcmp(cbt.mroot, bt.mroot, 32) == 0) {
-                     btp = &cbt;
-                     diffp = &cdiff;
-                  } else if (memcmp(pbt.mroot, bt.mroot, 32) == 0) {
-                     btp = &pbt;
-                     diffp = &pdiff;
-                  } else btp = NULL;
-                  /* if found, embed solve data and send */
-                  if (btp == NULL) {
-                     perr("Failed to find mroot match...");
+                  /* find available send thread for work */
+                  for (p = 0; p < RPLISTLEN && tid_send[p] != 0; p++);
+                  if ((p + 1) >= RPLISTLEN) {
+                     pwarn("Send work unavailable!");
                   } else {
-                     /* find available send thread for work */
-                     for (p = 0; p < RPLISTLEN && tid_send[p] != 0; p++);
-                     if ((p + 1) >= RPLISTLEN) {
-                        pwarn("Send work unavailable!");
-                     } else {
-                        /* copy bt and spawn thread to send work */
-                        memcpy(&tharg_share[p].bt, &bt, sizeof(bt));
-                        tharg_share[p].diff = *diffp;
-                        tharg_share[p].hostip = *Rplist;
-                        terr = thread_create(&tid_send[p], &th_give_share,
-                           &tharg_share[p]);
-                        if (terr) {
-                           perrno(terr, "thread_create(mblock) failed");
-                           memset(&tharg_share[p], 0, sizeof(THREADWORK));
-                           tid_send[p] = 0;
-                        }
+                     /* copy bt and spawn thread to send work */
+                     memcpy(&tharg_share[p].bt, &bt, sizeof(bt));
+                     tharg_share[p].diff = cdiff;
+                     tharg_share[p].hostip = *Rplist;
+                     terr = thread_create(&tid_send[p], &th_give_share,
+                        &tharg_share[p]);
+                     if (terr) {
+                        perrno(terr, "thread_create(mblock) failed");
+                        memset(&tharg_share[p], 0, sizeof(THREADWORK));
+                        tid_send[p] = 0;
                      }
                   }
                   /* check block solve */
                   if (peach_check(&bt) == VEOK) {
                      /* block solve - print haiku */
                      Nsolved++;
-                     solvework += pow(2, btp->difficulty[0]);
+                     solvework += pow(2, bt.difficulty[0]);
                      Hps = solvework / (word32) difftime(now, starttime);
-                     print_bup(btp, "Solved");
+                     print_bup(&bt, "Solved");
                   } else {
-                     /* clear "share" from block trailer, for peach */
+                     /* clear "share" for continuous solving */
                      memset(&bt, 0, sizeof(bt));
                   }
                }
