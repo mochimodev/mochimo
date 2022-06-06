@@ -56,6 +56,13 @@
       } \
    } while(0)
 
+/* sm_86 seems to perform better without __constant__ memory */
+#if __CUDA_ARCH__ != 860
+   #define cuCONSTn860 __constant__
+#else
+   #define cuCONSTn860
+#endif
+
 /**
  * @private
  * Peach CUDA context. Managed internally by cross referencing parameters
@@ -92,7 +99,7 @@ __device__ __constant__ static word8 c_diff;
 __device__ void cu_peach_blake2b(const void *in, size_t inlen, int keylen,
    const void *out)
 {
-   static word8 c_sigma[12][16] = {
+   cuCONSTn860 static word8 c_sigma[12][16] = {
       { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
       { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
       { 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
@@ -250,7 +257,7 @@ __device__ void cu_peach_blake2b(const void *in, size_t inlen, int keylen,
 __device__ void cu_peach_md2(const void *in, size_t inlen,
    void *out)
 {
-   static word8 s[256] = {
+   cuCONSTn860 static word8 s[256] = {
       41, 46, 67, 201, 162, 216, 124, 1, 61, 54, 84, 161, 236, 240, 6,
       19, 98, 167, 5, 243, 192, 199, 115, 140, 152, 147, 43, 217, 188,
       76, 130, 202, 30, 155, 87, 60, 253, 212, 224, 22, 103, 66, 111, 24,
@@ -553,14 +560,8 @@ __device__ void cu_peach_md5(const void *in, size_t inlen, void *out)
 */
 __device__ void cu_peach_sha1(const void *in, size_t inlen, void *out)
 {
-   static word32 k[4] = {
-      0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6
-   };
-
-   /* Since this implementation uses little endian byte ordering and
-    * SHA uses big endian, reverse all the bytes upon input, and
-    * re-reverse them on output */
-
+   cuCONSTn860 static word32 c_k[4] = /* SHA1 transformation constant */
+      { 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6 };
    /* sha1_init */
    word32 state[5]  = {
       0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0
@@ -831,7 +832,7 @@ __device__ void cu_peach_sha1(const void *in, size_t inlen, void *out)
 */
 __device__ void cu_peach_sha256(const void *in, size_t inlen, void *out)
 {
-   static word32 k[64] = {
+   cuCONSTn860 static word32 k[64] = {
       0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
       0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
       0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -981,7 +982,7 @@ __device__ void cu_peach_sha256(const void *in, size_t inlen, void *out)
 __device__ void cu_peach_sha3(const void *in, size_t inlen,
    int keccak_final, void *out)
 {
-   static word64 keccakf_rndc[24] = {
+   cuCONSTn860 static word64 keccakf_rndc[24] = {
       WORD64_C(0x0000000000000001), WORD64_C(0x0000000000008082),
       WORD64_C(0x800000000000808a), WORD64_C(0x8000000080008000),
       WORD64_C(0x000000000000808b), WORD64_C(0x0000000080000001),
@@ -1576,7 +1577,7 @@ __device__ void cu_peach_sha3(const void *in, size_t inlen,
 __device__ word32 cu_peach_dflops(void *data, size_t len,
    word32 index, int txf)
 {
-   __constant__ static uint32_t c_float[4] = {
+   cuCONSTn860 static uint32_t c_float[4] = {
       WORD32_C(0x26C34), WORD32_C(0x14198),
       WORD32_C(0x3D6EC), WORD32_C(0x80000000)
    };
