@@ -92,6 +92,18 @@
 #define PEACHTILELEN     1024
 
 /**
+ * 64-bit variant of Peach Map Tile length, PEACHTILELEN. Used primarily
+ * for looping copies with 32-bit pointer to a Peach Map tile.
+*/
+#define PEACHTILELEN32  256
+
+/**
+ * 64-bit variant of Peach Map Tile length, PEACHTILELEN. Used primarily
+ * for selecting a 64-bit pointer to a Peach Map tile.
+*/
+#define PEACHTILELEN64  128
+
+/**
  * Check the Peach Proof of Work of a Block Trailer is valid. Checks Proof
  * of Work against the difficulty within the block trailer and ignores the
  * final hash
@@ -110,6 +122,7 @@ int peach_solve(BTRAILER *bt, word8 diff, void *out);
 /* CUDA functions */
 #ifdef CUDA
    int peach_checkhash_cuda(BTRAILER *btp, word8 diff, void *out);
+   int peach_free_cuda_device(DEVICE_CTX *devp, int status);
    int peach_init_cuda_device(DEVICE_CTX *devp);
    int peach_init_cuda(DEVICE_CTX devlist[], int max);
    int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff,
