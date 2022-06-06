@@ -129,7 +129,11 @@ char *metric_reduce(double *value)
    static int MLEN = sizeof(M) / sizeof (*M);
    int m;
 
-   m = (*value >= 1.0) ? (int) (log10(*value) / 3) : 0;
+   /* check value for sanity */
+   if (isnan(*value) || isinf(*value) || *value < 1.0) return M[0];
+
+   /* calculate metric number and reduce value */
+   m = (int) (log10(*value) / 3);
    if (m >= MLEN) m = MLEN - 1;
    *value /= pow(1000.0, (double) m);
 
