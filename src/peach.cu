@@ -48,26 +48,10 @@
    do { \
       cudaError_t _cerr = _cmd; \
       if (_cerr != cudaSuccess) { \
-         int _n; cudaGetDevice(&_n); \
+         int _n; cudaGetDevice(&_n); cudaDeviceSynchronize(); \
          const char *_err = cudaGetErrorString(_cerr); \
          pfatal("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
-         if (_dev != NULL) { \
-            cudaDeviceSynchronize(); \
-            DEVICE_CTX *_d = _dev; \
-            plog("CUDA#%d->state[%d:%d:%d] <<<%d, %d>>>: %d", _n, _d->id, \
-               _d->type, _d->status, _d->grid, _d->block, _d->threads); \
-            _d->status = DEV_FAIL; \
-            PEACH_CUDA_CTX *_p = &PeachCudaCTX[_d->id]; \
-            if (_p->stream[0]) cudaStreamDestroy(_p->stream[0]); \
-            if (_p->stream[1]) cudaStreamDestroy(_p->stream[1]); \
-            if (_p->h_solve) cudaFreeHost(_p->h_solve); \
-            if (_p->h_ictx) cudaFreeHost(_p->h_ictx); \
-            if (_p->d_solve[0]) cudaFree(_p->d_solve[0]); \
-            if (_p->d_solve[1]) cudaFree(_p->d_solve[1]); \
-            if (_p->d_ictx[0]) cudaFree(_p->d_ictx[0]); \
-            if (_p->d_ictx[1]) cudaFree(_p->d_ictx[1]); \
-            if (_p->d_map) cudaFree(_p->d_map); \
-         } \
+         peach_free_cuda_device(_dev, DEV_FAIL); \
          _exec; \
       } \
    } while(0)
@@ -1987,6 +1971,32 @@ int peach_checkhash_cuda(BTRAILER *btp, word8 diff, void *out)
    /* return */
    return (int) eval;
 }  /* end peach_checkhash_cuda() */
+
+/**
+ * Free CUDA memory allocated to a previously initialized device context.
+ * @param devp Pointer to DEVICE_CTX to free
+ * @returns VEOK on valid DEVICE_CTX pointer, else VERROR
+*/
+int peach_free_cuda_device(DEVICE_CTX *devp, int status)
+{
+   /* check device pointer */
+   if (devp == NULL) return VERROR;
+   /* set device status */
+   devp->status = status;
+   /* free pointers -- if set */
+   PEACH_CUDA_CTX *ctxp = &PeachCudaCTX[devp->id];
+   if (ctxp->stream[0]) cudaStreamDestroy(ctxp->stream[0]);
+   if (ctxp->stream[1]) cudaStreamDestroy(ctxp->stream[1]);
+   if (ctxp->h_solve) cudaFreeHost(ctxp->h_solve);
+   if (ctxp->h_ictx) cudaFreeHost(ctxp->h_ictx);
+   if (ctxp->d_solve[0]) cudaFree(ctxp->d_solve[0]);
+   if (ctxp->d_solve[1]) cudaFree(ctxp->d_solve[1]);
+   if (ctxp->d_ictx[0]) cudaFree(ctxp->d_ictx[0]);
+   if (ctxp->d_ictx[1]) cudaFree(ctxp->d_ictx[1]);
+   if (ctxp->d_map) cudaFree(ctxp->d_map);
+
+   return VEOK;
+}  /* end peach_free_cuda_device() */
 
 /**
  * (re)Initialize a device context with a CUDA device.
