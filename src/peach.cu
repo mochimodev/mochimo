@@ -2043,10 +2043,10 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
       PeachCudaCTX[id].nvml_enabled = 0;
       for (i = 0; i < nvml_count; i++) {
          memset(nvmlp, 0, sizeof(nvmlDevice_t));
-         if (nvmlDeviceGetHandleByIndex(i, nvmlp) == NVML_SUCCESS ||
-            (nvmlDeviceGetPciInfo(*nvmlp, &pci) == NVML_SUCCESS) ||
-            (pci.device == props.pciDeviceID) ||
-            (pci.domain == props.pciDomainID) ||
+         if (nvmlDeviceGetHandleByIndex(i, nvmlp) == NVML_SUCCESS &&
+            (nvmlDeviceGetPciInfo(*nvmlp, &pci) == NVML_SUCCESS) &&
+            (pci.device == props.pciDeviceID) &&
+            (pci.domain == props.pciDomainID) &&
             (pci.bus == props.pciBusID)) {
             /* obtain link gen/width */
             if (nvmlDeviceGetCurrPcieLinkGeneration(*nvmlp, &gen)
