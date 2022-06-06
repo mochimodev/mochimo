@@ -48,14 +48,14 @@ sudo apt install build-essential git -y
 <hr><hr>
 <h1 align="center"><strong>USAGE</strong></h1>
 
-## Quickstart Instructions (relay-node)
+## Quickstart (relay-node)
 ```sh
 git clone https://github.com/mochimodev/mochimo
 make install-mochimo -C mochimo
 mochimo/bin/gomochi -n
 ```
 
-## Detailed Instructions (mining-node)
+## Mochimo Server (relay/mining-node)
 1) Clone the repository: `git clone https://github.com/mochimodev/mochimo`
 2) Enter repository directory: `cd mochimo`
 3) Build and install the mining-node<br/>
@@ -66,6 +66,18 @@ mochimo/bin/gomochi -n
 6) Run Mochimo Node (server)<br/>
    a) Mining mode: `./gomochi`, or<br/>
    b) Relay mode: `./gomochi -n`
+
+## Mochimo Miner
+1) Install appropriate NVIDIA Drivers and Cuda Toolkit (see above)
+2) Clone the repository: `git clone https://github.com/mochimodev/mochimo`
+3) Enter repository directory: `cd mochimo`
+4) Build and install the Cuda Miner: `make install-cudaminer`
+4) Enter the binary directory: `cd bin`
+5) Copy (or create) your mining address `maddr.dat` in this directory
+6) Run Mochimo Miner<br/>
+   a) Headless Mining: `./miner`, or<br/>
+   b) Solo Mining (requires Mochimo Server): `./miner --host <ip>`, or<br/>
+   c) Pool Mining (requires Pool): `./miner --pool <ip> --port <num>`
 
 ## Additional Instructions
 See the [Mochimo Wiki](http://www.mochiwiki.com).
