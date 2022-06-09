@@ -31,6 +31,7 @@
 #include "exttime.h"
 #include <signal.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #ifndef GIT_VERSION
    #define GIT_VERSION "<no-version>"
@@ -48,7 +49,7 @@
 #define MEMBLOCKMADDRp(memp)  ( ((BHEADER *) (memp)->data)->maddr )
 #define MEMBLOCKBTp(memp)  \
    ( (BTRAILER *) (((word8 *) (memp)->data) + ((memp)->size - BTSIZE)) )
-#define MEMBLOCKMBNUMp(memp)  ( MEMBLOCKBTp(memp)->bnum )
+#define MEMBLOCKBNUMp(memp)  ( MEMBLOCKBTp(memp)->bnum )
 #define MEMBLOCKMROOTp(memp)  ( MEMBLOCKBTp(memp)->mroot )
 #define MEMBLOCKNONCEp(memp)  ( MEMBLOCKBTp(memp)->nonce )
 #define MEMBLOCKSTIMEp(memp)  ( MEMBLOCKBTp(memp)->stime )
@@ -382,16 +383,34 @@ int usage(int ecode)
 {
    print(
       "usage: mochiminer [options]\n"
-      "   -h, --host <IPv4>       specify a target ipv4 address, IP\n"
-      "   -i, --interval <num>    time, in seconds, between target calls\n"
-      "       --log-level <num>   level of detail in logging (0-5)\n"
-      "   -n, --name <string>     name of miner (POOL MINER ONLY)\n"
-      "   -P, --pool <IPv4>       pool/proxy target ipv4 address\n"
-      "   -p, --port <num>        port number of target\n\n"
+      "   -h,  --host <IPv4>       specify a target ipv4 address, IP\n"
+      "   -i,  --interval <num>    time, in seconds, between target calls\n"
+      "   -ll, --log-level <num>   level of detail in logging (0-5)\n"
+      "   -m,  --maddr <file>      mining address file\n"
+      "   -n,  --name <string>     name of miner (POOL MINER ONLY)\n"
+      "   -P,  --pool <IPv4>       pool/proxy target ipv4 address\n"
+      "   -p,  --port <num>        port number of target\n\n"
    );
 
    return ecode;
 }  /* end usage() */
+
+int anprintf(char *buf, size_t buflen, const char *fmt, ...)
+{
+   size_t current, remaining;
+   va_list args;
+   int res = 0;
+
+   current = strlen(buf);
+   if (current <= buflen - 1) {
+      remaining = buflen - current;
+      va_start(args, fmt);
+      res = vsnprintf(&buf[current], remaining, fmt, args);
+      va_end(args);
+   }
+
+   return res;
+}
 
 int main(int argc, char *argv[])
 {
@@ -418,12 +437,12 @@ int main(int argc, char *argv[])
    static double allhps, /* avghps, */ hps;
    static unsigned int p;
    static int num_cpu_threads, terr, count, n, j, ecode;
-   static time_t now, gettime, starttime, statstime, worktime;
-   static word32 hostip, shares;
+   static time_t now, gettime, starttime, statstime, worktime, timeout;
+   static word32 stats[3], hostip, shares, bnum;
    static word8 maddr[TXADDRLEN];
-   char filepath[FILENAME_MAX] = "maddr.dat";
-   char stickystats[BUFSIZ], *sp, *vp;
-   char peerstr[24], blockstr[32], *m;
+   static char mfile[FILENAME_MAX];
+   char stickystats[BUFSIZ], ipstr[24];
+   char *sp, *vp, *m;
 
    /* init - defaults */
    sock_startup();
@@ -433,6 +452,7 @@ int main(int argc, char *argv[])
    strncpy((char *) Weight, "MochiMiner", 23);
    cblock.data = malloc(sizeof(BTRAILER));
    cblock.size = sizeof(BTRAILER);
+   sp = stickystats;
    Port = Dstport = PORT1;
    Noprivate = 0;
    Interval = 5;
@@ -447,50 +467,43 @@ int main(int argc, char *argv[])
       /* check argument validity */
       if (argv[j][0] != '-') {
 USAGE:   return usage(ecode);
-      }
-      if (argument(argv[j], "--", NULL)) break;
-      if (argument(argv[j], "-h", "--host")) {
+      } else if (argument(argv[j], "--", NULL)) {
+         pdebug(" -- end of arguments");
+         break;
+      } else if (argument(argv[j], "-h", "--host")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid host");
          hostip = aton(vp);
          plog("Solo Mining Host= 0x%" P32x " (%s)", hostip, vp);
          continue;
-      }
-      if (argument(argv[j], "-i", "--interval")) {
+      } else if (argument(argv[j], "-i", "--interval")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid interval");
          Interval = aton(vp);
          plog("Interval= 0x%" P32x " (%s)", Interval, vp);
-         continue;
-      }
-      if (argument(argv[j], NULL, "--log-level")) {
+      } else if (argument(argv[j], "-ll", "--log-level")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid log level");
          set_print_level(atoi(vp));
          plog("Log Level= 0x%x (%s)", atoi(vp), vp);
-         continue;
-      }
-      if (argument(argv[j], "-n", "--name")) {
+      } else if (argument(argv[j], "-m", "--mining-address")) {
          vp = argvalue(&j, argc, argv);
-         if (vp) {
-            strncpy((char *) Weight, vp, 23);
-            plog("Name= %s (%s)", (char *) Weight, vp);
-         }
-         continue;
-      }
-      if (argument(argv[j], "-P", "--pool")) {
+         if (vp) strncpy(mfile, vp, 23);
+         plog("Mining Address File= %s (%s)", mfile, vp);
+      } else if (argument(argv[j], "-n", "--name")) {
+         vp = argvalue(&j, argc, argv);
+         if (vp) strncpy((char *) Weight, vp, 23);
+         plog("Name= %s (%s)", (char *) Weight, vp);
+      } else if (argument(argv[j], "-P", "--pool")) {
          vp = argvalue(&j, argc, argv);
          if (vp) hostip = aton(vp);
          Solo = 0;
          plog("Pool Mining Hostip= 0x%" P32x " (%s)", hostip, vp);
-         continue;
-      }
-      if (argument(argv[j], "-p", "--port")) {
+      } else if (argument(argv[j], "-p", "--port")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid port");
          Port = Dstport = atoi(vp);
          plog("Port= %" P16u " (%s)", Dstport, vp);
-         continue;
       }
    }
 
@@ -502,32 +515,40 @@ USAGE:   return usage(ecode);
       char dirpath[BUFSIZ] = ".";
       GetCurrentDirectory(BUFSIZ, dirpath);
 #endif
-      Solo = 1;
-      print("Please select your mining address file...\n");
-      fflush(stdout);
-      millisleep(1000);
-      open_dialog(filepath, BUFSIZ);
-      if (*filepath == '\0') {
-         return perr("A mining address is REQUIRED to mine solo...");
-      } else if (!fexists(filepath)) {
-         return perr("%s does not exist...", filepath);
-      }
+      if (*mfile == '\0') {
+         open_dialog(mfile, BUFSIZ);
+         if (*mfile == '\0') mError(USAGE, "Unspecified Mining Address...");
+      } else if (!fexists(mfile)) return perr("%s does not exist!", mfile);
 #if OS_WINDOWS
       /* restore working directory */
       SetCurrentDirectory(dirpath);
 #endif
-      count = read_data(maddr, TXADDRLEN, filepath);
-      if (count < 0) return perrno(errno, "I/O failure, %s", filepath);
-      if (count != TXADDRLEN) return perr("Invalid size, %s", filepath);
-      plog("Mining Address= %s...", addr2str(maddr));
       /* prepare list of appropriate peers */
-      plog("Preparing peers...");
       reset_peers(hostip);
-   } else addpeer(hostip, Rplist, RPLISTLEN, &Rplistidx);
+   } /* end if (Running && Solo) */
+
+   if (Running && !Solo) {
+      addpeer(hostip, Rplist, RPLISTLEN, &Rplistidx);
+   }  /* end if (Running && !Solo) */
 
    if (Running) {
       print("\n");
+      /* load miner stats */
+      if (read_data(stats, sizeof(stats), "miner.stats") > 0) {
+         plog("Statistics loaded...");
+         Nupdated = stats[2];
+         Nsolved = stats[1];
+         Hps = stats[0];
+      }
+      /* identify mining type */
       plog("%s mining enabled...", Solo ? "Solo" : "Pool");
+      /* read mining address -- if avaialable */
+      if (*mfile) {
+         count = read_data(maddr, TXADDRLEN, mfile);
+         if (count < 0) return perrno(errno, "I/O failure, %s", mfile);
+         if (count != TXADDRLEN) return perr("Invalid size, %s", mfile);
+         plog("Mining Address= %s...", addr2str(maddr));
+      } else if (!Solo) plog("Mining Address= <unspecified>");
       /* initialize random seed based on multiple entropy */
       srand16(time(&now), now ^ get32(maddr), now ^ (time_t) getpid());
       /* initialize mining devices */
@@ -545,17 +566,26 @@ USAGE:   return usage(ecode);
       num_opencl_gpus = peach_init_opencl(OpenCLGPUs, GPUMAX / 2);
       plog("OpenCL Devices = %d", num_cuda_gpus); */
 
-      /* begin miner loop */
+      /* init main loop */
+      count = 0;
       worktime = time(&starttime);
       statstime = starttime - 1;
       gettime = starttime - Interval;
-   }
+   }  /* end if(Running) */
 
    /* main loop */
    while (Running) {
       /* chillout -- grab latest time */
       millisleep(Dynasleep);
       time(&now);
+      /* check timeout -- if specified */
+      if (timeout && difftime(timeout, now) <= 0) {
+         /* drop current peer -- reset peers if empty */
+         remove32(*Rplist, Rplist, RPLISTLEN, &Rplistidx);
+         if (Rplistidx < 6) reset_peers(hostip);
+         timeout = 0;
+         count++;
+      }
       /* check send threads -- cleanup */
       /* NOTE: thread sets tharg_*->ts non-zero when done */
       for (p = 0; p < RPLISTLEN && Running; p++) {
@@ -603,8 +633,9 @@ USAGE:   return usage(ecode);
             }
             time(&gettime);
             tid_get = 0;
-            /* handle thread results... */
+            /* handle thread results, or trigger timeout event */
             if (tharg_cblock.tr == VEOK) {
+               timeout = 0;
                time(&worktime);
                /* shift current block to previous */
                if (pblock.data) free(pblock.data);
@@ -614,10 +645,14 @@ USAGE:   return usage(ecode);
                cblock.data = tharg_cblock.block.data;
                cblock.size = tharg_cblock.block.size;
                /* rehash mroot with own maddr */
+               btp = MEMBLOCKBTp(&cblock);
                memcpy(MEMBLOCKMADDRp(&cblock), maddr, TXADDRLEN);
-               sha256(cblock.data, cblock.size - 100,
-                  MEMBLOCKMROOTp(&cblock));
-            }
+               sha256(cblock.data, cblock.size - 100, btp->mroot);
+               /* check new block and count */
+               if (cmp64(btp->bnum, MEMBLOCKBNUMp(&pblock))) {
+                  if (!iszero(MEMBLOCKBNUMp(&pblock), 8)) Nupdated++;
+               }
+            } else if (timeout == 0) timeout = now + 20;
             /* cleanup thread argument */
             memset(&tharg_cblock, 0, sizeof(THREADBLOCK));
          }
@@ -761,32 +796,24 @@ USAGE:   return usage(ecode);
       /* check statstime -- display miner stats */
       if (difftime(now, statstime)) {
          time(&statstime);
-         sp = stickystats;
          sp[0] = '\0';
          allhps = 0;
 #ifdef CUDA
          /* build sticky stats from GPUs */
          for (n = 0; n < num_cuda_gpus; n++) {
-            /* check for available sticky space */
-            if ((sp - stickystats) >= (BUFSIZ - 1)) break;
-            if (sp != stickystats) *(sp++) = '\n';
             switch (GPU[n].status) {
                case DEV_FAIL:
-                  snprintf(sp, (size_t) (BUFSIZ - (sp - stickystats)),
-                     "%s Failure...", GPU[n].nameId);
+                  anprintf(sp, BUFSIZ, "%s Failure...\n", GPU[n].nameId);
                   break;
                case DEV_NULL:
-                  snprintf(sp, (size_t) (BUFSIZ - (sp - stickystats)),
-                     "GPU#%d; Uninitalized...", n);
+                  anprintf(sp, BUFSIZ, "GPU#%d; Uninitalized...\n", n);
                   break;
                case DEV_IDLE:
-                  snprintf(sp, (size_t) (BUFSIZ - (sp - stickystats)),
-                     "%s [%uW:%u°C] No txs...",
+                  anprintf(sp, BUFSIZ, "%s [%uW:%u°C] No txs...\n",
                      GPU[n].nameId, GPU[n].pow, GPU[n].temp);
                   break;
                case DEV_INIT:
-                  snprintf(sp, (size_t) (BUFSIZ - (sp - stickystats)),
-                     "%s [%uW:%u°C] Init... (%d%%)",
+                  anprintf(sp, BUFSIZ, "%s [%uW:%u°C] Init... (%d%%)\n",
                      GPU[n].nameId, GPU[n].pow, GPU[n].temp,
                      (int) (100 * GPU[n].work) / PEACHCACHELEN);
                   break;
@@ -795,40 +822,50 @@ USAGE:   return usage(ecode);
                   hps /= difftime(time(NULL), GPU[n].last_work);
                   allhps += hps;
                   m = metric_reduce(&hps);
-                  snprintf(sp, (size_t) (BUFSIZ - (sp - stickystats)),
-                     "%s [%uW:%u°C] %.02lf%sH/s", GPU[n].nameId,
-                     GPU[n].pow, GPU[n].temp, hps, m);
+                  anprintf(sp, BUFSIZ, "%s [%uW:%u°C] %.02lf%sH/s\n",
+                     GPU[n].nameId, GPU[n].pow, GPU[n].temp, hps, m);
                   break;
                default: break; /* no info -- likely disabled */
             }  /* end switch (GPU[n].status) */
-            sp += strlen(sp);
          }  /* end for (n = 0; n < num_cuda_gpus; n++)... */
 #endif
-         /* add combined stats */
-         if (sp != stickystats) *(sp++) = '\n';
-         if ((sp - stickystats) < (BUFSIZ - 1)) {
-            /* calculate avg-hps and all-hps values */
-            /* build general stats */
-            ntoa(Rplist, peerstr);
-            m = metric_reduce(&allhps);
-            btp = Solo ? MEMBLOCKBTp(&cblock) : &cbt;
-            count = (int) difftime(time(NULL), worktime);
-            block2str(btp->bnum, btp->mroot, blockstr, sizeof(blockstr));
-            snprintf(sp, (size_t) (BUFSIZ - (sp - stickystats)),
-               "#: %s:%" P16u " [%" P32u " %s] %s %ds ago. %.02lf%sH/s",
-               peerstr, Dstport, Solo ? Nsolved : shares,
-               Solo ? "Solves" : "Shares", blockstr, count,
-               allhps, m);
+         /* add general stats */
+         ntoa(Rplist, ipstr);
+         m = metric_reduce(&allhps);
+         if (Solo) {
+            bnum = (unsigned) get32(MEMBLOCKBNUMp(&cblock));
+            anprintf(stickystats, BUFSIZ,
+               "(%d) %s:%"P16u" 0x%x(%u) [%"P32u"/%"P32u" Solved] %.02lf%sH/s\n",
+               count, ipstr, Dstport, bnum, bnum, Nsolved, Nupdated, allhps, m);
+         } else {
+            bnum = (unsigned) get32(cbt.bnum);
+            anprintf(stickystats, BUFSIZ,
+               "(%d) %s:%"P16u" 0x%x(%u) [%"P32u" Shares] %.02lf%sH/s\n",
+               count, ipstr, Dstport, bnum, bnum, shares, allhps, m);
+         }
+         /* check timeout indicator */
+         if (timeout) {
+            anprintf(sp, BUFSIZ, "-- TIMEOUT: %ds until host rotation --",
+               (int) difftime(timeout, time(NULL)));
          }
          /* update stats display */
          psticky("%s", stickystats);
       }  /* end if (difftime(now, statstime)) */
    }  /* end while (Running) */
-   plog("Miner exiting...\n");
+   plog("Miner exiting...");
+
+   /* save miner stats data */
+   stats[0] = Hps;
+   stats[1] = Nsolved;
+   stats[2] = Nupdated;
+   if (write_data(stats, sizeof(stats), "miner.stats") > 0) {
+      plog("Statistics saved...");
+   }
 
    /* cleanup */
    sock_cleanup();
    psticky("");
+   plog("");
 
    return 0;
 }  /* end main() */
