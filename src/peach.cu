@@ -56,8 +56,8 @@
       } \
    } while(0)
 
-/* sm_86 seems to perform better without __constant__ memory */
-#if __CUDA_ARCH__ != 860
+/* sm_61 performs MUCH better with the __constant__ qualifier */
+#if __CUDA_ARCH__ == 610
    #define cuCONSTn860 __constant__
 #else
    #define cuCONSTn860
@@ -961,7 +961,7 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
    nvmlPciInfo_t pci;
    nvmlDevice_t *nvmlp;
    size_t ictxlen;
-   unsigned i, gen, width;
+   unsigned i, gen, width, skip;
 
    if (nvml_initialized == 0) {
       /* set nvml initialized */
@@ -1002,9 +1002,10 @@ int peach_init_cuda_device(DEVICE_CTX *devp, int id)
          }
       }
       /* store GPU name, PCI Id and gen info in nameId */
+      skip = strncmp("NVIDIA ", props.name, 7) ? 0 : 7;
       snprintf(devp->nameId, sizeof(devp->nameId),
-         "%04u:%02u:%02u:%.128s Gen%1ux%02u", props.pciDomainID,
-         props.pciDeviceID, props.pciBusID, props.name, gen, width);
+         "%04u:%02u:%02u %.128s Gen%1ux%02u", props.pciDomainID,
+         props.pciDeviceID, props.pciBusID, props.name + skip, gen, width);
    }
    /* set context to CUDA id */
    cuCHK(cudaSetDevice(id), devp, return VERROR);
