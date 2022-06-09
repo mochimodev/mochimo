@@ -740,7 +740,7 @@ word32 set_difficulty(BTRAILER *btp)
 void ctrlc(int sig)
 {
    print("\n");
-   pdebug("Got signal %i\n", sig);
+   pdebug("Got signal %i", sig);
    signal(SIGINT, ctrlc);
    if (Ininit) Running = 0;
    else Monitor = 1;
@@ -752,7 +752,8 @@ void ctrlc(int sig)
  */
 void sigterm(int sig)
 {
-   pdebug("Got signal %i\n", sig);
+   print("\n");
+   pdebug("Got signal %i", sig);
    signal(SIGTERM, sigterm);
    Running = 0;
 }
@@ -822,7 +823,7 @@ void print_splash(char *execname, char *version)
    plog("See the License Agreement at the links below:");
    plog("   https://mochimo.org/license.pdf (PDF version)");
    plog("   https://mochimo.org/license (TEXT version)");
-   print("\n");
+   plog("");
 }
 
 /* end include guard */
