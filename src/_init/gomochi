@@ -27,8 +27,11 @@ if test "$CHAR" = "-"; then WDIR="d/"; fi
 # Sanity checks
 
 echo
-if test ! -f mochimo
-then echo -e "Missing 'mochimo' binary: check installation\n" && exit 1
+if test ! -f mochimo; then
+   echo "gomochi: Missing 'mochimo' binary."
+   echo "Check installation, or re-install with:"
+   echo "    \`cd path/to/mochimo && make clean install-mochimo\`"
+   exit 1
 fi
 
 ########
@@ -38,4 +41,4 @@ fi
 mkdir -p $WDIR && cd $WDIR
 #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
 ../mochimo -x345678 -o -F -P -s1000 $1 $2 $3 $4 $5 $6 $7 $8 $9
-echo && echo "Mochimo stopped..."
+echo && echo "gomochi: Mochimo stopped..."
