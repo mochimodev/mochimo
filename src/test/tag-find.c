@@ -1,9 +1,3 @@
-/* testtag.c  Test tag index functions
-
-   See LICENSE.PDF
-
-   Date: 15 December 2019
-*/
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -55,8 +49,8 @@ int main()
    /* check partial search of 4 bytes, expecting tag found (VEOK) */
    ASSERT_EQ(tag_find(le[4].addr, le[4].addr, le[4].balance, 4), 0);
    /* check tag_find() built Tagidx & Ntagidx as well*/
-   ASSERT_NE_MSG(Tagidx, NULL, "expect (Tagidx != NULL) when tag_find()= 0");
-   ASSERT_GT_MSG(Ntagidx, 0, "expect (Ntagidx > 0) when tag_find()= 0");
+   ASSERT_NE_MSG(Tagidx, NULL, "expect (Tagidx != NULL) after VEOK");
+   ASSERT_GT_MSG(Ntagidx, 0, "expect (Ntagidx > 0) after VEOK");
    /* check tag address is as expected */
    ASSERT_STR_MSG((char *) le[4].addr, GOODADDRSTR, strlen(GOODADDRSTR),
       "should be = " GOODADDRSTR);
@@ -64,30 +58,30 @@ int main()
    ASSERT_EQ_MSG(get32(le[4].balance), 16, "should be = 16");
    /* check tag_free() free's Tagidx & resets Ntagidx */
    tag_free();
-   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) when tag_free()= 0");
-   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) when tag_free()= 0");
+   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) after tag_free()");
+   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) after tag_free()");
 
-   /* check tag_find() fails on IO error, ecode= 4 */
+   /* check tag_find() fails on IO error */
    make_Tagidx(8);
-   ASSERT_EQ(tag_find(le[4].addr, le[4].addr, NULL, TXTAGLEN), 4);
-   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) when tag_find()= 4");
-   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) when tag_find()= 4");
-   /* check tag_find() fails on bad fread, ecode= 5 */
+   ASSERT_NE(tag_find(le[4].addr, le[4].addr, NULL, TXTAGLEN), VEOK);
+   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) on I/O error");
+   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) on I/O error");
+   /* check tag_find() fails on bad fread */
    make_Tagidx(3);
-   ASSERT_EQ(tag_find(le[4].addr, le[4].addr, NULL, TXTAGLEN), 5);
-   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) when tag_find()= 5");
-   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) when tag_find()= 5");
+   ASSERT_NE(tag_find(le[4].addr, le[4].addr, NULL, TXTAGLEN), VEOK);
+   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) on bad fread");
+   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) on bad fread");
 
-   /* check tag_find() fails with unable to build tagidx, ecode=2 */
+   /* check tag_find() fails with unable to build tagidx */
    remove("ledger.dat");
-   ASSERT_EQ(tag_find(le[4].addr, NULL, NULL, TXTAGLEN), 2);
-   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) when tag_find()= 2");
-   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) when tag_find()= 2");
-   /* check tag_find() fails with unable to open ledger, ecode= 3 */
+   ASSERT_NE(tag_find(le[4].addr, NULL, NULL, TXTAGLEN), VEOK);
+   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) on no ledger/Tagidx");
+   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) on no ledger/Tagidx");
+   /* check tag_find() fails with unable to open ledger */
    make_Tagidx(1);
-   ASSERT_EQ(tag_find(le[4].addr, le[4].addr, NULL, TXTAGLEN), 3);
-   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) when tag_find()= 3");
-   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) when tag_find()= 3");
+   ASSERT_NE(tag_find(le[4].addr, le[4].addr, NULL, TXTAGLEN), VEOK);
+   ASSERT_EQ_MSG(Tagidx, NULL, "expect (Tagidx == NULL) no ledger");
+   ASSERT_EQ_MSG(Ntagidx, 0, "expect (Ntagidx == 0) no ledger");
 
    /* cleanup */
    remove("ledger.dat");
