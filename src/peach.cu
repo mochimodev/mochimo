@@ -1135,11 +1135,17 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
    nvmlReturn_t nr;
    size_t ictxlen;
 
-   /* check for GPU failure */
-   if (dev->status == DEV_FAIL) return VERROR;
-
+   /* init */
    id = dev->id;
    P = &PeachCudaCTX[id];
+
+   /* check for GPU failure */
+   if (dev->status == DEV_FAIL) {
+      if (dev->last_work && difftime(time(NULL), dev->last_work) >= 5) {
+         peach_init_cuda_device(dev, id);  /* attempt failure recovery */
+      } else return VERROR;  /* error likely NOT recoverable */
+   }
+
    /* set/check cuda device */
    cuCHK(cudaSetDevice(id), dev, return VERROR);
    cuCHK(cudaGetLastError(), dev, return VERROR);
