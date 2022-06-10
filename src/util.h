@@ -85,8 +85,8 @@
       if (Bcon_pid) kill(Bcon_pid, SIGTERM);       \
       if (Mqpid) kill(Mqpid, SIGTERM);             \
       if (Mpid) kill(Mpid, SIGTERM);               \
+      sock_cleanup();                              \
       Running = 0;                                 \
-      pdebug("Waiting for children...");           \
       while (waitpid(-1, NULL, 0) != -1);          \
       exit(ecode);                                 \
    } while(0)
