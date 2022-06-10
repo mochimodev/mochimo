@@ -977,20 +977,19 @@ int main(int argc, char **argv)
    static char *cp;
    static word8 endian[] = { 0x34, 0x12 };
 
-   /* sanity checks */
-   if(sizeof(word32) != 4) fatal("word32 should be 4 bytes");
-   if(sizeof(TX) != TXBUFFLEN || sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)
-      || sizeof(BTRAILER) != BTSIZE)
-      fatal("struct size error.\nSet compiler options for byte alignment.");    
-   if (sizeof(MTX) != sizeof(TXQENTRY)) {
+   /* sanity checks -- for undesired structure padding */
+   if (sizeof(word32) != 4) fatal("word32 should be 4 bytes");
+   else if (sizeof(TX) != TXBUFFLEN) {
+      fatal("struct size error TX != TXBUFFLEN");
+   } else if (sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)) {
+      fatal("struct size error: LTRAN != (TXADDRLEN + 1 + TXAMOUNT)");
+   } else if (sizeof(BTRAILER) != BTSIZE) {
+      fatal("struct size error: BTRAILER != BTSIZE");
+   } else if (sizeof(MTX) != sizeof(TXQENTRY)) {
       fatal("struct size error: MTX != TXQENTRY");
-   }
-   if(get16(endian) != 0x1234)
+   } else if (get16(endian) != 0x1234) {
       fatal("little-endian machine required for this build.");
-
-   /* improve random generators */
-   srand16fast(time(NULL) ^ getpid());
-   srand16(time(NULL), 0, 123456789 ^ getpid());
+   }
 
    /* pre-init */
    sock_startup();            /* enable socket support */
