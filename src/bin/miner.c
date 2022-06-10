@@ -652,7 +652,7 @@ USAGE:   return usage(ecode);
                if (cmp64(btp->bnum, MEMBLOCKBNUMp(&pblock))) {
                   if (!iszero(MEMBLOCKBNUMp(&pblock), 8)) Nupdated++;
                }
-            } else if (timeout == 0) timeout = now + 20;
+            } else if (timeout == 0) timeout = now + 30;
             /* cleanup thread argument */
             memset(&tharg_cblock, 0, sizeof(THREADBLOCK));
          }
@@ -852,17 +852,19 @@ USAGE:   return usage(ecode);
          psticky("%s", stickystats);
       }  /* end if (difftime(now, statstime)) */
    }  /* end while (Running) */
-   plog("Miner exiting...");
 
    /* save miner stats data */
    stats[0] = Hps;
    stats[1] = Nsolved;
    stats[2] = Nupdated;
-   if (write_data(stats, sizeof(stats), "miner.stats") > 0) {
-      plog("Statistics saved...");
+   if (!iszero(stats, sizeof(stats))) {
+      if (write_data(stats, sizeof(stats), "miner.stats") > 0) {
+         plog("Statistics saved...");
+      }
    }
 
    /* cleanup */
+   plog("Miner exiting...");
    sock_cleanup();
    psticky("");
    plog("");
