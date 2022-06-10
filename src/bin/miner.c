@@ -486,7 +486,7 @@ USAGE:   return usage(ecode);
          if (vp == NULL) mError(USAGE, "invalid log level");
          set_print_level(atoi(vp));
          plog("Log Level= 0x%x (%s)", atoi(vp), vp);
-      } else if (argument(argv[j], "-m", "--mining-address")) {
+      } else if (argument(argv[j], "-m", "--maddr")) {
          vp = argvalue(&j, argc, argv);
          if (vp) strncpy(mfile, vp, 23);
          plog("Mining Address File= %s (%s)", mfile, vp);
