@@ -403,8 +403,23 @@ int init(void)
    status = VEOK;
    attempts = 0;
 
-   /* ensure appropriate directories and permissions exist */
+   /* clear clutter from working directory */
+   if (check_directory("temp")) return VERROR;
+   rename("epink.lst", "temp/epink.lst");
+   rename("ledger.dat", "temp/ledger.dat");
+   rename("mochi.log", "temp/mochi.log");
+   rename("recent.lst", "temp/recent.lst");
+   rename("tfile.dat", "temp/tfile.dat");
+   clear_directory(".");
+   rename("temp/epink.lst", "epink.lst");
+   rename("temp/ledger.dat", "ledger.dat");
+   rename("temp/mochi.log", "mochi.log");
+   rename("temp/recent.lst", "recent.lst");
+   rename("temp/tfile.dat", "tfile.dat");
+   remove("temp");
+   /* prepare mochimo filesystem structure */
    if (check_directory(Bcdir) || check_directory(Spdir)) return VERROR;
+   if (ftouch("mq.lock")) return VERROR;
 
    /* update coreip list where available */
    snprintf(fname, FILENAME_MAX, "../%s", Coreipfname);
