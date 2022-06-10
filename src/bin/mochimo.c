@@ -970,7 +970,7 @@ int usage(void)
 int main(int argc, char **argv)
 {
    static int k, j;
-   static char *cp;
+   static char proc_name[64], *cp;
    static word8 endian[] = { 0x34, 0x12 };
 
    /* sanity checks -- for undesired structure padding */
@@ -988,12 +988,25 @@ int main(int argc, char **argv)
    }
 
    /* pre-init */
-   sock_startup();            /* enable socket support */
+   Ininit = 1;
+   Running = 1;
    fix_signals();             /* redirect signals */
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
    set_output_level(PLEVEL_DEBUG);
    set_print_level(PLEVEL_LOG);
-   Running = Ininit = 1;
+
+   /* sanity check -- for duplicate processes */
+   cp = strrchr(argv[0], '/');
+   if (cp == NULL) cp = strrchr(argv[0], '\\');
+   if (cp++ && *cp) strncpy(proc_name, cp, sizeof(proc_name));
+   else strncpy(proc_name, argv[0], sizeof(proc_name));
+   if (proc_dups(proc_name)) resign("Mochimo is already running!");
+
+   /* improve random generators */
+   srand16fast(time(NULL) ^ getpid());
+   srand16(time(NULL), 0, 123456789 ^ getpid());
+   /* enable socket support */
+   sock_startup();
 
    /* Parse command line arguments. */
    for (j = 1; Running && j < argc; j++) {

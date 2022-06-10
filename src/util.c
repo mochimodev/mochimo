@@ -31,7 +31,10 @@
 #include <errno.h>
 #include "crc16.h"
 
-#ifdef OS_UNIX
+#if defined(OS_WINDOWS)
+   #include <tlhelp32.h>  /* for CreateToolhelp32Snapshot */
+
+#elif defined(OS_UNIX)
    #include <dirent.h>
 
 #endif
@@ -65,6 +68,60 @@ void phostinfo(void)
    print("  IPv4 address: %s\n", *addrname ? addrname : "0.0.0.0");
    print("\n");
 }  /* end phostinfo() */
+
+/**
+ * Check for duplicate running processes, by @a name. Checks running dups
+ * by counting the number of running processes matching specified @a name.
+ * @param name String repesenting process name to search for
+ * @returns The number of duplicate processes, or (-1) on error. The number
+ * of "duplicate" processes is considered 0 if One (1) process is found.
+*/
+int proc_dups(const char *name)
+{
+   int result = -1;
+
+#ifdef _WIN32
+   PROCESSENTRY32 pe = { 0 };
+   HANDLE pss;
+
+   /* init */
+   pe.dwSize = sizeof(pe);
+   /* obtain snapshot to scan processes */
+   pss = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+   if (pss != NULL) {
+      /* initiate first process scan */
+      if (Process32First(pss, &pe)) {
+         do {
+            /* compare szExeFile with process name */
+            if (strncmp(name, pe.szExeFile, MAX_PATH) == 0) result++;
+            /* iterate remaining processes in snapshot */
+         } while(Process32Next(pss, &pe));
+         if (result < 0) result = 0;
+      }
+      /* close snapshot handle */
+      CloseHandle(pss);
+   }
+
+/* end _WIN32 routine */
+#else  /* assume UNIXLIKE */
+   FILE *fd;
+   char cmd[48];
+
+   /* use POSIX "pgrep" to list processes by name */
+   sprintf(cmd, "pgrep %.32s", name);
+   fd = popen(cmd, "r");
+   if (fd != NULL) {
+      /* count lines of output */
+      while (fgets(cmd, sizeof(cmd), fd)) result++;
+      if (result < 0) result = 0;
+      pclose(fd);
+   }
+
+/* end UNIXLIKE routine */
+#endif
+
+   return result;
+}  /* end proc_dups() */
 
 /**
  * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.

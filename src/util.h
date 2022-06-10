@@ -118,6 +118,7 @@ extern "C" {
 
 char *show(char *state);
 void phostinfo(void);
+int proc_dups(const char *name);
 int argument(char *argv, char *chk1, char *chk2);
 char *argvalue(int *idx, int argc, char *argv[]);
 char *metric_reduce(double *value);
