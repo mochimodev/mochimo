@@ -28,7 +28,7 @@
 #include "extprint.h"
 #include <errno.h>
 
-#define BAIL(m) { message = m; goto bail; }
+#define BAIL(m)   do { message = m; goto bail; } while(0)
 
 /**
  * Mochimo error code. Sets @a ecode to given value and jumps to label.
@@ -37,7 +37,7 @@
  * @param _lbl Label to jump to
  * @param _e Error code to set ecode to
 */
-#define mEcode(_lbl, _e)   { ecode = _e; goto _lbl; }
+#define mEcode(_lbl, _e)   do { ecode = _e; goto _lbl; } while(0)
 
 /**
  * Mochimo protocol violation. Calls perr(...) with variable arguments,
@@ -48,7 +48,8 @@
  * @param _lbl Label to jump to
  * @param ... arguments passed to perr()
 */
-#define mEdrop(_lbl, ...)  { perr(__VA_ARGS__); mEcode(_lbl, VEBAD2); }
+#define mEdrop(_lbl, ...) \
+   do { perr(__VA_ARGS__); mEcode(_lbl, VEBAD2); } while(0)
 
 /**
  * Mochimo error w/ error number. Calls perrno(...) with variable
@@ -68,6 +69,39 @@
  * @param ... arguments passed to perr()
 */
 #define mError(_lbl, ...)  mEcode(_lbl, perr(__VA_ARGS__))
+
+/**
+ * Display a fatal @a msg, terminate services and exit with @a ecode.
+ * @param ecode value to supply to exit()
+ * @param msg message to print with trace
+ * @note Non-zero exit codes should expect a restart.
+ * If a restart is not desireable, use exitcode Zero (0).
+*/
+#define fatal(ecode, msg)                          \
+   do {                                            \
+      pfatal("%s", msg == NULL ? "<nomsg>" : msg); \
+      pdebug("Terminating services...");           \
+      if (Found_pid) kill(Found_pid, SIGTERM);     \
+      if (Bcon_pid) kill(Bcon_pid, SIGTERM);       \
+      if (Mqpid) kill(Mqpid, SIGTERM);             \
+      if (Mpid) kill(Mpid, SIGTERM);               \
+      Running = 0;                                 \
+      pdebug("Waiting for children...");           \
+      while (waitpid(-1, NULL, 0) != -1);          \
+      exit(ecode);                                 \
+   } while(0)
+
+/**
+ * Resign the process (no restart).
+ * @param msg Reason for resigning the process
+*/
+#define resign(msg)  fatal(0, msg)
+
+/**
+ * Restart the process.
+ * @param msg Reason for restarting the process
+*/
+#define restart(msg) fatal(1, msg)
 
 /* bnum is little-endian on disk and core. */
 #define weight2hex(_weight)   val2hex(_weight, 32, NULL, 0)
@@ -92,9 +126,6 @@ int stop_found(void);
 int stop_miner(void);
 void stop_mirror(void);
 void stop4update(void);
-void fatal2(int exitcode, char *message);
-void resign(char *mess);
-void restart(char *mess);
 double diffclocktime(clock_t to, clock_t from);
 int check_directory(char *dirname);
 int clear_directory(char *dname);

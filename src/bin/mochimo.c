@@ -22,11 +22,6 @@
 
 #endif
 
-/* Display terminal error message
- * and exit with NO restart (code 0).
- */
-#define fatal(mess) fatal2(0, mess)
-
 /* system support */
 #include <unistd.h>
 #include <time.h>
@@ -607,8 +602,8 @@ int server(void)
    sftime = Ltime + (rand16() % 300) + 300;  /* send_found() time */
    vtime = Ltime + 4;  /* Verisimility restart check time */
 
-   if((lsd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
-      fatal("Cannot open listening socket.");
+   lsd = socket(AF_INET, SOCK_STREAM, 0);
+   if (lsd == INVALID_SOCKET) restart("Cannot open listening socket.");
    memset(&addr, 0, sizeof(addr));    /* clear address structure   */
    addr.sin_port = htons(Port);
    addr.sin_addr.s_addr = INADDR_ANY;
@@ -624,8 +619,9 @@ int server(void)
    }
 
    /* set listening port non-blocking for accept() */
-   if(sock_set_nonblock(lsd) == -1)
-      fatal("sock_set_nonblock() failed on lsd.");
+   if (sock_set_nonblock(lsd) == SOCKET_ERROR) {
+      restart("sock_set_nonblock() failed on lsd.");
+   }
    listen(lsd, LQLEN);  /* LQSIZ */
    nsd = INVALID_SOCKET;
 
@@ -978,17 +974,17 @@ int main(int argc, char **argv)
    static word8 endian[] = { 0x34, 0x12 };
 
    /* sanity checks -- for undesired structure padding */
-   if (sizeof(word32) != 4) fatal("word32 should be 4 bytes");
+   if (sizeof(word32) != 4) resign("word32 should be 4 bytes");
    else if (sizeof(TX) != TXBUFFLEN) {
-      fatal("struct size error TX != TXBUFFLEN");
+      resign("struct size error TX != TXBUFFLEN");
    } else if (sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)) {
-      fatal("struct size error: LTRAN != (TXADDRLEN + 1 + TXAMOUNT)");
+      resign("struct size error: LTRAN != (TXADDRLEN + 1 + TXAMOUNT)");
    } else if (sizeof(BTRAILER) != BTSIZE) {
-      fatal("struct size error: BTRAILER != BTSIZE");
+      resign("struct size error: BTRAILER != BTSIZE");
    } else if (sizeof(MTX) != sizeof(TXQENTRY)) {
-      fatal("struct size error: MTX != TXQENTRY");
+      resign("struct size error: MTX != TXQENTRY");
    } else if (get16(endian) != 0x1234) {
-      fatal("little-endian machine required for this build.");
+      resign("little-endian machine required for this build.");
    }
 
    /* pre-init */

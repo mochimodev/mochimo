@@ -97,7 +97,6 @@ int argument(char *argv, char *chk1, char *chk2)
    return result;
 }  /* end argument() */
 
-
 /**
  * Obtain the value associated with the current argument index.
  * Compatible with appended values using " " or ":" or "=".<br/>
@@ -226,35 +225,6 @@ void stop4update(void)
       }  /* end for(np = Nodes... */
    }  /* end if (!Ininit && Allowpush... */
 }  /* end stop4update() */
-
-/* Display terminal error message
- * and exit with exitcode after reaping zombies.
- */
-void fatal2(int exitcode, char *message)
-{
-   pfatal("%s", message);
-   /* stop all services */
-   stop_bcon();
-   stop_found();
-   stop_miner();
-   stop_mirror();
-   /* wait for all children */
-   while(waitpid(-1, NULL, 0) != -1);
-   exit(exitcode);
-}
-
-void resign(char *mess)
-{
-   if(mess) pdebug("resigning in %s (sigterm)", mess);
-   fatal2(0, NULL);
-}
-
-void restart(char *mess)
-{
-   pdebug("restart: %s", mess);
-   remove("epink.lst");
-   fatal2(1, NULL);
-}
 
 double diffclocktime(clock_t to, clock_t from)
 {
