@@ -624,6 +624,9 @@ int server(void)
    addr.sin_addr.s_addr = INADDR_ANY;
    addr.sin_family = AF_INET;
 
+   int enable = 1;
+   setsockopt(lsd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+
    show("bind");
    for(;;) {
       if(!Running) { sock_close(lsd); return 0; }
