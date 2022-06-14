@@ -1,312 +1,283 @@
-/**
- * @private
- * @headerfile tag.h <tag.h>
- * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
- * <br />For license information, please refer to ../LICENSE.md
+/* tag.c  Tag a big Mochimo address with a little name
+ *
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
+ * See LICENSE.PDF   **** NO WARRANTY ****
+ *
+ * Date: 17 May 2018
+ * Revised: 15 December 2019
+ *
 */
 
-/* include guard */
-#ifndef MOCHIMO_tag_C
-#define MOCHIMO_tag_C
+/****  Tested with wallet31.c  ****/
 
+/*
+   [<---2196 Bytes Address--->][<--12 Bytes Tag-->]
 
-#include "tag.h"
-
-/* internal support */
-#include "wots.h"
-#include "util.h"
-#include "ledger.h"
-#include "global.h"
-
-/* external support */
-#include <string.h>
-#include <stdlib.h>
-#include "extprint.h"
-#include "extmath.h"
-#include <errno.h>
-
-word8 *Tagidx;    /* array of all 12-word8 tags in ledger order */
-word32 Ntagidx;   /* number of tags in Tagidx[] */
-
-/**
- * @private
- * Efficient 12-byte Address Tag comparison.
- * @param a Pointer to tag
- * @param b Pointer to tag
- * @returns 1 if tags are equal, else 0
+   12-byte tag:  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                 ^
+              type byte
 */
-static inline int tag_equal(word8 *a, word8 *b)
-{
-   return (
-      *((word32 *) a) == *((word32 *) b)
-      && *((word32 *) (a + 4)) == *((word32 *) (b + 4))
-      && *((word32 *) (a + 8)) == *((word32 *) (b + 8))
-   );
-}
 
-/**
- * Clear the global tag index.
- * Free's memory allocated to Tagidx and sets Ntagidx to 0.
-*/
+
+#define ADDR_TAG_PTR(addr) (((byte *) (addr)) + 2196)
+#define ADDR_TAG_LEN 12
+#define HAS_TAG(addr) \
+   (((byte *) (addr))[2196] != 0x42 && ((byte *) (addr))[2196] != 0x00)
+
+byte *Tagidx;    /* array of all 12-byte tags in ledger order */
+word32 Ntagidx;  /* number of tags in Tagidx[] */
+#define BAIL(m) { message = m; goto bail; }
+
+
+/* Release tag index */
 void tag_free(void)
 {
-#undef FnMSG
-#define FnMSG(x)  "tag_free(): " x
-   pdebug(FnMSG("entered..."));
-
+   if(Tagidx != NULL) free(Tagidx);
+   Tagidx = NULL;
    Ntagidx = 0;
-   if (Tagidx != NULL) {
-      free(Tagidx);
-      Tagidx = NULL;
-      pdebug(FnMSG("Tagidx free'd"));
-   }
 }
 
-/**
- * Build the global tag index, Tagidx[]. Uses "ledger.dat" as ledger file.
- * @returns VEOK if success, else error code.
+
+/* Build the tag index, Tagidx[].
+ * Return VEOK if success, else error code.
  */
 int tag_buildidx(void)
 {
-   LENTRY le;
    FILE *fp;
-   word8 *tp;
-   size_t len;
+   LENTRY le;
+   int message;
    word32 n;
-   int ecode;
+   byte *tp;
 
-#undef FnMSG
-#define FnMSG(x)  "tag_builidx(): " x
-   pdebug(FnMSG("building..."));
+   if(Trace) plog("tag_buildidx()");
+   if(Tagidx != NULL) return VEOK;  /* index already made */
 
-   /* check Tagidx for existing build */
-   if (Tagidx != NULL) {
-      pdebug(FnMSG("tag index already made"));
-      return VEOK;
-   }
-
-   /* open ledger file for binary reading */
    fp = fopen("ledger.dat", "rb");
-   if (fp == NULL) mErrno(FAIL, FnMSG("cannot open ledger.dat"));
-   /* obtain ledger sizeand idx count */
-   if (fseek(fp, 0L, SEEK_END) != 0) mErrno(FAIL_IO, FnMSG("fseek(END)"));
+   if(fp == NULL) BAIL(1);
+   fseek(fp, 0L, SEEK_END);
    Ntagidx = ftell(fp) / sizeof(le);
-   /* malloc space for tags */
-   Tagidx = (word8 *) malloc((len = Ntagidx * TXTAGLEN));
-   if (Tagidx == NULL) mErrno(FAIL_IO, FnMSG("malloc(%zu)"), len);
-   /* return ledger file pointer to beginning */
-   if (fseek(fp, 0L, SEEK_SET) != 0) mErrno(FAIL_IO, FnMSG("fseek(SET)"));
-   /* read ledger entry tags into Tagidx */
-   for (tp = Tagidx, n = 0; n < Ntagidx; n++, tp += TXTAGLEN) {
-      if (fread(&le, sizeof(le), 1, fp) != 1) {
-         if (ferror(fp)) mErrno(FAIL_IO, FnMSG("file error"));
-         break;  /* EOF */
-      }
-      /* copy current ledger entry tag into Tagidx via tp */
-      memcpy(tp, ADDR_TAG_PTR(le.addr), TXTAGLEN);
+   Tagidx = (byte *) malloc(Ntagidx * ADDR_TAG_LEN);
+   if(Tagidx == NULL) BAIL(2);  /* no memory */
+   fseek(fp, 0L, SEEK_SET);
+   for(tp = Tagidx, n = 0; n < Ntagidx; n++, tp += ADDR_TAG_LEN) {
+      if(fread(&le, sizeof(le), 1, fp) != 1) break;   /* EOF */
+      memcpy(tp, ADDR_TAG_PTR(le.addr), ADDR_TAG_LEN);
    }
+   if(n != Ntagidx) BAIL(3);  /* I/O error likely */
    fclose(fp);
-
-   /* success */
-   pdebug(FnMSG("success, Ntagidx = %" P32u), Ntagidx);
-   return VEOK;
-
-   /* failure / error handling */
-FAIL_IO: fclose(fp);
-FAIL: tag_free();
-
-   return ecode;
+   if(Trace) plog("tag_buildidx() success: Ntagidx = %u", Ntagidx);
+   return VEOK;  /* index built */
+bail:
+   if(fp != NULL) fclose(fp);
+   if(Tagidx != NULL) free(Tagidx);
+   Tagidx = NULL;
+   Ntagidx = 0;
+   error("tag_buildidx(): BAIL(%d)\007", message);  /* should not happen */
+   return message;
 }  /* end tag_buildidx() */
 
-/**
- * @private
- * Search txq1.dat and txclean.dat change addresses for the tag in @a addr.
- * @param addr Pointer to address containing tag to search for
- * @returns VEOK if the tag is found in a chg_addr, otherwise VERROR
- */
-int tag_qfind(word8 *addr)
-{
-   TXQENTRY tx;
-   FILE *fp;
-   word8 *tag, *txtag;
-   int ecode;
 
-   /* init */
-#undef FnMSG
-#define FnMSG(x)  "tag_qfind(): " x
-   pdebug(FnMSG("searching queues..."));
+/* Search txq1.dat and txclean.dat for a tag matching tag of addr in
+ * some pending TX's change address.
+ * Return VEOK if the tag is found in a chg_addr, otherwise VERROR.
+ */
+int tag_qfind(byte *addr)
+{
+   FILE *fp;
+   TXQENTRY tx;
+   byte *tag, *txtag;
+
    tag = ADDR_TAG_PTR(addr);
    txtag = ADDR_TAG_PTR(tx.chg_addr);
 
-   /* check the (dirty) transaction queue */
    fp = fopen("txq1.dat", "rb");
-   if (fp != NULL) {  /* search for tag in txq1.dat */
-      while (fread(&tx, sizeof(tx), 1, fp) && !tag_equal(tag, txtag));
-      if (ferror(fp)) mErrno(FAIL_IO, FnMSG("fread(txq1.dat)"));
-      if (feof(fp)) fclose(fp);  /* tag not found */
-      else {  /* tag found */
-         fclose(fp);
-         return VEOK;
-      }
-   }
+   if(fp != NULL) {
+      for(;;) {
+         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
+         if(memcmp(tag, txtag, ADDR_TAG_LEN) == 0) {
+            fclose(fp);
+            return VEOK;  /* found */
+         }
+      }  /* end for */
+      fclose(fp);
+   }  /* end if fp */
 
    /* Stop Block Constructor who uses txclean.dat. */
-   stop_bcon();
-
-   /* check the (clean) transaction queue */
-   fp = fopen("txclean.dat", "rb");
-   if (fp != NULL) {  /* search for tag in txclean.dat */
-      while (fread(&tx, sizeof(tx), 1, fp) && !tag_equal(tag, txtag));
-      if (ferror(fp)) mErrno(FAIL_IO, FnMSG("fread(txclean.dat)"));
-      if (feof(fp)) fclose(fp);  /* tag not found */
-      else {  /* tag found */
-         fclose(fp);
-         return VEOK;
-      }
+   if(Bcpid) {
+      kill(Bcpid, SIGTERM);
+      waitpid(Bcpid, NULL, 0);
+      Bcpid = 0;
    }
 
-   /* tag not found */
-   return VERROR;
-
-   /* failure / error handling */
-FAIL_IO: fclose(fp);
-
-   return ecode;
+   fp = fopen("txclean.dat", "rb");
+   if(fp != NULL) {
+      for(;;) {
+         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
+         if(memcmp(tag, txtag, ADDR_TAG_LEN) == 0) {
+            fclose(fp);
+            return VEOK;  /* found */
+         }
+      }  /* end for */
+      fclose(fp);
+   }  /* end if fp */
+   return VERROR;  /* tag not found */
 }  /* end tag_qfind() */
 
-/**
- * Find the tag of addr in Tagidx[]. If foundaddr or balance is not NULL,
- * copy the full fields from ledger.dat to foundaddr and/or balance.
- * @param addr Pointer to address containing tag to search for
- * @param foundaddr Pointer to place "full" found address
- * @param balance Pointer to place balance of found address
- * @param len Tag search length
- * @returns VEOK if tag found, VERROR if not found or error encountered.
- * @note The @a len parameter must be a value between (but not including)
- * One (1) and TXTAGLEN (12) to search for a "partial" tag match. All other
- * values will search for "full" tag.
-*/
-int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
+
+#if ADDR_TAG_LEN != 12
+   ADDR_TAG_LEN must be 12 for tag code in tag.c tag_find()
+#endif
+
+/* Find the tag of addr in Tagidx[].
+ * If foundaddr or balance is not NULL, copy the
+ * full fields from ledger.dat to foundaddr and/or balance.
+ * Return VEOK if tag found, VERROR if not found, or
+ * some other internal error code.
+ */
+int tag_find(byte *addr, byte *foundaddr, byte *balance)
 {
-   LENTRY le;
    FILE *fp;
-   word8 *tag, *tp;
+   byte *tag, *tp;
+   LENTRY le;
    word32 n;
-   int ecode;
+   int message;
 
-   /* init */
-#undef FnMSG
-#define FnMSG(x)  "tag_find(): " x
-   pdebug(FnMSG("searching Tagidx..."));
+   fp = NULL;  /* for bail */
+   if(Tagidx == NULL) tag_buildidx();
+   if(Tagidx == NULL) BAIL(2);  /* 2 > VERROR */
 
-   /* check/build Tagidx */
-   if (Tagidx == NULL && tag_buildidx() != VEOK) {
-      mError(FAIL, FnMSG("failed to tag_buildidx()"));
-   }
-
-   /* init */
    tag = ADDR_TAG_PTR(addr);
-   /* determine "search type" via requested length */
-   if (len > 1 && len < TXTAGLEN) {
-      /* Search tag index, Tagidx[] for "partial" tag */
-      for (tp = Tagidx, n = 0; n < Ntagidx; n++, tp += TXTAGLEN) {
-         if (memcmp(tp, tag, len) == 0) break;
-      }
-   } else {
-      /* Search tag index, Tagidx[] for "full" tag */
-      for (tp = Tagidx, n = 0; n < Ntagidx; n++, tp += TXTAGLEN) {
-         if (tag_equal(tp, tag)) break;
-      }
-   }
-   /* check search result */
-   if (n != Ntagidx) {
-      if (foundaddr != NULL || balance != NULL) {
-         /* and caller wants ledger entry... */
-         fp = fopen("ledger.dat", "rb");
-         if (fp == NULL) mErrno(FAIL, FnMSG("cannot open ledger.dat"));
-         /* n is record number in ledger.dat */
-         if (fseek(fp, n * sizeof(le), SEEK_SET) != 0) {
-            mErrno(FAIL_IO, FnMSG("fseek(SET)"));
-         } else if (fread(&le, sizeof(le), 1, fp) != 1) {
-            mErrno(FAIL_IO, FnMSG("fread(le)"));
-         } else if (memcmp(ADDR_TAG_PTR(le.addr), tag, len)) {
-            mErrno(FAIL_IO, FnMSG("memcmp(SET)"));
-         } else fclose(fp);
-         /* copy address/balance to available pointers */
-         if (foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
-         if (balance != NULL) memcpy(balance, le.balance, TXAMOUNT);
-      }  /* end if (foundaddr... || balance... */
-      /* success -- tag found */
-      return VEOK;
-   }
-
-   /* success -- tag not found */
-   return VERROR;
-
-   /* failure / error handling */
-FAIL_IO: fclose(fp);
-FAIL: tag_free();
-
-   return ecode;
+   /* Search tag index, Tagidx[] for tag. */
+   for(tp = Tagidx, n = 0; n < Ntagidx; n++, tp += ADDR_TAG_LEN) {
+      /* compare tag in Tagidx[] to tag: (about 9 instructions in asm) */
+      if(   *((word32 *) tp)       == *((word32 *) tag)
+         && *((word32 *) (tp + 4)) == *((word32 *) (tag + 4))
+         && *((word32 *) (tp + 8)) == *((word32 *) (tag + 8)) ) {
+         /* tag found */
+         if(foundaddr != NULL || balance != NULL) {
+            /* and caller wants ledger entry... */
+            fp = fopen("ledger.dat", "rb");
+            if(fp == NULL) BAIL(3);
+            /* n is record number in ledger.dat */
+            if(fseek(fp, n * sizeof(le), SEEK_SET)) BAIL(4);
+            if(fread(&le, sizeof(le), 1, fp) != 1) BAIL(5);
+            if(memcmp(ADDR_TAG_PTR(le.addr), tag, ADDR_TAG_LEN)) BAIL(6);
+            fclose(fp);
+            if(foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
+            if(balance != NULL) memcpy(balance, le.balance, TXAMOUNT);
+         }  /* end if copy entry */
+         return VEOK;  /* found tag! */
+      }  /* end if memcmp found */
+   }  /* end for tp -- search for tag */
+   return VERROR;  /* tag not found */
+bail:
+   if(fp != NULL) fclose(fp);
+   tag_free();  /* Erase the bad index */
+   error("tag_find(): BAIL(%d)\007", message);  /* should not happen */
+   return message;
 }  /* end tag_find() */
 
-/**
- * Validate tags of a transaction.
+
+/* Validate TX address tags.
  * If called from tx_val(), bnum is NULL in order to check
  * queues, txq1.dat and txclean.dat, and always do dst check.
  * When called from bval.c, bnum is not NULL and is checked
  * against tagval_trigger in order to do dst check.
- * @param src_addr Pointer to source address of transaction
- * @param chg_addr Pointer to change address of transaction
- * @param dst_addr Pointer to destination address of transaction
- * @param bnum Pointer to block number, or NULL
- * @returns VEOK if tags are valid, else VERROR to reject TX.
-*/
-int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
+ * Return VEOK if tags are valid, else VERROR to reject TX.
+ */
+int tag_valid(byte *src_addr, byte *chg_addr, byte *dst_addr, byte *bnum)
 {
-   static word32 tagval_trigger[2] = { RTRIGGER31, 0 };  /* For v2.0 */
    LENTRY le;
+   static word32 tagval_trigger[2] = { RTRIGGER31, 0 };  /* For v2.0 */
 
-   if (bnum == NULL || cmp64(bnum, tagval_trigger) >= 0) {
-      /* Do below check on or after block 17185 when called from bval().
-       * If called from tx_val(), always perform check.
+   if(bnum == NULL || cmp64(bnum, tagval_trigger) >= 0) {
+      /* Do below check on or after block 17185 when called
+       * from bval().  If called from tx_val(), always perform
+       * check.  src_addr was already found in ledger.dat and dup
+       * already checked by txval or bval.
+       *
        * Check dst_addr.  If no dst_tag, dst_addr is valid:
-      */
-      if (ADDR_HAS_TAG(dst_addr)) {
+       */
+
+      if(HAS_TAG(dst_addr)) {
          /* If there is a dst_tag, and its full address is not
           * already in ledger.dat, tx is not valid.
           */
-         if (le_find(dst_addr, &le, NULL, TXADDRLEN) == FALSE) {
-            pdebug("DST_ADDR Tagged, but Tag is not in ledger!");
-            return VERROR;
+         if(le_find(dst_addr, &le, NULL, 0) == FALSE) {
+            plog("DST_ADDR Tagged, but Tag is not in ledger!");
+            goto bad;
          }
       }
    }  /* end if dst tag check */
    /* If no change tag, tx is valid. */
-   if (!ADDR_HAS_TAG(chg_addr)) return VEOK;
+   if(!HAS_TAG(chg_addr)) return VEOK;
    /* If src and chg tags are the same, tx is valid (transfer). */
-   if (tag_equal(ADDR_TAG_PTR(src_addr), ADDR_TAG_PTR(chg_addr))) {
-      return VEOK;
-   }
+   if(memcmp(ADDR_TAG_PTR(src_addr),
+             ADDR_TAG_PTR(chg_addr), ADDR_TAG_LEN) == 0) goto good;
+
    /* If tags are not the same and the src is not default, tx invalid. */
-   if (ADDR_HAS_TAG(src_addr)) {
-      pdebug("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!");
-      return VERROR;
+   if(HAS_TAG(src_addr)) {
+      plog("SRC_TAG != CHG_TAG, and SRC_TAG is Non-Default!"); 
+      goto bad;
    }
-   /* If change tag is in ledger.dat, tx is invalid. */
-   if (tag_find(chg_addr, NULL, NULL, TXTAGLEN) == VEOK) {
-      pdebug("New CHG_TAG Already Exists in Ledger!");
-      return VERROR;
+   /* Otherwise, check all queues and ledger.dat for change tag.
+    * First, if change tag is in ledger.dat, tx is invalid.
+    */
+   if(tag_find(chg_addr, NULL, NULL) == VEOK) {
+      plog("New CHG_TAG Already Exists in Ledger!");
+      goto bad;
    }
-   /* If called from tx_val() and chg tag is in queue, tx is invalid. */
-   if (bnum == NULL && tag_qfind(chg_addr) == VEOK) {
-      pdebug("Tag is already in queue");
-      return VERROR;
+   if(bnum == NULL) {
+      /* If called from tx_val(),
+       * and if tag is in txq1.dat or txclean.dat, tx is invalid.
+       */
+      if(tag_qfind(chg_addr) == VEOK) {
+         plog("Tag is already in queue");
+         goto bad;
+      }
    }
-   /* If we get here, a new TX change tag gets created, tx is valid. */
-   pdebug("New CHG_TAG created");
+   if(Trace) plog("Tag created");
+   return VEOK;  /* If we get here, a new TX change tag gets created. */
+good:
+   if(Trace) plog("Tag moved");
    return VEOK;
+bad:
+   if(Trace) plog("Tag rejected");
+   return VERROR;
 }  /* end tag_valid() */
 
-/* end include guard */
-#endif
+
+#ifndef EXCLUDE_RESOLVE
+
+/* Look-up and return an address tag to np.
+ * Called from gettx() opcode == OP_RESOLVE
+ *
+ * on entry:
+ *     tag string at ADDR_TAG_PTR(np->tx.dst_addr)    tag to query
+ * on return:
+ *     np->tx.send_total = 1 if found, or 0 if not found.
+ *     if found: np->tx.dst_addr has full found address with tag.
+ *               np->tx.change_total has balance.
+ *
+ * Returns VEOK if found, else VERROR.
+*/
+int tag_resolve(NODE *np)
+{
+   byte foundaddr[TXADDRLEN];
+   static byte zeros[8];
+   byte balance[TXAMOUNT];
+   int status, ecode = VERROR;
+
+   put64(np->tx.send_total, zeros);
+   status = tag_find(np->tx.dst_addr, foundaddr, balance);  /* in legger.dat */
+   if(status == VEOK) {
+      memcpy(np->tx.dst_addr, foundaddr, TXADDRLEN);
+      memcpy(np->tx.change_total, balance, TXAMOUNT);
+      put64(np->tx.send_total, One);
+      ecode = VEOK;
+   }
+   send_op(np, OP_RESOLVE);
+   return ecode;
+}  /* end tag_resolve() */
+
+#endif /* !EXCLUDE_RESOLVE */
