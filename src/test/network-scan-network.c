@@ -4,8 +4,6 @@
 #include "network.h"
 #include <stdlib.h>
 
-word8 Running = 1;
-
 int main()
 {  /* check scan_nettwork() returns non-Zero parameters */
    word32 qplist[RPLISTLEN] = { 0 };
@@ -13,6 +11,7 @@ int main()
    word8 weight[32] = { 0 };
    word8 bnum[8] = { 0 };
 
+   Running = 1;
    sock_startup();  /* enable socket support */
 
    /* download starting peers */
