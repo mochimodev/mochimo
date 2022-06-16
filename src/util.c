@@ -136,29 +136,26 @@ int proc_dups(const char *name)
 int argument(char *argv, char *chk1, char *chk2)
 {
    int result = 0;
-   char tmp, *vp;
+   char *vp;
 
    /* remove value identifier, temporarily */
-   vp = strpbrk(argv, ":=");
-   if (vp) {
-      tmp = *vp;
-      *vp = '\0';
-   }
+   vp = strchr(argv, '=');
+   if (vp) *vp = '\0';
    /* check argv for match */
    if (argv != NULL && *argv) {
       if (chk1 != NULL && strcmp(argv, chk1) == 0) result = 1;
       else if (chk2 != NULL && strcmp(argv, chk2) == 0) result = 1;
    }
    /* replace value identifier */
-   if (vp) *vp = tmp;
+   if (vp) *vp = '=';
 
    return result;
 }  /* end argument() */
 
 /**
  * Obtain the value associated with the current argument index.
- * Compatible with appended values using " " or ":" or "=".<br/>
- * e.g. `--arg <value>1 or `--arg:<value>` or `--arg=<value>`
+ * Compatible with appended values using " " or "=".<br/>
+ * e.g. `--arg <value>` or `--arg=<value>`
  * @param idx Pointer to current argument index (i.e. argv[*idx])
  * @param argc Number of total arguments
  * @param argv Pointer to argument list
@@ -170,8 +167,8 @@ int argument(char *argv, char *chk1, char *chk2)
 
    /* check index */
    if (*idx >= argc) return NULL;
-   /* remove value identifier, temporarily */
-   vp = strpbrk(argv[*idx], ":=");
+   /* scan for value identifier */
+   vp = strchr(argv[*idx], '=');
    if (vp) vp++;
    else if (++(*idx) < argc && argv[*idx][0] != '-') {
       vp = argv[*idx];
