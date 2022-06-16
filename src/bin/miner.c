@@ -361,19 +361,16 @@ ThreadProc th_give_share(void *args)
    Unthread;
 }  /* end th_give_share() */
 
-void reset_peers(word32 hostip)
+void check_push_peers(void)
 {
-   /* clear peer list and build from scratch */
-   memset(Rplist, 0, sizeof(Rplist));
-   /* add hostip first -- if specified */
-   if (hostip) addpeer(hostip, Rplist, RPLISTLEN, &Rplistidx);
-   /* download and read push peers into recent peers list */
+   /* check minimum threshold */
+   if (*Rplist && Rplistidx > 6) return;
+   /* (re)download push peers into recent peers list */
+   remove("./push.lst");
    http_get("https://mochimo.org/peers/push", "./push.lst", 3);
-   if (fexists("./push.lst")) {
-      read_ipl("./push.lst", Rplist, RPLISTLEN, &Rplistidx);
-      remove("./push.lst");
-   } else if (*Rplist == 0) {
-      /* use localhost fallback if none specified */
+   read_ipl("./push.lst", Rplist, RPLISTLEN, &Rplistidx);
+   if (*Rplist == 0) {
+      /* use localhost fallback if none found */
       pwarn("Peers Unavailable! Using localhost...");
       addpeer((word32) aton("127.0.0.1"), Rplist, RPLISTLEN, &Rplistidx);
    }
@@ -419,7 +416,7 @@ int main(int argc, char *argv[])
    static double solvework, sharework;
    static double allhps, /* avghps, */ hps;
    static unsigned int p;
-   static int num_cpu_threads, terr, count, n, j, ecode;
+   static int num_cpu_threads, terr, count, n, j, ecode, stopped;
    static time_t now, gettime, starttime, statstime, worktime, timeout;
    static word32 stats[3], hostip, shares, bnum;
    static word8 maddr[TXADDRLEN];
@@ -457,36 +454,40 @@ USAGE:   return usage(ecode);
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid host");
          hostip = aton(vp);
-         plog("Solo Mining Host= 0x%" P32x " (%s)", hostip, vp);
-         continue;
+         addpeer(hostip, Rplist, RPLISTLEN, &Rplistidx);
+         plog("... add host= 0x%" P32x " (%s)", hostip, vp);
       } else if (argument(argv[j], "-i", "--interval")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid interval");
          Interval = aton(vp);
-         plog("Interval= 0x%" P32x " (%s)", Interval, vp);
+         plog("... set interval= 0x%" P32x " (%s)", Interval, vp);
       } else if (argument(argv[j], "-ll", "--log-level")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid log level");
          set_print_level(atoi(vp));
-         plog("Log Level= 0x%x (%s)", atoi(vp), vp);
+         plog("... set log level= 0x%x (%s)", atoi(vp), vp);
       } else if (argument(argv[j], "-m", "--maddr")) {
          vp = argvalue(&j, argc, argv);
          if (vp) strncpy(mfile, vp, 23);
-         plog("Mining Address File= %s (%s)", mfile, vp);
+         plog("... set maddr file= %s (%s)", mfile, vp);
       } else if (argument(argv[j], "-n", "--name")) {
          vp = argvalue(&j, argc, argv);
          if (vp) strncpy((char *) Weight, vp, 23);
-         plog("Name= %s (%s)", (char *) Weight, vp);
+         plog("... set name= %s (%s)", (char *) Weight, vp);
       } else if (argument(argv[j], "-P", "--pool")) {
-         vp = argvalue(&j, argc, argv);
-         if (vp) hostip = aton(vp);
          Solo = 0;
-         plog("Pool Mining Hostip= 0x%" P32x " (%s)", hostip, vp);
+         plog("... activate pool mining");
+         vp = argvalue(&j, argc, argv);
+         if (vp) {
+            hostip = aton(vp);
+            addpeer(hostip, Rplist, RPLISTLEN, &Rplistidx);
+            plog("... add host= 0x%" P32x " (%s)", hostip, vp);
+         }
       } else if (argument(argv[j], "-p", "--port")) {
          vp = argvalue(&j, argc, argv);
          if (vp == NULL) mError(USAGE, "invalid port");
          Port = Dstport = atoi(vp);
-         plog("Port= %" P16u " (%s)", Dstport, vp);
+         plog("... set port= %" P16u " (%s)", Dstport, vp);
       }
    }
 
@@ -506,13 +507,9 @@ USAGE:   return usage(ecode);
       /* restore working directory */
       SetCurrentDirectory(dirpath);
 #endif
-      /* prepare list of appropriate peers */
-      reset_peers(hostip);
+      /* ensure sufficient push peers */
+      check_push_peers();
    } /* end if (Running && Solo) */
-
-   if (Running && !Solo) {
-      addpeer(hostip, Rplist, RPLISTLEN, &Rplistidx);
-   }  /* end if (Running && !Solo) */
 
    if (Running) {
       print("\n");
@@ -565,7 +562,7 @@ USAGE:   return usage(ecode);
       if (timeout && difftime(timeout, now) <= 0) {
          /* drop current peer -- reset peers if empty */
          if (hostip == 0) remove32(*Rplist, Rplist, RPLISTLEN, &Rplistidx);
-         if (Rplistidx < 6) reset_peers(hostip);
+         check_push_peers();
          timeout = 0;
          count++;
       }
@@ -641,10 +638,13 @@ USAGE:   return usage(ecode);
          }
 #ifdef CUDA
          /* check CUDA miners -- Peach algo solo mining */
-         for (n = 0; n < num_cuda_gpus; n++) {
+         for (stopped = n = 0; n < num_cuda_gpus; n++) {
             btp = MEMBLOCKBTp(&cblock);
-            /* ensure we're working with the current blocks trailer */
-            if (peach_solve_cuda(&CudaGPUs[n], btp, 0, &bt) == VEOK) {
+            /* update/check cuda devices with current block trailer */
+            ecode = peach_solve_cuda(&CudaGPUs[n], btp, 0, &bt);
+            /* check for unrecoverable failure */
+            if (ecode == VETIMEOUT) stopped++;
+            if (ecode == VEOK) {
                /* check block solve */
                if (peach_check(&bt) != VEOK) {
                   perr("peach_check() failed to verify solve!");
@@ -685,8 +685,13 @@ USAGE:   return usage(ecode);
                   solvework += pow(2, btp->difficulty[0]);
                   Hps = solvework / (word32) difftime(now, starttime);
                   print_bup(btp, "Solved");
-               }
-            }
+               }  /* end block solve */
+            }  /* end if (ecode == VEOK) */
+         }  /* end for (failed = n = 0; n < num_cuda_gpus... */
+         /* check for complete stoppage of GPUs */
+         if (stopped == num_cuda_gpus) {
+            pfatal("All Cuda GPUs exhausted!");
+            break;
          }
 #endif
          /* END SOLO MINING SECTION */
