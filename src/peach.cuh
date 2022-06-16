@@ -18,11 +18,12 @@
 #include <time.h>
 #include "peach.h"
 
-__global__ void kcu_peach_build(word64 *d_map, word32 offset);
-__global__ void kcu_peach_solve(word64 *d_map, SHA256_CTX *d_ictx,
-   word64 *d_solve);
-__global__ void kcu_peach_checkhash(SHA256_CTX *ictx, word8 *out,
-   word8 *eval);
+__global__ void kcu_peach_build
+   (word32 offset, word64 *d_map, word32 *d_phash);
+__global__ void kcu_peach_solve
+   (word64 *d_map, SHA256_CTX *d_ictx, word8 diff, word64 *d_solve);
+__global__ void kcu_peach_checkhash
+   (BTRAILER *d_bt, word8 *d_out, word8 *d_eval);
 
 /* end include guard */
 #endif

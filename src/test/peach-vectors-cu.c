@@ -124,15 +124,23 @@ static word8 Pexpect[NUMVECTORS][SHA256LEN] = {
 
 int main()
 {  /* check peach_checkhash() final hash results match expected */
-   BTRAILER bt;
-   word8 digest[SHA256LEN];
+   BTRAILER bt[3];
+   word8 digest[3][SHA256LEN];
    int result, j;
 
+   /* init and check multiple pow */
+   memset(digest, 0 , SHA256LEN);
+   memcpy(bt, &Pvector[2], sizeof(BTRAILER) * 3);
+   result = peach_checkhash_cuda(3, bt, digest);
+
+   /* check result is OK */
+   ASSERT_EQ(result, VEOK);
+   /* check digests match expected results */
    for (j = 2; j < NUMVECTORS; j++) {
-      memset(digest, 0 , SHA256LEN);
-      memcpy(&bt, Pvector[j], BTSIZE);
-      result = peach_checkhash_cuda(&bt, bt.difficulty[0], digest);
-      ASSERT_CMP(digest, Pexpect[j], SHA256LEN);
-      ASSERT_EQ(result, 0);
+      ASSERT_CMP(digest[j - 2], Pexpect[j], SHA256LEN);
    }
+   /* ensure failure occurs as expected */
+   bt[2].bnum[0] = ~(bt[2].bnum[0]);
+   result = peach_checkhash_cuda(3, bt, digest);
+   ASSERT_EQ(result, VERROR);
 }
