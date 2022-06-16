@@ -564,7 +564,7 @@ USAGE:   return usage(ecode);
       /* check timeout -- if specified */
       if (timeout && difftime(timeout, now) <= 0) {
          /* drop current peer -- reset peers if empty */
-         remove32(*Rplist, Rplist, RPLISTLEN, &Rplistidx);
+         if (hostip == 0) remove32(*Rplist, Rplist, RPLISTLEN, &Rplistidx);
          if (Rplistidx < 6) reset_peers(hostip);
          timeout = 0;
          count++;
