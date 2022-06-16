@@ -23,6 +23,7 @@
 #include <string.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include "extprint.h"
 #include "extmath.h"
 #include "extlib.h"
@@ -366,6 +367,32 @@ int readtrailer(BTRAILER *trailer, char *fname)
       return VERROR;
    }
    return VEOK;
+}
+
+/**
+ * Append to a character string buffer. Calculates the remaining available
+ * space in @a buf using @a bufsz and `strlen(buf)`, and appends at most
+ * the remaining available space, less 1 (for the null terminator).
+ * @param buf Pointer to character string buffer
+ * @param bufsz Size of @a buf, in bytes
+ * @param fmt Pointer to null-terminated string specifying how to interpret
+ * the data
+ * @param ... arguments specifying data to print
+ * @returns Number of characters (not insluding the null terminator) which
+ * would have been written to @a buf if @a bufsz was ignored.
+*/
+int asnprintf(char *buf, size_t bufsz, const char *fmt, ...)
+{
+   va_list args;
+   size_t cur;
+   int count;
+
+   cur = strlen(buf);
+   va_start(args, fmt);
+   count = vsnprintf(&buf[cur], bufsz > cur ? bufsz - cur : 0, fmt, args);
+   va_end(args);
+
+   return count;
 }
 
 char *val2hex64(void *val, char hex[])

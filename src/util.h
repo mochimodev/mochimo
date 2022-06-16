@@ -133,6 +133,7 @@ int clear_directory(char *dname);
 void crctx(TX *tx);
 word32 gethdrlen(char *fname);
 int readtrailer(BTRAILER *trailer, char *fname);
+int asnprintf(char *buf, size_t bufsz, const char *fmt, ...);
 char *val2hex64(void *val, char hex[]);
 char *bnum2hex(void *bnum);
 char *val2hex(void *val, int len, char *buf, int bufsize);

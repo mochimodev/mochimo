@@ -395,23 +395,6 @@ int usage(int ecode)
    return ecode;
 }  /* end usage() */
 
-int anprintf(char *buf, size_t buflen, const char *fmt, ...)
-{
-   size_t current, remaining;
-   va_list args;
-   int res = 0;
-
-   current = strlen(buf);
-   if (current <= buflen - 1) {
-      remaining = buflen - current;
-      va_start(args, fmt);
-      res = vsnprintf(&buf[current], remaining, fmt, args);
-      va_end(args);
-   }
-
-   return res;
-}
-
 int main(int argc, char *argv[])
 {
 #ifdef CUDA
@@ -803,17 +786,17 @@ USAGE:   return usage(ecode);
          for (n = 0; n < num_cuda_gpus; n++) {
             switch (GPU[n].status) {
                case DEV_FAIL:
-                  anprintf(sp, BUFSIZ, "%s Failure...\n", GPU[n].nameId);
+                  asnprintf(sp, BUFSIZ, "%s Failure...\n", GPU[n].nameId);
                   break;
                case DEV_NULL:
-                  anprintf(sp, BUFSIZ, "GPU#%d; Uninitalized...\n", n);
+                  asnprintf(sp, BUFSIZ, "GPU#%d; Uninitalized...\n", n);
                   break;
                case DEV_IDLE:
-                  anprintf(sp, BUFSIZ, "%s [%uW:%u°C] No txs...\n",
+                  asnprintf(sp, BUFSIZ, "%s [%uW:%u°C] No txs...\n",
                      GPU[n].nameId, GPU[n].pow, GPU[n].temp);
                   break;
                case DEV_INIT:
-                  anprintf(sp, BUFSIZ, "%s [%uW:%u°C] Init... (%d%%)\n",
+                  asnprintf(sp, BUFSIZ, "%s [%uW:%u°C] Init... (%d%%)\n",
                      GPU[n].nameId, GPU[n].pow, GPU[n].temp,
                      (int) (100 * GPU[n].work) / PEACHCACHELEN);
                   break;
@@ -822,7 +805,7 @@ USAGE:   return usage(ecode);
                   hps /= difftime(time(NULL), GPU[n].last_work);
                   allhps += hps;
                   m = metric_reduce(&hps);
-                  anprintf(sp, BUFSIZ, "%s [%uW:%u°C] %.02lf%sH/s\n",
+                  asnprintf(sp, BUFSIZ, "%s [%uW:%u°C] %.02lf%sH/s\n",
                      GPU[n].nameId, GPU[n].pow, GPU[n].temp, hps, m);
                   break;
                default: break; /* no info -- likely disabled */
@@ -834,18 +817,18 @@ USAGE:   return usage(ecode);
          m = metric_reduce(&allhps);
          if (Solo) {
             bnum = (unsigned) get32(MEMBLOCKBNUMp(&cblock));
-            anprintf(stickystats, BUFSIZ,
+            asnprintf(stickystats, BUFSIZ,
                "(%d) %s:%"P16u" 0x%x(%u) [%"P32u"/%"P32u" Solved] %.02lf%sH/s\n",
                count, ipstr, Dstport, bnum, bnum, Nsolved, Nupdated, allhps, m);
          } else {
             bnum = (unsigned) get32(cbt.bnum);
-            anprintf(stickystats, BUFSIZ,
+            asnprintf(stickystats, BUFSIZ,
                "(%d) %s:%"P16u" 0x%x(%u) [%"P32u" Shares] %.02lf%sH/s\n",
                count, ipstr, Dstport, bnum, bnum, shares, allhps, m);
          }
          /* check timeout indicator */
          if (timeout) {
-            anprintf(sp, BUFSIZ, "-- TIMEOUT: %ds until host rotation --",
+            asnprintf(sp, BUFSIZ, "-- TIMEOUT: %ds until host rotation --",
                (int) difftime(timeout, time(NULL)));
          }
          /* update stats display */
