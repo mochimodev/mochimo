@@ -579,6 +579,9 @@ USAGE:   return usage(ecode);
                plog("Terminating thread...");
                thread_terminate(tid_send[p]);
             }
+            if (!Solo && tharg_share[p].tr != VEOK) {
+               pwarn("Failed to send share...");
+            }
             if (Solo) memset(&tharg_mblock[p], 0, sizeof(THREADBLOCK));
             else memset(&tharg_share[p], 0, sizeof(THREADWORK));
             tid_send[p] = 0;
@@ -722,6 +725,7 @@ USAGE:   return usage(ecode);
             tid_get = 0;
             /* handle thread results... */
             if (tharg_work.tr == VEOK) {
+               timeout = 0;
                time(&worktime);
                /* introduce latest work */
                memcpy(&cbt, &tharg_work.bt, sizeof(cbt));
@@ -731,7 +735,7 @@ USAGE:   return usage(ecode);
                   srand16(tharg_work.rand[0], tharg_work.rand[1],
                      tharg_work.rand[2]);
                }
-            }
+            } else if (timeout == 0) timeout = now + 30;
             /* cleanup thread argument */
             memset(&tharg_work, 0, sizeof(THREADWORK));
          }
@@ -833,8 +837,13 @@ USAGE:   return usage(ecode);
          }
          /* check timeout indicator */
          if (timeout) {
-            asnprintf(sp, BUFSIZ, "-- TIMEOUT: %ds until host rotation --",
-               (int) difftime(timeout, time(NULL)));
+            if (hostip) {
+               asnprintf(sp, BUFSIZ, "-- TIMEOUT: %ds until increment --",
+                  (int) difftime(timeout, time(NULL)));
+            } else {
+               asnprintf(sp, BUFSIZ, "-- TIMEOUT: %ds until host change --",
+                  (int) difftime(timeout, time(NULL)));
+            }
          }
          /* update stats display */
          psticky("%s", stickystats);
