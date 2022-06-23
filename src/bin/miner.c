@@ -50,6 +50,7 @@
 #define MEMBLOCKBTp(memp)  \
    ( (BTRAILER *) (((word8 *) (memp)->data) + ((memp)->size - BTSIZE)) )
 #define MEMBLOCKBNUMp(memp)  ( MEMBLOCKBTp(memp)->bnum )
+#define MEMBLOCKTIME0p(memp)  ( MEMBLOCKBTp(memp)->time0 )
 #define MEMBLOCKMROOTp(memp)  ( MEMBLOCKBTp(memp)->mroot )
 #define MEMBLOCKNONCEp(memp)  ( MEMBLOCKBTp(memp)->nonce )
 #define MEMBLOCKSTIMEp(memp)  ( MEMBLOCKBTp(memp)->stime )
@@ -416,7 +417,7 @@ int main(int argc, char *argv[])
    static double solvework, sharework;
    static double allhps, /* avghps, */ hps;
    static unsigned int p;
-   static int num_cpu_threads, terr, count, n, j, ecode, stopped;
+   static int /* num_cpu_threads, */ terr, count, n, j, ecode, stopped;
    static time_t now, gettime, starttime, statstime, worktime, timeout;
    static word32 stats[3], hostip, shares, bnum;
    static word8 maddr[TXADDRLEN];
@@ -586,6 +587,13 @@ USAGE:   return usage(ecode);
             else memset(&tharg_share[p], 0, sizeof(THREADWORK));
             tid_send[p] = 0;
          }
+      }
+      /* copy bnum to bt to halt workers if work is stale */
+      btp = Solo ? MEMBLOCKBTp(&cblock) : &cbt;
+      if (cmp64(bt.bnum, btp->bnum) &&
+            difftime(time(NULL), *((word32 *) btp->time0)) >= BRIDGE) {
+         pwarn("Stale work (>= 949 seconds), halting...");
+         put64(bt.bnum, btp->bnum);
       }
       /* check mining type */
       if (Solo) {
