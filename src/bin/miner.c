@@ -489,8 +489,8 @@ USAGE:   return usage(ecode);
          if (vp == NULL) mError(USAGE, "invalid port");
          Port = Dstport = atoi(vp);
          plog("... set port= %" P16u " (%s)", Dstport, vp);
-      }
-   }
+      } else mError(USAGE, "Invalid argument, %s", argv[j]);
+   }  /* end command line arguments */
 
    /* check solo mining requirements */
    if (Running && Solo) {
