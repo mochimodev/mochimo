@@ -528,12 +528,12 @@ USAGE:   return usage(ecode);
          if (count < 0) return perrno(errno, "I/O failure, %s", mfile);
          if (count != TXADDRLEN) return perr("Invalid size, %s", mfile);
          plog("Mining Address= %s...", addr2str(maddr));
-      } else if (!Solo) plog("Mining Address= <unspecified>");
+      }
       /* initialize random seed based on multiple entropy */
       srand16(time(&now), now ^ get32(maddr), now ^ (time_t) getpid());
-      /* initialize mining devices */
+      /* initialize mining devices
       num_cpu_threads = cpu_cores();
-      plog("Logical CPU Cores = %d", num_cpu_threads);
+      plog("Logical CPU Cores = %d", num_cpu_threads); */
 
 #ifdef CUDA
       CudaGPUs = GPU;
