@@ -419,7 +419,7 @@ int init(void)
    remove("temp");
    /* prepare mochimo filesystem structure */
    if (check_directory(Bcdir) || check_directory(Spdir)) return VERROR;
-   if (ftouch("mq.lock")) return VERROR;
+   if (ftouch("mq.lck")) return VERROR;
 
    /* update coreip list where available */
    snprintf(fname, FILENAME_MAX, "../%s", Coreipfname);
