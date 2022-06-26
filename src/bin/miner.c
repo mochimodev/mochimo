@@ -592,7 +592,7 @@ USAGE:   return usage(ecode);
       btp = Solo ? MEMBLOCKBTp(&cblock) : &cbt;
       if (cmp64(bt.bnum, btp->bnum) &&
             difftime(time(NULL), *((word32 *) btp->time0)) >= BRIDGE) {
-         pwarn("Stale work (>= 949 seconds), halting...");
+         pdebug("Stale work (>= 949 seconds), halting workers...");
          put64(bt.bnum, btp->bnum);
       }
       /* check mining type */
