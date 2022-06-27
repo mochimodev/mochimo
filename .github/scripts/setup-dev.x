@@ -26,6 +26,8 @@ User=mochimo-node
 Group=mochimo-node
 WorkingDirectory=/home/mochimo-node/mochimo/bin/
 ExecStart=/bin/bash /home/mochimo-node/mochimo/bin/gomochi -n
+Restart=on-failure
+RestartSec=3s
 [Install]
 WantedBy=multi-user.target
 EOF
