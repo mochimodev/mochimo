@@ -1,7 +1,6 @@
-# Fallback nodes in US, Europe & Asia
-35.228.60.178
-35.228.235.93
-35.246.31.140
-35.246.34.122
-35.234.93.33
-35.246.255.75
+# Fallback nodes in US, Asia & Europe
+node.usw.mochimo.org
+node.use.mochimo.org
+node.usc.mochimo.org
+node.sgp.mochimo.org
+node.deu.mochimo.org

@@ -1,6 +1,17 @@
 
 #include "../types.h"
 
+char *Corephosts[] = {
+   "node.usw.mochimo.org",
+   "node.use.mochimo.org",
+   "node.usc.mochimo.org",
+   "node.sgp.mochimo.org",
+   "node.deu.mochimo.org",
+   ""
+};
+
+char **hostsp = Corephosts;
+
 int write2file(char *fname, const void *data, size_t len)
 {
    FILE *fp;

@@ -3,15 +3,7 @@
 #include "network.h"
 #include <stdlib.h>
 
-char *Corephosts[] = {
-   "usw-node.mochimap.com",
-   "use-node.mochimap.com",
-   "usc-node.mochimap.com",
-   "sgp-node.mochimap.com",
-   "deu-node.mochimap.com",
-   ""
-};
-char **hostsp = Corephosts;
+#include "_testutils.h"
 
 int main()
 {  /* check init_peers() fills both Tplist[] and Rplist[] */

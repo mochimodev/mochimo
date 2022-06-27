@@ -1,8 +1,11 @@
 
 #include "_assert.h"
 #include "extmath.h"
+#include "peer.h"
 #include "network.h"
 #include <stdlib.h>
+
+#include "_testutils.h"
 
 int main()
 {  /* check scan_nettwork() returns non-Zero parameters */
@@ -14,9 +17,12 @@ int main()
    Running = 1;
    sock_startup();  /* enable socket support */
 
-   /* download starting peers */
+   /* download starting peers (use corephosts as fallback) */
    http_get("https://mochimo.org/peers/start", "start.lst", STD_TIMEOUT);
    read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
+   while(*hostsp && aton(*hostsp)) {
+      addpeer(aton(*hostsp++), Rplist, RPLISTLEN, &Rplistidx);
+   }
 
    /* check peers and scan network */
    ASSERT_NE_MSG(Rplistidx, 0, "Recent peers must have been filled");

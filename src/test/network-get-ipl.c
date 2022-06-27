@@ -2,15 +2,7 @@
 #include "_assert.h"
 #include "network.h"
 
-char *Corephosts[] = {
-   "usw-node.mochimap.com",
-   "use-node.mochimap.com",
-   "usc-node.mochimap.com",
-   "sgp-node.mochimap.com",
-   "deu-node.mochimap.com",
-   ""
-};
-char **hostsp = Corephosts;
+#include "_testutils.h"
 
 int main()
 {
