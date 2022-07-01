@@ -396,10 +396,12 @@ int send_balance(NODE *np)
  */
 int send_ipl(NODE *np)
 {
+   int count = RPLISTLEN < 32 ? RPLISTLEN : 32;
+
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy recent peer list to TX */
-   memcpy(TRANBUFF(&np->tx), Rplist, RPLISTLEN);
-   put16(np->tx.len, RPLISTLEN);
+   memcpy(TRANBUFF(&np->tx), Rplist, sizeof(word32) * count);
+   put16(np->tx.len, sizeof(word32) * count);
    return send_op(np, OP_SEND_IPL);  /* send ip list */
 }
 
