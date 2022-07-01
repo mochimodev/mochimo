@@ -272,10 +272,13 @@ void stop4update(void)
       for(np = Nodes; np < Hi_node; np++) {
          if(np->pid == 0) continue;
          opcode = get16(np->tx.opcode);
-         if(opcode == OP_GET_CBLOCK || opcode == OP_MBLOCK) {
-            kill(np->pid, SIGTERM);
-            waitpid(np->pid, NULL, 0);
-            freeslot(np);
+         if (opcode == OP_MBLOCK) {
+            /* ensure process exists and can be signalled */
+            if (kill(np->pid, 0) == 0) {
+               kill(np->pid, SIGTERM);
+               waitpid(np->pid, NULL, 0);
+               freeslot(np);
+            }
          }
       }  /* end for(np = Nodes... */
    }  /* end if (!Ininit && Allowpush... */
