@@ -321,7 +321,14 @@ int b_val(char *fname)
    if (memcmp(bnum, bt.bnum, 8) != 0) {
       pdebug("b_val(): bad block number");
       mEcode(FAIL_IO, VEBAD);
-   } else if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
+   }
+   /* check block times */
+   stemp = get32(bt.stime);
+   if (stemp <= Time0) mEdrop(FAIL_IO, "b_val(): early block time");
+   if (stemp > (time(NULL) + BCONFREQ)) {
+      mEdrop(FAIL_IO, "b_val(): time travel?");
+   }
+   if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
       if ((stemp - get32(bt.time0)) > BRIDGE) {
          mEdrop(FAIL_IO, "b_val(): invalid TOT trigger");
       }
@@ -331,12 +338,7 @@ int b_val(char *fname)
       mEdrop(FAIL_IO, "b_val(): difficulty mismatch");
    }
 
-   /* check block times */
-   stemp = get32(bt.stime);
-   if (stemp <= Time0) mEdrop(FAIL_IO, "b_val(): early block time");
-   if (stemp > (time(NULL) + BCONFREQ)) {
-      mEdrop(FAIL_IO, "b_val(): time travel?");
-   }
+   
    /* check previous block hash */
    if (memcmp(Cblockhash, bt.phash, HASHLEN) != 0) {
       printf("bt.phash=%s...", addr2str(bt.phash));
