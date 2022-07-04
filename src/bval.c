@@ -315,6 +315,16 @@ int b_val(char *fname)
       mErrno(FAIL_IO, "b_val(): failed on fseek(-BTRAILER)");
    } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
       mError(FAIL_IO, "b_val(): failed on fread(bt)");
+   }
+   /* check block number */
+   add64(Cblocknum, One, bnum);
+   if (memcmp(bnum, bt.bnum, 8) != 0) {
+      pdebug("b_val(): bad block number");
+      mEcode(FAIL_IO, VEBAD);
+   } else if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
+      if ((stemp - get32(bt.time0)) > BRIDGE) {
+         mEdrop(FAIL_IO, "b_val(): invalid TOT trigger");
+      }
    } else if (cmp64(bt.mfee, Mfee) < 0) {
       mEdrop(FAIL_IO, "b_val(): bad mining fee");
    } else if (get32(bt.difficulty) != Difficulty) {
@@ -326,15 +336,6 @@ int b_val(char *fname)
    if (stemp <= Time0) mEdrop(FAIL_IO, "b_val(): early block time");
    if (stemp > (time(NULL) + BCONFREQ)) {
       mEdrop(FAIL_IO, "b_val(): time travel?");
-   }
-   /* check block number */
-   add64(Cblocknum, One, bnum);
-   if (memcmp(bnum, bt.bnum, 8) != 0) {
-      mEdrop(FAIL_IO, "b_val(): bad block number");
-   } else if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
-      if ((stemp - get32(bt.time0)) > BRIDGE) {
-         mEdrop(FAIL_IO, "b_val(): invalid TOT trigger");
-      }
    }
    /* check previous block hash */
    if (memcmp(Cblockhash, bt.phash, HASHLEN) != 0) {
