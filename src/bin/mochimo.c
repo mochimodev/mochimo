@@ -678,7 +678,11 @@ int server(void)
          if(opcode == OP_FOUND) {
             if(Blockfound == 0) perr("server(): line %d", __LINE__);
             else {
-               stop4update();
+               /* exit services */
+               stop_bcon();
+               stop_found();
+               stop_miner();
+               /* update recv'd block */
                if(b_update("rblock.dat", 0) == VEOK) {
                   send_found();  /* start send_found() child */
                   addrecent(np->ip);   /* v.28 */
@@ -817,8 +821,11 @@ int server(void)
       if(Blockfound == 0 && fexists("mblock.dat")) {
          Blockfound = 1;
          if(cmp64(Cblocknum, Bcbnum) == 0) {
-            /* We solved a block! */
-            stop4update();
+            /* exit services */
+            stop_bcon();
+            stop_found();
+            stop_miner();
+            /* We solved a block! Update... */
             if (b_update("mblock.dat", 1) == VEOK) {
                send_found();  /* start send_found() child */
                Stime = Ltime + 20;  /* hold status display */
@@ -833,7 +840,11 @@ int server(void)
          if (pseudo("pblock.dat") != VEOK) {
             restart("Failed to make pseudo-block");
          } else {
-            stop4update();
+            /* exit services */
+            stop_bcon();
+            stop_found();
+            stop_miner();
+            /* update pseudoblock */
             if (b_update("pblock.dat", 2) != VEOK) {
                restart("Failed to update pseudo-block");
             } else Stime = Ltime + 20;  /* hold status display */

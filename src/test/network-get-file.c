@@ -11,6 +11,7 @@ int main()
    word8 bnum[8] = { 0 };
    int status = VERROR;
 
+   Running = 1;
    sock_startup();  /* enable socket support */
    do {  /* retrieve genesis block from one of the mochimap nodes */
       status = get_file(aton(*(hostsp++)), bnum, fname);

@@ -10,6 +10,7 @@ int main()
    int status = VERROR;
    NODE node;
 
+   Running = 1;
    sock_startup();  /* enable socket support */
    ASSERT_EQ_MSG(Dstport, 2095, "Dstport should default to port 2095");
    /* try communicate with invalid node on default port */

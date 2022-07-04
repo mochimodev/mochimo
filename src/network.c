@@ -127,7 +127,8 @@ int recv_tx(NODE *np, double timeout)
    tx = &(np->tx);
 
    /* recv tx packet */
-   ecode = sock_recv(np->sd, tx, TXBUFFLEN, 0, timeout);
+   ecode = Running ? sock_recv(np->sd, tx, TXBUFFLEN, 0, timeout) : VERROR;
+   if (!Running) ecode = VERROR;
    if (ecode != VEOK) {
       if (ecode == VETIMEOUT) {
          pdebug("recv_tx(%s): connection timed out", np->id);
@@ -282,7 +283,7 @@ int send_tx(NODE *np, double timeout)
    put16(tx->crc16, crc16(tx, TXCRC_INLEN));
 
    /* send tx packet */
-   ecode = sock_send(np->sd, tx, TXBUFFLEN, 0, timeout);
+   ecode = Running ? sock_send(np->sd, tx, TXBUFFLEN, 0, timeout) : VERROR;
    if (ecode != VEOK) {
       if (ecode == VETIMEOUT) {
          pdebug("send_tx(%s): connection timed out", np->id);

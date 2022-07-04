@@ -253,37 +253,6 @@ void stop_mirror(void)
    }
 }  /* end stop_mirror() */
 
-/**
- * Kill critical services for clean block updates.
-*/
-void stop4update(void)
-{
-   NODE *np;
-   word16 opcode;
-
-   /* kill and wait for critical services to exit */
-   stop_bcon();
-   stop_found();
-   stop_miner();
-
-   /* Reap cblock and mblock-push children... */
-   if (!Ininit && Allowpush) {
-      /* Don't fear the Reaper, baby...It won't hurt... */
-      for(np = Nodes; np < Hi_node; np++) {
-         if(np->pid == 0) continue;
-         opcode = get16(np->tx.opcode);
-         if (opcode == OP_MBLOCK) {
-            /* ensure process exists and can be signalled */
-            if (kill(np->pid, 0) == 0) {
-               kill(np->pid, SIGTERM);
-               waitpid(np->pid, NULL, 0);
-               freeslot(np);
-            }
-         }
-      }  /* end for(np = Nodes... */
-   }  /* end if (!Ininit && Allowpush... */
-}  /* end stop4update() */
-
 double diffclocktime(clock_t to, clock_t from)
 {
    return (double) (to - from) / CLOCKS_PER_SEC;

@@ -9,6 +9,7 @@ int main()
    int status = VERROR;
    NODE node;
 
+   Running = 1;
    sock_startup();  /* enable socket support */
    /* try communicate with an invalid nodes */
    ASSERT_NE(get_ipl(&node, aton("example.com")), VEOK);

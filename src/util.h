@@ -126,7 +126,6 @@ int stop_bcon(void);
 int stop_found(void);
 int stop_miner(void);
 void stop_mirror(void);
-void stop4update(void);
 double diffclocktime(clock_t to, clock_t from);
 int check_directory(char *dirname);
 int clear_directory(char *dname);
