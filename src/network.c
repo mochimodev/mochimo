@@ -504,7 +504,7 @@ int send_found(void)
    TX tx;
 
    if (Found_pid) {
-      plog("send_found() is already running -- rerun it.");
+      pdebug("send_found() is already running -- rerun it.");
       stop_found();
    }
 
