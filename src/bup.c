@@ -58,6 +58,7 @@ int b_txclean(char *bcfname)
    /* init */
    ticks = clock();
    ecode = VEOK;
+   nout = 0;
 
    /* check txclean exists AND has transactions to clean*/
    if (!fexists("txclean.dat")) {

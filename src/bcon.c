@@ -224,6 +224,7 @@ int b_con(char *fname)
    int cond, ecode;
 
    /* init */
+   fp = fpout = NULL;
    ticks = clock();
 
    pdebug("b_con(): constructing candidate-block...");
