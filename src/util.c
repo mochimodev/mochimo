@@ -778,6 +778,7 @@ void sigterm(int sig)
    print("\n");
    pdebug("Got signal %i", sig);
    signal(SIGTERM, sigterm);
+   sock_cleanup();
    Running = 0;
 }
 

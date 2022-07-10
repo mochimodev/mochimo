@@ -338,12 +338,8 @@ int b_val(char *fname)
       mEdrop(FAIL_IO, "b_val(): difficulty mismatch");
    }
 
-   
    /* check previous block hash */
    if (memcmp(Cblockhash, bt.phash, HASHLEN) != 0) {
-      printf("bt.phash=%s...", addr2str(bt.phash));
-      printf("Cblockhash=%s...", addr2str(Cblockhash));
-      printf("Prevhash=%s...", addr2str(Prevhash));
       mEdrop(FAIL_IO, "b_val(): previous block hash mismatch");
    }
    /* check transaction count */

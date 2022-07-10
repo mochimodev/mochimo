@@ -128,7 +128,6 @@ int recv_tx(NODE *np, double timeout)
 
    /* recv tx packet */
    ecode = Running ? sock_recv(np->sd, tx, TXBUFFLEN, 0, timeout) : VERROR;
-   if (!Running) ecode = VERROR;
    if (ecode != VEOK) {
       if (ecode == VETIMEOUT) {
          pdebug("recv_tx(%s): connection timed out", np->id);
@@ -536,8 +535,7 @@ bad:
       memcpy(Prevhash, bt.phash, HASHLEN);
    }  /* end if NG block v.23 */
 
-   if(Trace)
-      plog("send_found(0x%s)", bnum2hex(Cblocknum));
+   pdebug("send_found(0x%s)", bnum2hex(Cblocknum));
 
    loadproof(&tx);  /* get proof from tfile.dat */
    /* Send found message to recent peers */
