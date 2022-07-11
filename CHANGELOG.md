@@ -8,24 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 # Changelog
 
-<!--
-
-   CHANGELOG.md - Mochimo Changelog
-   Copyright 2018-2022 Adequate Systems, LLC. All Rights Reserved.
-
-   Changelog format is based on <https://keepachangelog.com/>
-
--->
-
 ## [Unreleased]
-Repository restructure and implementation of the Adequate Systems Build-C repository for streamlined CI/CD processes and updated build utilities.
+Implementation of the Adequate Systems Build-C repository for CI/CD processes and build utilities. Repository restructure in preparation for version 3.0 improvements. Some non-critical bug fixes related to the handling of transactions between block updates. Improvements to Peach POW Algorithm on all Cuda capable devices.
 
 ### Added
-- build-c utilities (build-c-1.1.1) for automated building testing and coverage
-  - includes LICENSE.md (so Github detects the existance of a license)
+- introduced CI/CD and build utilities "merged" in from `build-c`
+  - includes LICENSE.md (detectable repository license)
+- added some basic unit tests for testing mochimo components
+- added codebase modules `crypto-c` and `extended-c`
+- added segfault tracing within UNIX
+- added `--testnet` generation option to server binary
+- added "trusted" peers (for post v3.0 Hi-Speed capabilities)
+- added sleep time to mirror child while waiting for grand-children
+- added improved miner binary with combined solo and pool capabilities
+- added duplicate process detection mechanism (for detecting duplicate mochimo servers)
+- added SO_REUSEADDR to listening socket options
+- added setup.x script for easy provisioning and testing of mochimo nodes
+- added system service registration to setup.x for easy restart capability
+- enhanced splashcreen version identification:
+  - `v<major>.<fork>.<minor>-<patch>-g<commit>-[dirty]`
 ### Changed
 - moved/revised github specific templates and standards
-- moved `LICENSE.PDF` to `.github/` directory
+- moved `LICENSE.PDF` to `.github/` (github detectable LICENSE.md remains)
+  - NOTE: https://mochimo.org/license.pdf redirects appropriately
+- updated network routines for compatibility with `extended-c` module
+- replaced polymorphic shell sort in favor of Standard C's qsort()
+- reimplemented sorting, validating and updating routines such that they may be executed within the calling process
+- consolidated same type routines into compilation units
+- updated print/logging functions to use the `extended-c` module
+- updated server exit procedure
+- improvements to the Peach POW algorithm
+- reorganization of utility functions (util.c)
+- moved most of the gomochi setup checks into main binary
+- README with updates to repository
+- `.gitignore` exclusions
+### Fixed
+- fixed corner-case where transactions may be missed during txclean() routines and subsequently caught during validation
+- fixed illegal memory access errors typical on 30-series Cuda devices
+### Removed
+- removed code that was modularized in `crypto-c` and `extended-c`
+- removed debilitating memcpy() calls in the Peach Algo for Cuda devices
 
 ## [2.4.1] Mochimo Patch Level 37
 
