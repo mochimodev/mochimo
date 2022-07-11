@@ -27,17 +27,21 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 <sup><strong>Please Note: support cannot be guaranteed for systems that do not meet the recommended requirements.</strong></sup>
 
 ## Recommended ~ <sub>![Ubuntu 20.04 LTS](https://img.shields.io/badge/Ubuntu-20.04_LTS-E95420?style=flat&logo=ubuntu&logoColor=white)
-- Ubuntu 20.04 LTS (OS)
-- Dual-core Processor (CPU)
-- 2GB of Random Access Memory (RAM)
-- 32GB of Solid State Drive Storage (SSD)
-- Port 2095 incoming TCP/IPv4 access (Network)
+- (OS) Ubuntu 20.04 LTS
+- (CPU) Dual-core Processor
+- (RAM) 2GB of Random Access Memory
+- (SSD) 64GB of Solid State Drive Storage
+- (NETWORK) Port 2095 incoming TCP/IPv4 access
   - *may require router [port forwarding](https://portforward.com/)*
 
 ## Prerequisites
 To download and build source from Github, ensure you have appropriate packages installed:
+```sh
+sudo apt install -y build-essential git-all
 ```
-sudo apt install build-essential git -y
+... or, to use the Quick-Setup script:
+```sh
+sudo apt-get install -y curl
 ```
 
 (Optionally) For building GPU mining nodes, you will require appropriate NVIDIA drivers and CUDA Toolkit:<br/>
@@ -48,11 +52,13 @@ sudo apt install build-essential git -y
 <hr><hr>
 <h1 align="center"><strong>USAGE</strong></h1>
 
-## Quickstart (relay-node)
+## Quick Setup/Update (relay-node)
 ```sh
-git clone https://github.com/mochimodev/mochimo
-make install-mochimo -C mochimo
-mochimo/bin/gomochi -n
+bash <(curl -sL mochimo.org/setup/node)
+```
+... or for a specific branch:
+```sh
+bash <(curl -sL mochimo.org/setup/node) <branch>
 ```
 
 ## Mochimo Server (relay/mining-node)
