@@ -3,9 +3,6 @@
  * @brief Mochimo utilities support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
- * @note The original Polymorphic Shell sort algorithm, shell(), was
- * deprecated in favour of qsort().
- * > For more details see <https://godbolt.org/z/YE7j57Po9>
 */
 
 /* include guard */
