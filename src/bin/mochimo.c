@@ -1007,7 +1007,6 @@ int main(int argc, char **argv)
    Running = 1;
    fix_signals();             /* redirect signals */
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
-   set_output_level(PLEVEL_DEBUG);
    set_print_level(PLEVEL_LOG);
 
    /* sanity check -- for duplicate processes */
