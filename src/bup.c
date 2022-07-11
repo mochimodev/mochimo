@@ -286,12 +286,13 @@ int b_update(char *fname, int mode)
       }
       /* check chain ecode result */
       if (ecode != VEOK) {
+         pdebug("b_update(): (validate -> update) failure");
          if (mode != 0) {
             rename(fname, "mblock.dat.fail");
             rename("ltran.dat.last", "ltran.dat.fail");
             remove("mblock.dat");
          }
-         return perr("b_update(): (validate -> update) failure");
+         return VERROR;
       }
    } else if (p_val(fname) != VEOK) {
       return perr("b_update(): failed to validate pseudo-block");
