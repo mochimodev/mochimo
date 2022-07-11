@@ -1,91 +1,107 @@
 #!/bin/bash
-
-##
-# setup.x - Mochimo Node setup script
+## setup.x - Mochimo Node setup script
 #
-# Copyright (c) 2021 Adequate Systems, LLC. All Rights Reserved.
+# Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.
 # For more information, please refer to ../LICENSE
 #
-# Date: 1 November 2021
-#
 
-### Update/Install Dependencies (ONLY on first install)
-if test ! -d /home/mochimo-node/mochimo; then
-   while
-      apt update && apt install -y build-essential git-all
-   do test $? -eq 0 && break || (printf "\n   Retrying...\n\n" && sleep 2); done
+### Defaults
+MOCHIMO_USER="mochimo"
+MOCHIMO_DIR="/home/$MOCHIMO_USER/main"
+BRANCH_OPT=
+
+### Check for branch option
+if test ! -z $1; then
+   MOCHIMO_DIR="/home/$MOCHIMO_USER/$1"
+   BRANCH_OPT="-b $1"
 fi
 
-### Ensure latest service file is installed
+### Check for sudo priviledges
+if test $EUID -ne 0; then
+   echo "NOTE: $0 requires sudo priviledges..."
+   sudo -k && sudo true || exit 1
+fi
+
+### Create mochimo user (if not exists)
+if test -z "$(getent passwd $MOCHIMO_USER)"; then
+   if ! useradd -m -d /home/$MOCHIMO_USER -s /bin/bash $MOCHIMO_USER; then
+      echo "   Failed to create '$MOCHIMO_USER' user."
+      echo "   Try creating user '$MOCHIMO_USER' manually."
+      echo "   Then rerun setup." && echo
+      exit
+   fi
+fi
+
+### Check for existing installation
+if test -d $MOCHIMO_DIR; then echo
+   echo "   MOCHIMO DIRECTORY DETECTED."
+   echo "   Performing mochimo update..." && echo
+   ## store latest commit for later checking (if any)
+   PREVCOMMIT=$(su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR/ rev-parse HEAD 2>/dev/null")
+   ### Ensure correct ownership of existing mochimo directory
+   chown -R $MOCHIMO_USER:$MOCHIMO_USER $MOCHIMO_DIR
+   ### Perform update on git repo
+   su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR pull"
+   ### Check for effective updates
+   CURRCOMMIT=$(su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR rev-parse HEAD 2>/dev/null")
+   if test ! "$PREVCOMMIT" = "$CURRCOMMIT"; then echo
+      echo "   Stopping Mochimo service."
+      echo "   This can take up to 90 seconds..." && echo
+      systemctl stop mochimo.service
+      ### Rebuild from source
+      su $MOCHIMO_USER -c "make -C $MOCHIMO_DIR cleanall install-mochimo"
+      if test $? -ne 0; then
+         echo "   FAILED TO REBUILD UPDATE FROM SOURCE!!!" && echo
+         ### Restart existing service and exit
+         systemctl start mochimo.service
+         exit 1
+      fi
+   fi
+else
+   ### Update/Install Dependencies (ONLY on first install)
+   while apt-get update && apt-get install -y build-essential git-all
+   do test $? -eq 0 && break || \
+      (echo "   Failed to install deps, retrying..." && sleep 2)
+   done
+   ### Clone mochimo <branch> into directory
+   su $MOCHIMO_USER -c "git clone $BRANCH_OPT https://github.com/mochimodev/mochimo.git $MOCHIMO_DIR"
+   ### Build from source
+   su $MOCHIMO_USER -c "make -C $MOCHIMO_DIR install-mochimo"
+   if test $? -ne 0; then
+      echo "   FAILED TO BUILD MOCHIMO FROM SOURCE!!!" && echo
+      exit 1
+   fi
+fi
+
+### Create or update systemd service file
 cat <<EOF >/etc/systemd/system/mochimo.service
 [Unit]
 Description=Mochimo Relay Node
 After=network.target
 [Service]
-User=mochimo-node
-Group=mochimo-node
-WorkingDirectory=/home/mochimo-node/mochimo/bin/
-ExecStart=/bin/bash /home/mochimo-node/mochimo/bin/gomochi d -n -D
+User=$MOCHIMO_USER
+Group=$MOCHIMO_USER
+WorkingDirectory=$MOCHIMO_DIR/bin/
+ExecStart=/bin/bash $MOCHIMO_DIR/bin/gomochi -D -n
 [Install]
 WantedBy=multi-user.target
 EOF
 
-### Reload service daemon and enable Mochimo Relaynode Service
-systemctl daemon-reload && systemctl enable mochimo.service
+### Reload service daemon, enable Mochimo Service and start
+systemctl daemon-reload
+systemctl enable mochimo.service
+systemctl restart mochimo.service
 
-### Create mochimo user
-if test -z "$(getent passwd mochimo-node)"; then
-   if ! useradd -m -d /home/mochimo-node -s /bin/bash mochimo-node; then
-      printf "\n   Failed to create 'mochimo-node' user."
-      printf "\n   Try creating user 'mochimo-node' manually."
-      printf "\n   Then rerun setup.\n\n"
-      exit
-   fi
-fi
+### Wait a bit...
+sleep 1 && echo
 
-### Ensure correct ownership of existing mochimo directory
-if test -d /home/mochimo-node/mochimo; then
-   chown -R mochimo-node:mochimo-node /home/mochimo-node/mochimo
-fi
-
-## store latest commit for later checking (if any)
-PREVCOMMIT=$(git -C /home/mochimo-node/mochimo/ rev-parse HEAD 2>/dev/null)
-
-### Update or clone as mochimo-node user
-sudo -u mochimo-node sh<<EOC
-
-### Download or Update Mochimo Software
-if test -d ~/mochimo; then
-   printf "\n   MOCHIMO DIRECTORY DETECTED."
-   printf "\n   Performing mochimo update...\n\n"
-   cd ~/mochimo && git pull
+### Check mochimo installation
+if systemctl is-active --quiet mochimo; then
+   echo "   SETUP COMPLETE!"
 else
-   cd ~ && git clone --single-branch https://github.com/mochimodev/mochimo.git
+   echo "   SETUP FAILED!!!"
+   echo "   For more details, run:"
+   echo "      systemctl status mochimo.service"
 fi
 
-EOC
-
-### Check mochimo installation and (re)start service (only if updated)
-if test -d /home/mochimo-node/mochimo; then
-   CURRCOMMIT=$(git -C /home/mochimo-node/mochimo rev-parse HEAD 2>/dev/null)
-   if test ! "$PREVCOMMIT" = "$CURRCOMMIT"; then
-      ### (re)Compile software as mochimo-node user
-      sudo -u mochimo-node sh<<EOC
-
-### After successful compile and install
-cd ~/mochimo/src && ./makeunx bin -DCPU && ./makeunx install && \
-   cp ~/mochimo/bin/maddr.mat ~/mochimo/bin/maddr.dat
-
-EOC
-      printf "\n   (re)Starting Mochimo service."
-      printf "\n   This can take up to 90 seconds...\n\n"
-      service mochimo restart
-   fi
-fi
-
-### Check mochimo installation and (re)start service (only if updated)
-if test -e /home/mochimo-node/mochimo/bin/mochimo; then
-   printf "\n   SETUP COMPLETE!\n\n"
-else
-   printf "\n   SETUP FAILED!!!\n\n"
-fi
+echo
