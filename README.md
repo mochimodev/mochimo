@@ -4,8 +4,8 @@
 </a>
 
 [![MPL 2.0 Derivative License](https://img.shields.io/badge/_License-MPL_2.0_Derivative-%23.svg?logo=open%20source%20initiative&labelColor=2d3339&color=0059ff)](.github/LICENSE.pdf)
-[![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=Latest%20%27main%27&color=%230059ff)](https://github.com/mochimodev/mochimo/releases)
-[![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/dev?logo=github&logoColor=lightgrey&label=Latest%20%27dev%27&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/tree/dev)<br/>
+[![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=Latest%20Release&color=%230059ff)](https://github.com/mochimodev/mochimo/releases)
+[![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/dev?logo=github&logoColor=lightgrey&label=%27dev%27%20commits&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/tree/dev)<br/>
 *You must read and agree to the [LICENSE](https://mochimo.org/license.pdf)
 prior to running the code.*
 
@@ -24,7 +24,6 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 
 <hr><hr>
 <h1 align="center"><strong>REQUIREMENTS</strong></h1>
-<sup><strong>Please Note: support cannot be guaranteed for systems that do not meet the recommended requirements.</strong></sup>
 
 ## Recommended ~ <sub>![Ubuntu 20.04 LTS](https://img.shields.io/badge/Ubuntu-20.04_LTS-E95420?style=flat&logo=ubuntu&logoColor=white)
 - (OS) Ubuntu 20.04 LTS
@@ -34,59 +33,24 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 - (NETWORK) Port 2095 incoming TCP/IPv4 access
   - *may require router [port forwarding](https://portforward.com/)*
 
-## Prerequisites
-To download and build source from Github, ensure you have appropriate packages installed:
-```sh
-sudo apt install -y build-essential git-all
-```
-... or, to use the Quick-Setup script:
-```sh
-sudo apt-get install -y curl
-```
-
-(Optionally) For building GPU mining nodes, you will require appropriate NVIDIA drivers and CUDA Toolkit:<br/>
-*Note: the Mochimo Cryptocurrency Engine's GPU mining capability is currently only compatible with NVIDIA GPU's.*
-- [NVIDIA Drivers](https://www.nvidia.com/Download/index.aspx)
-- [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads)
-
 <hr><hr>
 <h1 align="center"><strong>USAGE</strong></h1>
 
 ## Quick Setup/Update (relay-node)
+The quick setup/update script can be used to quickly provision or update a Mochimo Server on a Ubuntu Machine. To use, simply run:
 ```sh
-bash <(curl -sL mochimo.org/setup/node)
+sudo apt-get install -y curl # if not already installed
+bash <(curl -sL mochimo.org/setup.x)
 ```
-... or for a specific branch:
+... or to install a specific branch, run:
 ```sh
-bash <(curl -sL mochimo.org/setup/node) <branch>
+bash <(curl -sL mochimo.org/setup.x) <branch>
 ```
 
-## Mochimo Server (relay/mining-node)
-1) Clone the repository: `git clone https://github.com/mochimodev/mochimo`
-2) Enter repository directory: `cd mochimo`
-3) Build and install the mining-node<br/>
-   a) Make CPU mining node: `make install-mochimo`, or<br/>
-   b) Make CUDA mining node: `make install-mochimo CFLAGS=-DCUDA`
-4) Enter the binary directory: `cd bin`
-5) Copy (or create) your mining address `maddr.dat` in this directory
-6) Run Mochimo Node (server)<br/>
-   a) Mining mode: `./gomochi`, or<br/>
-   b) Relay mode: `./gomochi -n`
-
-## Mochimo Miner
-1) Install appropriate NVIDIA Drivers and Cuda Toolkit (see above)
-2) Clone the repository: `git clone https://github.com/mochimodev/mochimo`
-3) Enter repository directory: `cd mochimo`
-4) Build and install the Cuda Miner: `make install-cudaminer`
-4) Enter the binary directory: `cd bin`
-5) Copy (or create) your mining address `maddr.dat` in this directory
-6) Run Mochimo Miner<br/>
-   a) Headless Mining: `./miner`, or<br/>
-   b) Solo Mining (requires Mochimo Server): `./miner --host <ip>`, or<br/>
-   c) Pool Mining (requires Pool): `./miner --pool <ip> --port <num>`
-
-## Additional Instructions
-See the [Mochimo Wiki](http://www.mochiwiki.com).
+## Other Guides and Information
+<sup><i>NOTE: mining guides for v2.4.2 and above, are on the Community Wiki</i></sup>
+* [Mochimo Community Wiki](http://github.com/mochimodev/mochimo/wiki)
+* [Mochimo Official Wiki](http://www.mochiwiki.com)
 
 <hr><hr>
 <h1 align="center"><strong>LICENSE</strong></h1>
@@ -111,29 +75,3 @@ Discord is our most active social forum where you can discuss Mochimo with the r
 - [![YouTube Channel Subscribers](https://img.shields.io/youtube/channel/subscribers/UCFW0_JZR32gMvEtJQ3YE0KA?style=social)](https://www.youtube.com/channel/UCFW0_JZR32gMvEtJQ3YE0KA)
 - [![Telegram](https://img.shields.io/badge/Telegram-_-white?style=social&logo=telegram)](https://t.me/mochimocrypto)
 - [![Medium Articles](https://img.shields.io/badge/Medium-_-white?style=social&logo=medium&logoColor=12100E)](https://medium.com/mochimo-official)
-
-<hr><hr>
-<h1 align="center"><strong>BLOCKCHAIN</strong></h1>
-
-<div align="center">
-	<h2><strong>Overview</strong></h2>
-
-| | | | | |
-| --: | :-- | --: | :-- | :-- |
-| **Coin Name (Ticker)** | Mochimo (MCM) | **Maximum Supply** | 76,493,180 MCM (deflationary) | [API](https://new-api.mochimap.com/chain/maxsupply) |
-| **Launch Date** | June 25, 2018 15:43:45 UTC | **Transaction Fee** | 0.0000005 MCM | [API](https://new-api.mochimap.com/chain/mfee) |
-| **Mining Duration** | ~22 years |
-
-</div>
-<div align="center">
-	<h2><strong>Reward Distribution</strong></h2>
-
-| | | | |
-| --: | :-: | :-: | :--: |
-| | **Phase 1** | **Phase 2** | **Phase 3 (current)**|
-| **Block Range** | 0 - 17,185 | 17,185 - 373,761 | 373,761 - 2,097,152 |
-| **Base Reward** | 5.0 MCM | 5.917392 MCM | 59.523942 MCM |
-| **(Block) Delta** | +0.000056 MCM | +0.00015 MCM | -0.000028488 MCM |
-| **Last Reward** | 5.962248 MCM | 59.403642 MCM | 10.427979192 MCM |
-
-</div>
