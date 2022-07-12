@@ -1,14 +1,12 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+***
 
+## [2.4.2] - July 12th, 2022
 
-# Changelog
-
-## [Unreleased]
 Implementation of the Adequate Systems Build-C repository for CI/CD processes and build utilities. Repository restructure in preparation for version 3.0 improvements. Some non-critical bug fixes related to the handling of transactions between block updates. Improvements to Peach POW Algorithm on all Cuda capable devices.
 
 ### Added
@@ -223,7 +221,8 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/adequatesystems/build-c/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/adequatesystems/build-c/compare/v2.4...v2.4.1
 [2.4.0]: https://github.com/adequatesystems/build-c/compare/v2.3...v2.4
 [2.3.0]: https://github.com/adequatesystems/build-c/compare/v2.2...v2.3
