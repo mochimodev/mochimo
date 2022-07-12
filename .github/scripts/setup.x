@@ -16,12 +16,6 @@ if test ! -z $1; then
    BRANCH_OPT="-b $1"
 fi
 
-### Check for sudo priviledges
-if test $EUID -ne 0; then
-   echo "NOTE: $0 requires sudo priviledges..."
-   sudo -k && sudo true || exit 1
-fi
-
 ### Create mochimo user (if not exists)
 if test -z "$(getent passwd $MOCHIMO_USER)"; then
    if ! useradd -m -d /home/$MOCHIMO_USER -s /bin/bash $MOCHIMO_USER; then
@@ -82,7 +76,8 @@ After=network.target
 User=$MOCHIMO_USER
 Group=$MOCHIMO_USER
 WorkingDirectory=$MOCHIMO_DIR/bin/
-ExecStart=/bin/bash $MOCHIMO_DIR/bin/gomochi -D -n
+ExecStartPre=/bin/sh -c 'until ping -c1 1.1.1.1; do sleep 1; done;'
+ExecStart=/bin/bash $MOCHIMO_DIR/bin/gomochi -n
 [Install]
 WantedBy=multi-user.target
 EOF

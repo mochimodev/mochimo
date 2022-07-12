@@ -11,7 +11,7 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 
 |     | `master` | `dev` |
 | --: | :------: | :---: |
-| Version: | [![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=Release&color=%230059ff)](https://github.com/mochimodev/mochimo/releases) | [![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/dev?logo=github&logoColor=lightgrey&label=Commits&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/tree/dev) |
+| Version: | [![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=&color=%230059ff)![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/master?&label=-&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/releases) | [![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=&color=%230059ff)![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/dev?&label=-&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/tree/dev) |
 | Unit Tests: | [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml) | [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg?branch=dev)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml) |
 | Software Builds: | [![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml) | [![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg?branch=dev)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml) |
 | Static Analysis: | [![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml) | [![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg?branch=dev)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml) |
@@ -37,11 +37,11 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 The quick setup/update script can be used to quickly provision or update a Mochimo Server on a Ubuntu Machine. To use, simply run:
 ```sh
 sudo apt-get install -y curl # if not already installed
-bash <(curl -sL mochimo.org/setup.x)
+curl -L mochimo.org/setup.x | sudo bash -
 ```
 ... or to install a specific branch, run:
 ```sh
-bash <(curl -sL mochimo.org/setup.x) <branch>
+curl -L mochimo.org/setup.x | sudo branch -s -- <branch>
 ```
 
 ## Other Guides and Information
