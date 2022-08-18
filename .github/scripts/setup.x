@@ -53,7 +53,7 @@ if test -d $MOCHIMO_DIR; then echo
    fi
 else
    ### Update/Install Dependencies (ONLY on first install)
-   while apt-get update && apt-get install -y build-essential git-all
+   while apt-get update && apt-get install -y build-essential git
    do test $? -eq 0 && break || \
       (echo "   Failed to install deps, retrying..." && sleep 2)
    done
