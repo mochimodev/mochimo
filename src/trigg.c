@@ -681,13 +681,13 @@ int trigg_syntax(void *nonce)
 {
    word32 sf[MAXH], *fp;
    word8 *np;
-   int j;
+   int j, k;
 
-   /* load semantic frame associated with nonce */
+   /* load semantic features associated with nonce */
    for (j = 0, np = (word8 *) nonce; j < MAXH; j++) sf[j] = Dict[np[j]].fe;
    /* check input for respective semantic features, use unification on sets. */
-   for (fp = &Frame[0][0]; fp < &Frame[NFRAMES][0]; fp += MAXH) {
-      for (j = 0; j < MAXH; j++) {
+   for (k = 0; k < NFRAMES; k++) {
+      for (j = 0, fp = &Frame[k][0]; j < MAXH; j++) {
          if (fp[j] == 0) {
             if (sf[j] == 0) return VEOK;
             break;
