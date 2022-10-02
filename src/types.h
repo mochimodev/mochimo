@@ -1,11 +1,7 @@
 /**
  * @file types.h
  * @brief Mochimo Definitions and Structures
- * @details Provides basic definitions for integer return values (VEOK,
- * VERROR, etc.), operation codes, network and transaction protocol
- * constants, buffer access definitions, and compatibility bits. Also
- * provides struture definitions for a TX packet, TXQENTRY, BHEADER,
- * BTRAILER, LENTRY, LTRAN, MDST and MTX.
+ * @details Defines everything from basic return types to structures.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
@@ -16,410 +12,560 @@
 
 
 /* external support */
-#include <time.h>
+#include "exttime.h"
+#include "extthrd.h"
+#include "extos.h"
 #include "extio.h"
 #include "extint.h"
+#include "extinet.h"
 
-/* ------ Begin Dev Section -----*/
+/* ---------------- BEGIN CONFIGURABLE DEFINITIONS --------------------- */
 
-/* Version checking */
-#define PVERSION      4      /* protocol version number (short) */
+/** socket communication timeout (seconds) */
+#define TIMEOUT      3
+/** listen() queue length */
+#define LQLEN        512
+/** maximum number of entries in cpinklist */
+#define CPINKLEN     1024
+/** maximum number of entries in epinklist */
+#define EPINKLEN     1024
+/** update interval for epinklist */
+#define EPINKMASK    15
+/** local peer list length */
+#define LPLISTLEN    16
+/** recent peer list length */
+#define RPLISTLEN    128
 
-/* Adjustable Parameters */
-#define MAXNODES     37       /**< maximum number of connected nodes */
-#define INIT_TIMEOUT 3        /**< initial timeout after accept() */
-#define ACK_TIMEOUT  10       /**< hello_ack timeout in callserver() */
-#define STD_TIMEOUT  10       /**< connection timeout in callserver() */
-#define LQLEN        100      /**< listen() queue length */
-#define TXQUEBIG     32       /**< big enough to run bcon */
-#define MAXBLTX      32768    /**< max TX's in a block for bcon (~1M) */
-#define STATUSFREQ   10       /**< status display interval sec. */
-#define CPINKLEN     100       /* maximum entries in pinklists */
-#define LPINKLEN     100
-#define EPINKLEN     100
-#define EPOCHMASK    15       /**< update pinklist Epoch count - 1 */
-#define EPOCHSHIFT   4
-#define RPLISTLEN    64       /**< recent peer list v.28 */
-#define TPLISTLEN    32       /**< trusted peer list */
-#define CRCLISTLEN   1024     /**< recent tx crc's */
-#define MAXQUORUM    16       /**< for init */
-#define BCONFREQ     10       /**< Run con at least */
-#define CBITS        0        /**< 8 capability bits for TX */
-#define MFEE         500
+/** directory for blockchain storage */
+#define BCDIR        "bc"
+/** directory for downloaded file storage */
+#define DLDIR        "dl"
+/** directory for ledger transaction storage */
+#define LTDIR        "lt"
+/** directory for chain split storage */
+#define SPDIR        "sp"
+/** directory for transaction storage */
+#define TXDIR        "tx"
 
-#define UBANDWIDTH   14300    /**< Dynamic upload bandwidth -- not zero */
+/** filename of output log */
+#define LOGNAME      "mochimo.log.txt"
 
-#define BCDIR        "bc"     /**< rename to dir for block storage */
-#define SPDIR        "split"  /**< rename to dir for backup storage */
-#define NGDIR        "ng"     /**< rename to dir for neogen storage */
+/* ---------------- END CONFIGURABLE DEFINITIONS ----------------------- */
 
-#define ERRFNAME     "error.log" /**< default error log filename */
-#define LOGFNAME     "mochi.log" /**< default standard log filename */
+/* ---------------- DO NOT CHANGE BELOW THIS LINE ---------------------- */
 
-/* ------ end Dev Section  -----*/
-
-/* ----------------- DO NOT CHANGE BELOW THIS LINE --------------------- */
-
-/* boolean return codes */
-#ifndef TRUE
-	#define TRUE   1   /**< Boolean value for TRUE (#ifndef) */
-#endif
-#ifndef FALSE
-	#define FALSE  0   /**< Boolean value for FALSE (#ifndef) */
+/* DEPRECATION MACRO, marks functions DECPRECATED for certain compilers */
+#if defined(__GNUC__) || defined(__clang__)
+   #define DEPRECATED __attribute__((deprecated))
+#elif defined(_MSC_VER)
+   #define DEPRECATED __declspec(deprecated)
+#else
+   #define DEPRECATED
 #endif
 
-#define HASHLEN   32  /**< Digest length of core hashes - SHA256LEN */
-
-/* status return codes */
-#define VEOK      0        /**< Status return code - No error */
-#define VERROR    1        /**< Status return code - General error */
-#define VEBAD     2        /**< Status return code - client was bad */
-#define VEBAD2    3        /**< Status return code - client was naughty */
-#define VETIMEOUT (-1)     /**< Status return code - socket timeout */
-
-/* network/transmission definitions */
-#define PORT1     2095     /**< Default TCP listening port for network */
-#define PORT2     2096     /**< Secondary port, primarily for testnet */
-#define TXEOT     0xabcd   /**< End-of-transmission id for packets */
-#define TXNETWORK 1337     /**< Network TX protocol version */
-#define TXSIGLEN  2144     /**< Standard transaction signature length */
-#define TXADDRLEN 2208     /**< Standard transaction address length */
-#define TXTAGLEN  12
-#define TXAMOUNT  8        /**< Standard transaction amount length */
-
-#define TRANBUFF(tx) ( (tx)->src_addr )  /**< Transaction buffer accessor */
-#define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
-#define TXBUFF(tx)   ( (word8 *) tx )    /**< Transaction packet accessor */
-#define TXBUFFLEN    ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN + 2 + 2 )
-#define TXSIG_INLEN  (TRANLEN - TXSIGLEN)
-#define TXCRC_INLEN  ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN )
-
-#define TX_IS_MTX(tx) \
-   ((tx)->dst_addr[2196] == 0x00 && (tx)->dst_addr[2197] == 0x01)
-#define MDST_NUM_DST 100       /* number of tags (MDST) in MTX dst[] */
-#define MDST_NUM_DZEROS 208    /* length of MTX zeros[] */
-
-#define ADDR_TAG_PTR(addr) (((word8 *) (addr)) + 2196)
-#define ADDR_HAS_TAG(addr) \
-   (((word8 *) (addr))[2196] != 0x42 && ((word8 *) (addr))[2196] != 0x00)
-
-/* Historic Compatibility Break Points */
-#define DTRIGGER31 17185   /* for v2.0 new set_difficulty() */
-#define WTRIGGER31 17185   /* for v2.0 new add_weight() */
-#define RTRIGGER31 17185   /* for v2.0 new get_mreward() */
-#define FIXTRIGGER 17697   /* for v2.0 difficulty patch */
-#define V23TRIGGER 54321   /* for v2.3 pseudoblocks */
-#define V24TRIGGER 0x12851 /* for v2.4 new FPGA Tough algo */
-#define MTXTRIGGER 133333  /* MTX flag activation block */
-#define BRIDGE     949     /* Trouble time -- Edit for testing */
-
-/* break point trigger detection MACROs */
-#define NEWYEAR(bnum) ( get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0 )
-#define WATCHTIME  (BRIDGE*4+1)  /* minimum watchdog time */
-#define TIMES_OF_TROUBLE(bnum) NEWYEAR(bnum)
+/* set default "preferred path separator" per OS */
+#ifndef PREFERRED_PATH_SEPARATOR
+   #if OS_WINDOWS
+      #define PREFERRED_PATH_SEPARATOR  "\\"
+   #else
+      #define PREFERRED_PATH_SEPARATOR  "/"
+   #endif
+#endif
 
 /**
- * Capability bit for candidate block pushing nodes. Indicates the
- * capability to push Candidate Blocks, primarily to headless miners.
+ * Path separator to use when concatenating file paths.
+ * Path separator is defined by "PREFERRED_PATH_SEPARATOR", or an
+ * OS specific separator ("\\" or "/") resulting in the following:
+ * - Windows\\path\\to
+ * - UNIX/path/to
 */
+#define PATH_SEPARATOR  PREFERRED_PATH_SEPARATOR
+
+/* device type values */
+
+/** No device */
+#define NO_DEVICE       0
+/** CUDA device type */
+#define CUDA_DEVICE     1
+/** OPENCL device type */
+#define OPENCL_DEVICE   2
+
+/* device status values */
+
+/** Device disabled status */
+#define DEV_STOP       -2
+/** Device failure status */
+#define DEV_FAIL       -1
+/** Device no status (uninitialized) */
+#define DEV_NULL        0
+/** Device idle status */
+#define DEV_IDLE        1
+/** Device initialization status */
+#define DEV_INIT        2
+/** Device working status */
+#define DEV_WORK        3
+
+/* mochimo return/error types */
+
+/** Indicates the operation is "waiting" (usually on I/O) */
+#define VEWAITING      -2
+/** Indicates the operation has "timed out" */
+#define VETIMEOUT      -1
+/** Indicates the operation was "successful" */
+#define VEOK            0
+/** Indicates the operation encountered an internal error.
+ * errno "may" be set for additional details. */
+#define VERROR          1
+/** Indicates the operation encountered a protocol violation.
+ * errno "may" be set for additional details. */
+#define VEBAD           2
+/** Indicates the operation encountered a protocol violation that was
+ * likely malicious. errno "may" be set for additional details. */
+#define VEBAD2          3
+
+#ifndef FALSE  /* FALSE may already be defined */
+   /** Boolean return value indicating "false" */
+	#define FALSE        0
+
+#endif
+
+#ifndef TRUE  /* TRUE may already be defined */
+   /** Boolean return value indicating "true" */
+	#define TRUE         1
+
+#endif
+
+/* network capability bits */
+
+/** Indicates "push" block capabilities, primarily to headless miners */
 #define C_PUSH          1
-
-/**
- * Capability bit for wallets. Indicates the operation of a wallet.
-*/
+/** Indicates wallet capabilities */
 #define C_WALLET        2
-
-/**
- * Capability bit for nodes activating the Sanctuary Protocol. Indicates
- * the activation of the Sanctuary Protocol.
-*/
+/** Indicates the activation of the Sanctuary Protocol */
 #define C_SANCTUARY     4
-
-/**
- * Capability bit for nodes indicating a Miner Fee change. For indicating
- * the desired Miner Fee outcome of the Sanctuary Protocol.
-*/
+/** Indicates a change to the standard Mining Fee */
 #define C_MFEE          8
-
-/**
- * Capability bit for nodes with Logging. Indicates nodes with Logging.
-*/
+/** Indicates a node is recording logs */
 #define C_LOGGING       16
+/** Indicates a node is capable of a variable PDU
+ * NOTE: implied for protocol version 5 onwards */
+#define C_VPDU          32
 
-/**
- * "Null" operation code. Not actively used by the node, but can indicate a
- * lack of socket initialization during packet transmission.
-*/
+/* network operation codes */
+
+/** Connecting socket operation code */
 #define OP_NULL         0
-
-/**
- * "Hello" operation code. Used to initiate the first step of Mochimo's
- * 3-Way Handshake Protocol.
-*/
+/** Handshake request (hello) code */
 #define OP_HELLO        1
-
-/**
- * "Hello acknowledgement" operation code. Used to "acknowledge" a "hello"
- * operation code, as the second step of Mochimo's 3-Way Handshake Protocol.
-*/
+/** Handshake response (acnowledgement) code */
 #define OP_HELLO_ACK    2
-
-/**
- * Operation code boundary. Indicates the first valid operation code
- * that can be used after a successful 3-Way Handshake.
-*/
+/** First valid (post-handshake) code */
 #define FIRST_OP        3
-
-/**
- * Transaction operation code. Indicates the presence of a Transaction
- * within the same TX packet.
-*/
+/** Transaction operation code */
 #define OP_TX           3
-
-/**
- * Block found operation code. Indicates the sender has found a new block.
- * This can indicate either a fresh solve or network distribution.
-*/
+/** Block found operation code */
 #define OP_FOUND        4
-
-/**
- * Get blockchain file operation code. Indicates a request for a blockchain
- * file. The number block number should be indicated in the same TX packet.
-*/
-#define OP_GET_BLOCK     5
-
-/**
- * Get IP/peer list operation code. Indicates a request for a list of peers
- * to use for various communications with the network.
-*/
+/** Blockchain file request code */
+#define OP_GET_BLOCK    5
+/** IP list request code */
 #define OP_GET_IPL      6
-
-/**
- * Send file operation code. Indicates that a TX packet contains at least
- * part of a file, usually in response to a OP_GET_BLOCK or OP_GET_TFILE.
-*/
+/** File data response code */
 #define OP_SEND_FILE    7
-
-/**
- * Send IP/peer list operation code. Indicates the TX packet contains a
- * list of network peers, usually in response to a OP_GET_IP request.
-*/
+/** IP list response code */
 #define OP_SEND_IPL     8
-
-/**
- * Busy operation code. Indicates that a Node is too busy to respond.
-*/
+/** server busy response code */
 #define OP_BUSY         9
-
-/**
- * No acknowledged operation code. Indicates that a Node acknowledges the
- * request but is unable to respond with meaningful data.
- * @note It should NOT be assumed that a Node will always respond with
- * OP_NACK when it cannot respond. A node may also just close a connection
- * if it cannot respond. Because reasons...
-*/
+/** Negative acknowledgement response code */
 #define OP_NACK         10
-
-/**
- * Get trailer file operation code. Indicates a request for the entire
- * trailer file.
- * @note For requesting only part of a trailer file, see OP_TF.
-*/
+/** Trailer File request code */
 #define OP_GET_TFILE    11
-
-/**
- * Send balance operation code. Indicates a request for the current balance of
- * an address, directly from the ledger file.
-*/
+/** Balance request code */
 #define OP_BALANCE      12
-
-/**
- * Balance operation code. Indicates that a TX packet contains an address
- * and balance, usually in response to a OP_BALANCE request.
-*/
+/** Balance response code */
 #define OP_SEND_BAL     13
-
-/**
- * Resolve tagged address operation code. Indicates a request to resolve a
- * tagged address and balance.
-*/
+/** Resolve a tag to an address request code */
 #define OP_RESOLVE      14
-
-/**
- * Get candidate block operation code. Indicates a request for the latest
- * candidate blockchain file. Used primarily by headless miners.
-*/
+/** Candidate block request code */
 #define OP_GET_CBLOCK   15
-
-/**
- * Mined block operation code. Indicates a TX packet contains at least
- * part of a mined blockchain file, usually after a candidate block solve.
- * Used primarily by headless miners.
-*/
+/** Mined (solved) block request code */
 #define OP_MBLOCK       16
-
-/**
- * Block hash operation code. Indicates either a request for the block hash
- * of a particular block number or that a TX packet contains the block hash
- * of a particular block number, as represented in the trailer file.
-*/
+/** Block hash request/response code */
 #define OP_HASH         17
-
-/**
- * Get partial trailer file operation code. Indicates a request for part
- * of the trailer file, as specified in the trailer file.
- * @note For requesting the entire trailer file, see OP_GET_TFILE.
-*/
+/** Trailer File (partial) request code */
 #define OP_TF           18
-
-/**
- * Identify operation code. Indicates either a request for Sanctuary
- * Protocol specifications or that a TX packet contains requested
- * Sanctuary Protocol specifications.
-*/
+/** Sanctuary Protocol specifications request code */
 #define OP_IDENTIFY     19
-
-/**
- * Operation code boundary. Indicates the last valid operation code
- * that can be used after a successful 3-Way Handshake.
- * @note Update value when adding operation codes.
-*/
+/** last valid (post-handshake) code.
+ * NOTE: increment when adding more operation codes */
 #define LAST_OP         19
 
+/* extended operation codes (internal requests only) */
 
-/* device types (DEVICE_CTX.type) */
+/** Blockchain file download and validate request */
+#define REQ_VAL_BLOCK   ( 1 + LAST_OP )
+/** Trailer file download and validate request */
+#define REQ_VAL_TFILE   ( 2 + LAST_OP )
 
-#define NO_DEVICE       0  /**< No device */
-#define CUDA_DEVICE     1  /**< CUDA device type */
-#define OPENCL_DEVICE   2  /**< OPENCL device type */
+/* task wait codes */
 
-/* device status (DEVICE_CTX.status) */
+/** Waiting for connect (write buff) */
+#define IO_CONN         0
+/** Waiting for socket (write buff) */
+#define IO_SEND         1
+/** Waiting for socket (read buff) */
+#define IO_RECV         2
+/** Waiting for read-only access to "update lock" */
+#define RO_ULCK         3
+/** Finished. Not waiting.
+ * NOTE: increment when adding more wait types */
+#define IO_DONE         4
 
-#define DEV_STOP  (-2)  /**< Device disabled status */
-#define DEV_FAIL  (-1)  /**< Device failure status */
-#define DEV_NULL  (0)   /**< Device no status (uninitialized) */
-#define DEV_IDLE  (1)   /**< Device idle status */
-#define DEV_INIT  (2)   /**< Device initialization status */
-#define DEV_WORK  (3)   /**< Device working status */
+/* network data */
 
-/* device structs */
+/** Default API listening port (HTTP) */
+#define PORTA           2086
+/** Secondary API port (HTTP), not actively used by main-net */
+#define PORTB           2087
+/** Default TCP listening port for network communication */
+#define PORT1           2095
+/** Secondary TCP port, not actively used by main-net */
+#define PORT2           2096
 
-typedef struct {
-   int id, type, status;            /**< device identification */
-   int grid, block, threads;        /**< device config/status */
-   unsigned fan, pow, temp, util;   /**< device monitors */
-   time_t last_work, last_monitor;  /**< timestamps */
-   word64 work, total_work;         /**< work counters */
-   char nameId[256];                /**< device properties */
-} DEVICE_CTX;  /**< (GPU) Device context for managing device data. */
+/** Network protocol version currently in use */
+#define PVERSION        5
+/** Network TX protocol version */
+#define TXNETWORK       1337
+/** End-of-transmission id for packets */
+#define TXEOT           0xabcd
+/** Packet header length. ( (2 * 5) + (8 * 2) + (32 * 3) + 2 ) = 124 */
+#define PKTHDRLEN       124
+/** Packet (old) buffer length. For v3.0 transition compatibility */
+#define PKTBUFFLEN_OLD  8792
+/** Packet buffer length */
+#define PKTBUFFLEN      0xff00
+/** Packet buffer accessor */
+#define PKTBUFF(tx)  (  (tx)->buffer  )
+/** Packet CRC input length */
+#define PKTCRC_INLEN(len)  (  PKTHDRLEN + len  )
+/** Identify variable PDU capability bit in node packets */
+#define PKT_HAS_C_VPDU(pkt) \
+   ( (pkt)->version[0] >= 5 || (pkt)->version[1] & C_VPDU )
+
+/* transaction data */
+
+/** Transaction signature length */
+#define TXSIGLEN        2144
+/** Transaction tag length */
+#define TXTAGLEN        12
+/** WOTS+ Transaction address length */
+#define TXWADDRLEN      2208
+/** Public key transaction address length */
+#define TXPADDRLEN      64
+/** Transaction amount length */
+#define TXAMOUNTLEN     8
+/** Transaction block number length */
+#define TXBLOCKLEN      8
+/** Offset, in bytes, at which a tag begins in a WOTS+ address */
+#define WTAGOFFSET   (  TXWADDRLEN - TXTAGLEN  )
+/** Offset, in bytes, at which a tag begins in a Public seed address */
+#define PTAGOFFSET   (  TXPADDRLEN - TXTAGLEN  )
+/** eXtented TX MEMO transaction memo len */
+#define TXMEMOLEN    (  TXPADDRLEN - TXTAGLEN  )
+/** Digest length of core hashes (SHA256LEN) */
+#define HASHLEN         32
+/** Minimum network miner fee */
+#define MFEE            500
+/** Maximum number of transactions per block
+ * NOTE: Removal proposed for v3.0 onwards */
+#define MAXBLTX         32768
+
+/** Get pointer to tag of WOTS+ address */
+#define WOTS_TAGp(addr) (((word8 *) (addr)) + WTAGOFFSET)
+/** Identify valid tag in WOTS+ address */
+#define WOTS_HAS_TAG(addr) \
+   ( *(WOTS_TAGp(addr)) != 0x42 && *(WOTS_TAGp(addr)) != 0x00 )
+/** Get pointer to tag of Public Key address */
+#define PK_TAGp(addr) (((word8 *) (addr)) + PTAGOFFSET)
+/** Identify valid tag in Public Key address */
+#define PK_HAS_TAG(addr) \
+   ( *(PK_TAGp(addr)) != 0x42 && *(PK_TAGp(addr)) != 0x00 )
+/** Identify eXtended TX type transactions of WOTS+ transactions */
+#define TXWOTS_IS_XTX(tx) \
+   ( WOTS_TAGp((tx)->dst_addr)[0] == 0x00 \
+   && WOTS_TAGp((tx)->dst_addr)[1] > 0x00 )
+/* Identify eXtended TX type transactions of Public Key transactions */
+#define TXPK_IS_XTX(tx) \
+   ( PK_TAGp((tx)->dst_addr)[0] == 0x00 \
+   && PK_TAGp((tx)->dst_addr)[1] > 0x00 )
+/** Identify type of eXtended TX transaction */
+#define TXWOTS_XTYPE(tx)   (  WOTS_TAGp((tx)->dst_addr)[WTAGOFFSET + 1]  )
+/** Identify type of eXtended TX transaction */
+#define TXPK_XTYPE(tx)     (  PK_TAGp((tx)->dst_addr)[PTAGOFFSET + 1]  )
+
+/* eXtended TX (transaction) types */
+
+/** Multi-destination TX type */
+#define XTYPE_MTX       0x01
+/** Simple message TX type (proposed for v3.0?) */
+#define XTYPE_MEMO      0x02
+
+/** Number of WOTS+ transaction multi-destination tags */
+#define MDST_NUM_DST    100
+/** Number of WOTS+ transaction multi-destination zeros[] (padding) */
+#define MDST_NUM_DZEROS 208
+
+/* compatibility break points */
+
+/** Block number of v2.0 diff/reward/weight update */
+#define V20TRIGGER      0x4321
+/** Block number of v2.0 difficulty patch */
+#define P20TRIGGER      0x4521
+/** Block number of v2.3 pseudoblocks */
+#define V23TRIGGER      54321
+/** Block number of v2.4 new FPGA Tough algo */
+#define V24TRIGGER      75857
+/** Block number of multi-destination transaction flag activation */
+#define MTXTRIGGER      133333
+/** Block number of v3.0 blockchain upgrades */
+#define V30TRIGGER      0x70000
+
+/* struct size definitions */
 
 /**
- * Network transmission packet Multi-byte numbers are little-endian.
- * Structure is checked on start-up for byte-alignment.
- * HASHLEN is checked to be 32.
- */
+ * Public seed block header struct.
+*/
 typedef struct {
-   word8 version[2];  /* { PVERSION, Cbits }  */
-   word8 network[2];  /* 0x39, 0x05 TXNETWORK */
-   word8 id1[2];
-   word8 id2[2];
-   word8 opcode[2];
-   word8 cblock[8];        /* current block num  64-bit */
-   word8 blocknum[8];      /* block num for I/O in progress */
-   word8 cblockhash[32];   /* sha-256 hash of current block */
-   word8 pblockhash[32];   /* sha-256 hash of previous block */
-   word8 weight[32];       /* sum of block difficulties (or TX ip map) */
-   word8 len[2];  /* length of data in transaction buffer for I/O op's */
-   /* start transaction buffer */
-   word8 src_addr[TXADDRLEN];
-   word8 dst_addr[TXADDRLEN];
-   word8 chg_addr[TXADDRLEN];
-   word8 send_total[TXAMOUNT];
-   word8 change_total[TXAMOUNT];
-   word8 tx_fee[TXAMOUNT];
-   word8 tx_sig[TXSIGLEN];
-   /* end transaction buffer */
-   word8 crc16[2];
-   word8 trailer[2];  /* 0xcd, 0xab */
-} TX;
+   word8 hdrlen[4];           /**< Header length to transaction array */
+   word8 maddr[TXPADDRLEN];   /**< Public seed mining address */
+   word8 mreward[8];          /**< Block rewards */
+} BPHEADER;
 
-/* Structure for clean TX queue */
+/**
+ * WOTS+ block header struct.
+*/
 typedef struct {
-   /* start transaction buffer (These fields are order dependent) */
-   word8 src_addr[TXADDRLEN];     /*  2208 */
-   word8 dst_addr[TXADDRLEN];
-   word8 chg_addr[TXADDRLEN];
-   word8 send_total[TXAMOUNT];    /* 8 */
-   word8 change_total[TXAMOUNT];
-   word8 tx_fee[TXAMOUNT];
-   word8 tx_sig[TXSIGLEN];        /* 2144 */
-   word8 tx_id[HASHLEN];          /* 32 */
-} TXQENTRY;
+   word8 hdrlen[4];           /**< Header length to transaction array */
+   word8 maddr[TXWADDRLEN];   /**< WOTS+ mining address */
+   word8 mreward[8];          /**< Block rewards */
+} BWHEADER;
 
-
-/* The block header */
+/**
+ * Block trailer struct.
+ * Placed at the end of a Blockchain file, or
+ * chained together in a Trailer file.
+*/
 typedef struct {
-   word8 hdrlen[4];         /* header length to tran array */
-   word8 maddr[TXADDRLEN];  /* mining address */
-   word8 mreward[8];
-   /*
-    * variable length data here...
-    */
-
-   /* array of tcount TXQENTRY's here... */
-} BHEADER;
-
-
-/* The block trailer at end of block file */
-typedef struct {
-   word8 phash[HASHLEN];    /* previous block hash (32) */
-   word8 bnum[8];           /* this block number */
-   word8 mfee[8];           /* minimum transaction fee */
-   word8 tcount[4];         /* transaction count */
-   word8 time0[4];          /* to compute next difficulty */
-   word8 difficulty[4];
-   word8 mroot[HASHLEN];  /* hash of all TXQENTRY's */
-   word8 nonce[HASHLEN];
-   word8 stime[4];        /* unsigned start time GMT seconds */
-   word8 bhash[HASHLEN];  /* hash of all block less bhash[] */
+   word8 phash[HASHLEN];   /* previous block hash (32) */
+   word8 bnum[8];          /* this block number */
+   word8 mfee[8];          /* minimum transaction fee */
+   word8 tcount[4];        /* transaction count */
+   word8 time0[4];         /* to compute next difficulty */
+   word8 difficulty[4];    /* difficulty of this block */
+   word8 mroot[HASHLEN];   /* hash of all transactions */
+   word8 nonce[HASHLEN];   /* nonce for proving work */
+   word8 stime[4];         /* unsigned solve time GMT seconds */
+   word8 bhash[HASHLEN];   /* hash of all block less bhash[] */
 } BTRAILER;
-#define BTSIZE (32+8+8+4+4+4+32+32+4+32)
 
-
-/* ledger entry in ledger.dat */
+/**
+ * Device context struct
+*/
 typedef struct {
-   word8 addr[TXADDRLEN];    /* 2208 */
-   word8 balance[TXAMOUNT];  /* 8 */
-} LENTRY;
+   int id, type, status;               /**< device identification */
+   int grid, block, threads;           /**< device config/status */
+   unsigned fan, pow, temp, util;      /**< device monitors */
+   long long last_work, last_monitor;  /**< timestamps */
+   long long work, total_work;         /**< work counters */
+   char nameId[256];                   /**< device properties */
+} DEVICE_CTX;
 
-/* ledger transaction ltran.tmp, el.al. */
+/**
+ * WOTS+ ledger entry struct.
+*/
 typedef struct {
-   word8 addr[TXADDRLEN];    /* 2208 */
-   word8 trancode[1];        /* '-' = debit, 'A' = credit (sorts last!) */
-   word8 amount[TXAMOUNT];   /* 8 */
-} LTRAN;
+   word8 addr[TXPADDRLEN];       /**< Public seed address */
+   word8 balance[TXAMOUNTLEN];   /**< Balance of address */
+} LENTRYP;
 
+/**
+ * WOTS+ ledger entry struct.
+*/
 typedef struct {
-   word8 tag[TXTAGLEN];    /* Tag value for MTX multi-destination. */
-   word8 amount[8];            /* MTX Send Amount, to this tag. */
+   word8 addr[TXWADDRLEN];       /**< WOTS+ address */
+   word8 balance[TXAMOUNTLEN];   /**< Balance of address */
+} LENTRYW;
+
+/**
+ * Public seed ledger transaction struct.
+*/
+typedef struct {
+   word8 addr[TXPADDRLEN];    /**< Public seed transaction */
+   /** Transaction type code. '-' = debit, 'A' = credit (sorts last!) */
+   word8 trancode[1];
+   word8 amount[TXAMOUNTLEN]; /**< Amount of transaction */
+} LTRANP;
+
+/**
+ * WOTS+ ledger transaction struct.
+*/
+typedef struct {
+   word8 addr[TXWADDRLEN];    /**< WOTS+ address */
+   /** Transaction type code. '-' = debit, 'A' = credit (sorts last!) */
+   word8 trancode[1];
+   word8 amount[TXAMOUNTLEN]; /**< Amount of transaction */
+} LTRANW;
+
+/**
+ * Multi-destination transaction destination struct.
+ * Holds destination address tag and amount to be distributed to said tag.
+*/
+typedef struct {
+   word8 tag[TXTAGLEN]; /**< Address tag for TXW_MDST multi-destination. */
+   word8 amount[8];     /**< TXW_MDST Send Amount, to aforementioned tag. */
 } MDST;
 
-/* Structure for multi-tx is padded to same size as TXQENTRY. */
+/**
+ * Network transmission packet
+ */
+typedef struct {
+   word8 version[2];          /**< { PVERSION, Cbits } */
+   word8 network[2];          /**< { 0x39, 0x05 } TXNETWORK -- Mochimo */
+   word8 id1[2];              /**< handshake identification */
+   word8 id2[2];              /**< handshake identification */
+   word8 opcode[2];           /**< operation code of this packet */
+   word8 cblock[8];           /**< current block num 64-bit */
+   word8 blocknum[8];         /**< block num for I/O in progress */
+   word8 cblockhash[HASHLEN]; /**< sha-256 hash of current block */
+   word8 pblockhash[HASHLEN]; /**< sha-256 hash of previous block */
+   word8 weight[32];          /**< sum of block diffs (or TX ip map) */
+   word8 len[2];              /**< length of data in buffer for I/O op's */
+   word8 buffer[PKTBUFFLEN];  /**< packet buffer (actual data may vary) */
+   word8 crc16[2];            /**< CRC16 hash of PKT[124 + PKT.len] */
+   word8 trailer[2];          /**< { 0xcd, 0xab } TXEOT -- always */
+} PKT;
+
+/**
+ * Server Node Struct.
+*/
+typedef struct {
+   PKT pkt;       /**< data for active socket operations */
+   FILE *fp;      /**< FILE pointer for receiving large sets of data */
+   time_t to;     /**< socket inactivity timeout time */
+   word32 ip;     /**< connection ip of this task */
+   word16 id1;    /**< handshake id#1 */
+   word16 id2;    /**< handshake id#2 */
+   word8 io[8];   /**< data I/O value (OUTGOING CONNECTIONS ONLY) */
+   word16 port;   /**< connection port (OUTGOING CONNECTIONS ONLY) */
+   word16 opreq;  /**< request operation (OUTGOING CONNECTIONS ONLY) */
+   word16 opcode; /**< the last operation code read or written to pkt */
+   word16 iowait; /**< node I/O operation wait type */
+   SOCKET sd;     /**< socket descriptor of connection */
+   int bytes;     /**< bytes read from, or sent to socket descriptor */
+   int status;    /**< status result of latest task or operation */
+   char id[16];   /**< stores IPv4 address as string, for id logging */
+   /**
+    * TEMPORARY: Identifies a VPDU connection.
+    * Set by recv_pkt(). Read by send_pkt().
+    * @todo adjust after v3.0 */
+   int c_vpdu;
+} SNODE;
+
+/**
+ * Tag index struct.
+ * Used in the tagged ledger entry index, for O(log n) tag searches.
+*/
+typedef struct {
+   word8 tag[TXTAGLEN]; /**< 12 byte tag address */
+   word8 idx[8];        /**< 64-bit index of tagged ledger entry */
+} TAGIDX;
+
+/**
+ * MEMO type (XTX) public seed transaction structure.
+ * Embed a memorandum (or binary data) of up to 52 characters in a
+ * transaction. Addresses MUST be tagged.
+ * TBC: Transaction fee increases for every 12 bytes of MEMO data.
+*/
+typedef struct {
+   word8 src_addr[TXPADDRLEN];      /**< Transaction source address */
+   word8 dst_tag[TXTAGLEN];         /**< Transaction destination tag */
+   word8 dst_memo[TXMEMOLEN];       /**< Memo text or binary data */
+   word8 chg_addr[TXPADDRLEN];      /**< Transaction change address */
+   word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
+   word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
+   word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
+   word8 tx_ttl[TXBLOCKLEN];        /**< Transaction time-to-live */
+   word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
+   word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
+} TXP_MEMO;
+
+/**
+ * Multi-destination type (XTX) public seed transaction structure.
+ * @warning Logic (and underlying structure) is TBC.
+*/
+typedef struct {
+   word8 src_addr[TXPADDRLEN];      /**< Transaction source address */
+   word8 DST_LOGIC_TBC[TXPADDRLEN]; /**< TBC */
+   word8 chg_addr[TXPADDRLEN];      /**< Transaction change address */
+   word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
+   word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
+   word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
+   word8 tx_ttl[TXBLOCKLEN];        /**< Transaction time-to-live */
+   word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
+   word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
+} TXP_MDST;
+
+/**
+ * Public seed transaction structure.
+ * Featured improvements over the legacy TXW struct:
+ * - much shorter public seed addreses (includes tag)
+ * - a "signed" time-to-live parameter
+*/
+typedef struct {
+   word8 src_addr[TXPADDRLEN];      /**< Transaction source address */
+   word8 dst_Addr[TXPADDRLEN];      /**< Transaction destination address */
+   word8 chg_addr[TXPADDRLEN];      /**< Transaction change address */
+   word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
+   word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
+   word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
+   word8 tx_ttl[TXBLOCKLEN];        /**< Transaction time-to-live */
+   word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
+   word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
+} TXP;
+
+/**
+ * Multi-destination type (XTX) WOTS+ transaction structure.
+ * dst[] is padded to same size as TXW.
+*/
 typedef struct {
    /* start transaction buffer (These fields are order dependent) */
-   word8 src_addr[TXADDRLEN];     /*  2208 */
+   word8 src_addr[TXWADDRLEN];      /**< WOTS+ source address */
 
-   /* dst[] plus zeros[] is same size as TX dst_addr[]. */
+   /* dst[] plus zeros[] is same size as WTX dst_addr[]. */
    MDST dst[MDST_NUM_DST];
-   word8 zeros[MDST_NUM_DZEROS];  /* padding - reserved - must follow dst[] */
+   word8 zeros[MDST_NUM_DZEROS];    /* padding - must follow dst[] */
 
-   word8 chg_addr[TXADDRLEN];
-   word8 send_total[TXAMOUNT];    /* 8 */
-   word8 change_total[TXAMOUNT];
-   word8 tx_fee[TXAMOUNT];
-   word8 tx_sig[TXSIGLEN];        /* 2144 */
-   word8 tx_id[HASHLEN];          /* 32 */
-} MTX;
+   word8 chg_addr[TXWADDRLEN];      /**< WOTS+ change address */
+   word8 send_total[TXAMOUNTLEN];   /**< Amount sent to destination/s */
+   word8 change_total[TXAMOUNTLEN]; /**< Amount sent to change address */
+   word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
+   word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
+   word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
+} TXW_MDST;
+
+/**
+ * WOTS+ transaction structure.
+ * Uses the WOTS+ public key and tag for addresses.
+*/
+typedef struct {
+   word8 src_addr[TXWADDRLEN];      /**< Transaction source address */
+   word8 dst_addr[TXWADDRLEN];      /**< Transaction destination address */
+   word8 chg_addr[TXWADDRLEN];      /**< Transaction change address */
+   word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
+   word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
+   word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
+   word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
+   word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
+} TXW;
 
 /* end include guard */
 #endif
