@@ -20,10 +20,13 @@
 
 #include "peach.cuh"
 
+/* internal support */
+#include "error.h"
+
 /* external support */
 #include "extint.h"
 #include "extmath.h"
-#include "extprint.h"
+
 /* external support -- Nighthash */
 #include "blake2b.h"
 #include "md2.h"
@@ -50,7 +53,7 @@
       if (_cerr != cudaSuccess) { \
          int _n; cudaGetDevice(&_n); \
          const char *_err = cudaGetErrorString(_cerr); \
-         pfatal("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
+         perr("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
          peach_free_cuda_device(_dev, DEV_FAIL); \
          _exec; \
       } \
@@ -881,7 +884,7 @@ int peach_checkhash_cuda(int count, BTRAILER bt[], void *out)
 
    cuCHK(cudaGetDeviceCount(&cuda_count), NULL, return (-1));
    if (cuda_count < 1) {
-      pfatal("No CUDA devices...");
+      perr("No CUDA devices...");
       return -1;
    }
    cuCHK(cudaSetDevice(0), NULL, return (-1));
@@ -1085,7 +1088,7 @@ int peach_init_cuda(DEVICE_CTX devlist[], int max)
       case cudaErrorNoDevice:
          return plog("No CUDA devices detected...");
       case cudaErrorInsufficientDriver:
-         pfatal("Insufficient CUDA Driver. Update display drivers...");
+         perr("Insufficient CUDA Driver. Update display drivers...");
          return 0;
       case cudaSuccess:
          if (num > max) {
@@ -1097,7 +1100,7 @@ int peach_init_cuda(DEVICE_CTX devlist[], int max)
          }
          break;
       default:
-         pfatal("Unknown CUDA initialization error occured...");
+         perr("Unknown CUDA initialization error occured...");
          return 0;
    }
 
@@ -1256,7 +1259,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          /* check for "on-the-fly" difficulty changes */
          diff = diff && diff < bt->difficulty[0] ? diff : bt->difficulty[0];
          /* ensure block trailer is updated */
-         memcpy(P->h_bt[sid], bt, BTSIZE);
+         memcpy(P->h_bt[sid], bt, sizeof(BTRAILER));
          /* generate nonce directly into block trailer */
          trigg_generate_fast(P->h_bt[sid]->nonce);
          trigg_generate_fast(P->h_bt[sid]->nonce + 16);
