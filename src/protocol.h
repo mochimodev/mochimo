@@ -1,6 +1,6 @@
 /**
  * @file protocol.h
- * @brief Mochimo network peer and protocol support.
+ * @brief Mochimo network communication protocol support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
  * @note This unit uses INET support from the extended-c extinet header
@@ -8,8 +8,8 @@
 */
 
 /* include guard */
-#ifndef MOCHIMO_PACKET_H
-#define MOCHIMO_PACKET_H
+#ifndef MOCHIMO_PROTOCOL_H
+#define MOCHIMO_PROTOCOL_H
 
 
 /* internal support */

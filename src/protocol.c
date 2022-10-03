@@ -1,13 +1,13 @@
 /**
  * @private
- * @headerfile packet.h <packet.h>
+ * @headerfile protocol.h <protocol.h>
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
-#ifndef MOCHIMO_PACKET_C
-#define MOCHIMO_PACKET_C
+#ifndef MOCHIMO_PROTOCOL_C
+#define MOCHIMO_PROTOCOL_C
 
 
 #include "protocol.h"
