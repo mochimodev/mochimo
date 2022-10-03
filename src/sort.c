@@ -13,235 +13,212 @@
 #include "sort.h"
 
 /* internal support */
-#include "util.h"
 #include "types.h"
+#include "error.h"
 
 /* external support */
 #include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <errno.h>
-
-static LTRAN *Ltrans;   /* malloc'd Ltrans[]: Nlt * sizeof(LTRAN) - sort */
-
-word8 *Tx_ids;  /* malloc'd Tx_ids[] Ntx*32 bytes */
-word32 *Txidx;  /* malloc'd Txidx[] Ntx*4 bytes */
-word32 Ntx;     /* number of transactions in clean TX queue */
 
 /**
- * @private
- * Comparison function to sort index to ledger transactions, LTRAN Ltrans[]:
- * includes Ltrans[].trancode[0] in key: (+1)
-*/
-static int compare_lt(const void *va, const void *vb)
-{
-   word32 *a = (word32 *) va;
-   word32 *b = (word32 *) vb;
-
-   return memcmp(Ltrans[*a].addr, Ltrans[*b].addr, TXADDRLEN + 1);
-}
-
-/**
- * @private
- * Comparison function to sort index to TXIDs
-*/
-static int compare_tx(const void *va, const void *vb)
-{
-   word32 *a = (word32 *) va;
-   word32 *b = (word32 *) vb;
-
-   return memcmp(&Tx_ids[(*a) * HASHLEN], &Tx_ids[(*b) * HASHLEN], HASHLEN);
-}
-
-/**
- * Free resources allocated by sorttx().
-*/
-void sorttx_free(void)
-{
-   if (Tx_ids) free(Tx_ids);
-   if (Txidx) free(Txidx);
-   Tx_ids = NULL;
-   Txidx = NULL;
-}
-
-/**
- * Creates a malloc'd sort index and ledger transaction list:
- * - `word32 Ltidx[Nlt];`
- * - `LTRAN Ltrans[Nlt];`
- * ... writes sorted list back to same file.
- * @param fname Name of file to sort
- * @returns VEOK on success, else VERROR
+ * Configurable global option for adjusting the size of the
+ * external_merge_sort() memory buffer.
  */
-int sortlt(char *fname)
+size_t MaxSortBuffer_opt = DEFAULT_SORT_BUFFER;
+
+
+int filesort_compare_tagidx(const void *a, const void *b)
 {
-   FILE *fp;
-   word32 *Ltidx;   /* malloc'd Ltidx[]: Nlt * sizeof(word32) */
-   word32 Nlt;      /* number of ledger transactions */
-   word32 j;
-   size_t len;
-   long offset;
-   int ecode;
+   return memcmp(
+      ((TAGIDX *) *((void **) a))->tag,
+      ((TAGIDX *) *((void **) b))->tag,
+      TXTAGLEN);
+}
 
-   /* open ltran file */
-   fp = fopen(fname, "r+b");
-   if (fp == NULL) {
-      return perrno(errno, "sortlt(): failed to fopen(%s)", fname);
-   }
+/**
+ * Sort a file containing size length elements. Performs a single qsort()
+ * where data fits in memory, or an external merge-sort where data is too
+ * large for allocated memory buffer (of size, MaxSortBuffer_opt).
+ * NOTE: The comparison function is passed (void **), and MUST be cast
+ * from (const void *a) to (*((void **) a)) within the comparator function.
+ * @param filename Name of file to sort
+ * @param size Number of characters per element to sort by
+ * @param comp Pointer to comparison function for comparing data
+ * @returns VEOK on success, else non-zero value. Check errno for details.
+*/
+int filesort
+   (char *filename, size_t size, int (*comp)(const void *, const void *))
+{
+   void **index;
+   long long len, in;
+   char *buffer, *minbuf, *nextbuf;
+   char *wbuf, *rbuf[DEFAULT_SORT_FILES];
+   FILE *fp, *fpa[DEFAULT_SORT_FILES];
+   size_t rbufidx[DEFAULT_SORT_FILES];
+   size_t rbuflen[DEFAULT_SORT_FILES];
+   size_t wbufidx, buflen, minidx;
+   size_t fidx, files, fmerge;
+   size_t count, count_in, i;
+   char fname[DEFAULT_SORT_FILES][FILENAME_MAX];
+   char splitfname[FILENAME_MAX];
 
-   /* seek to file end */
-   if (fseek(fp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "sortlt(): failed to fseek(END)");
-   }
-   /* obtain file offset (at file end), check valid size */
-   offset = ftell(fp);
-   if (offset == EOF) mErrno(FAIL_IO, "sortlt(): failed to ftell()");
-   if ((offset % sizeof(LTRAN)) != 0) {
-      mError(FAIL_IO, "sortlt(): invalid length: %ld", offset);
-   }
-   /* calc transactions */
-   Nlt = offset / sizeof(LTRAN);
-   if (Nlt == 0) mError(FAIL_IO, "sortlt(): 0 transactions");
-   /* seek to file start */
-   if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO, "sortlt(): failed to fseek(SET)");
-   }
-   /* allocate memory */
-   Ltidx = malloc((len = Nlt * sizeof(word32)));
-   if (Ltidx == NULL) {
-      mError(FAIL_Ltidx, "sortlt(): failed to malloc(%zu) Ltidx", len);
-   }
-   Ltrans = malloc((len = Nlt * sizeof(LTRAN)));
-   if (Ltrans == NULL) {
-      mError(FAIL_Ltrans, "sortlt(): failed to malloc(%zu) Ltrans", len);
-   }
-   /* read-in transactions */
-   if (fread(Ltrans, sizeof(LTRAN), Nlt, fp) != Nlt) {
-      mError(FAIL_IO2, "sortlt(): failed to fread(Ltrans)");
-   }
-   /* initialize transaction index; Ltidx[] = 0,1,2,3,4,5,... */
-   for (j = 0; j < Nlt; j++) Ltidx[j] = j;
-   /* perform sort operation */
-   qsort(Ltidx, Nlt, sizeof(word32), compare_lt);
-   /* return to start of file */
-   if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO2, "sortlt(): failed to fseek(SET) (pre-write)");
-   }
-   /* write sorted transactions */
-   for (j = 0; j < Nlt; j++) {
-      if (fwrite(&Ltrans[Ltidx[j]], sizeof(LTRAN), 1, fp) != 1) {
-         mError(FAIL_IO2, "sortlt(): failed to fwrite()");
+   /* BEGIN INIT PHASE */
+
+   /* sanity checks */
+   if (filename == NULL || size == 0 || comp == NULL) goto FAIL_INVAL;
+
+   /* open file and check length matches sort_size */
+   fp = fopen(filename, "rb");
+   if (fp == NULL) return VERROR;
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto FAIL_IO;
+   len = ftell64(fp);
+   if (len == EOF) goto FAIL_IO;
+   if ((len % (long long) size) != 0) goto FAIL_SORT_LENGTH;
+   rewind(fp);
+
+   /* create sortand index buffers to read in and sort elements */
+   if ((size_t) len > MaxSortBuffer_opt) {
+      count = MaxSortBuffer_opt / size;
+   } else count = (size_t) len / size;
+   buflen = count * size;
+   buffer = malloc(buflen);
+   if (buffer == NULL) goto FAIL_IO;
+   index = malloc(count * sizeof(void *));
+   if (index == NULL) goto FAIL_IN;
+
+   /* BEGIN SPLIT PHASE */
+
+   files = 0;
+
+   /* read data into buffer in "chunks" and sort into temp files */
+   for (in = 0LL; in < len; in += (long long) (count_in * size)) {
+      /* read in chunk of data and check failure */
+      count_in = fread(buffer, size, count, fp);
+      if (count_in < count && !feof(fp)) goto FAIL_IN2;
+      /* initialize index pointers */
+      for (i = 0; i < count_in; i++) index[i] = &buffer[i * size];
+      /* perform sort on index pointers to buffer data */
+      qsort(index, count_in, sizeof(void *), comp);
+      /* write sorted "chunk" to numbered file */
+      snprintf(splitfname, FILENAME_MAX, "%s.%zu", filename, files++);
+      fpa[0] = fopen(splitfname, "wb");
+      if (fpa[0] == NULL) goto FAIL_IN2;
+      for (i = 0; i < count_in; i++) {
+         if (fwrite(index[i], size, 1, fpa[0]) != 1) goto FAIL_IN3;
       }
-   }
+      /* close output file and continue */
+      fclose(fpa[0]);
+   }  /* end for (in = 0LL... */
+   /* close input file -- free index */
+   fclose(fp);
+   free(index);
 
-   /* success */
-   ecode = VEOK;
+   /* BEGIN MERGE PHASE */
+
+   /* clear file pointers array */
+   for (i = 0; i < DEFAULT_SORT_FILES; i++) fpa[i] = NULL;
+
+   /* merge files in loop determined by SORT_FILES */
+   for (fmerge = 0; (fmerge + 1) < files; ) {
+      /* open multiple files for merge */
+      for (fidx = 0; fmerge < files && fidx < DEFAULT_SORT_FILES; fidx++) {
+         snprintf(fname[fidx], FILENAME_MAX, "%s.%zu", filename, fmerge++);
+         fpa[fidx] = fopen(fname[fidx], "rb");
+         if (fpa[fidx] == NULL) goto FAIL_MERGE;
+      }
+      /* open additional "split" file for merge destination */
+      snprintf(splitfname, FILENAME_MAX, "%s.%zu", filename, files++);
+      fp = fopen(splitfname, "wb");
+      if (fp == NULL) goto FAIL_MERGE;
+      /* prepare reusable space in sort buffer */
+      count = (buflen / (fidx + 1)) / size;
+      wbufidx = 0;
+      wbuf = buffer + (fidx * count * size);
+      for (i = 0; i < fidx; i++) {
+         rbufidx[i] = rbuflen[i] = count;
+         rbuf[i] = buffer + (i * count * size);
+      }
+      /* loop through all data and pass minimum values to write buffer */
+      for (minbuf = NULL; ; minbuf = NULL) {
+         /* search next minimum read buffer value -- fread as necessary */
+         for (i = 0; i < fidx; i++) {
+            if (rbufidx[i] >= rbuflen[i]) {
+               if (fpa[i] == NULL) continue;
+               /* perform read and set read buffer parameters */
+               count_in = fread(rbuf[i], size, count, fpa[i]);
+               if (count_in < count) {
+                  if (feof(fpa[i])) {
+                     fclose(fpa[i]);
+                     fpa[i] = NULL;
+                     /* remove temp file */
+                     if (remove(fname[i]) != 0) goto FAIL_MERGE2;
+                  } else goto FAIL_MERGE2;
+                  if (count_in == 0) continue;
+               }
+               /* reset read buffer parameters */
+               rbuflen[i] = count_in;
+               rbufidx[i] = 0;
+            }  /* end if (rbufidx[i]... */
+            nextbuf = rbuf[i] + (rbufidx[i] * size);
+            if (minbuf == NULL || memcmp(nextbuf, minbuf, size) < 0) {
+               minbuf = nextbuf;
+               minidx = i;
+            }
+         }  /* end for for (i = 0... */
+         /* check minbuf -- place in write buffer */
+         if (minbuf) {
+            memcpy(wbuf + (wbufidx * size), minbuf, size);
+            rbufidx[minidx]++;
+            wbufidx++;
+         }
+         if (minbuf == NULL || wbufidx >= count) {
+            /* move write buffer data to file */
+            if (fwrite(wbuf, size, wbufidx, fp) < wbufidx) {
+               goto FAIL_MERGE2;
+            }
+            wbufidx = 0;
+         }
+         if (minbuf == NULL) break;
+      }  /* end for (minbuf = NULL... */
+      /* ensure destination is closed */
+      fclose(fp);
+   }  /*  end for (fmerge = 0... */
 
    /* cleanup */
-FAIL_IO2:
-   free(Ltrans);
-   Ltrans = NULL;
-FAIL_Ltrans:
-   free(Ltidx);
-   Ltidx = NULL;
-FAIL_Ltidx:
-FAIL_IO:
-   fclose(fp);
-   Nlt = 0;
+   free(buffer);
 
-   return ecode;
-}  /* end sortlt() */
+   /* overwrite the original file with the remaining (sorted) file */
+   snprintf(splitfname, FILENAME_MAX, "%s.%zu", filename, fmerge);
+   if (remove(filename) != 0) return VERROR;
+   if (rename(splitfname, filename) != 0) return VERROR;
 
-/**
- * Creates a malloc'd sort index and transaction ID list:
- * - `word32 Txidx[Ntx];`
- * - `word8 Tx_ids[Ntx * HASHLEN];`
- * ... stores sorted list in memory.
- * @param fname Name of file to sort
- * @returns VEOK on success, else error code
- */
-int sorttx(char *fname)
-{
-   FILE *fp;
-   word8 *bp;
-   size_t len;
-   long offset;
-   int ecode;
-   word32 j;
+   /* sort successful */
+   return (errno = VEOK);
 
-   /* ensure pointers are free */
-   if (Tx_ids) {
-      free(Tx_ids);
-      Tx_ids = NULL;
-   }
-   if (Txidx) {
-      free(Txidx);
-      Txidx = NULL;
-   }
-
-   /* open txclean file, and seek to end */
-   fp = fopen(fname, "rb");
-   if (fp == NULL) mErrno(FAIL, "sorttx(): failed to fopen(%s)", fname);
-   if (fseek(fp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "sorttx(): failed to fseek(END)");
-   }
-   /* obtain file offset (at file end), check valid size */
-   offset = ftell(fp);
-   if (offset == EOF) mErrno(FAIL_IO, "sorttx(): failed to ftell(fp)");
-   if ((offset % sizeof(TXQENTRY)) != 0) {
-      mError(FAIL_IO, "sorttx(): invalid size: %ld bytes", offset);
-   }
-   /* calc transactions */
-   Ntx = offset / sizeof(TXQENTRY);
-   if (Ntx == 0) mError(FAIL_IO, "sorttx(): 0 transactions");
-   /* seek to file start */
-   if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO, "sorttx(): failed to fseek(SET)");
-   }
-   /* allocate memory */
-   Txidx = malloc((len = Ntx * sizeof(word32)));
-   if (Txidx == NULL) {
-      mError(FAIL_TXIDX, "sorttx(): failed to malloc(%zu) Txidx", len);
-   }
-   Tx_ids = malloc((len = Ntx * HASHLEN));
-   if (Tx_ids == NULL) {
-      mError(FAIL_TXIDS, "sorttx(): failed to malloc(%zu) Tx_ids", len);
-   }
-   /* Read each (pre-computed) TXID into Tx_ids[Ntx][HASHLEN] */
-   for(j = 0, bp = Tx_ids; j < Ntx; j++, bp += HASHLEN) {
-      /* seek down in transaction record to txid[] */
-      if (fseek(fp, sizeof(TXQENTRY) - HASHLEN, SEEK_CUR) != 0) {
-         mErrno(FAIL_IO2, "sorttx(): failed to fseek(CUR)");
+/* merge phase failures */
+FAIL_MERGE2: fclose(fp);
+FAIL_MERGE:
+   for (i = 0; i < DEFAULT_SORT_FILES; i++) {
+      if (fpa[i]) {
+         fclose(fpa[i]);
+         remove(fname[i]);
+         fpa[i] = NULL;
       }
-      /* reading txid[] puts us at start of next record (TXQENTRY) */
-      if (fread(bp, HASHLEN, 1, fp) != 1) {
-         mError(FAIL_IO2, "sorttx(): failed to fread(bp)");
-      }
-      /* initialize index Txidx[] = 0,1,2,3,4,5,... */
-      Txidx[j] = j;
    }
+   free(buffer);
+   return VERROR;
 
-   fclose(fp);
+/* input phase failures */
+FAIL_IN3: fclose(fpa[0]);
+FAIL_IN2: free(index);
+FAIL_IN: free(buffer);
+   goto FAIL_IO;
 
-   /* sort the index */
-   qsort(Txidx, Ntx, sizeof(word32), compare_tx);
-
-   /* success */
-   return VEOK;
-
-   /* failure / error handling */
-FAIL_IO2:
-   free(Tx_ids);
-FAIL_TXIDS:
-   Tx_ids = NULL;
-   free(Txidx);
-FAIL_TXIDX:
-   Txidx = NULL;
-FAIL_IO:
-   fclose(fp);
-FAIL:
-
-   return ecode;
-}  /* end sorttx() */
+/* init phase failures */
+FAIL_INVAL: errno = EINVAL; return VERROR;
+FAIL_SORT_LENGTH: errno = EMCM_SORT_LENGTH;
+FAIL_IO: fclose(fp);
+   return VERROR;
+}  /* end mergesort_file() */
 
 /* end include guard */
 #endif

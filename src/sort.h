@@ -3,9 +3,10 @@
  * @brief Mochimo quick sorting support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
- * @note The original Polymorphic Shell sort algorithm, shell(), was
- * deprecated in favour of qsort().
- * > For more details see <https://godbolt.org/z/YE7j57Po9>
+ * @note The original Polymorphic Shell sort algorithm, shell(),
+ * was deprecated in favour of qsort() and adapted to sorting
+ * void pointers for better flexibility of compared sizes.
+ * > For more details see <https://godbolt.org/z/rM13Kra14>
 */
 
 /* include guard */
@@ -13,22 +14,35 @@
 #define MOCHIMO_SORT_H
 
 
-/* external support */
-#include "extint.h"
+#include <stdlib.h>
 
-/* global variables */
-extern word8 *Tx_ids;
-extern word32 *Txidx;
-extern word32 Ntx;
+/**
+ * Default number of open split files that are merged together
+ * during the merge phase of external_merge_sort().
+*/
+#define DEFAULT_SORT_FILES  8
+
+/**
+ * Default amount of memory to use for sorting in "split phase" and
+ * chunk reading/writing in "merge phase" of external_merge_sort().
+ * Default value, ( 1 << 28 ) = 256MB.
+ * NOTE: Configurable at run-time with MaxSortBuffer_opt.
+*/
+#define DEFAULT_SORT_BUFFER ( 1 << 28 )
+
+/* define global options */
+
+extern size_t MaxSortBuffer_opt;
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void sorttx_free(void);
-int sortlt(char *fname);
-int sorttx(char *fname);
+int filesort_compare_tagidx(const void *a, const void *b);
+
+int filesort
+   (char *filename, size_t size, int (*comp)(const void *, const void *));
 
 #ifdef __cplusplus
 }  /* end extern "C" */
