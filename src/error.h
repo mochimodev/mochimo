@@ -1,13 +1,13 @@
 /**
  * @file error.h
- * @brief Mochimo printing and logging support.
+ * @brief Mochimo error codes, logging and string support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
-#ifndef EXTENDED_PRINT_H
-#define EXTENDED_PRINT_H
+#ifndef EXTENDED_ERROR_H
+#define EXTENDED_ERROR_H
 
 
 #include "extio.h"
