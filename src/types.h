@@ -476,7 +476,7 @@ typedef struct {
 */
 typedef struct {
    word8 tag[TXTAGLEN]; /**< 12 byte tag address */
-   word8 idx[8];        /**< 64-bit index of tagged ledger entry */
+   size_t idx;          /**< index of tagged ledger entry */
 } TAGIDX;
 
 /**
