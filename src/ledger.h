@@ -13,19 +13,15 @@
 #include "types.h"
 
 /**
- * Ledger merge condition function, where v = next depth of ledger tree.
- * Change to balance ledger depth with ledger compression frequency/scale.
-*/
-#ifndef LECOMPRESS
-   #define LECOMPRESS(v)   ( 1LL << ( 1LL << (v) ) )
-#endif
-
-/**
  * Max allowable depth of the ledger tree.
  * Change to balance address search time complexity with I/O (re)writes.
 */
 #ifndef LEDEPTHMAX
    #define LEDEPTHMAX   8
+#endif
+
+#if LEDEPTHMAX < 2
+   #error "LEDEPTHMAX cannot be less than 2"
 #endif
 
 /**
@@ -36,30 +32,38 @@
    #define LERWBUFSZ ( 1 << 24 )
 #endif
 
-/* global variables */
+#if LERWBUFSZ < BUFSZ
+   #error "LERWBUFSZ cannot be less than BUFSZ"
+#endif
 
-extern word32 Sanctuary, Lastday;
-extern char *Ledger_opt, *Tagidx_opt;
+/* global variables */
+extern word32 Sanctuary_opt;
+extern word32 Lastday_opt;
+extern char *Lefname_opt;
+extern char *Tifname_opt;
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int le_appendw(char *lfname, char *tfname);
+int auto_compression_depth(size_t count);
+int le_append(const char *lfname, const char *tfname);
 void le_close(int depth);
-int le_cmpp(const void *a, const void *b);
 int le_cmpw(const void *a, const void *b);
-int le_compressw(char *fname, int from, int to);
+int le_cmp(const void *a, const void *b);
+int le_compress(const char *filename, int depth, int count);
+void le_convert(void *hash, void *wots);
 void le_delete(int depth);
-int le_extractw(char *ngfname);
-void *le_find(void *addr);
-int le_reneww(void *fee);
-int le_update(char *filename, size_t count);
+int le_extract(const char *ngfname);
+LENTRY *le_find(void *addr);
+LENTRY *le_findw(void *wots);
+int le_renew(void *fee);
+int le_splice(const char *filename, int depth, int count);
 int tag_cmp(const void *a, const void *b);
 int tag_equal(const void *a, const void *b);
-int tag_extractw(char *lfname, char *tfname);
-void *tag_find(void *tag);
+int tag_extract(const char *lfname, const char *tfname);
+LENTRY *tag_find(void *tag);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus
