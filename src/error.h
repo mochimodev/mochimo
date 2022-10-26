@@ -109,6 +109,8 @@
 */
 #define NUM_PLEVELS  6
 
+#define INVALID_ERRNO   ( (0x7fffffff) )
+
 /**
  * Print/log an error message, with description of @a errnum.
  * @param E @a errno associated with error log message
@@ -122,36 +124,35 @@
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VERROR, per pcustom()
 */
-#define perr(...)       pcustom(-1, PLEVEL_ERROR, __VA_ARGS__)
+#define perr(...)       pcustom(INVALID_ERRNO, PLEVEL_ERROR, __VA_ARGS__)
 
 /**
  * Print/log a warning message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define pwarn(...)      pcustom(-1, PLEVEL_WARN, __VA_ARGS__)
+#define pwarn(...)      pcustom(INVALID_ERRNO, PLEVEL_WARN, __VA_ARGS__)
 
 /**
  * Print/log a standard message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define plog(...)       pcustom(-1, PLEVEL_LOG, __VA_ARGS__)
+#define plog(...)       pcustom(INVALID_ERRNO, PLEVEL_LOG, __VA_ARGS__)
 
 /**
  * Print/log a fine message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define pfine(...)      pcustom(-1, PLEVEL_FINE, __VA_ARGS__)
+#define pfine(...)      pcustom(INVALID_ERRNO, PLEVEL_FINE, __VA_ARGS__)
 
 /**
  * Print/log a debug message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define pdebug(...)     pcustom(-1, PLEVEL_DEBUG, \
-   "<" __FILE__ ":" makeSTR(__LINE__) ">", __VA_ARGS__)
+#define pdebug(...)     pcustom(INVALID_ERRNO, PLEVEL_DEBUG, __VA_ARGS__)
 
 /**
  * Write a file path into a buffer by joining multiple strings together
@@ -182,13 +183,15 @@
  * Mochimo error number types
 */
 enum mcm_errno_t {
-   /**
-    * @private
-    * Force integer enum for compatibility with, AND
-    * initialize errors in the negative range to avoid conflict with;
-    * the POSIX standard errno definitions. */
-   EMCM_INIT_INTEGER = -0x7fffffff - 1,
-   EMCM_INIT = -0x400,
+   /* Force integer enum for compatibility with POSIX standard errno */
+   EMCMFORCEINTEGER = -0x7fffffff - 1,
+   /* initialize errors well above any existing error numbers */
+   EMCMFIRST = 0x8000,
+
+   /** Internal Ledger is not available */
+   EMCMLENOTAVAIL,
+   /** Maximum ledger depth reached */
+   EMCMLEDEPTH,
 
    /** Unspecified 64-bit math overflow */
    EMCM_MATH64_OVERFLOW,
@@ -200,7 +203,9 @@ enum mcm_errno_t {
 
    /** Unexpected end-of-file */
    EMCM_EOF,
-   /** Bad file length */
+   /** Unexpected number of items in file */
+   EMCM_FILECOUNT,
+   /** Unexpected length of file */
    EMCM_FILELEN,
 
    /** Bad block hash */
@@ -359,10 +364,6 @@ enum mcm_errno_t {
 extern "C" {
 #endif
 
-/* error_string.c */
-const char *errno_text(int errnum);
-
-/* error.c */
 char *addr2hex(void *addr, char *hex);
 char *hash2hex(void *hash, int count, char *hex);
 char *bnum2hex(void *bnum, char *hex);
@@ -371,14 +372,15 @@ char *block2id(void *bnum, void *bhash, char *id);
 char *weight2hex(void *weight, char *hex);
 int mcm_fqan(char *buf, char *pre, char *ext, void *bnum, void *bhash);
 int path_count_join(char *buf, int count, ...);
-int resolve_wsa_conflicts(long errnum);
-void clear_right(FILE *fp);
 void move_cursor(int x, int y);
-unsigned get_num_errs(void);
-unsigned get_num_logs(void);
+void clear_right(FILE *fp);
+unsigned int get_num_errs(void);
+unsigned int get_num_logs(void);
 int set_output_file(char *fname, char *mode);
 void set_output_level(int level);
 void set_print_level(int level);
+const char *mcm_errno_text(int errnum);
+char *strerror_mcm(int errnum, char *buf, size_t bufsz);
 void print(const char *fmt, ...);
 int pcustom(int e, int ll, const char *fmt, ...);
 void phostinfo(void);

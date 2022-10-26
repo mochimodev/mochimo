@@ -12,8 +12,11 @@
 
 #include "error.h"
 
+/* internal support */
 #include "types.h"
-#include <string.h>  /* for string support */
+
+/* external support */
+#include "extstring.h"
 #include <stdarg.h>  /* for va_list support */
 
 /* Initialize default runtime configuration */
@@ -26,7 +29,7 @@ static unsigned int Nprinterrs;
 static unsigned int Nprintlogs;
 
 /* Windows compatibility */
-#if OS_WINDOWS
+#ifdef _WIN32
    #include <tlhelp32.h>  /* for CreateToolhelp32Snapshot in proc_dups() */
    /* localtime_r() is not specified by Windows.. */
    #define localtime_r(t, tm) localtime_s(tm, t)
@@ -198,39 +201,13 @@ int path_count_join(char *buf, int count, ...)
 }  /* end path_count_join() */
 
 /**
- * Resolve conflicting error codes between POSIX and Windows Sockets.
- * These error codes "may" share a base value with one of the POSIX errno
- * codes defined by the system. This function resolves potential conflicts,
- * so that a print function that derives a textual description from the
- * error code can provide a reliable description to any error code.
- * - WSA_INVALID_HANDLE = 6L
- * - WSA_NOT_ENOUGH_MEMORY = 8L
- * - WSA_INVALID_PARAMETER = 87L
- * @param errnum Error code obtain from @a sock_errno of extinet.h
- * @returns (int) reliable error number for use in perrno() (if desired)
-*/
-int resolve_wsa_conflicts(long errnum)
-{
-#if OS_WINDOWS
-   switch (errnum) {
-      case WSA_INVALID_HANDLE: return EINVAL;
-      case WSA_NOT_ENOUGH_MEMORY: return ENOMEM;
-      case WSA_INVALID_PARAMETER: return EINVAL;
-      default: return (int) errnum;
-   }
-#else
-   return (int) errnum;
-#endif
-}
-
-/**
  * Move the cursor position around the screen.
  * @param x number of x axis steps to move, negative for left
  * @param y number of y axis steps to move, negative for up
 */
 void move_cursor(int x, int y)
 {
-#if OS_WINDOWS
+#ifdef _WIN32
    COORD coord;
    CONSOLE_SCREEN_BUFFER_INFO csbi;
    HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -257,7 +234,7 @@ void move_cursor(int x, int y)
 */
 void clear_right(FILE *fp)
 {
-#if OS_WINDOWS
+#ifdef _WIN32
    COORD coord;
    HANDLE handle;
    DWORD cells, count;
@@ -355,6 +332,193 @@ void set_print_level(int level)
 }
 
 /**
+ * Get a textual description of an error code.
+ * The error code may be an error of the Mochimo API, or the C API.
+ * @param errnum Value of the error number to get description for
+ * @return (const char *) representing textual description of a
+ * Mochimo ecosystem error, or NULL if none is available;
+*/
+const char *mcm_errno_text(int errnum)
+{
+   switch (errnum) {
+      case EMCM_MATH64_OVERFLOW:
+         return "Unspecified 64-bit math overflow";
+      case EMCM_MATH64_UNDERFLOW:
+         return "Unspecified 64-bit math underflow";
+      case EMCM_SORT_LENGTH:
+         return "Unexpected file length during sort";
+      case EMCM_EOF:
+         return "Unexpected end-of-file";
+      case EMCM_FILECOUNT:
+         return "Unexpected number of items in file";
+      case EMCM_FILELEN:
+         return "Unexpected length of file";
+      case EMCM_BHASH:
+         return "Bad block hash";
+      case EMCM_BNUM:
+         return "Bad block number";
+      case EMCM_DIFF:
+         return "Bad difficulty";
+      case EMCM_HDRLEN:
+         return "Bad header length";
+      case EMCM_MADDR:
+         return "Bad miner address";
+      case EMCM_MFEE:
+         return "Bad miner fee";
+      case EMCM_MFEES_OVERFLOW:
+         return "Overflow of miner fees";
+      case EMCM_MREWARD:
+         return "Bad miner reward";
+      case EMCM_MREWARDS_OVERFLOW:
+         return "Overflow of miner rewards";
+      case EMCM_MROOT:
+         return "Bad merkle root";
+      case EMCM_NONCE:
+         return "Bad nonce";
+      case EMCM_PHASH:
+         return "Bad (previous) block hash";
+      case EMCM_STIME:
+         return "Bad solve time";
+      case EMCM_TCOUNT:
+         return "Bad TX count";
+      case EMCM_TIME0:
+         return "Bad start time";
+      case EMCM_TLRLEN:
+         return "Bad trailer length";
+      case EMCM_TRAILER:
+         return "Bad trailer data";
+      case EMCM_LE_AMOUNTS_OVERFLOW:
+         return "Overflow of ledger amounts";
+      case EMCM_LE_AMOUNTS_SUM:
+         return "Bad sum of ledger amounts";
+      case EMCM_LE_EMPTY:
+         return "No records written to ledger file";
+      case EMCM_LE_NON_NG:
+         return "Ledger cannot be extracted from a non-NG block";
+      case EMCM_LE_SORT:
+         return "Bad ledger sort";
+      case EMCM_LE_TAG_REF:
+         return "Bad tag reference to ledger entry";
+      case EMCM_LT_CODE:
+         return "Bad ledger tx code";
+      case EMCM_LT_DEBIT:
+         return "Ledger tx debit, does not match ledger entry balance";
+      case EMCM_LT_NOT_CREDIT:
+         return "Unexpected ledger tx code for ledger entry creation";
+      case EMCM_LT_SORT:
+         return "Bad ledger tx sort";
+      case EMCM_POW_TRIGG:
+         return "Bad PoW (Trigg)";
+      case EMCM_POW_PEACH:
+         return "Bad PoW (Peach)";
+      case EMCM_POW_ANOMALY:
+         return "Bad PoW Anomaly (bugfix)";
+      case EMCM_GENHASH:
+         return "Bad Genesis hash";
+      case EMCM_NZGEN:
+         return "Non-zero Genesis data";
+      case EMCM_NOHELLO:
+         return "Missing OP_HELLO packet";
+      case EMCM_NOHELLOACK:
+         return "Missing OP_HELLO_ACK packet";
+      case EMCM_OPCODE:
+         return "Unrecognised operation code";
+      case EMCM_OPINVAL:
+         return "Invalid operation code";
+      case EMCM_PKTCRC:
+         return "Invalid CRC16 packet hash";
+      case EMCM_PKTIDS:
+         return "Unexpected packet identification";
+      case EMCM_PKTNACK:
+         return "Unexpected negative acknowledgement";
+      case EMCM_PKTNET:
+         return "Incompatible packet network";
+      case EMCM_PKTOPCODE:
+         return "Invalid packet opcode";
+      case EMCM_PKTTLR:
+         return "Invalid packet trailer";
+      case EMCM_TX_AMOUNTS_OVERFLOW:
+         return "Overflow of TX amounts";
+      case EMCM_TX_CHG_ADDR:
+         return "Bad TX change address";
+      case EMCM_TX_CHG_TAG:
+         return "Bad TX change tag";
+      case EMCM_TX_DST_ADDR:
+         return "Bad TX destination address";
+      case EMCM_TX_DST_TAG:
+         return "Bad TX destination tag";
+      case EMCM_TX_DUP:
+         return "Duplicate TX ID";
+      case EMCM_TX_FEE:
+         return "Bad TX fee";
+      case EMCM_TX_ID:
+         return "Bad TX ID";
+      case EMCM_TX_SIG:
+         return "Bad TX signature";
+      case EMCM_TX_SORT:
+         return "Bad TX sort";
+      case EMCM_TX_SRC_ADDR:
+         return "Bad TX source address";
+      case EMCM_TX_SRC_LE_BALANCE:
+         return "Bad TX amounts, not equal to src ledger balance";
+      case EMCM_TX_SRC_NOT_FOUND:
+         return "Bad TX source, not found in ledger";
+      case EMCM_TX_SRC_TAG:
+         return "Bad TX source tag";
+      case EMCM_TX_SRC_TAGGED:
+         return "Bad TX, src tag != chg tag, and src tag non-default";
+      case EMCM_TXMDST_AMOUNTS:
+         return "Bad multi-destination TX amounts do not match total";
+      case EMCM_TXMDST_AMOUNTS_OVERFLOW:
+         return "Bad multi-destination TX amounts overflowed";
+      case EMCM_TXMDST_CHG_DISSOLVE:
+         return "Bad multi-destination TX change tag will dissolve";
+      case EMCM_TXMDST_DST_AMOUNT:
+         return "Bad multi-destination TX destination amount is zero";
+      case EMCM_TXMDST_DST_IS_SRC:
+         return "Bad multi-destination TX destination tag is source tag";
+      case EMCM_TXMDST_FEES:
+         return "Bad multi-destination TX fees do not cover tx fee";
+      case EMCM_TXMDST_FEES_OVERFLOW:
+         return "Bad multi-destination TX fees overflowed";
+      case EMCM_TXMDST_SRC_NOT_CHG:
+         return "Bad multi-destination TX src tag != chg tag";
+      case EMCM_TXMDST_SRC_TAG:
+         return "Bad multi-destination TX missing src tag";
+      case EMCM_TXWOTS_SIG:
+         return "Bad TX, WOTS+ signature invalid";
+      case EMCM_XTX_NZTPADDING:
+         return "eXtended TX contains non-zero trailing padding";
+      case EMCM_XTX_UNDEFINED:
+         return "eXtended TX type is not defined";
+      default: return NULL;
+   }  /* end switch (errnum) */
+}  /* end mcm_errno_text() */
+
+/**
+ * Get a textual description of an error code.
+ * The error code may be a standard C errno, a Mochimo errno,
+ * or an "alternate" errno handled by the extended-c module.
+ * @param errnum Value of the error number to get description for
+ * @param buf Pointer to a buffer to place the textual description
+ * @param bufsz Size of the buffer
+ * @return (char *) containing a textual description of error
+*/
+char *strerror_mcm(int errnum, char *buf, size_t bufsz)
+{
+   const char *cp;
+
+   /* check if error originates from the Mochimo ecosystem */
+   cp = mcm_errno_text(errnum);
+   /* if it DOES NOT, use extended-c strerror_ext() */
+   if (cp == NULL) return strerror_ext(errnum, buf, bufsz);
+   /* copy error description and ensure buf is nul-terminated */
+   strncpy(buf, cp, bufsz);
+   buf[bufsz - 1] = '\0';
+   return buf;
+}  /* end strerror_mcm() */
+
+/**
  * Print a message to stdout.
  * @param fmt A string format (or message) for printing
  * @param ... Variable arguments supporting the format string
@@ -394,6 +558,7 @@ int pcustom(int e, int ll, const char *fmt, ...)
    FILE *fp;
    va_list args;
    int return_code;
+   char error[64] = "";
    char timestamp[32] = "";
 
    /* set return code */
@@ -416,8 +581,8 @@ int pcustom(int e, int ll, const char *fmt, ...)
       va_start(args, fmt);
       vfprintf(fp, fmt, args);
       va_end(args);
-      if (e >= 0) {
-         fprintf(fp, ": (%d) %s\n", e, errno_text(e));
+      if (e != INVALID_ERRNO) {
+         fprintf(fp, ": (%d) %s\n", e, strerror_mcm(e, error, 64));
       } else fprintf(fp, "\n");
 
       mutex_unlock(&Printlock);
@@ -434,8 +599,8 @@ int pcustom(int e, int ll, const char *fmt, ...)
       va_start(args, fmt);
       vfprintf(Outputfp, fmt, args);
       va_end(args);
-      if (e >= 0) {
-         fprintf(Outputfp, ": (%d) %s\n", e, errno_text(e));
+      if (e != INVALID_ERRNO) {
+         fprintf(Outputfp, ": (%d) %s\n", e, strerror_mcm(e, error, 64));
       } else fprintf(Outputfp, "\n");
    }
 
