@@ -16,10 +16,9 @@
 #include "error.h"
 
 /* external support */
-#include <string.h>
+#include "extstring.h"
 #include "extmath.h"
 #include "extlib.h"
-#include "extio.h"
 
 /* Log-structured Merge Tree Ledger array */
 static struct {
@@ -78,7 +77,7 @@ int auto_compression_depth(size_t count)
 
    return depth;
 
-FAIL_LENOTAVAIL: errno = EMCMLENOTAVAIL; return EOF;
+FAIL_LENOTAVAIL: set_errno(EMCMLENOTAVAIL); return EOF;
 }  /* end auto_compression_depth() */
 
 /**
@@ -94,7 +93,7 @@ FAIL_LENOTAVAIL: errno = EMCMLENOTAVAIL; return EOF;
 */
 int le_append(const char *lfname, const char *tfname)
 {
-   static const int prot = PROT_READ | PROT_WRITE;
+   static const int prot = PROT_READ; /* | PROT_WRITE; */
    static const int flags = MAP_SHARED;
 
    long long len;
@@ -147,21 +146,22 @@ int le_append(const char *lfname, const char *tfname)
    if ((len = ftell64(fp)) < 0LL) goto FAIL_IO;
    /* create memory mapped ledger file at Leidx */
    Ledger[Leidx].tags = (size_t) (len / sizeof(TAGIDX));
-   Ledger[Leidx].tmap =
-      mmap(NULL, (size_t) len, prot, flags, fileno(fp), 0);
-   if (Ledger[Leidx].tmap == MAP_FAILED) goto FAIL_IO;
+   if (Ledger[Leidx].tags) {
+      Ledger[Leidx].tmap =
+         mmap(NULL, (size_t) len, prot, flags, fileno(fp), 0);
+      if (Ledger[Leidx].tmap == MAP_FAILED) goto FAIL_IO;
+   } else Ledger[Leidx].tmap = NULL;
    fclose(fp);
 
    /* increment ledger index */
    Leidx++;
 
    /* success */
-   errno = 0;
    return VEOK;
 
 /* error handling -- cleanup */
-FAIL_INVAL: errno = EINVAL; return VERROR;
-FAIL_DEPTH: errno = EMCMLEDEPTH; return VERROR;
+FAIL_INVAL: set_errno(EINVAL); return VERROR;
+FAIL_DEPTH: set_errno(EMCMLEDEPTH); return VERROR;
 FAIL_IO: fclose(fp); return VERROR;
 }  /* end le_append() */
 
@@ -187,7 +187,7 @@ void le_close(int depth)
 }  /* end le_close() */
 
 /**
- * WOTS+ Ledger entry comparison function.
+ * PK+ Ledger entry comparison function.
  * Compares ONLY the WOTS+ address of the ledger entry.
  * @param a Pointer to data to compare
  * @param b Pointer to data to compare against
@@ -245,16 +245,14 @@ int le_compress(const char *filename, int depth, int count)
    /* clear initial fp array */
    for (i = 0; i < count; fpp[i++] = NULL);
 
-   /* open destination file -- increase buffer */
+   /* open destination file */
    fp = fopen(filename, "wb");
    if (fp == NULL) goto FAIL_IO;
-   if (setvbuf(fp, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
-   /* open (all) files for merge -- increase buffers */
+   /* open (all) files for merge */
    for (min = (-1), i = 0; i < count; i++) {
       snprintf(fname, FILENAME_MAX, "%s.%d", Lefname_opt, depth + i);
       fpp[i] = fopen(fname, "rb");
       if (fpp[i] == NULL) goto FAIL_IO;
-      if (setvbuf(fpp[i], NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
       /* read initial data into buffers */
       if (fread_clean(&lep[i], sizeof(*lep), 1, &fpp[i]) > VEOK) {
          goto FAIL_IO;
@@ -298,11 +296,10 @@ int le_compress(const char *filename, int depth, int count)
 
 SUCCESS:
    /* success */
-   errno = 0;
    return 0;
 
 /* error handling cleanup */
-FAIL_INVAL: errno = EINVAL; return VERROR;
+FAIL_INVAL: set_errno(EINVAL); return VERROR;
 FAIL_IO:
    if (fp) fclose(fp);
    for (i = 0; i < count; i++) {
@@ -366,7 +363,7 @@ void le_delete(int depth)
 */
 int le_extract(const char *ngfname)
 {
-   static const char *lfname = "ledger.tmp.ex";
+   static const char *lfname = "ledger.ex";
 
    LENTRY le;              /* buffer for Hashed ledger entries */
    LENTRY_W lew;           /* buffer for WOTS+ ledger entries */
@@ -377,12 +374,10 @@ int le_extract(const char *ngfname)
    word8 paddr[TXWADDRLEN]; /* ledger address sort check */
    int first;
 
-   /* open files -- increase buffer */
+   /* open files */
    fp = fopen(ngfname, "rb");
    lfp = fopen(lfname, "wb");
    if (fp == NULL || lfp == NULL) goto FAIL_IO;
-   if (setvbuf(fp, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
-   if (setvbuf(lfp, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
    /* read neo-genesis header and hdrlen value -- check ledger type */
    if (fread(&ngh, sizeof(ngh), 1, fp) != 1) goto FAIL_IO;
    hdrlen = get32(ngh.hdrlen);
@@ -427,15 +422,17 @@ int le_extract(const char *ngfname)
       fclose(lfp);
       fclose(fp);
       /* ledger output requires a sort pass, due to WOTS+ conversion */
-      if (fsort(lfname, sizeof(le), le_cmp) != 0) return VERROR;
+      if (filesort(lfname, sizeof(le), LEBUFSZ, le_cmp) != 0) {
+         return VERROR;
+      }
    }
 
    /* extraction success -- splice the ledger for safe overwrite */
    return le_splice(lfname, 0, Leidx);
 
 /* error handling */
-FAIL_SORT: errno = EMCM_LE_SORT; goto FAIL_IO;
-FAIL_HDRLEN: errno = EMCM_HDRLEN;
+FAIL_SORT: set_errno(EMCM_LE_SORT); goto FAIL_IO;
+FAIL_HDRLEN: set_errno(EMCM_HDRLEN);
 FAIL_IO:
    if (lfp) fclose(lfp);
    if (fp) fclose(fp);
@@ -456,33 +453,36 @@ LENTRY *le_find(void *addr)
    LENTRY *found;
    int i;
 
+   set_errno(0);
+
    /* sanity checks */
    if (addr == NULL) goto FAIL_INVAL;
    if (Leidx == 0) goto FAIL_LENOTAVAIL;
 
    /* acquire shared read access */
-   if ((errno = rwlock_rdlock(&Lelock))) return NULL;
+   if (rwlock_rdlock(&Lelock)) return NULL;
 
-   /* walk ledger nodes searching for data */
-   for (found = NULL, i = 0; i < Leidx; i++) {
+   /* walk ledger nodes searching for data -- search latest first */
+   for (found = NULL, i = Leidx - 1; i >= 0; i--) {
       found = bsearch(
          addr, Ledger[i].lmap, Ledger[i].count, sizeof(*found), le_cmp);
       if (found) {
          /* nullify zero balance results */
-         if (iszero(found->balance, 0)) found = NULL;
+         if (iszero(found->balance, 8)) {
+            found = NULL;
+         }
          break;
       }
    }
 
    /* release shared read access */
-   if ((errno = rwlock_rdunlock(&Lelock))) return NULL;
+   if (rwlock_rdunlock(&Lelock)) return NULL;
 
    /* done */
-   errno = 0;
    return found;
 
-FAIL_INVAL: errno = EINVAL; return NULL;
-FAIL_LENOTAVAIL: errno = EMCMLENOTAVAIL; return NULL;
+FAIL_INVAL: set_errno(EINVAL); return NULL;
+FAIL_LENOTAVAIL: set_errno(EMCMLENOTAVAIL); return NULL;
 }  /* end le_find() */
 
 /**
@@ -499,8 +499,10 @@ LENTRY *le_findw(void *wots)
 {
    word8 addr[TXADDRLEN];
 
+   set_errno(0);
+
    /* sanity checks */
-   if (wots == NULL) { errno = EINVAL; return NULL; }
+   if (wots == NULL) { set_errno(EINVAL); return NULL; }
    /* convert wots address to public key address */
    le_convert(addr, wots);
 
@@ -527,7 +529,7 @@ int le_renew(void *fee)
    sanctuary[0] = Sanctuary_opt;
    sanctuary[1] = 0;
 
-   print("Lastday 0x%0x.  Carousel begins...\n", Lastday_opt);
+   plog("Lastday 0x%0x.  Carousel begins...", Lastday_opt);
 
    /* compress ledger tree of more than a single depth */
    if (Leidx > 1) {
@@ -558,8 +560,8 @@ int le_renew(void *fee)
    fclose(fp);
 
    /* renewal success -- splice the ledger for safe overwrite */
-   print("%u citizens renewed out of %u\n", in - out, in);
-   return le_splice(lfname, 0, Leidx);
+   plog("%u citizens renewed out of %u", in - out, in);
+   return le_splice(Lefname_opt, 0, Leidx);
 
 FAIL_IO:
    if (fpout) fclose(fpout);
@@ -587,7 +589,7 @@ int le_splice(const char *filename, int depth, int count)
    snprintf(tfname, FILENAME_MAX, "%s.tags", filename);
    if (tag_extract(filename, tfname) != VEOK) return VERROR;
    /* acquire exclusive ledger lock */
-   if ((errno = rwlock_wrlock(&Lelock))) return VERROR;
+   if (rwlock_wrlock(&Lelock)) return VERROR;
    /* store current depth index */
    idx = Leidx;
    /* close depths we keep, delete depths we splice */
@@ -602,10 +604,9 @@ int le_splice(const char *filename, int depth, int count)
       if (le_append(lfname, tfname) != VEOK) goto FAIL_APPEND;
    }
    /* release exclusive ledger lock */
-   if ((errno = rwlock_wrunlock(&Lelock))) return VERROR;
+   if (rwlock_wrunlock(&Lelock)) return VERROR;
 
    /* success */
-   errno = 0;
    return VEOK;
 
 FAIL_APPEND:
@@ -652,7 +653,7 @@ int tag_equal(const void *a, const void *b)
 */
 int tag_extract(const char *lfname, const char *tfname)
 {
-   LENTRY_W le;      /* comparison buffer for ledger entries */
+   LENTRY le;        /* comparison buffer for ledger entries */
    TAGIDX ti, ti1;   /* tag index buffer pointer */
    FILE *fp, *tfp0, *tfp1; /* FILE pointers */
    long long idx;
@@ -677,14 +678,11 @@ int tag_extract(const char *lfname, const char *tfname)
    /* build pre-sort tag names */
    snprintf(tfname0, FILENAME_MAX, "%s.tmp0", tfname);
    snprintf(tfname1, FILENAME_MAX, "%s.tmp1", tfname);
-   /* open file pointers -- increase buffers */
+   /* open file pointers */
    fp = fopen(lfname, "rb");
    tfp0 = fopen(tfname0, "wb");
    tfp1 = fopen(tfname1, "wb");
    if (fp == NULL || tfp0 == NULL || tfp1 == NULL) goto FAIL_IO;
-   if (setvbuf(fp, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
-   if (setvbuf(tfp0, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
-   if (setvbuf(tfp1, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
 
    /* Read ledger entries, extract tags and write index pairs */
    for (idx = 0; ; idx++) {
@@ -692,32 +690,28 @@ int tag_extract(const char *lfname, const char *tfname)
       if (result == VERROR) goto FAIL_IO;
       if (result == EOF) break;
       /* if address includes a valid tag... */
-      if (WOTS_HAS_TAG(le.addr)) {
+      if (PK_HAS_TAG(le.addr)) {
          /* ... associate index and write to file */
          put64(ti.idx, &idx);
-         memcpy(ti.tag, WOTS_TAGp(le.addr), TXTAGLEN);
+         memcpy(ti.tag, PK_TAGp(le.addr), TXTAGLEN);
          if (iszero(le.balance, 8)) {
             if (fwrite(&ti, sizeof(ti), 1, tfp0) != 1) goto FAIL_IO;
          } else if (fwrite(&ti, sizeof(ti), 1, tfp1) != 1) goto FAIL_IO;
       }
    }  /* end for() */
    /* close files */
-   fclose(fp);
    fclose(tfp0);
    fclose(tfp1);
 
    /* sort both tag index files */
-   if (fsort(tfname0, sizeof(ti), 8, tag_cmp) != 0) return VERROR;
-   if (fsort(tfname1, sizeof(ti), 8, tag_cmp) != 0) return VERROR;
+   if (filesort(tfname0, sizeof(ti), LEBUFSZ, tag_cmp) != 0) return VERROR;
+   if (filesort(tfname1, sizeof(ti), LEBUFSZ, tag_cmp) != 0) return VERROR;
 
-   /* (re)open file pointers -- increase buffer */
+   /* (re)open file pointers */
    fp = fopen(tfname, "wb");
    tfp0 = fopen(tfname0, "rb");
    tfp1 = fopen(tfname1, "rb");
    if (fp == NULL || tfp0 == NULL || tfp1 == NULL) goto FAIL_IO;
-   if (setvbuf(fp, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
-   if (setvbuf(tfp0, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
-   if (setvbuf(tfp1, NULL, _IOFBF, LERWBUFSZ) != 0) goto FAIL_IO;
    /* pre-fill buffers with data */
    if (fread_clean(&ti, sizeof(ti), 1, &tfp0) > VEOK) goto FAIL_IO;
    if (fread_clean(&ti1, sizeof(ti1), 1, &tfp1) > VEOK) goto FAIL_IO;
@@ -742,6 +736,8 @@ int tag_extract(const char *lfname, const char *tfname)
       }
    }
    /* cleanup -- sources are closed in loop */
+   remove(tfname0);
+   remove(tfname1);
    fclose(fp);
 
    /* success */
@@ -769,12 +765,14 @@ LENTRY *tag_find(void *tag)
    long long idx;
    int i;
 
+   set_errno(0);
+
    /* sanity checks */
    if (tag == NULL) goto FAIL_INVAL;
    if (Leidx == 0) goto FAIL_LENOTAVAIL;
 
    /* acquire shared read access */
-   if ((errno = rwlock_rdlock(&Lelock))) return NULL;
+   if (rwlock_rdlock(&Lelock)) return NULL;
 
    /* walk ledger nodes searching for data */
    for (found = NULL, lep = NULL, i = 0; i < Leidx; i++) {
@@ -790,15 +788,14 @@ LENTRY *tag_find(void *tag)
    }
 
    /* release shared read access */
-   if ((errno = rwlock_rdunlock(&Lelock))) return NULL;
+   if (rwlock_rdunlock(&Lelock)) return NULL;
 
    /* done */
-   errno = 0;
    return lep;
 
 /* error handling */
-FAIL_INVAL: errno = EINVAL; return NULL;
-FAIL_LENOTAVAIL: errno = EMCMLENOTAVAIL; return NULL;
+FAIL_INVAL: set_errno(EINVAL); return NULL;
+FAIL_LENOTAVAIL: set_errno(EMCMLENOTAVAIL); return NULL;
 }  /* end tag_find() */
 
 /* end include guard */

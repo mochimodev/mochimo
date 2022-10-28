@@ -13,6 +13,14 @@
 #include "types.h"
 
 /**
+ * Amount of buffer space to allocate for large sorting operations.
+ * Data exceeding this amount will be split into manageable chunks.
+*/
+#ifndef LEBUFSZ
+   #define LEBUFSZ ( 1 << 26 )
+#endif
+
+/**
  * Max allowable depth of the ledger tree.
  * Change to balance address search time complexity with I/O (re)writes.
 */
@@ -20,20 +28,13 @@
    #define LEDEPTHMAX   8
 #endif
 
+/* definition checks */
+#if LEBUFSZ < BUFSIZ
+   #error "LEBUFSZ cannot be less than BUFSIZ"
+#endif
+
 #if LEDEPTHMAX < 2
    #error "LEDEPTHMAX cannot be less than 2"
-#endif
-
-/**
- * Amount of buffer space to use when sequentially reading or writing.
- * Change to balance memory usage against system read/write calls.
-*/
-#ifndef LERWBUFSZ
-   #define LERWBUFSZ ( 1 << 24 )
-#endif
-
-#if LERWBUFSZ < BUFSZ
-   #error "LERWBUFSZ cannot be less than BUFSZ"
 #endif
 
 /* global variables */
