@@ -10,23 +10,20 @@
 #define MOCHIMO_PEER_H
 
 
-#include "global.h"
+/* internal support */
 #include "types.h"
 
-#define addrecent(ip)   addpeer(ip, Rplist, RPLISTLEN, &Rplistidx)
+extern word32 Cpinklist[CPINKLEN];
+extern word32 Cpinkidx;
+extern word32 Epinklist[EPINKLEN];
+extern word32 Epinkidx;
+extern word32 Lplist[LPLISTLEN];
+extern word32 Lplistidx;
+extern word32 Rplist[RPLISTLEN];
+extern word32 Rplistidx;
 
-/* global variables */
-extern char *Coreipfname;
-extern char *Epinkipfname;
-extern char *Recentipfname;
-extern char *Trustedipfname;
-extern word32 Rplist[RPLISTLEN], Rplistidx;
-extern word32 Tplist[TPLISTLEN], Tplistidx;
-extern word32 Cpinklist[CPINKLEN], Cpinkidx;
-extern word32 Lpinklist[LPINKLEN], Lpinkidx;
-extern word32 Epinklist[EPINKLEN], Epinkidx;
-extern word8 Nopinklist;
-extern word8 Noprivate;
+extern word8 Nopinklist_opt;
+extern word8 Noprivate_opt;
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
@@ -39,16 +36,15 @@ word32 include32(word32 val, word32 *list, unsigned len, word32 *idx);
 void shuffle32(word32 *list, word32 len);
 int isprivate(word32 ip);
 word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx);
+word32 addpeer_d(word32 ip, word32 **dlist, word32 *len, word32 *idx);
 void print_ipl(word32 *list, word32 len);
 int save_ipl(char *fname, word32 *list, word32 len);
 int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx);
 int pinklisted(word32 ip);
-int cpinklist(word32 ip);
-int pinklist(word32 ip);
-int lpinklist(word32 ip);
-int epinklist(word32 ip);
-void mergepinklists(void);
-void purge_epoch(void);
+void pinklist(word32 ip);
+void epinklist(word32 ip);
+void purge_pinklist(void);
+void purge_epinklist(void);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

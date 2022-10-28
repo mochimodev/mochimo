@@ -5,35 +5,34 @@
  * <br />For license information, please refer to ../LICENSE.md
 */
 
+/* include guard */
 #ifndef MOCHIMO_PEER_C
-#define MOCHIMO_PEER_C  /* include guard */
+#define MOCHIMO_PEER_C
 
 
 #include "peer.h"
 
 /* external support */
 #include <string.h>
-#include <stdlib.h>
-#include "extprint.h"
 #include "extlib.h"
-#include "extinet.h"
 
-/* default peer list filenames */
-char *Coreipfname = "coreip.lst";
-char *Epinkipfname = "epink.lst";
-char *Recentipfname = "recent.lst";
-char *Trustedipfname = "trusted.lst";
+/** Current pink list. Intended reset on block update */
+word32 Cpinklist[CPINKLEN] = { 0 };
+word32 Cpinkidx = 0;
+/** Epoch peer list. Intended reset on every epoch (EPOCHMASK) */
+word32 Epinklist[EPINKLEN] = { 0 };
+word32 Epinkidx = 0;
+/** Local peer list. Read in from disk, and preserved */
+word32 Lplist[LPLISTLEN] = { 0 };
+word32 Lplistidx = 0;
+/** Recent peer list. Rotates with certain successful connections */
+word32 Rplist[RPLISTLEN] = { 0 };
+word32 Rplistidx = 0;
 
-word32 Rplist[RPLISTLEN], Rplistidx;  /* Recent peer list */
-word32 Tplist[TPLISTLEN], Tplistidx;  /* Trusted peer list - preserved */
-
-/* pink lists of EVIL IP addresses read in from disk */
-word32 Cpinklist[CPINKLEN], Cpinkidx;
-word32 Lpinklist[LPINKLEN], Lpinkidx;
-word32 Epinklist[EPINKLEN], Epinkidx;
-
-word8 Nopinklist;  /* disable pinklist IP's when set */
-word8 Noprivate;     /* filter out private IP's when set v.28 */
+/** Disable pinklist IP's when set */
+word8 Nopinklist_opt;
+/** Filter out private IP's when set. No effect on Lplist (local) */
+word8 Noprivate_opt;
 
 /**
  * Search a list[] of 32-bit unsigned integers for a non-zero value.
@@ -112,28 +111,41 @@ int isprivate(word32 ip)
 word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx)
 {
    if(ip == 0) return 0;
-   if(Noprivate && isprivate(ip)) return 0;  /* v.28 */
+   if(Noprivate_opt && isprivate(ip)) return 0;  /* v.28 */
    if(search32(ip, list, len) != NULL) return 0;
    if(*idx >= len) *idx = 0;
    list[idx[0]++] = ip;
    return ip;
 }
 
-void print_ipl(word32 *list, word32 len)
+word32 addpeer_d(word32 ip, word32 **dlist, word32 *len, word32 *idx)
 {
-   unsigned int j;
+   void *ptr;
+   word32 i;
 
-   for(j = 0; j < len && list[j]; j++) {
-      if((j % 4) == 0) print("\n");
-      print("   %-15.15s", ntoa(&list[j], NULL));
+   if (ip == 0) return 0;
+   if (Noprivate_opt && isprivate(ip)) return 0;  /* v.28 */
+   if (search32(ip, *dlist, *len) != NULL) return 0;
+   if (*idx >= *len) {
+      ptr = realloc(*dlist, sizeof(word32) * (*len + 32));
+      if (ptr == NULL) return 0;
+      *len += 32;
+      *dlist = ptr;
+      /* zero new section of list */
+      for (i = *idx; i < *len; i++) (*dlist)[i] = 0;
    }
+   /* add peer to dynamic list */
+   (*dlist)[(*idx)++] = ip;
 
-   print("\n\n");
-}
+   return ip;
+}  /* end addpeer_d() */
 
 /**
- * Save the Rplist[] list to disk.
- * Returns VEOK on success, else VERROR */
+ * Save a peer list to disk.
+ * @returns (int) value representing operation status
+ * @retval VEOK on success
+ * @retval VERROR on error, check errno for details
+*/
 int save_ipl(char *fname, word32 *list, word32 len)
 {
    static char preface[] = "# Peer list (built by node)\n";
@@ -141,14 +153,9 @@ int save_ipl(char *fname, word32 *list, word32 len)
    word32 j;
    FILE *fp;
 
-   pdebug("save_ipl(%s): saving...", fname);
-
    /* open file for writing */
    fp = fopen(fname, "w");
-   if (fp == NULL) {
-      perrno(errno, "save_ipl(%s): fopen failed", fname);
-      return VERROR;
-   };
+   if (fp == NULL) return VERROR;
 
    /* save non-zero entries */
    for(j = 0; j < len && list[j] != 0; j++) {
@@ -158,21 +165,19 @@ int save_ipl(char *fname, word32 *list, word32 len)
          (fwrite("\n", 1, 1, fp) != 1)) {
          fclose(fp);
          remove(fname);
-         perr("save_ipl(%s): *** I/O error writing address line", fname);
          return VERROR;
       }
    }
 
    fclose(fp);
-   plog("save_ipl(%s): recent peers saved", fname);
    return VEOK;
 }  /* end save_ipl() */
 
 /**
  * Read an IP list file, fname, into plist.
  * Valid lines in IP list include:
- *    host.domain.name
- *    1.2.3.4
+ * - host.domain.name
+ * - 1.2.3.4
  * @returns Number of peers read into list, else (-1) on error
 */
 int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
@@ -181,25 +186,24 @@ int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
    word32 count;
    FILE *fp;
 
-   pdebug("read_ipl(%s): reading...", fname);
+   /* init */
    count = 0;
 
    /* check valid fname and open for reading */
    if (fname == NULL || *fname == '\0') return (-1);
    fp = fopen(fname, "r");
    if (fp == NULL) return (-1);
-
    /* read file line-by-line */
    while(fgets(buff, 128, fp)) {
       if (strtok(buff, " #\r\n\t") == NULL) break;
       if (*buff == '\0') continue;
-      if (addpeer(aton(buff), plist, plistlen, plistidx)) {
-         pdebug("read_ipl(%s): added %s", fname, buff);
-         count++;
-      }
+      count += include32(aton(buff), plist, plistlen, plistidx);
    }
    /* check for read errors */
-   if (ferror(fp)) perr("read_ipl(%s): *** I/O error", fname);
+   if (ferror(fp)) {
+      fclose(fp);
+      return VERROR;
+   }
 
    fclose(fp);
    return count;
@@ -208,25 +212,12 @@ int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
 
 int pinklisted(word32 ip)
 {
-   if(Nopinklist) return 0;
+   if(Nopinklist_opt) return 0;
 
    if(search32(ip, Cpinklist, CPINKLEN) != NULL
-      || search32(ip, Lpinklist, LPINKLEN) != NULL
       || search32(ip, Epinklist, EPINKLEN) != NULL)
          return 1;
    return 0;
-}
-
-/**
- * Add ip address to current pinklist.
- * Call pinklisted() first to check if already on list.
- */
-int cpinklist(word32 ip)
-{
-   if(Cpinkidx >= CPINKLEN)
-      Cpinkidx = 0;
-   Cpinklist[Cpinkidx++] = ip;
-   return VEOK;
 }
 
 /**
@@ -234,71 +225,41 @@ int cpinklist(word32 ip)
  * current and recent peer lists.
  * Checks the list first...
  */
-int pinklist(word32 ip)
+void pinklist(word32 ip)
 {
-   pdebug("%s pink-listed", ntoa(&ip, NULL));
-
    if(!pinklisted(ip)) {
-      if(Cpinkidx >= CPINKLEN)
-         Cpinkidx = 0;
+      if(Cpinkidx >= CPINKLEN) Cpinkidx = 0;
       Cpinklist[Cpinkidx++] = ip;
    }
-   if(!Nopinklist) {
+   if(!Nopinklist_opt) {
       remove32(ip, Rplist, RPLISTLEN, &Rplistidx);
    }
-   return VEOK;
 }  /* end pinklist() */
 
 
-/**
- * Add ip address to last pinklist.
- * Caller checks if already on list.
- */
-int lpinklist(word32 ip)
-{
-   if(Lpinkidx >= LPINKLEN)
-      Lpinkidx = 0;
-   Lpinklist[Lpinkidx++] = ip;
-   return VEOK;
-}
-
-
-int epinklist(word32 ip)
+void epinklist(word32 ip)
 {
    if(Epinkidx >= EPINKLEN) {
-      pdebug("Epoch pink list overflow");
+      /* set_errno(EMCM_EPINK_OVERFLOW); */
       Epinkidx = 0;
    }
    Epinklist[Epinkidx++] = ip;
-   return VEOK;
 }
 
-
 /**
- * Call after each epoch.
- * Merges current pink list into last pink list
- * and purges current pink list.
+ * Purges current pink list.
  */
-void mergepinklists(void)
+void purge_pinklist(void)
 {
-   int j;
-   word32 ip, *ptr;
-
-   for(j = 0; j < CPINKLEN; j++) {
-      ip = Cpinklist[j];
-      if(ip == 0) continue;  /* empty */
-      ptr = search32(ip, Lpinklist, LPINKLEN);
-      if(ptr == NULL) lpinklist(ip);  /* add to last bad list */
-      Cpinklist[j] = 0;
-   }
+   memset(Cpinklist, 0, sizeof(Cpinklist));
    Cpinkidx = 0;
 }
 
 /**
- * Erase Epoch Pink List */
-void purge_epoch(void)
+ * Erase Epoch Pink List
+*/
+void purge_epinklist(void)
 {
-   pdebug("   purging epoch pink list");
    remove("epink.lst");
    memset(Epinklist, 0, sizeof(Epinklist));
    Epinkidx = 0;
