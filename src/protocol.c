@@ -21,6 +21,14 @@
 #include "extlib.h"
 #include "crc16.h"
 
+#ifdef _WIN32
+   #define set_sockerrno(e)   set_alterrno(e)
+
+#else
+   #define set_sockerrno(e)   set_errno(e)
+
+#endif
+
 /** Lifetime packets received */
 unsigned Nrecvs = 0;
 /** Lifetime packet receive errors */
@@ -44,6 +52,66 @@ word8 Prevhash[32] = { 0 };
 word8 Weight[32] = { 0 };
 
 /**
+ * Deallocate (cleanup) resources allocated within a SNODE.
+ * NOTE: DOES NOT DEALLOCATE THE SNODE POINTER.
+ * @param snp Pointer to SNODE
+*/
+void node_cleanup(SNODE *snp)
+{
+   /* ensure socket is closed */
+   if (snp->sd != INVALID_SOCKET) {
+      sock_close(snp->sd);
+      snp->sd = INVALID_SOCKET;
+   }
+   /* ensure DATA pointer is deallocated */
+   if (snp->fp != NULL) {
+      fclose(snp->fp);
+      snp->fp = NULL;
+   }
+}  /* end node_cleanup() */
+
+/**
+ * Prepare a SNODE pointer for receiving.
+ * @param snp Pointer to SNODE to prepare
+ * @param sd Connection socket of SNODE
+ * @param ip Connection ip of SNODE
+*/
+void prep_receive(SNODE *snp, SOCKET sd, word32 ip)
+{
+   /* prepare SNODE data receive */
+   snp->sd = sd;
+   snp->ip = ip;
+   snp->port = 0;
+   snp->opreq = OP_NULL;
+   snp->opcode = OP_NULL;
+   snp->iowait = IO_RECV;
+   snp->status = VEWAITING;
+   ntoa(&ip, snp->id);
+}  /* end prep_receive() */
+
+/**
+ * Prepare a SNODE pointer for requesting.
+ * @param snp Pointer to SNODE to prepare
+ * @param ip Connection ip of SNODE
+ * @param opreq Request operation code
+ * @param bnum Request IO value (blocknum), or NULL
+*/
+void prep_request
+   (SNODE *snp, word32 ip, word16 port, word16 opreq, void *bnum)
+{
+   /* prepare SNODE data request */
+   snp->sd = INVALID_SOCKET;
+   snp->ip = ip;
+   snp->port = port;
+   snp->opreq = opreq;
+   snp->opcode = OP_NULL;
+   snp->iowait = IO_CONN;
+   snp->status = VEWAITING;
+   ntoa(&ip, snp->id);
+   if (bnum) memcpy(snp->io, bnum, 8);
+}  /* end prep_request() */
+
+/**
  * Prepare a packet of SNODE with protocol data.
  * @param snp Pointer to SNODE containing packet to prepare
  * @param opcode Operation code of packet
@@ -54,9 +122,8 @@ void prep_pkt(SNODE *snp, word16 opcode)
 
    /* fill packet with relevant information... */
    snp->pkt.version[0] = PVERSION;
-   snp->pkt.version[1] = Cbits;
+   snp->pkt.version[1] = Cbits | C_VPDU;
    put16(snp->pkt.network, TXNETWORK);
-   put16(snp->pkt.trailer, TXEOT);
    put16(snp->pkt.id1, snp->id1);
    put16(snp->pkt.id2, snp->id2);
    put16(snp->pkt.opcode, opcode);
@@ -92,34 +159,54 @@ void prep_pkt(SNODE *snp, word16 opcode)
    /* END PROTOCOL VERSION 4 COMPATIBILITY */
    /****************************************/
 
-   /* compute packet crc16 checksum */
+   /* compute packet crc16 checksum -- add trailer */
    put16(snp->pkt.crc16, crc16(&(snp->pkt), PKTCRC_INLEN(len)));
+   put16(snp->pkt.trailer, TXEOT);
 }  /* end prep_pkt() */
 
 /**
  * @private
- * Obtain the next recv() length, in bytes. For compatibility between
+ * Prepare variables for next recv(). For compatibility between
  * pversion 4, C_VPDU capable pversion 4, and pversion 5 onwards, we
- * require the information in the header of a packet. Therefore, to
- * provide appropriate breakpoints for determining the amount of data
- * to receive, the result of this function may be PKTHDRLEN (initially),
- * then either PKTBUFFLEN_OLD for pversion 4, or the 16-bit value of
- * pkt->len for C_VPDU capable pversion 4, and pversion 5 onwards.
+ * require the capabilities information in the header of a packet to
+ * know how much buffer data to receive.
  * @param snp Pointer to SNODE
- * @returns (int) length, in bytes, of next recv()
  * @todo Remove protocol version 4 compatibility after v3.0
 */
-static int recv_len(SNODE *snp)
+static int recv_len(SNODE *snp, char **buf, int *len, int *n)
 {
-   /* determine length of data to recv */
-   if (snp->bytes >= PKTHDRLEN) {
-      /* check protocol version for implied VPDU capability */
-      /** @todo adjust after v3.0 */
-      if (PKT_HAS_C_VPDU(&(snp->pkt))) {
-         return get16(snp->pkt.len);
-      } else return PKTBUFFLEN_OLD;
-   } else return PKTHDRLEN;
-}
+   /* determine position of and length of next data to recv */
+   if (snp->bytes < PKTHDRLEN) {
+      /* receive packet header */
+      *n = snp->bytes;
+      *len = PKTHDRLEN;
+      *buf = (char *) snp->pkt.version;
+   } else if (PKT_HAS_C_VPDU(&(snp->pkt))) {
+      *len = (int) get16(snp->pkt.len);
+      if (snp->bytes < (PKTHDRLEN + *len)) {
+         /* receive packet buffer */
+         *n = snp->bytes - PKTHDRLEN;
+         *buf = (char *) snp->pkt.buffer;
+      } else {
+         /* receive packet trailer */
+         *n = snp->bytes - (PKTHDRLEN + *len);
+         *len = PKTTLRLEN;
+         *buf = (char *) snp->pkt.crc16;
+      }
+   } else if (snp->bytes < (PKTHDRLEN + PKTBUFFLEN_OLD)) {
+      /* receive packet buffer */
+      *n = snp->bytes - PKTHDRLEN;
+      *len = PKTBUFFLEN_OLD;
+      *buf = (char *) snp->pkt.buffer;
+   } else {
+      /* receive packet trailer */
+      *n = snp->bytes - (PKTHDRLEN + PKTBUFFLEN_OLD);
+      *len = PKTTLRLEN;
+      *buf = (char *) snp->pkt.crc16;
+   }
+
+   return *len - *n;
+}  /* end recv_len() */
 
 /**
  * Receive a packet of data from a node.
@@ -135,20 +222,21 @@ static int recv_len(SNODE *snp)
 int recv_pkt(SNODE *snp)
 {
    PKT *pkt;
+   char *buf;
    int ecode, count, len, n;
 
    /* init */
    pkt = &(snp->pkt);
 
-   /* receive variable PDU sizes into &pkt[n] */
-   for (n = snp->bytes, len = recv_len(snp); n < len; ) {
+   /* receive variable PDU into pkt */
+   while (recv_len(snp, &buf, &len, &n)) {
       if (len > PKTBUFFLEN) goto FAIL_OVERFLOW;
-      count = recv(snp->sd, ((char *) pkt) + n, len - n, 0);
+      count = recv(snp->sd, buf + n, len - n, 0);
       switch (count) {
          case (-1):
             ecode = sock_errno;
             /* check timeout if waiting for data */
-            if (sock_err_is_waiting(ecode)) {
+            if (sock_waiting(ecode)) {
                if (difftime(time(NULL), snp->to) > 0) {
                   return (snp->status = VETIMEOUT);
                } else return (snp->status = VEWAITING);
@@ -157,16 +245,17 @@ int recv_pkt(SNODE *snp)
          default:
             /* reset timeout, add recv'd bytes, update length */
             snp->to = time(NULL) + TIMEOUT;
-            snp->bytes = n = n + count;
-            len = recv_len(snp);
+            snp->bytes += count;
       }  /* end switch (count... */
    }  /* end for (n = snp... */
 
-   /* full packet received: set opcode and reset bytes */
+   /* full packet received: set c_vpdu, opcode and reset bytes */
+   snp->c_vpdu = PKT_HAS_C_VPDU(&(snp->pkt));
    snp->opcode = get16(snp->pkt.opcode);
    snp->bytes = 0;
 
    /* check crc16 checksum, network version, and trailer */
+   len = snp->c_vpdu ? get16(snp->pkt.len) : PKTBUFFLEN_OLD;
    if (get16(pkt->crc16) != crc16(pkt, PKTCRC_INLEN(len))) goto BAD_CRC;
    if (get16(pkt->network) != TXNETWORK) goto BAD_NET;
    if (get16(pkt->trailer) != TXEOT) goto BAD_TLR;
@@ -176,27 +265,23 @@ int recv_pkt(SNODE *snp)
       if (snp->id2 != get16(pkt->id2)) goto BAD_IDS;
    }
 
-   /* on success, flag VPDU capable peer */
-   /** @todo adjust after v3.0 */
-   if (PKT_HAS_C_VPDU(&(snp->pkt))) snp->c_vpdu = 1;
-
    /* success -- increment recv's */
    Nrecvs++;
    return (snp->status = VEOK);
 
 /* error handling */
-FAIL_OVERFLOW: errno = EOVERFLOW; goto FAIL;
-FAIL_SHUTDOWN: errno = ECONNABORTED; goto FAIL;
-FAIL_ECODE: errno = resolve_wsa_conflicts(ecode);
+FAIL_OVERFLOW: set_errno(EOVERFLOW); goto FAIL;
+FAIL_SHUTDOWN: set_errno(ECONNABORTED); goto FAIL;
+FAIL_ECODE: set_sockerrno(ecode);
 FAIL:
    Nrecverrs++;
    return (snp->status = VERROR);
 
 /* protocol violation handling */
-BAD_CRC: errno = EMCM_PKTCRC; goto BAD;
-BAD_NET: errno = EMCM_PKTNET; goto BAD;
-BAD_TLR: errno = EMCM_PKTTLR; goto BAD;
-BAD_IDS: errno = EMCM_PKTIDS;
+BAD_CRC: set_errno(EMCM_PKTCRC); goto BAD;
+BAD_NET: set_errno(EMCM_PKTNET); goto BAD;
+BAD_TLR: set_errno(EMCM_PKTTLR); goto BAD;
+BAD_IDS: set_errno(EMCM_PKTIDS);
 BAD:
    Nrecvsbad++;
    return (snp->status = VEBAD);
@@ -235,7 +320,7 @@ int recv_file(SNODE *snp)
       }
       /* check EOF condition -- check VPDU capability bit */
       /** @todo adjust after v3.0 */
-      if (!PKT_HAS_C_VPDU(&(snp->pkt))) {
+      if (!snp->c_vpdu) {
          if (len < PKTBUFFLEN_OLD) break;
       } else if (len < PKTBUFFLEN) break;
    } /* end while(recv_pkt()) */
@@ -244,11 +329,11 @@ int recv_file(SNODE *snp)
    return snp->status;
 
 /* error handling */
-FAIL_NACK: errno = EMCM_PKTNACK;
+FAIL_NACK: set_errno(EMCM_PKTNACK);
 FAIL: return (snp->status = VERROR);
 
 /* protocol violation handling */
-BAD_OPCODE: errno = EMCM_PKTOPCODE; return (snp->status = VEBAD);
+BAD_OPCODE: set_errno(EMCM_PKTOPCODE); return (snp->status = VEBAD);
 }  /* end recv_file() */
 
 /**
@@ -266,14 +351,40 @@ BAD_OPCODE: errno = EMCM_PKTOPCODE; return (snp->status = VEBAD);
  * @param snp Pointer to SNODE
  * @returns (int) length, in bytes, of next send()
 */
-static int send_len(SNODE *snp)
+static int send_len(SNODE *snp, char **buf, int *len, int *n)
 {
-   /* determine length of data to send() */
-   /** @todo adjust logic after v3.0 */
-   if (get16(snp->pkt.opcode) == OP_HELLO || !snp->c_vpdu) {
-      return PKTBUFFLEN_OLD;
-   } else return PKTHDRLEN;
-}
+   /* determine position of and length of next data to send */
+   if (snp->bytes < PKTHDRLEN) {
+      /* send packet header */
+      *n = snp->bytes;
+      *len = PKTHDRLEN;
+      *buf = (char *) snp->pkt.version;
+   } else if (snp->c_vpdu) {
+      *len = (int) get16(snp->pkt.len);
+      if (snp->bytes < (PKTHDRLEN + *len)) {
+         /* send packet buffer */
+         *n = snp->bytes - PKTHDRLEN;
+         *buf = (char *) snp->pkt.buffer;
+      } else {
+         /* send packet trailer */
+         *n = snp->bytes - (PKTHDRLEN + *len);
+         *len = PKTTLRLEN;
+         *buf = (char *) snp->pkt.crc16;
+      }
+   } else if (snp->bytes < (PKTHDRLEN + PKTBUFFLEN_OLD)) {
+      /* send packet buffer */
+      *n = snp->bytes - PKTHDRLEN;
+      *len = PKTBUFFLEN_OLD;
+      *buf = (char *) snp->pkt.buffer;
+   } else {
+      /* send packet trailer */
+      *n = snp->bytes - (PKTHDRLEN + PKTBUFFLEN_OLD);
+      *len = PKTTLRLEN;
+      *buf = (char *) snp->pkt.crc16;
+   }
+
+   return *len - *n;
+}  /* end send_len() */
 
 /**
  * Send a packet of data to an SNODE.
@@ -288,19 +399,17 @@ static int send_len(SNODE *snp)
 */
 int send_pkt(SNODE *snp)
 {
-   PKT *pkt;
+   char *buf;
    int ecode, count, len, n;
 
-   pkt = &(snp->pkt);
-
    /* send PDUs of varying size and capabilities */
-   for (n = snp->bytes, len = send_len(snp); n < len; ) {
-      count = send(snp->sd, ((char *) pkt) + n, len - n, 0);
+   while (send_len(snp, &buf, &len, &n)) {
+      count = send(snp->sd, buf + n, len - n, 0);
       switch (count) {
          case (-1):
             ecode = sock_errno;
             /* check timeout if waiting for data */
-            if (sock_err_is_waiting(ecode)) {
+            if (sock_waiting(ecode)) {
                if (difftime(time(NULL), snp->to) > 0) {
                   return (snp->status = VETIMEOUT);
                } else return (snp->status = VEWAITING);
@@ -309,8 +418,7 @@ int send_pkt(SNODE *snp)
          default:
             /* reset timeout, add recv'd bytes, update length */
             snp->to = time(NULL) + TIMEOUT;
-            snp->bytes = n = n + count;
-            len = send_len(snp);
+            snp->bytes += count;
       }  /* end switch (count... */
    }  /* end for (n = snp... */
 
@@ -322,8 +430,8 @@ int send_pkt(SNODE *snp)
    Nsends++;  /* requires atomic operation */
    return (snp->status = VEOK);
 
-FAIL_SHUTDOWN: errno = ECONNABORTED; goto FAIL;
-FAIL_ECODE: errno = resolve_wsa_conflicts(ecode);
+FAIL_SHUTDOWN: set_errno(ECONNABORTED); goto FAIL;
+FAIL_ECODE: set_sockerrno(ecode);
 FAIL:
    Nsenderrs++;
    return (snp->status = VERROR);
@@ -340,7 +448,7 @@ FAIL:
  * @retval VERROR on internal error
  * @retval VEBAD on protocol violation; peer is now pinklisted
 */
-int receive_protocol(SNODE *snp)
+int node_receive(SNODE *snp)
 {
 OP_RESTART:
    /* check stage of communication */
@@ -349,7 +457,7 @@ OP_RESTART:
          /* receive/check OP_HELLO packet */
          if (recv_pkt(snp)) break;
          if (snp->opcode != OP_HELLO) {
-            errno = EMCM_NOHELLO;
+            set_errno(EMCM_NOHELLO);
             snp->status = VEBAD;
             break;
          }
@@ -374,7 +482,7 @@ OP_RESTART:
          /* recv'd opcode MUST be a "valid" operation code */
          /* NOTE: recv'd opcode MUST be checked here */
          if (snp->opcode < FIRST_OP || snp->opcode > LAST_OP) {
-            errno = EMCM_OPINVAL;
+            set_errno(EMCM_OPINVAL);
             snp->status = VERROR;
             break;
          }
@@ -382,7 +490,7 @@ OP_RESTART:
          goto OP_RESTART;
       }  /* end case OP_HELLO_ACK */
       default: {
-         errno = EMCM_OPCODE;
+         set_errno(EMCM_OPCODE);
          snp->status = VERROR;
       }  /* end default */
    }  /* end switch (snp->opcode) */
@@ -401,8 +509,7 @@ OP_RESTART:
       }
    }
 
-   /* clear errno on non-error status */
-   if (snp->status <= VEOK) errno = 0;
+   /* return resulting status */
    return snp->status;
 }  /* end receive_protocol() */
 
@@ -426,7 +533,7 @@ static int request_connect(SNODE *snp)
    if (snp->sd == INVALID_SOCKET) {
       snp->sd = socket(AF_INET, SOCK_STREAM, 0);
       if (snp->sd == INVALID_SOCKET || sock_set_nonblock(snp->sd)) {
-         errno = resolve_wsa_conflicts(sock_errno);
+         set_sockerrno(sock_errno);
          return (snp->status = VERROR);
       }
       /* reset timeout for initial connect */
@@ -441,19 +548,28 @@ static int request_connect(SNODE *snp)
    if (connect(snp->sd, (struct sockaddr *) &addr, len)) {
       ecode = sock_errno;
       /* check timeout if waiting for connect */
-      if (sock_err_is_success(ecode)) ecode = 0;
-      else if (sock_err_is_waiting(ecode)) {
+      if (sock_connected(ecode)) ecode = 0;
+      else if (sock_connecting(ecode)) {
          if (difftime(time(NULL), snp->to) > 0) {
             return (snp->status = VETIMEOUT);
          } else return (snp->status = VEWAITING);
       }
-      errno = resolve_wsa_conflicts(sock_errno);
+      set_sockerrno(sock_errno);
       return (snp->status = VERROR);
    }  /* end if (connect... */
 
-   errno = 0;
    return (snp->status = VEOK);
 }  /* end request_connect() */
+
+static word16 opreq2opcode(word16 opreq)
+{
+   switch (opreq) {
+      case REQ_LAST_NEOGEN: return OP_GET_BLOCK;
+      case REQ_VAL_BLOCK: return OP_GET_BLOCK;
+      case REQ_VAL_TFILE: return OP_GET_TFILE;
+      default: return opreq;
+   }
+}
 
 /**
  * Network communication protocol for requesting.
@@ -465,7 +581,7 @@ static int request_connect(SNODE *snp)
  * @retval VERROR on socket shutdown and/or error
  * @retval VEBAD on pkt protocol violation
 */
-int request_protocol(SNODE *snp)
+int node_request(SNODE *snp)
 {
 OP_RESTART:
    /* check stage of communication */
@@ -493,20 +609,25 @@ OP_RESTART:
          if (recv_pkt(snp)) break;
          /* check initial handshake protocol */
          if (snp->opcode != OP_HELLO_ACK) {
-            errno = EMCM_NOHELLOACK;
+            set_errno(EMCM_NOHELLOACK);
             snp->status = VEBAD;
             break;
          }
+         /* save second handshake ID */
+         snp->id2 = get16(snp->pkt.id2);
          /* check request type for additional packet io requirements */
          switch (snp->opreq) {
+            case REQ_LAST_NEOGEN: {
+               /* derive last neo-genesis from advertsied cblock */
+               put64(snp->io, snp->pkt.cblock);
+               snp->io[0] = 0;
+            }  /* fallthrough */
             case REQ_VAL_BLOCK: /* fallthrough */
             case OP_GET_BLOCK: /* fallthrough */
             case OP_TF: memcpy(snp->pkt.blocknum, snp->io, 8); break;
          }
-         /* save second handshake ID */
-         snp->id2 = get16(snp->pkt.id2);
          /* prepare request operation */
-         prep_pkt(snp, snp->opreq);
+         prep_pkt(snp, opreq2opcode(snp->opreq));
          /* update socket operation type */
          snp->iowait = IO_SEND;
       }  /* fallthrough -- end case OP_HELLO */
@@ -528,14 +649,12 @@ OP_RESTART:
          if (recv_pkt(snp)) break;
          /* check response opcode */
          if (snp->opcode != OP_SEND_IPL) {
-            errno = EMCM_OPINVAL;
+            set_errno(EMCM_OPINVAL);
             snp->status = VEBAD;
             break;
          }
          break;
       }  /* end case OP_GET_IPL */
-      case REQ_VAL_BLOCK: /* fallthrough */
-      case REQ_VAL_TFILE: /* fallthrough */
       case OP_GET_BLOCK: /* fallthrough */
       case OP_GET_TFILE: /* fallthrough */
       case OP_GET_CBLOCK: /* fallthrough */
@@ -547,7 +666,7 @@ OP_RESTART:
          break;
       }  /* end case OP_TF */
       default: {
-         errno = EMCM_OPCODE;
+         set_errno(EMCM_OPCODE);
          snp->status = VERROR;
       }  /* end default */
    }  /* end switch (snp->opcode) */
@@ -566,8 +685,7 @@ OP_RESTART:
       }
    }
 
-   /* clear errno on non-error status */
-   if (snp->status <= VEOK) errno = 0;
+   /* return resulting status */
    return snp->status;
 }  /* end request_protocol() */
 

@@ -32,11 +32,22 @@ extern word8 Weight[32];
 extern "C" {
 #endif
 
+void node_receive_prep(SNODE *snp, SOCKET sd, word32 ip);
+void node_request_prep
+   (SNODE *snp, word32 ip, word16 port, word16 opreq, void *bnum);
 int recv_pkt(SNODE *snp);
 int recv_file(SNODE *snp);
 int send_pkt(SNODE *snp);
 int receive_protocol(SNODE *snp);
 int request_protocol(SNODE *snp);
+
+void node_cleanup(SNODE *snp);
+void prep_receive(SNODE *snp, SOCKET sd, word32 ip);
+void prep_request
+   (SNODE *snp, word32 ip, word16 port, word16 opreq, void *bnum);
+int node_receive(SNODE *snp);
+int node_request(SNODE *snp);
+
 
 #ifdef __cplusplus
 }  /* end extern "C" */
