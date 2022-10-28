@@ -10,8 +10,8 @@
 #define EXTENDED_ERROR_H
 
 
+#include "exterrno.h"
 #include "extio.h"
-#include <errno.h>
 
 /* internal helper MACROs */
 
