@@ -14,7 +14,6 @@
 /* external support */
 #include "exttime.h"
 #include "extthrd.h"
-#include "extos.h"
 #include "extio.h"
 #include "extint.h"
 #include "extinet.h"
@@ -65,7 +64,7 @@
 
 /* set default "preferred path separator" per OS */
 #ifndef PREFERRED_PATH_SEPARATOR
-   #if OS_WINDOWS
+   #ifdef _WIN32
       #define PREFERRED_PATH_SEPARATOR  "\\"
    #else
       #define PREFERRED_PATH_SEPARATOR  "/"
@@ -201,10 +200,12 @@
 
 /* extended operation codes (internal requests only) */
 
+/** Last neo-genesis block download request */
+#define REQ_LAST_NEOGEN ( 1 + LAST_OP )
 /** Blockchain file download and validate request */
-#define REQ_VAL_BLOCK   ( 1 + LAST_OP )
+#define REQ_VAL_BLOCK   ( 2 + LAST_OP )
 /** Trailer file download and validate request */
-#define REQ_VAL_TFILE   ( 2 + LAST_OP )
+#define REQ_VAL_TFILE   ( 3 + LAST_OP )
 
 /* task wait codes */
 
@@ -237,6 +238,8 @@
 #define TXNETWORK       1337
 /** End-of-transmission id for packets */
 #define TXEOT           0xabcd
+/** Packet trailer length. ( 2 + 2 ) = 4 */
+#define PKTTLRLEN       4
 /** Packet header length. ( (2 * 5) + (8 * 2) + (32 * 3) + 2 ) = 124 */
 #define PKTHDRLEN       124
 /** Packet (old) buffer length. For v3.0 transition compatibility */
@@ -260,7 +263,7 @@
 /** WOTS+ Transaction address length */
 #define TXWADDRLEN      2208
 /** Public key transaction address length */
-#define TXPADDRLEN      64
+#define TXADDRLEN       64
 /** Transaction amount length */
 #define TXAMOUNTLEN     8
 /** Transaction block number length */
@@ -268,9 +271,9 @@
 /** Offset, in bytes, at which a tag begins in a WOTS+ address */
 #define WTAGOFFSET   (  TXWADDRLEN - TXTAGLEN  )
 /** Offset, in bytes, at which a tag begins in a Public seed address */
-#define PTAGOFFSET   (  TXPADDRLEN - TXTAGLEN  )
+#define PTAGOFFSET   (  TXADDRLEN - TXTAGLEN  )
 /** eXtented TX MEMO transaction memo len */
-#define TXMEMOLEN    (  TXPADDRLEN - TXTAGLEN  )
+#define TXMEMOLEN    (  TXADDRLEN - TXTAGLEN  )
 /** Digest length of core hashes (SHA256LEN) */
 #define HASHLEN         32
 /** Minimum network miner fee */
@@ -331,23 +334,25 @@
 
 /* struct size definitions */
 
+#define BTSIZE 160
+
 /**
- * Public seed block header struct.
+ * Hashed block header struct. excl. Genesis, Neogenesis and Pseudo-blocks.
 */
 typedef struct {
    word8 hdrlen[4];           /**< Header length to transaction array */
-   word8 maddr[TXPADDRLEN];   /**< Public seed mining address */
-   word8 mreward[8];          /**< Block rewards */
-} BPHEADER;
+   word8 maddr[TXADDRLEN];   /**< Public mining address */
+   word8 mreward[8];          /**< Block reward */
+} BHEADER;
 
 /**
- * WOTS+ block header struct.
+ * WOTS+ block header struct. excl. Genesis, Neogenesis and Pseudo-blocks.
 */
 typedef struct {
    word8 hdrlen[4];           /**< Header length to transaction array */
    word8 maddr[TXWADDRLEN];   /**< WOTS+ mining address */
    word8 mreward[8];          /**< Block rewards */
-} BWHEADER;
+} BHEADER_W;
 
 /**
  * Block trailer struct.
@@ -368,6 +373,14 @@ typedef struct {
 } BTRAILER;
 
 /**
+ * Hashed neo-genesis block header struct.
+*/
+typedef struct {
+   word8 hdrlen[4];  /**< Header length to ledger entry array */
+   word8 lbytes[8];  /**< Number of bytes containing the ledger */
+} NGHEADER;
+
+/**
  * Device context struct
 */
 typedef struct {
@@ -380,12 +393,12 @@ typedef struct {
 } DEVICE_CTX;
 
 /**
- * WOTS+ ledger entry struct.
+ * Public ledger entry struct.
 */
 typedef struct {
-   word8 addr[TXPADDRLEN];       /**< Public seed address */
+   word8 addr[TXADDRLEN];        /**< Public address */
    word8 balance[TXAMOUNTLEN];   /**< Balance of address */
-} LENTRYP;
+} LENTRY;
 
 /**
  * WOTS+ ledger entry struct.
@@ -393,27 +406,17 @@ typedef struct {
 typedef struct {
    word8 addr[TXWADDRLEN];       /**< WOTS+ address */
    word8 balance[TXAMOUNTLEN];   /**< Balance of address */
-} LENTRYW;
+} LENTRY_W;
 
 /**
- * Public seed ledger transaction struct.
+ * Public ledger transaction struct.
 */
 typedef struct {
-   word8 addr[TXPADDRLEN];    /**< Public seed transaction */
+   word8 addr[TXADDRLEN];    /**< Public address */
    /** Transaction type code. '-' = debit, 'A' = credit (sorts last!) */
    word8 trancode[1];
-   word8 amount[TXAMOUNTLEN]; /**< Amount of transaction */
+   word8 amount[TXAMOUNTLEN]; /**< Transaction amount */
 } LTRANP;
-
-/**
- * WOTS+ ledger transaction struct.
-*/
-typedef struct {
-   word8 addr[TXWADDRLEN];    /**< WOTS+ address */
-   /** Transaction type code. '-' = debit, 'A' = credit (sorts last!) */
-   word8 trancode[1];
-   word8 amount[TXAMOUNTLEN]; /**< Amount of transaction */
-} LTRANW;
 
 /**
  * Multi-destination transaction destination struct.
@@ -425,7 +428,7 @@ typedef struct {
 } MDST;
 
 /**
- * Network transmission packet
+ * Network transmission packet struct.
  */
 typedef struct {
    word8 version[2];          /**< { PVERSION, Cbits } */
@@ -486,33 +489,33 @@ typedef struct {
  * TBC: Transaction fee increases for every 12 bytes of MEMO data.
 */
 typedef struct {
-   word8 src_addr[TXPADDRLEN];      /**< Transaction source address */
+   word8 src_addr[TXADDRLEN];      /**< Transaction source address */
    word8 dst_tag[TXTAGLEN];         /**< Transaction destination tag */
    word8 dst_memo[TXMEMOLEN];       /**< Memo text or binary data */
-   word8 chg_addr[TXPADDRLEN];      /**< Transaction change address */
+   word8 chg_addr[TXADDRLEN];      /**< Transaction change address */
    word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
    word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
    word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
    word8 tx_ttl[TXBLOCKLEN];        /**< Transaction time-to-live */
    word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
    word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
-} TXP_MEMO;
+} TX_MEMO;
 
 /**
  * Multi-destination type (XTX) public seed transaction structure.
  * @warning Logic (and underlying structure) is TBC.
 */
 typedef struct {
-   word8 src_addr[TXPADDRLEN];      /**< Transaction source address */
-   word8 DST_LOGIC_TBC[TXPADDRLEN]; /**< TBC */
-   word8 chg_addr[TXPADDRLEN];      /**< Transaction change address */
+   word8 src_addr[TXADDRLEN];      /**< Transaction source address */
+   word8 DST_LOGIC_TBC[TXADDRLEN]; /**< TBC */
+   word8 chg_addr[TXADDRLEN];      /**< Transaction change address */
    word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
    word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
    word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
    word8 tx_ttl[TXBLOCKLEN];        /**< Transaction time-to-live */
    word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
    word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
-} TXP_MDST;
+} TX_MDST;
 
 /**
  * Public seed transaction structure.
@@ -521,16 +524,16 @@ typedef struct {
  * - a "signed" time-to-live parameter
 */
 typedef struct {
-   word8 src_addr[TXPADDRLEN];      /**< Transaction source address */
-   word8 dst_Addr[TXPADDRLEN];      /**< Transaction destination address */
-   word8 chg_addr[TXPADDRLEN];      /**< Transaction change address */
+   word8 src_addr[TXADDRLEN];      /**< Transaction source address */
+   word8 dst_Addr[TXADDRLEN];      /**< Transaction destination address */
+   word8 chg_addr[TXADDRLEN];      /**< Transaction change address */
    word8 send_total[TXAMOUNTLEN];   /**< Amount to send to destination */
    word8 change_total[TXAMOUNTLEN]; /**< Amount remaining (change) */
    word8 tx_fee[TXAMOUNTLEN];       /**< Transaction fee amount */
    word8 tx_ttl[TXBLOCKLEN];        /**< Transaction time-to-live */
    word8 tx_sig[TXSIGLEN];          /**< Transaction signature */
    word8 tx_id[HASHLEN];            /**< Transaction ID (hash) */
-} TXP;
+} TX;
 
 /**
  * Multi-destination type (XTX) WOTS+ transaction structure.
