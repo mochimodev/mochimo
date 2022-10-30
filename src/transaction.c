@@ -107,7 +107,7 @@ FAIL_FEES: errno = EMCM_TXMDST_FEES; return VERROR;
 int txw_val(TXW *tx, void *fee)
 {
    SHA256_CTX mctx;
-   LENTRYW le;              /* ledger entry */
+   LENTRY *le;             /* ledger entry */
    TXW_MDST *mtx;          /* for mtx specific WOTS+ sig check */
    word32 total[2];        /* for 64-bit maths */
    word32 ADDR[8];         /* for WOTS+, addr[] */
@@ -147,14 +147,15 @@ int txw_val(TXW *tx, void *fee)
    }
 
    /* look up source address in ledger */
-   if (le_findw(src_addr, TXWADDRLEN) == NULL) goto FAIL_ADDRNOTAVAIL;
+   le = le_findw(src_addr);
+   if (le == NULL) goto FAIL_ADDRNOTAVAIL;
    /* use add64() to prepare totals and check overflow */
    total[0] = total[1] = 0;
    overflow = add64(tx->send_total, tx->change_total, total);
    overflow += add64(tx->tx_fee, total, total);
    if (overflow) goto BAD_TX_AMOUNTS_OVERFLOW;
    /* check totals match ledger balance */
-   if (cmp64(le.balance, total) != 0) goto FAIL_TX_SRC_LE_BALANCE;
+   if (cmp64(le->balance, total) != 0) goto FAIL_TX_SRC_LE_BALANCE;
 
    /* TXW_MDST transactions are always signed with trailing zeros */
    if (is_xtx && xtype == XTYPE_MTX) {
