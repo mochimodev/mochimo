@@ -215,7 +215,6 @@ int txw_mdst_val(TXW_MDST *mtx, void *fee)
 {
    word8 *bp, *limit;
    word32 total[2], mfees[2];
-   word8 addr[TXWOTSLEN];
    word8 *src_tag, *chg_tag;
    int j;
 
@@ -250,7 +249,6 @@ int txw_mdst_val(TXW_MDST *mtx, void *fee)
       if (add64(mfees, fee, mfees)) goto FAIL_FEES_OVERFLOW;
       if (add64(total, mtx->dst[j].amount, total)) goto FAIL_OVERFLOW;
       /* If dst[j] tag not found, put error code in zeros[] array. */
-      memcpy(WOTS_TAGp(addr), mtx->dst[j].tag, TXTAGLEN);
       mtx->zeros[j] = tag_find(mtx->dst[j].tag) ? 1 : 0;
    }  /* end for j */
    /* Check tallies... */

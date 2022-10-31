@@ -198,7 +198,7 @@ void le_close(int depth)
 */
 int le_cmpw(const void *a, const void *b)
 {
-   return memcmp(a, b, TXWADDRLEN);
+   return memcmp(a, b, TXWOTSLEN);
 }  /* end le_cmpw() */
 
 /**
@@ -318,7 +318,7 @@ void le_convert(void *hash, void *wots)
    sha256(wots, TXSIGLEN, hash);
    memcpy(
       (char *) hash + (TXADDRLEN - HASHLEN),
-      (char *) wots + (TXWADDRLEN - HASHLEN),
+      (char *) wots + (TXWOTSLEN - HASHLEN),
       HASHLEN
    );
 }  /* end le_convert() */
@@ -371,7 +371,7 @@ int le_extract(const char *ngfname)
    FILE *fp, *lfp;         /* FILE pointers */
    long long remain;
    word32 hdrlen;          /* buffer for block header length */
-   word8 paddr[TXWADDRLEN]; /* ledger address sort check */
+   word8 paddr[TXWOTSLEN]; /* ledger address sort check */
    int first;
 
    /* open files */
@@ -690,10 +690,10 @@ int tag_extract(const char *lfname, const char *tfname)
       if (result == VERROR) goto FAIL_IO;
       if (result == EOF) break;
       /* if address includes a valid tag... */
-      if (PK_HAS_TAG(le.addr)) {
+      if (ADDR_HAS_TAG(le.addr)) {
          /* ... associate index and write to file */
          put64(ti.idx, &idx);
-         memcpy(ti.tag, PK_TAGp(le.addr), TXTAGLEN);
+         memcpy(ti.tag, ADDR_TAGp(le.addr), TXTAGLEN);
          if (iszero(le.balance, 8)) {
             if (fwrite(&ti, sizeof(ti), 1, tfp0) != 1) goto FAIL_IO;
          } else if (fwrite(&ti, sizeof(ti), 1, tfp1) != 1) goto FAIL_IO;
