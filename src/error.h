@@ -353,6 +353,12 @@ enum mcm_errno_t {
    /** Bad TX, WOTS+ signature invalid */
    EMCM_TXWOTS_SIG,
 
+   /** eXtended TX contains punctuation character */
+   EMCMXTXHASPUNCT,
+   /** eXtended TX contains non-printable character */
+   EMCMXTXNONPRINT,
+   /** eXtended TX missing null terminator */
+   EMCMXTXNOTERM,
    /** eXtended TX contains non-zero trailing padding */
    EMCM_XTX_NZTPADDING,
    /** eXtended TX type is not defined */

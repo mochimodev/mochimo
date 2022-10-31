@@ -17,6 +17,7 @@
 extern "C" {
 #endif
 
+int tx_memo_val(TX_MEMO *tx, void *fee);
 int tx_val(TX *tx, void *fee);
 int txw_mdst_val(TXW_MDST *tx, void *fee);
 int txw_val(TXW *tx, void *fee);

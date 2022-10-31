@@ -21,6 +21,67 @@
 #include <string.h>
 #include "sha256.h"
 #include "extmath.h"
+#include <ctype.h>   /* for isprint() */
+
+/**
+ * Validate a MEMO Hashed transaction.
+ * Includes tag checking. Fee is set by caller:
+ * - Transaction validator sets fee parameter to Myfee.
+ * - Blockchain validator sets fee to trailer Mfee.
+ * @param tx Pointer to a MEMO Hashed transaction to validate
+ * @param fee Pointer to fee to validate against
+ * @return (int) value representing operation result
+ * @retval VEOK on success, multi-destination transaction is valid
+ * @retval VERROR on error, check errno for details
+*/
+int tx_memo_val(TX_MEMO *mtx, void *fee)
+{
+   word8 *src_tag, *chg_tag;
+   int j;
+
+   /* init */
+   src_tag = ADDR_TAGp(mtx->src_addr);
+   chg_tag = ADDR_TAGp(mtx->chg_addr);
+
+   /* Transaction validator has already checked...
+    * src != chg, src exists, sig is good, and totals are good.
+    */
+
+   /* check src is tagged, matches chg, and chg tag will NOT dissolve */
+   if (!ADDR_HAS_TAG(mtx->src_addr)) goto FAIL_SRC_TAG;
+   if (!tag_equal(src_tag, chg_tag)) goto FAIL_SRC_NOT_CHG;
+   if (cmp64(mtx->change_total, fee) <= 0) goto FAIL_CHG_DISSOLVE;
+   /* check dst tag is not src tag, exists in ledger and non-zero send */
+   if (tag_equal(mtx->dst_tag, src_tag)) goto FAIL_DST_IS_SRC;
+   if (tag_find(mtx->dst_tag) == NULL) goto FAIL_ADDRNOTAVAIL;
+   if (iszero(mtx->send_total, 8)) goto FAIL_DST_AMOUNT;
+   /* check MEMO is null terminated */
+   if (mtx->dst_memo[TXMEMOLEN - 1] != 0) goto FAIL_NOTERM;
+   /* check MEMO consist of only printable, non-punctuation characters */
+   for (j = 0; j < TXMEMOLEN; j++) {
+      /* Zero marks the end of the MEMO */
+      if (mtx->dst_memo[j] == 0) break;
+      if (ispunct(mtx->dst_memo[j])) goto FAIL_HASPUNCT;
+      if (!isprint(mtx->dst_memo[j])) goto FAIL_NONPRINT;
+   }
+   /* check MEMO zero padding */
+   if (!iszero(mtx->dst_memo + j, TXMEMOLEN - j)) goto FAIL_NZTPADDING;
+
+   /* TX_MEMO is valid */
+   return VEOK;
+
+/* internal error handling */
+FAIL_SRC_TAG: set_errno(EMCM_TXMDST_SRC_TAG); return VERROR;
+FAIL_SRC_NOT_CHG: set_errno(EMCM_TXMDST_SRC_NOT_CHG); return VERROR;
+FAIL_CHG_DISSOLVE: set_errno(EMCM_TXMDST_CHG_DISSOLVE); return VERROR;
+FAIL_DST_IS_SRC: set_errno(EMCM_TXMDST_DST_IS_SRC); return VERROR;
+FAIL_ADDRNOTAVAIL: set_errno(EADDRNOTAVAIL); return VERROR;
+FAIL_DST_AMOUNT: set_errno(EMCM_TXMDST_DST_AMOUNT); return VERROR;
+FAIL_NOTERM: set_errno(EMCMXTXNOTERM); return VERROR;
+FAIL_HASPUNCT: set_errno(EMCMXTXHASPUNCT); return VERROR;
+FAIL_NONPRINT: set_errno(EMCMXTXNONPRINT); return VERROR;
+FAIL_NZTPADDING: set_errno(EMCM_XTX_NZTPADDING); return VERROR;
+}  /* end tx_memo_val() */
 
 /**
  * Validate a Hashed transaction. Requires an open ledger.
