@@ -1,32 +1,35 @@
 /**
- * @file tfile.h
- * @brief Mochimo trailer file support.
+ * @file chain.h
+ * @brief Mochimo chain data support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
 /* include guard */
-#ifndef MOCHIMO_TFILE_H
-#define MOCHIMO_TFILE_H
+#ifndef MOCHIMO_CHAIN_H
+#define MOCHIMO_CHAIN_H
 
 
 /* internal support */
 #include "types.h"
-
-/* Count of trailers that fit in a TX: */
-#define NTFTX (TRANLEN / sizeof(BTRAILER))
 
 /* C/C++ compatible prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int readtf(void *buff, word32 bnum, word32 count);
-int past_weight(word8 *weight, word32 lownum);
-int loadproof(TX *tx);
-int checkproof(TX *tx, word32 *splitblock);
-int tf_val(char *fname, void *bnum, void *weight, int weight_only);
-int trim_tfile(void *highbnum);
+void add_weight(word8 *weight, word8 difficulty, word8 *bnum);
+void get_mreward(void *reward, void *bnum);
+int get_tfrewards(char *fname, void *rewards, void *bnum);
+word32 next_difficulty(BTRAILER *btp);
+int read_bnum(void *bnum, char *filename);
+int read_tfile(void *buffer, void *bnum, int count, char *tfname);
+int read_trailer(BTRAILER *btp, char *fname);
+int trim_tfile(char *tfname, void *highbnum);
+int validate_pow(BTRAILER *btp);
+int validate_trailer(BTRAILER *btp, BTRAILER *pbtp);
+int validate_tfile_data(FILE *tfp, void *highbnum, void *highweight);
+int validate_tfile(char *tfname, void *highbnum, void *highweight);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

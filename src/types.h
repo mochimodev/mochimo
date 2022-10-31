@@ -276,9 +276,12 @@
 #define HASHLEN         32
 /** Minimum network miner fee */
 #define MFEE            500
-/** Maximum number of transactions per block
- * NOTE: Removal proposed for v3.0 onwards */
+/** Maximum number of transactions per block */
 #define MAXBLTX         32768
+/** Number of seconds to bridge pseudo-blocks (in times of trouble) */
+#define BRIDGE          949
+/** Number of seconds of allowable variance in future solve time checks */
+#define STIME_VARIANCE  10
 
 /** Get pointer to tag of WOTS+ address */
 #define WOTS_TAGp(addr) (((word8 *) (addr)) + WTAGOFFSET)
