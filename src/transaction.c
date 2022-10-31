@@ -23,6 +23,122 @@
 #include "extmath.h"
 
 /**
+ * Validate a Hashed transaction. Requires an open ledger.
+ * @param tx Pointer to a Hashed transaction to validate
+ * @param fee Pointer to fee to validate against
+ * @return (int) value representing operation result
+ * @retval VEOK on success, transaction is valid
+ * @retval VERROR on internal error, check errno for details
+ * @retval VEBAD on protocol violation, bad transaction data
+ * @retval VEBAD2 on malicious violation, invalid WOTS+ signature
+*/
+int tx_val(TX *tx, void *fee)
+{
+   SHA256_CTX mctx;
+   LENTRY *le;             /* ledger entry */
+   word32 total[2];        /* for 64-bit maths */
+   word32 ADRS[8];         /* for WOTS+, ADRS[] */
+   word8 MESSAGE[HASHLEN]; /* for WOTS+, transaction hash */
+   word8 PUBKEY[TXSIGLEN]; /* for WOTS+, public_key[] */
+   word8 *PUBSEEDp;        /* for WOTS+, public_seed pointer */
+   word8 *src_addr, *dst_addr, *chg_addr, *src_tag, *chg_tag;
+   int overflow, is_xtx, xtype;
+
+   /* init */
+   is_xtx = TX_IS_XTX(tx);
+   xtype = TX_XTYPE(tx);
+   src_addr = tx->src_addr;
+   dst_addr = tx->dst_addr;
+   chg_addr = tx->chg_addr;
+
+   /* validate transaction fixed fee and src != chg */
+   if (cmp64(tx->tx_fee, fee) < 0) goto BAD_TX_FEE;
+   if (memcmp(src_addr, chg_addr, TXADDRLEN) == 0) goto BAD_TX_CHG_ADDR;
+   /* for non-xtx transactions check src != dst and validate tags */
+   if (!is_xtx) {
+      if (memcmp(src_addr, dst_addr, TXADDRLEN) == 0) goto BAD_TX_DST_ADDR;
+      /* If dst_addr is tagged... */
+      if (ADDR_HAS_TAG(dst_addr)) {
+         /* check full dst_addr is in ledger, else invalid */
+         if (le_find(dst_addr) == NULL) goto FAIL_ADDRNOTAVAIL;
+      }
+      src_tag = ADDR_TAGp(src_addr);
+      chg_tag = ADDR_TAGp(chg_addr);
+      /* If change tag exists and src_tag != chg_tag (transfer), check... */
+      if (ADDR_HAS_TAG(chg_addr) && !tag_equal(src_tag, chg_tag)) {
+         /* ... if src is not default, tx is invalid. */
+         if (ADDR_HAS_TAG(src_addr)) goto FAIL_TX_SRC_TAGGED;
+         /* ... if change tag is in ledger.dat, tx is invalid. */
+         if (tag_find(chg_tag)) goto FAIL_TX_CHG_TAG;
+      }
+   }
+
+   /* look up source address in ledger */
+   le = le_find(src_addr);
+   if (le == NULL) goto FAIL_ADDRNOTAVAIL;
+   /* use add64() to prepare totals and check overflow */
+   total[0] = total[1] = 0;
+   overflow = add64(tx->send_total, tx->change_total, total);
+   overflow += add64(tx->tx_fee, total, total);
+   if (overflow) goto BAD_TX_AMOUNTS_OVERFLOW;
+   /* check totals match ledger balance */
+   if (cmp64(le->balance, total) != 0) goto FAIL_TX_SRC_LE_BALANCE;
+
+   /* MDST HASHED TRANSACTION LOGIC UNDECIDED...
+   if (is_xtx && xtype == XTYPE_MTX) {
+      mtx = (TX_MDST *) tx;
+      memset(mtx->zeros, 0, MDST_NUM_DZEROS);
+   } */
+
+   /* check WOTS+ Signature against transaction hash (message) */
+   sha256_init(&mctx);
+   sha256_update(&mctx, tx->src_addr, TXADDRLEN);
+   sha256_update(&mctx, tx->dst_addr, TXADDRLEN);
+   sha256_update(&mctx, tx->chg_addr, TXADDRLEN);
+   sha256_update(&mctx, tx->send_total, TXAMOUNTLEN);
+   sha256_update(&mctx, tx->change_total, TXAMOUNTLEN);
+   sha256_update(&mctx, tx->tx_fee, TXAMOUNTLEN);
+   sha256_update(&mctx, tx->tx_ttl, TXAMOUNTLEN);
+   sha256_update(&mctx, tx->tx_spk, HASHLEN);
+   sha256_final(&mctx, MESSAGE);
+   PUBSEEDp = src_addr + TXSIGLEN;
+   memcpy(ADRS, PUBSEEDp + 32, 32);  /* copy WOTS ADRS[] */
+   wots_pk_from_sig(PUBKEY, tx->tx_sig, MESSAGE, PUBSEEDp, ADRS);
+   if (memcmp(PUBKEY, tx->src_addr, TXSIGLEN) != 0) goto BAD2_TXWOTS_SIG;
+   /* check for eXtended TX transaction type */
+   if (is_xtx) {
+      /* eXtended TX transaction type validation methods */
+      switch (xtype) {
+         /* MDST HASHED TRANSACTION LOGIC UNDECIDED...
+         case XTYPE_MTX: {
+            mtx = (TXW_MDST *) tx;
+            return txw_mdst_val(mtx, fee);
+         } */
+         case XTYPE_MEMO: return tx_memo_val((TX_MEMO *) tx, fee);
+         default: goto FAIL_XTX_UNDEFINED;
+      }  /* end switch (xtype) */
+   }  /* end if (is_xtx) */
+
+   /* TX is valid */
+   return VEOK;
+
+/* internal error handling */
+FAIL_ADDRNOTAVAIL: set_errno(EADDRNOTAVAIL); return VERROR;
+FAIL_TX_SRC_TAGGED: set_errno(EMCM_TX_SRC_TAGGED); return VERROR;
+FAIL_TX_CHG_TAG: set_errno(EMCM_TX_CHG_TAG); return VERROR;
+FAIL_TX_SRC_LE_BALANCE: set_errno(EMCM_TX_SRC_LE_BALANCE); return VERROR;
+FAIL_XTX_UNDEFINED: set_errno(EMCM_XTX_UNDEFINED); return VERROR;
+
+/* protocol violation handling */
+BAD_TX_FEE: set_errno(EMCM_TX_FEE); return VEBAD;
+BAD_TX_CHG_ADDR: set_errno(EMCM_TX_CHG_ADDR); return VEBAD;
+BAD_TX_DST_ADDR: set_errno(EMCM_TX_DST_ADDR); return VEBAD;
+BAD_TX_AMOUNTS_OVERFLOW: set_errno(EMCM_TX_AMOUNTS_OVERFLOW); return VEBAD;
+
+/* malicious violation handling */
+BAD2_TXWOTS_SIG: set_errno(EMCM_TXWOTS_SIG); return VEBAD2;
+}  /* end tx_val() */
+
 /**
  * Validate a multi-destination WOTS+ transaction.
  * Includes tag checking. Fee is set by caller:
