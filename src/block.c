@@ -15,6 +15,7 @@
 /* internal support */
 #include "chain.h"
 #include "error.h"
+#include "ledger.h"
 
 /* external support */
 #include "extlib.h"
