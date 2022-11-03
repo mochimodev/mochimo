@@ -23,12 +23,13 @@ void get_mreward(void *reward, void *bnum);
 int get_tfrewards(char *fname, void *rewards, void *bnum);
 word32 next_difficulty(BTRAILER *btp);
 int read_bnum(void *bnum, char *filename);
+int read_hdrlen(void *hdrlen, char *filename);
 int read_tfile(void *buffer, void *bnum, int count, char *tfname);
 int read_trailer(BTRAILER *btp, char *fname);
 int trim_tfile(char *tfname, void *highbnum);
 int validate_pow(BTRAILER *btp);
 int validate_trailer(BTRAILER *btp, BTRAILER *pbtp);
-int validate_tfile_data(FILE *tfp, void *highbnum, void *highweight);
+int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight);
 int validate_tfile(char *tfname, void *highbnum, void *highweight);
 
 #ifdef __cplusplus

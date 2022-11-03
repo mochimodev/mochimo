@@ -204,13 +204,39 @@ FAIL_IO:
 }  /* end read_bnum() */
 
 /**
+ * Read the header length value from a blockchain file.
+ * @param hdrlen Pointer to buffer to place headerlen value
+ * @param filename Filename of block to read from
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int read_hdrlen(void *hdrlen, char *filename)
+{
+   FILE *fp;
+
+   /* open file and read bnum in BTRAILER */
+   fp = fopen(filename, "rb");
+   if (fp == NULL) return VERROR;
+   if (fread(hdrlen, sizeof(word32), 1, fp) != 1) {
+      if (feof(fp)) set_errno(EMCM_EOF);
+      fclose(fp);
+      return VERROR;
+   }
+   fclose(fp);
+
+   /* success */
+   return VEOK;
+}  /* end read_hdrlen() */
+
+/**
  * Read Tfile data into a buffer.
  * @param buffer Pointer to buffer to read Tfile data into
  * @param bnum Block number at which to start reading from Tfile
  * @param count Number of trailers to read from Tfile
  * @return (int) number of records read from Tfile, which may be less
  * than count if an error ocurrs. Check errno for details.
- */
+*/
 int read_tfile(void *buffer, void *bnum, int count, char *tfname)
 {
    long long offset;
@@ -444,15 +470,15 @@ BAD_PHASH: set_errno(EMCM_PHASH); return VERROR;
 }  /* end validate_trailer() */
 
 /**
- * Validate a Trailer file data (excludes PoW).
- * @param tfp FILE pointer to open Tfile to validate
+ * Validate an opened Trailer file (excludes PoW validation).
+ * @param tfp Open Tfile FILE pointer to validate
  * @param highbnum Pointer to place highest validated bnum
  * @param highweight Pointer to place highest validated weight
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int validate_tfile_data(FILE *tfp, void *highbnum, void *highweight)
+int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight)
 {
    BTRAILER bt, bt_prev, *btp;
    long long filelen;
@@ -492,10 +518,10 @@ int validate_tfile_data(FILE *tfp, void *highbnum, void *highweight)
 
    /* tfile valid */
    return VEOK;
-}  /* end validate_tfile_data() */
+}  /* end validate_tfile_fp() */
 
 /**
- * Validate a Trailer file (excludes PoW).
+ * Validate a Trailer file (excludes PoW validation).
  * @param tfname Filename of Tfile to validate
  * @param highbnum Pointer to place highest validated bnum
  * @param highweight Pointer to place highest validated weight
@@ -510,7 +536,7 @@ int validate_tfile(char *tfname, void *highbnum, void *highweight)
 
    tfp = fopen(tfname, "rb");
    if (tfp == NULL) return VERROR;
-   ecode = validate_tfile_data(tfp, highbnum, highweight);
+   ecode = validate_tfile_fp(tfp, highbnum, highweight);
    fclose(tfp);
 
    return ecode;
