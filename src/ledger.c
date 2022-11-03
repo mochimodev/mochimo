@@ -615,6 +615,23 @@ FAIL_APPEND:
 }  /* end le_splice() */
 
 /**
+ * Transpose multiple Ledger tree depths into a single depth Ledger.
+ * Zero balance ledger entries are ommitted.
+ * @param filename Filename of final compressed output
+ * @return (int) value representing the compression result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int le_transpose(void)
+{
+   static char *fname = "ledger.trs";
+
+   if (le_compress(fname, 0, Leidx) != VEOK) return VERROR;
+   if (fexists(fname) && le_splice(fname, 0, Leidx) != VEOK) return VERROR;
+   return VEOK;
+}  /* end le_transpose() */
+
+/**
  * Comparison function for tags.
  * @param a Pointer to tag A
  * @param b Pointer to tag B
