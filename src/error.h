@@ -193,6 +193,9 @@ enum mcm_errno_t {
    /** Maximum ledger depth reached */
    EMCMLEDEPTH,
 
+   /** No transactions to handle */
+   EMCMNOTXS,
+
    /** Unspecified 64-bit math overflow */
    EMCM_MATH64_OVERFLOW,
    /** Unspecified 64-bit math underflow */
