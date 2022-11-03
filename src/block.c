@@ -277,6 +277,47 @@ FAIL_IO:
 }  /* end pseudo() */
 
 /**
+ * Validate any open blockchain file. With the exception of the Genesis
+ * block, all other blockchain files (Hashed or WOTS+) can be identified
+ * by the value of the 32-bit block header length at the start of the file:
+ * - 4, pseudo-block file
+ * - 12, Hashed neo-genesis file
+ * - 76, Hashed blockchain file
+ * - 2220, WOTS+ blockchain file
+ * - >2220, WOTS+ neo-genesis file
+ * @param fp Open FILE pointer to validate
+ * @param tfname Filename of Tfile to validate against
+ * @return (int) value representing operation result
+ * @retval VEBAD on block format violation; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int validate_block_fp(FILE *fp, char *tfname)
+{
+   BTRAILER prev_bt;
+   word32 hdrlen;
+
+   /* read previous block trailer from supplied file */
+   if (read_trailer(&prev_bt, tfname) != VEOK) return VERROR;
+
+   /* seek to beginning and read header length */
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) return VERROR;
+   if (fread(&hdrlen, sizeof(hdrlen), 1, fp) != 1) {
+      if (feof(fp)) set_errno(EMCM_EOF);
+      return VERROR;
+   }
+
+   /* determine appropriate validation routine */
+   switch (hdrlen) {
+      case 4: return pseudo_val_fp(fp, &prev_bt);
+   /* case 12: return neogen_val_fp(fp, tfname);
+      case 76: return block_val_fp(fp, &prev_bt);  */
+      case 2220: return blockw_val_fp(fp, &prev_bt);
+      default: return neogenw_val_fp(fp, tfname);
+   }  /* end switch (hdrlen) */
+}  /* end validate_block_fp() */
+
+/**
  * Validate any blockchain file. With the exception of the Genesis block,
  * all other blockchain files (Hashed or WOTS+) can be identified by the
  * value of the 32-bit block header length at the start of the file:
