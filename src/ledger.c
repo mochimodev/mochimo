@@ -176,11 +176,11 @@ void le_close(int depth)
    while (depth < Leidx) {
       Leidx--;
       /* close/clear Ledger entries */
-      if (Ledger[Leidx].lmap) munmap(Ledger[Leidx].lmap, 0);
+      munmap(Ledger[Leidx].lmap, Ledger[Leidx].count * sizeof(LENTRY));
       Ledger[Leidx].lmap = NULL;
       Ledger[Leidx].count = 0;
       /* close/clear Tag index */
-      if (Ledger[Leidx].tmap) munmap(Ledger[Leidx].tmap, 0);
+      munmap(Ledger[Leidx].tmap, Ledger[Leidx].tags * sizeof(TAGIDX));
       Ledger[Leidx].tmap = NULL;
       Ledger[Leidx].tags = 0;
    }
@@ -337,13 +337,13 @@ void le_delete(int depth)
       Leidx--;
       /* close/clear/delete Ledger entries */
       snprintf(fname, FILENAME_MAX, "%s.%d", Lefname_opt, Leidx);
-      if (Ledger[Leidx].lmap) munmap(Ledger[Leidx].lmap, 0);
+      munmap(Ledger[Leidx].lmap, Ledger[Leidx].count * sizeof(LENTRY));
       Ledger[Leidx].lmap = NULL;
       Ledger[Leidx].count = 0;
       remove(fname);
       /* close/clear/delete Tag index */
       snprintf(fname, FILENAME_MAX, "%s.%d", Tifname_opt, Leidx);
-      if (Ledger[Leidx].tmap) munmap(Ledger[Leidx].tmap, 0);
+      munmap(Ledger[Leidx].tmap, Ledger[Leidx].tags * sizeof(TAGIDX));
       Ledger[Leidx].tmap = NULL;
       Ledger[Leidx].tags = 0;
       remove(fname);
