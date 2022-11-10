@@ -52,16 +52,18 @@ int blockw_val_fp(FILE *fp, BTRAILER *btp)
    /* sanity check */
    if (fp == NULL || btp == NULL) goto FAIL_INVAL;
 
-   /* ensure blockchain file is at start */
-   rewind(fp);
+   /* read block trailer and file length */
+   if (fseek64(fp, -(sizeof(bt)), SEEK_END) != 0) return VERROR;
+   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL;
+   blocklen = ftell64(fp);
 
    /* read and check regular fixed size block header */
-   if (fread(&hdrlen, sizeof(hdrlen), 1, fp) != 1) return VERROR;
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) return VERROR;
+   if (fread(&bh, sizeof(bh), 1, fp) != 1) goto FAIL;
+   hdrlen = get32(bh.hdrlen);
    if (hdrlen != sizeof(bh)) goto BAD_HDRLEN;
 
-   /* read block trailer */
-   if (fseek64(fp, -(sizeof(bt)), SEEK_END) != 0) return VERROR;
-   if (fread(&bt, sizeof(bt), 1, fp) != 1) return VERROR;
+   /* fp left at offset of Merkel Block Array -- ready to fread() */
 
    /* validate block trailer sequence and Proof of Work */
    res = validate_trailer(&bt, btp);
@@ -75,24 +77,19 @@ int blockw_val_fp(FILE *fp, BTRAILER *btp)
 
    /* read and check total block file length */
    chklen = (long long) hdrlen + (tcount * sizeof(txw)) + sizeof(bt);
-   blocklen = ftell64(fp);
    if (blocklen == EOF) return VERROR;
    if (blocklen != chklen) goto BAD_FILELEN;
-
-   /* read entire block header */
-   if (fseek64(fp, 0LL, SEEK_SET) != 0) return VERROR;
-   if (fread(&bh, sizeof(bh), 1, fp) != 1) goto FAIL;
 
    /* check mining reward/address/no-tag */
    get_mreward(mreward, bt.bnum);
    if (memcmp(bh.mreward, mreward, 8) != 0) goto BAD_MREWARD;
    if (WOTS_HAS_TAG(bh.maddr)) goto BAD_MADDR;
 
-   /* fp left at offset of Merkel Block Array -- ready to fread() */
-
    /* begin hashing contexts */
    sha256_init(&bctx);
-   sha256_update(&bctx, &bh, hdrlen);
+   sha256_update(&bctx, bh.hdrlen, sizeof(bh.hdrlen));
+   sha256_update(&bctx, bh.maddr, sizeof(bh.maddr));
+   sha256_update(&bctx, bh.mreward, sizeof(bh.mreward));
 
    /* read/validate/store each transaction */
    for (j = 0; j < tcount; j++) {
@@ -100,14 +97,15 @@ int blockw_val_fp(FILE *fp, BTRAILER *btp)
       if (fread(&txw, sizeof(txw), 1, fp) != 1) goto FAIL;
 
       /* running block/merkel hash */
-      sha256_update(&bctx, txw.src_addr, TXWOTSLEN);
-      sha256_update(&bctx, txw.dst_addr, TXWOTSLEN);
-      sha256_update(&bctx, txw.chg_addr, TXWOTSLEN);
-      sha256_update(&bctx, txw.send_total, TXAMOUNTLEN);
-      sha256_update(&bctx, txw.change_total, TXAMOUNTLEN);
-      sha256_update(&bctx, txw.tx_fee, TXAMOUNTLEN);
-      sha256_update(&bctx, txw.tx_sig, TXSIGLEN);
-      sha256_update(&bctx, txw.tx_id, HASHLEN);
+      sha256_update(&bctx, txw.src_addr, sizeof(txw.src_addr));
+      sha256_update(&bctx, txw.dst_addr, sizeof(txw.dst_addr));
+      sha256_update(&bctx, txw.chg_addr, sizeof(txw.chg_addr));
+      sha256_update(&bctx, txw.send_total, sizeof(txw.send_total));
+      sha256_update(&bctx, txw.change_total, sizeof(txw.change_total));
+      sha256_update(&bctx, txw.tx_fee, sizeof(txw.tx_fee));
+      sha256_update(&bctx, txw.tx_sig, sizeof(txw.tx_sig));
+      sha256_update(&bctx, txw.tx_id, sizeof(txw.tx_id));
+
       /* check tx_id matches computed hash */
       sha256(txw.src_addr, TXWOTSLEN, tx_id);
       if (memcmp(tx_id, txw.tx_id, HASHLEN) != 0) goto BAD_TX_ID;
@@ -127,16 +125,26 @@ int blockw_val_fp(FILE *fp, BTRAILER *btp)
       res = txw_val((TXW *) &txw, bt.mfee);
       if (res == VERROR) goto FAIL;
       if (res >= VEBAD) goto BAD;
+
+      /* sum fees for miner credit check */
+      if (add64(mreward, txw.tx_fee, mreward)) goto BAD_MREWARD_OVERFLOW;
    }  /* end for j */
 
    /* finalize Merkel Root - phash, bnum, mfee, tcount, time0, difficulty */
-   sha256_update(&bctx, &bt, (HASHLEN + 8 + 8 + 4 + 4 + 4));
+   sha256_update(&bctx, bt.phash, sizeof(bt.phash));
+   sha256_update(&bctx, bt.bnum, sizeof(bt.bnum));
+   sha256_update(&bctx, bt.mfee, sizeof(bt.mfee));
+   sha256_update(&bctx, bt.tcount, sizeof(bt.tcount));
+   sha256_update(&bctx, bt.time0, sizeof(bt.time0));
+   sha256_update(&bctx, bt.difficulty, sizeof(bt.difficulty));
    memcpy(&mctx, &bctx, sizeof(mctx));
    sha256_final(&mctx, mroot);
    if (memcmp(bt.mroot, mroot, HASHLEN) != 0) goto BAD_MROOT;
 
-   /* finalize block hash - Block trailer (- block hash) */
-   sha256_update(&bctx, &bt, sizeof(BTRAILER) - HASHLEN);
+   /* finalize block hash - mroot, nonce, stime */
+   sha256_update(&bctx, bt.mroot, sizeof(bt.mroot));
+   sha256_update(&bctx, bt.nonce, sizeof(bt.nonce));
+   sha256_update(&bctx, bt.stime, sizeof(bt.stime));
    sha256_final(&bctx, bhash);
    if (memcmp(bt.bhash, bhash, HASHLEN) != 0) goto BAD_BHASH;
 
@@ -156,6 +164,7 @@ BAD_MADDR: set_errno(EMCM_MADDR); return VEBAD;
 BAD_TX_ID: set_errno(EMCM_TX_ID); return VEBAD;
 BAD_TX_SORT: set_errno(EMCM_TX_SORT); return VEBAD;
 BAD_TX_DUP: set_errno(EMCM_TX_DUP); return VEBAD;
+BAD_MREWARD_OVERFLOW: set_errno(EMCM_MREWARDS_OVERFLOW); return VEBAD;
 BAD_MROOT: set_errno(EMCM_MROOT); return VEBAD;
 BAD_BHASH: set_errno(EMCM_BHASH);
 BAD:
@@ -314,58 +323,57 @@ int neogenw_val_fp(FILE *fp, char *tfname)
    LENTRY_W le, prev_le;
    SHA256_CTX cctx;
    BTRAILER bt, tft;
-   size_t chklen, count;
+   size_t remain, count;
    word32 hdrlen, first;
    word8 chash[HASHLEN];
    word8 amounts[8];
    word8 rewards[8];
 
-   /* compute block hash, sum ledger amounts and check length */
-   chklen = 0;
+   /* init */
    sha256_init(&cctx);
    memset(amounts, 0, 8);
+   rewind(fp);
 
    /* read header length */
-   if (fseek64(fp, 0LL, SEEK_SET) != 0) return VERROR;
    if (fread(&hdrlen, sizeof(hdrlen), 1, fp) != 1) return VERROR;
 
    /* update data from headerlen */
-   chklen = sizeof(hdrlen);
+   remain = hdrlen;
+   if (remain < (sizeof(hdrlen) + sizeof(le))) goto BAD_HDRLEN;
+   if ((remain % sizeof(le)) != sizeof(hdrlen)) goto BAD_HDRLEN;
    sha256_update(&cctx, &hdrlen, sizeof(hdrlen));
 
    /* read remaining block data */
-   for (first = 1; ; first = 0, chklen += count) {
+   for (first = 1, remain -= sizeof(hdrlen); remain; remain -= sizeof(le)) {
       /* perform read into ledger entry -- check read count */
-      if ((count = fread(&le, sizeof(le), 1, fp)) != 1) {
-         if (ferror(fp)) return VERROR;
-         /* EOF -- read block trailer */
-         /* NOTE: this logic relies on sizeof(BTRAILER) < sizeof(LENTRY) */
-         if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_IO;
-         break;
-      }
+      if ((count = fread(&le, sizeof(le), 1, fp)) != 1) goto FAIL_IO;
       /* check ledger sort -- skip on first read */
-      if (!first && memcmp(le.addr, prev_le.addr, sizeof(le.addr)) <= 0) {
+      if (first) first = 0;
+      else if (memcmp(le.addr, prev_le.addr, sizeof(le.addr)) <= 0) {
          goto BAD_SORT;
       }
       /* update amounts sum, ensure no overflow */
       if (add64(amounts, le.balance, amounts)) goto BAD_OVERFLOW;
       /* update data from neogenesis */
       memcpy(&prev_le, &le, sizeof(le));
-      sha256_update(&cctx, &le, count);
+      sha256_update(&cctx, &le, sizeof(le));
    }  /* end for() */
+   /* read block trailer */
+   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_IO;
 
    /* add trailer data -(HASHLEN) to computed hash -- finalize */
    sha256_update(&cctx, &bt, sizeof(bt) - HASHLEN);
    sha256_final(&cctx, chash);
 
-   /* check block hash, headerlen and modulus */
+   /* check block hash */
    if (memcmp(chash, bt.bhash, HASHLEN) != 0) goto BAD_BHASH;
-   if (chklen != hdrlen) goto BAD_HDRLEN;
-   if ((chklen % sizeof(le)) != sizeof(hdrlen)) goto BAD_HDRLEN;
 
    /* compare Neogenesis block trailer to Tfile trailer */
-   if (read_tfile(&tft, bt.bnum, 1, tfname) != 1) return VERROR;
-   if (memcmp(&bt, &tft, sizeof(bt)) != 0) goto BAD_TRAILER;
+   if (read_tfile(&tft, bt.bnum, 1, tfname) != 1) {
+      /* .. or the previous trailer where Tfile does not contain it */
+      if (read_trailer(&tft, tfname) != VEOK) return VERROR;
+      if (validate_trailer(&bt, &tft) != VEOK) return VERROR;
+   } else if (memcmp(&bt, &tft, sizeof(bt)) != 0) goto BAD_TRAILER;
 
    /* obtain accurate sum of rewards with Tfile -- check ledger amounts */
    /* NOTE: get_tfrewards() cannot calculate wiped account balances < MFEE,
