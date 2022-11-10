@@ -374,6 +374,8 @@ enum mcm_errno_t {
 extern "C" {
 #endif
 
+int argument(char *argv, char *chk1, char *chk2);
+char *argvalue(int *idx, int argc, char *argv[]);
 char *addr2hex(void *addr, char *hex);
 char *hash2hex(void *hash, int count, char *hex);
 char *bnum2hex(void *bnum, char *hex);

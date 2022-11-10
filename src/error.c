@@ -37,6 +37,59 @@ static unsigned int Nprintlogs;
 #endif
 
 /**
+ * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.
+ * Compatible with appended values using " " or ":" or "=".<br/>
+ * e.g. `--arg <value>1 or `--arg:<value>` or `--arg=<value>`
+ * @param argv Pointer to argument list item to check
+ * @param chk1 First option to check against @a argv
+ * @param chk2 Second option to check against @a argv
+ * @returns 1 if either options match argument, else 0 for no match.
+*/
+int argument(char *argv, char *chk1, char *chk2)
+{
+   int result = 0;
+   char *vp;
+
+   /* remove value identifier, temporarily */
+   vp = strchr(argv, '=');
+   if (vp) *vp = '\0';
+   /* check argv for match */
+   if (argv != NULL && *argv) {
+      if (chk1 != NULL && strcmp(argv, chk1) == 0) result = 1;
+      else if (chk2 != NULL && strcmp(argv, chk2) == 0) result = 1;
+   }
+   /* replace value identifier */
+   if (vp) *vp = '=';
+
+   return result;
+}  /* end argument() */
+
+/**
+ * Obtain the value associated with the current argument index.
+ * Compatible with appended values using " " or "=".<br/>
+ * e.g. `--arg <value>` or `--arg=<value>`
+ * @param idx Pointer to current argument index (i.e. argv[*idx])
+ * @param argc Number of total arguments
+ * @param argv Pointer to argument list
+ * @returns Char pointer to argument value, else NULL for no value.
+*/
+char *argvalue(int *idx, int argc, char *argv[])
+{
+   char *vp = NULL;
+
+   /* check index */
+   if (*idx >= argc) return NULL;
+   /* scan for value identifier */
+   vp = strchr(argv[*idx], '=');
+   if (vp) vp++;
+   else if (++(*idx) < argc && argv[*idx][0] != '-') {
+      vp = argv[*idx];
+   } else --(*idx);
+
+   return vp;
+}  /* end argvalue() */
+
+/**
  * Convert an address to a hexidecimal string (with ellipsis).
  * Places the first 4 bytes of @a addr, into @a hex as a hexidecimal string,
  * followed by an ellipsis "...".
