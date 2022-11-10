@@ -53,6 +53,21 @@ static int fread_clean(void *buf, size_t size, size_t count, FILE **fp)
    return VEOK;
 }  /* end fread_clean() */
 
+static int search_tag_in_addr(const void *tag, const void *addr)
+{
+   return memcmp(tag, ADDR_TAGp(addr), TXTAGLEN);
+}
+
+static int compare_addr_tags(const void *a, const void *b)
+{
+   return memcmp(ADDR_TAGp(a), ADDR_TAGp(b), TXTAGLEN);
+}
+
+static int compare_ltran(const void *a, const void *b)
+{
+   return memcmp(a, b, TXADDRLEN + 1);
+}
+
 /**
  * Obtain the recommended compression depth of the current Ledger tree.
  * @returns (int) value representing the recommended compression depth
@@ -645,6 +660,187 @@ int le_transpose(void)
    if (fexists(fname) && le_splice(fname, 0, Leidx) != VEOK) return VERROR;
    return VEOK;
 }  /* end le_transpose() */
+
+int le_update(char *fname)
+{
+   static const char *lfname = "ledger.up";
+
+   /*TX tx;*/                  /* buffer for Hashed transaction */
+   TXW txw;                /* buffer for WOTS+ transaction */
+   LENTRY le;              /* buffer for ledger entry update */
+   /*BHEADER bh;*/             /* buffer for Hashed block header */
+   BHEADER_W bhw;          /* buffer for WOTS+ block header */
+   BTRAILER bt;            /* buffer for block trailer */
+   void *ptr;
+   FILE *fp;               /* FILE pointers */
+   LENTRY *lep;            /* pointer reference to ledger entry buffer */
+   LTRAN *ltp;             /* malloc'd ledger transaction array */
+   word8 *trp;             /* malloc'd tagged address redirects array */
+   size_t ltpidx, ltplen;  /* ltp index and length values */
+   size_t trpidx, trplen;  /* trp index and length values */
+   word32 mrewards[2];
+   word32 hdrlen;          /* block header length */
+   word32 j, tcount;       /* iterator and transaction count */
+
+   /* IMPORTANT NOTE ON TRANSACTION UPDATES:
+    * Any transactions to dst_tag's, where the dst_tag also exists as
+    * a src_tag in another transaction within the same block, MUST HAVE
+    * the dst_addr replaced with the chg_addr of the transaction from
+    * which the dst_tag was spent as a src_tag.
+    * Example (not necessarily in this order):
+    * TX#1: src(A) -> dst(B) -> chg(C);
+    * TX#2: src(D) -> dst(A) -> chg(E);
+    * ... TX#2's dst(A) needs to be changed to TX#1's chg(C);
+    *
+    * To address this issue without introducing multiple O(n^2) loops,
+    * we store the chg_addr of afflicted transactions in a buffer. This
+    * buffer is then sorted by address tag for binary searching, and
+    * used to modify destinations during ledger transaction creation.
+    *
+    * NOTE: a transaction is considered "afflicted" if:
+    *    src_addr is tagged AND src_addr TAG == chg_addr TAG
+   */
+
+   /* open files */
+   fp = fopen(fname, "rb");
+   if (fp == NULL) return VERROR;
+   /* read block header length and trailer -- rewind fp */
+   if (fread(&hdrlen, sizeof(hdrlen), 1, fp) != 1) goto FAIL_IO;
+   if (fseek64(fp, -(sizeof(bt)), SEEK_END) != 0) goto FAIL_IO;
+   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_IO;
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) goto FAIL_IO;
+   tcount = get32(bt.tcount);
+   /* NOTE: left fp at start of file */
+
+   /* allocate space for tagged address redirects and ledger transactions */
+   trpidx = ltpidx = 0;
+   trplen = tcount;
+   ltplen = (trplen * 3) + 1;
+   trp = malloc(trplen * TXADDRLEN);
+   ltp = malloc(ltplen * sizeof(*ltp));
+   if (trp == NULL || ltp == NULL) goto FAIL_IO2;
+
+   /* determine method of ledger transaction extraction */
+   if (hdrlen == sizeof(bhw)) {
+      /* read WOTS+ block header */
+      if (fread(&bhw, sizeof(bhw), 1, fp) != 1) goto FAIL_IO2;
+      /* add block header rewards to mrewards */
+      put64(mrewards, bhw.mreward);
+      /* read transactions and store tagged address redirects */
+      for (j = 0; j < tcount; j++) {
+         if (fread(&txw, sizeof(txw), 1, fp) != 1) goto FAIL_IO2;
+         /* store the change address of afflicted transactions */
+         if (WOTS_HAS_TAG(txw.src_addr) && tag_equal(
+               WOTS_TAGp(txw.src_addr), WOTS_TAGp(txw.chg_addr))) {
+            le_convert(trp + (trpidx++ * TXADDRLEN), txw.chg_addr);
+         }
+      }
+      /* sort tagged redirects */
+      qsort(trp, trpidx, TXADDRLEN, compare_addr_tags);
+      /* reset file position to start of transactions for second pass */
+      if (fseek64(fp, sizeof(bhw), SEEK_SET) != 0) goto FAIL_IO2;
+      /* read transactions (again) and create ledger transactions */
+      for (j = 0; j < tcount; j++) {
+         if (fread(&txw, sizeof(txw), 1, fp) != 1) goto FAIL_IO2;
+         /* debit source address by total */
+         le_convert(ltp[ltpidx].addr, txw.src_addr);
+         ltp[ltpidx].trancode[0] = (word8) '-';
+         add64(txw.send_total, txw.change_total, ltp[ltpidx].amount);
+         add64(ltp[ltpidx].amount, txw.tx_fee, ltp[ltpidx].amount);
+         ltpidx++;
+         /* credit destination address by send total (if non-zero) */
+         if (!iszero(txw.send_total, 8)) {
+            /* search for spent tags */
+            ptr = bsearch(WOTS_TAGp(txw.dst_addr),
+               trp, trpidx, TXADDRLEN, search_tag_in_addr);
+            /* use found address or convert destination address */
+            if (ptr) memcpy(ltp[ltpidx].addr, ptr, TXADDRLEN);
+            else le_convert(ltp[ltpidx].addr, txw.dst_addr);
+            ltp[ltpidx].trancode[0] = (word8) 'A';
+            put64(ltp[ltpidx].amount, txw.send_total);
+            ltpidx++;
+         }
+         /* credit change address by change total (if non-zero) */
+         if (!iszero(txw.change_total, 8)) {
+            le_convert(ltp[ltpidx].addr, txw.chg_addr);
+            ltp[ltpidx].trancode[0] = (word8) 'A';
+            put64(ltp[ltpidx].amount, txw.change_total);
+            ltpidx++;
+         }
+         /* additionally, sum fees for miner credit */
+         add64(mrewards, txw.tx_fee, mrewards);
+      }
+      /* Make ledger tran to add to or create mining address.
+       * '...Money from nothing...'
+       */
+      le_convert(ltp[ltpidx].addr, bhw.maddr);
+      ltp[ltpidx].trancode[0] = (word8) 'A';
+      put64(ltp[ltpidx].amount, mrewards);
+      ltpidx++;
+   } // else read Hashed transactions from blockchain file
+   /* close block file and release tagged redirects */
+   fclose(fp);
+   free(trp);
+   trp = NULL;
+
+   /* sort ledger transactions */
+   qsort(ltp, ltpidx, sizeof(*ltp), compare_ltran);
+
+   /* open ledger update file */
+   fp = fopen(lfname, "wb");
+   if (fp == NULL) goto FAIL_IO2;
+
+   for (lep = NULL, j = 0; j < ltpidx; j++) {
+      /* compare current LENTRY addr to next LTRAN addr... */
+      if (lep && le_cmp(lep->addr, ltp[j].addr)) {
+         /* ... write LENTRY changes to file, and reset lep */
+         if (fwrite(lep, sizeof(*lep), 1, fp) != 1) goto FAIL_IO2;
+         lep = NULL;
+      }
+      /* if next LTRAN is new address... */
+      if (lep == NULL) {
+         /* ... get current LENTRY data, or create new zero balance */
+         lep = le_find(ltp[j].addr);
+         if (lep == NULL) {
+            memcpy(le.addr, ltp[j].addr, sizeof(le.addr));
+            memset(le.balance, 0, sizeof(le.balance));
+         } else memcpy(&le, lep, sizeof(le));
+         lep = &le;
+      }
+      /* check transaction code, debit = '-' or credit = 'A' */
+      if ((char) ltp[j].trancode[0] == '-') {
+         /* debits MUST EQUAL balance -- reset balance */
+         if (cmp64(lep->balance, ltp[j].amount) != 0) goto FAIL_IO2_DEBIT;
+         memset(lep->balance, 0, sizeof(lep->balance));
+      } else if ((char) ltp[j].trancode[0] == 'A') {
+         /* credits MUST NOT overflow -- add credit */
+         if (add64(lep->balance, ltp[j].amount, lep->balance)) {
+            goto FAIL_IO2_CREDIT;
+         }
+      } else goto FAIL_IO2_TRANCODE;
+   }
+   /* write final LENTRY update, if any (should be) */
+   if (lep && fwrite(lep, sizeof(*lep), 1, fp) != 1) goto FAIL_IO2;
+   lep = NULL;
+
+   /* close ledger update file and deallocate ledger transactions */
+   fclose(fp);
+   free(ltp);
+
+   /* return the result of appending the ledger update file */
+   return le_append(lfname, NULL);
+
+/* error handling */
+FAIL_IO2_DEBIT: set_errno(EMCMLEDEBIT); goto FAIL_IO2;
+FAIL_IO2_CREDIT: set_errno(EMCMLECREDITOVERFLOW); goto FAIL_IO2;
+FAIL_IO2_TRANCODE: set_errno(EMCMLETRANCODE);
+FAIL_IO2:
+   if (trp) free(trp);
+   if (ltp) free(ltp);
+FAIL_IO:
+   fclose(fp);
+   return VERROR;
+}
 
 /**
  * Comparison function for tags.

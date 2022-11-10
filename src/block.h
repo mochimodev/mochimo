@@ -15,6 +15,7 @@
 
 /* global variables */
 extern char *Maddr_opt;
+extern char *Bcdir_opt;
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
@@ -33,6 +34,7 @@ int neogen(char *fname, char *lfname, char *tfname);
 int pseudo_val_fp(FILE *fp, BTRAILER *prev_btp);
 int pseudo_val(char *pfname, char *tfname);
 int pseudo(char *fname, char *tfname);
+int update_block(char *fname);
 int validate_block_fp(FILE *fp, char *tfname);
 int validate_block(char *bcfname, char *tfname);
 

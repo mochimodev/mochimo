@@ -16,6 +16,7 @@
 #include "chain.h"
 #include "error.h"
 #include "ledger.h"
+#include "protocol.h"
 
 /* external support */
 #include "extlib.h"
@@ -23,6 +24,8 @@
 #include "sha256.h"
 #include <string.h>
 
+/** Blockchain archive directory (configurable option) */
+char *Bcdir_opt = "bc";
 /** Mining address filename (configurable option) */
 char *Maddr_opt = "maddr.dat";
 
@@ -41,7 +44,7 @@ int neogen(char *fname, char *lfname, char *tfname)
 {
    static word8 one[8] = { 1, 0 };
 
-   LENTRY_W le;            /* ledger entry buffer */
+   LENTRY le;              /* ledger entry buffer */
    SHA256_CTX bctx;        /* (entire) block hash */
    BTRAILER bt, prev_bt;   /* neo-genesis and previous block trailers */
    FILE *fp, *lfp;         /* FILE pointers neo-genesis and ledger files */
@@ -58,7 +61,7 @@ int neogen(char *fname, char *lfname, char *tfname)
    if (lfname == NULL) {
       /* try internal ledger */
       if (le_transpose() != VEOK) return VERROR;
-      snprintf(file, FILENAME_MAX, "%s.%d", Lefname_opt, 0);
+      snprintf(file, FILENAME_MAX, "%s.0", Lefname_opt);
       lfname = file;
    }
 
@@ -275,6 +278,58 @@ FAIL_IO:
    remove(fname);
    return VERROR;
 }  /* end pseudo() */
+
+int update_block(char *fname)
+{
+   static word8 one[8] = { 1, 0 };
+
+   BTRAILER bt;
+   word8 bnum[8] = { 0 };
+   int ecode;
+
+   /* read block trailer */
+   if (read_trailer(&bt, fname) != VEOK) return VERROR;
+
+   /* perform appropriate update actions, depending on data type */
+   if (bt.bnum[0] == 0) {
+      /* extract ledger from neo-genesis block */
+      ecode = le_extract(fname);
+      if (ecode) return ecode;
+      /* trim tfile to neo-genesis block */
+      if (cmp64(bt.bnum, bnum) <= 0) {
+         /* trim tfile for append trailer -- reset weight */
+         if (sub64(bt.bnum, one, bnum)) goto FAIL_UNDERFLOW;
+         if (trim_tfile("tfile.dat", bnum) != VEOK) return VERROR;
+         weigh_tfile("tfile.dat", Weight);
+      }
+   } else if (get32(bt.tcount) > 0) {
+      /* update ledger with transaction data */
+      ecode = le_update(fname);
+      if (ecode) return ecode;
+   }
+
+   /* append trailer to Tfile */
+   if (append_tfile(fname, "tfile.dat") != VEOK) return VERROR;
+
+   /* update protocol state */
+   put64(Cblocknum, bt.bnum);
+   memcpy(Cblockhash, bt.bhash, HASHLEN);
+   memcpy(Prevhash, bt.phash, HASHLEN);
+   add_weight(Weight, bt.difficulty[0], bt.bnum);
+
+   /* perform neogenesis block update -- as necessary */
+   if (Cblocknum[0] == 0xff) {
+      /* generate neogenesis file */
+      if (neogen("neogen.dat", NULL, "tfile.dat") != VEOK) return VERROR;
+      /* append trailer to Tfile -- NOT YET */
+      /* if (append_tfile(fname, "tfile.dat") != VEOK) return VERROR; */
+   }
+
+   return VEOK;
+
+/* error handling */
+FAIL_UNDERFLOW: set_errno(EMCM_MATH64_UNDERFLOW); return VERROR;
+}
 
 /**
  * Validate any open blockchain file. With the exception of the Genesis

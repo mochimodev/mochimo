@@ -189,10 +189,16 @@ enum mcm_errno_t {
    /* initialize errors well above any existing error numbers */
    EMCMFIRST = 0x8000,
 
-   /** Internal Ledger is not available */
-   EMCMLENOTAVAIL,
+   /** Ledger entry debit did not match balance */
+   EMCMLEDEBIT,
+   /** Ledger entry credit overflowed the balance */
+   EMCMLECREDITOVERFLOW,
    /** Maximum ledger depth reached */
    EMCMLEDEPTH,
+   /** Internal Ledger is not available */
+   EMCMLENOTAVAIL,
+   /** Unknown ledger entry transaction code */
+   EMCMLETRANCODE,
 
    /** No transactions to handle */
    EMCMNOTXS,
