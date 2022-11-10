@@ -735,13 +735,16 @@ int tag_extract(const char *lfname, const char *tfname)
 
    /* perform selective merge sort on files */
    while (tfp0 || tfp1) {
-      if (tfp0 == NULL || tfp1 == NULL) cond = (tfp0) ? -1 : 1;
-      else do {
+      if (tfp0 == NULL || tfp1 == NULL) {
+         cond = (tfp0) ? -1 : 1;
+      } else do {
          /* compare tags */
          cond = tag_cmp(&ti, &ti1);
          if (cond == 0 && tfp0) {
             /* skip duplicate zero balance tags, read for next loop */
-            if (fread_clean(&ti, sizeof(ti), 1, &tfp0) > VEOK) goto FAIL_IO;
+            result = fread_clean(&ti, sizeof(ti), 1, &tfp0);
+            if (result == VERROR) goto FAIL_IO;
+            if (result == EOF) break;
          }
       } while (cond == 0);
       if (cond >= 0) {
@@ -792,7 +795,7 @@ LENTRY *tag_find(void *tag)
    if (rwlock_rdlock(&Lelock)) return NULL;
 
    /* walk ledger nodes searching for data */
-   for (found = NULL, lep = NULL, i = 0; i < Leidx; i++) {
+   for (found = NULL, lep = NULL, i = Leidx - 1; i >= 0; i--) {
       found = bsearch(
          tag, Ledger[i].tmap, Ledger[i].tags, sizeof(*found), tag_cmp);
       if (found) {
