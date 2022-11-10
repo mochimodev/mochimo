@@ -35,6 +35,32 @@ void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
 }  /* end add_weight() */
 
 /**
+ * Append the (block) Trailer of a specified filename, to a Tfile.
+ * @param filename Filename of a Blockchain file
+ * @param tfilename Filename of a Trailer file
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int append_tfile(char *filename, char *tfilename)
+{
+   BTRAILER bt;
+   FILE *fp;
+   size_t count;
+
+   /* get trailer from specified file */
+   if (read_trailer(&bt, filename) != VEOK) return VERROR;
+
+   fp = fopen(tfilename, "ab");
+   if (fp == NULL) return VERROR;
+   count = fwrite(&bt, 1, sizeof(bt), fp);
+   fclose(fp);
+
+   /* return result of write */
+   return (count != sizeof(bt)) ? VERROR : VEOK;
+}  /* append_tfile() */
+
+/**
  * Compute the mining reward for a specified block number.
  * @param reward Pointer to place 64-bit reward value into
  * @param bnum Pointer to 64-bit block number of reward
@@ -112,7 +138,7 @@ int get_tfrewards(char *fname, void *rewards, void *bnum)
       /* check block reward limit */
       if (bnum && cmp64(bt.bnum, bnum) > 0) break;
       /* no block reward if no transactions */
-      if (bt.tcount) {
+      if (get32(bt.tcount)) {
          get_mreward(reward, bt.bnum);
          if (add64(rewards, reward, rewards)) goto FAIL_IO_OVERFLOW;
       }
@@ -245,7 +271,7 @@ int read_tfile(void *buffer, void *bnum, int count, char *tfname)
    fp = fopen(tfname, "rb");
    if (fp == NULL) return VERROR;
    put64(&offset, bnum);
-   offset = (offset + 1) * sizeof(BTRAILER);
+   offset *= sizeof(BTRAILER);
    if (fseek64(fp, offset, SEEK_SET) != 0) {
       fclose(fp);
       return 0;
@@ -541,6 +567,35 @@ int validate_tfile(char *tfname, void *highbnum, void *highweight)
 
    return ecode;
 }  /* end validate_tfile() */
+
+/**
+ * Get the weight of a Trailer file. Trailer file is assumed Valid.
+ * @param tfname Filename of Tfile to validate
+ * @param weight Pointer to place weight
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int weigh_tfile(char *tfname, void *highweight)
+{
+   BTRAILER bt;
+   FILE *tfp;
+
+   tfp = fopen(tfname, "rb");
+   if (tfp == NULL) return VERROR;
+
+   /* weigh every block trailer */
+   while (fread(&bt, sizeof(bt), 1, tfp)) {
+      /* Let the neo-genesis (not the 0x..ff) add weight to the chain. */
+      if (bt.bnum[0] != 0xff) {
+         add_weight(highweight, bt.difficulty[0], bt.bnum);
+      }
+   }
+   fclose(tfp);
+
+   /* tfile weighed */
+   return VEOK;
+}  /* end weigh_tfile() */
 
 /* end include guard */
 #endif
