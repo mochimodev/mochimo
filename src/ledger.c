@@ -315,7 +315,7 @@ FAIL_IO:
  */
 void le_convert(void *hash, void *wots)
 {
-   sha256(wots, TXSIGLEN, hash);
+   sha256(wots, TXWOTSLEN, hash);
    memcpy(
       (char *) hash + (TXADDRLEN - HASHLEN),
       (char *) wots + (TXWOTSLEN - HASHLEN),
