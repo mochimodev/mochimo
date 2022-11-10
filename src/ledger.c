@@ -105,17 +105,30 @@ int le_append(const char *lfname, const char *tfname)
    if (lfname == NULL) goto FAIL_INVAL;
 
    /* check current ledger depth */
-   if (Leidx >= LEDEPTHMAX) {
+   /* if (Leidx >= LEDEPTHMAX) { */
       /* obtain recommended compression depth/count */
-      depth = auto_compression_depth(0);
-      count = Leidx - depth;
+      /* depth = auto_compression_depth(); */
+      /* count = Leidx - depth; */
+      /* perform compression and splice result */
+      /* snprintf(fname, FILENAME_MAX, "%s.co", lfname); */
+      /* if (le_compress(fname, depth, count) != VEOK) return VERROR; */
+      /* if (le_splice(fname, depth, count) != VEOK) return VERROR; */
+      /* ensure compression was effective */
+      /* if (Leidx >= LEDEPTHMAX) goto FAIL_DEPTH; */
+   /* } */
+
+   /* obtain recommended compression depth/count */
+   depth = auto_compression_depth();
+   count = Leidx - depth;
+   if (count > 1) {
       /* perform compression and splice result */
       snprintf(fname, FILENAME_MAX, "%s.co", lfname);
       if (le_compress(fname, depth, count) != VEOK) return VERROR;
       if (le_splice(fname, depth, count) != VEOK) return VERROR;
-      /* ensure compression was effective */
-      if (Leidx >= LEDEPTHMAX) goto FAIL_DEPTH;
    }
+
+   /* ensure compression was effective */
+   if (Leidx >= LEDEPTHMAX) goto FAIL_DEPTH;
 
    /* build tag index for ledger append data, if none was supplied */
    if (tfname == NULL) {
@@ -125,6 +138,7 @@ int le_append(const char *lfname, const char *tfname)
 
    /* move ledger file to appropriate depth */
    snprintf(fname, FILENAME_MAX, "%s.%d", Lefname_opt, Leidx);
+   remove(fname);
    if (rename(lfname, fname) != 0) return VERROR;
    /* open ledger read-only, seek to END, get length of file */
    if ((fp = fopen(fname, "rb")) == NULL) return VERROR;
@@ -139,6 +153,7 @@ int le_append(const char *lfname, const char *tfname)
 
    /* move tag index file to appropriate Leidx */
    snprintf(fname, FILENAME_MAX, "%s.%d", Tifname_opt, Leidx);
+   remove(fname);
    if (rename(tfname, fname) != 0) return VERROR;
    /* open ledger read-only, seek to END, get length of file */
    if ((fp = fopen(fname, "rb")) == NULL) return VERROR;
