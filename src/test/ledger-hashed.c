@@ -28,7 +28,7 @@ LENTRY *random_ledger(size_t count)
       ADRS[0] = i;
       balance[0] = (i*i) + MFEE + 1;
       wots_pkgen(lew.addr, (word8 *) ADRS, WOTS_SEEDp(lew.addr), ADRS);
-      memcpy(lew.addr + (TXWADDRLEN - HASHLEN), ADRS, HASHLEN);
+      memcpy(lew.addr + (TXWOTSLEN - HASHLEN), ADRS, HASHLEN);
       put64(lew.balance, balance);
       if (i && (i % 2) == 0) {
          tag = WOTS_TAGp(lew.addr);
@@ -121,8 +121,8 @@ void search_and_compare(LENTRY *lep, size_t count)
       if (lef == NULL) perrno(errno, "le_find()");
       ASSERT_NE_MSG(lef, NULL, "selected ledger entry not found");
       ASSERT_CMP_MSG(lef->addr, lep[i].addr, sizeof(*lef), "entry mismatch");
-      if (PK_HAS_TAG(&lep[i])) {
-         tag = PK_TAGp(&lep[i]);
+      if (ADDR_HAS_TAG(&lep[i])) {
+         tag = ADDR_TAGp(&lep[i]);
          lef = tag_find(tag);
          ASSERT_NE_MSG(lef, NULL, "selected (tag) ledger entry not found");
          ASSERT_CMP_MSG(lef->addr, lep[i].addr, sizeof(*lef),
@@ -147,7 +147,7 @@ int main()
 
    /* check initial failure modes for some functions */
    set_errno(0);
-   ASSERT_NE(auto_compression_depth(0), 0);
+   ASSERT_NE(auto_compression_depth(), 0);
    ASSERT_EQ(errno, EMCMLENOTAVAIL);
    set_errno(0);
    ASSERT_NE(le_append("dummy.file.name", NULL), 0);

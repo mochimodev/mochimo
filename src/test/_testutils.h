@@ -2,8 +2,6 @@
 #include "../types.h"
 
 char *Corephosts[] = {
-   "node.usw.mochimo.org",
-   "node.use.mochimo.org",
    "node.usc.mochimo.org",
    "node.sgp.mochimo.org",
    "node.deu.mochimo.org",
@@ -29,7 +27,7 @@ int write2file(char *fname, const void *data, size_t len)
 word8 Zeros[32] = { 0 };
 
 /* dummy ledger.dat (for testing purposes) */
-LENTRY ledgerdata[10] = {
+LENTRY_W ledgerdata[10] = {
    { .addr = { 0, 1, 2, 3, 4, 5 }, .balance = { 255, 255, 0 }},
    { .addr = { 1, 2, 3, 4, 5 }, .balance = { 255, 255, 1 }},
    { .addr = { 2, 3, 4, 5 }, .balance = { 255, 255, 2 }},

@@ -27,7 +27,7 @@ LENTRY_W *random_ledgerw(size_t count)
       ADRS[0] = i;
       balance[0] = (i*i) + MFEE + 1;
       wots_pkgen(le[i].addr, (word8 *) ADRS, WOTS_SEEDp(le[i].addr), ADRS);
-      memcpy(le[i].addr + (TXWADDRLEN - HASHLEN), ADRS, HASHLEN);
+      memcpy(le[i].addr + (TXWOTSLEN - HASHLEN), ADRS, HASHLEN);
       put64(le[i].balance, balance);
       if (i && (i % 2) == 0) {
          tag = WOTS_TAGp(le[i].addr);
@@ -118,7 +118,7 @@ void search_and_compare(LENTRY_W *lep, size_t count)
       le_convert(lec.addr, lep[i].addr);
       put64(lec.balance, lep[i].balance);
       /* check returned address tag compare */
-      ASSERT_EQ_MSG(tag_equal(WOTS_TAGp(lep[i].addr), PK_TAGp(lec.addr)),
+      ASSERT_EQ_MSG(tag_equal(WOTS_TAGp(lep[i].addr), ADDR_TAGp(lec.addr)),
          1, "tags should compare equal, regardless if valid tag or not");
 
       lef = le_findw(lep[i].addr);
@@ -149,7 +149,7 @@ int main()
 
    /* check initial failure modes for some functions */
    set_errno(0);
-   ASSERT_NE(auto_compression_depth(0), 0);
+   ASSERT_NE(auto_compression_depth(), 0);
    ASSERT_EQ(errno, EMCMLENOTAVAIL);
    set_errno(0);
    ASSERT_NE(le_append("dummy.file.name", NULL), 0);
