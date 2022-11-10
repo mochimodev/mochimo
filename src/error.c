@@ -203,23 +203,25 @@ char *weight2hex(void *weight, char *hex)
 /**
  * Writes a Mochimo "fully qualified archive name" (FQAN) into a buffer.
  * @param buf Pointer to buffer to write to
- * @param pre (optional) Name prefix
- * @param ext (optional) Name extension
- * @param bnum (optional) Pointer to a 64-bit block number
- * @param bhash (optional) Pointer to a block hash
+ * @param bnum Pointer to a 64-bit block number
+ * @param bhash Pointer to a block hash
+ * @param ext Name extension
  * @see bc_fqan()
  * @see lt_fqan()
 */
 int mcm_fqan(char *buf, char *pre, char *ext, void *bnum, void *bhash)
 {
-   char bnumstr[17] = "0000000000000000";
-   char bhashstr[9] = "00170c67";
+   char bnumstr[17] = "";
+   char bhashstr[9] = "";
+
+   if (bnum) bnum2hex64(bnum, bnumstr);
+   if (bhash) hash2hex(bhash, 4, bhashstr);
 
    return (
       snprintf(
          buf, FILENAME_MAX, "%s%s%s%s%s%s",
-         pre ? pre : "", bnum ? bnum2hex64(bnum, bnumstr) : bnumstr,
-         bhash ? "." : "", bhash ? hash2hex(bhash, 4, bhashstr) : bhashstr,
+         pre ? pre : "", bnumstr[0] ? bnumstr : "",
+         bhashstr[0] ? "." : "", bhashstr[0] ? bhashstr : "",
          ext ? "." : "", ext ? ext : ""
       )
    );
