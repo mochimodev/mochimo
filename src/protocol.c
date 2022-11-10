@@ -511,7 +511,7 @@ OP_RESTART:
 
    /* return resulting status */
    return snp->status;
-}  /* end receive_protocol() */
+}  /* end node_receive() */
 
 /**
  * Initiate a request to connect with a server.
@@ -687,7 +687,7 @@ OP_RESTART:
 
    /* return resulting status */
    return snp->status;
-}  /* end request_protocol() */
+}  /* end node_request() */
 
 /* end include guard */
 #endif

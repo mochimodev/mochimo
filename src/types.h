@@ -21,7 +21,7 @@
 /* ---------------- BEGIN CONFIGURABLE DEFINITIONS --------------------- */
 
 /** socket communication timeout (seconds) */
-#define TIMEOUT      3
+#define TIMEOUT      10
 /** listen() queue length */
 #define LQLEN        512
 /** maximum number of entries in cpinklist */
