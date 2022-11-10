@@ -48,7 +48,7 @@ extern char *Tifname_opt;
 extern "C" {
 #endif
 
-int auto_compression_depth(size_t count);
+int auto_compression_depth(void);
 int le_append(const char *lfname, const char *tfname);
 void le_close(int depth);
 int le_cmpw(const void *a, const void *b);
@@ -62,6 +62,7 @@ LENTRY *le_findw(void *wots);
 int le_renew(void *fee);
 int le_splice(const char *filename, int depth, int count);
 int le_transpose(void);
+int le_update(char *fname);
 int tag_cmp(const void *a, const void *b);
 int tag_equal(const void *a, const void *b);
 int tag_extract(const char *lfname, const char *tfname);

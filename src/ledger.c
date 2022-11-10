@@ -55,24 +55,24 @@ static int fread_clean(void *buf, size_t size, size_t count, FILE **fp)
 
 /**
  * Obtain the recommended compression depth of the current Ledger tree.
- * @param count Additional count to consider in algorithm
  * @returns (int) value representing the recommended compression depth
  * @retval >=0 on success
  * @retval EOF on error; check errno for details
  * @exception errno=EMCMLENOTAVAIL No ledger to recommend depth
 */
-int auto_compression_depth(size_t count)
+int auto_compression_depth(void)
 {
-   int depth = Leidx - 1;
+   word64 bias, n;
+   int depth, max;
 
    /* check ledger */
    if (Leidx == 0) goto FAIL_LENOTAVAIL;
-   /* pre-adjust depth (and counts) if Ledger is at limit */
-   if (Leidx == LEDEPTHMAX) count += Ledger[depth--].count;
+   if (Leidx == LEDEPTHMAX) return 0;
    /* determine optimal depth of compression */
-   while (depth > 0) {
-      if (Ledger[depth].count > (count * (1LL << (1LL << depth)))) break;
-      count += Ledger[depth--].count;
+   for (depth = 0, max = Leidx - 1; depth < max; depth++) {
+      n = WORD64_C(1) << (WORD64_C(1) << (depth + 1));
+      bias = (word64) Ledger[depth + 1].count * n;
+      if (Ledger[depth].count < bias) break;
    }
 
    return depth;
