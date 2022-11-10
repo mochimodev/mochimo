@@ -52,43 +52,44 @@
 #define on_ecode_goto_perrno(_cmd, _lbl, ...) \
    if ((ecode = (_cmd))) goto_perrno(_lbl, __VA_ARGS__)
 
-#define lock_on_ecode_goto_pecode(_lock, _lbl, _code_block) \
-   if ((ecode = mutex_lock(&(_lock))) == 0) { _code_block; \
-      on_ecode_goto_pecode( mutex_unlock(&(_lock)), _lbl, \
+#define lock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
+   if (mutex_lock(&(_lock)) == 0) { _code_block; \
+      on_ecode_goto_perrno( mutex_unlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(ecode, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+   } else { \
+      perrno(errno, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
 #define lock_on_ecode_goto_perr(_lock, _lbl, _code_block) \
-   if ((ecode = mutex_lock(&(_lock))) == 0) { _code_block; \
+   if (mutex_lock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perr( mutex_unlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
    } else { perr(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
-#define trylock_on_ecode_goto_pecode(_lock, _lbl, _code_block) \
-   if ((ecode = mutex_trylock(&(_lock))) == 0) { _code_block; \
-      on_ecode_goto_pecode( mutex_unlock(&(_lock)), _lbl, \
+#define trylock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
+   if (mutex_trylock(&(_lock)) == 0) { _code_block; \
+      on_ecode_goto_perrno( mutex_unlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else if (ecode != EBUSY) { \
-      perrno(ecode, FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
+   } else if (errno != EBUSY) { \
+      perrno(errno, FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
 
-#define tryrdlock_on_ecode_goto_pecode(_lock, _lbl, _code_block) \
-   if ((ecode = rwlock_tryrdlock(&(_lock))) == 0) { _code_block; \
-      on_ecode_goto_pecode( rwlock_rdunlock(&(_lock)), _lbl, \
+#define wrlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
+   if (rwlock_wrlock(&(_lock)) == 0) { _code_block; \
+      on_ecode_goto_perrno( rwlock_wrunlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else if (ecode != EBUSY) { \
-      perrno(ecode, FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
+   } else { perrno(errno, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
-#define wrlock_on_ecode_goto_pecode(_lock, _lbl, _code_block) \
-   if ((ecode = rwlock_wrlock(&(_lock))) == 0) { _code_block; \
-      on_ecode_goto_pecode( rwlock_wrunlock(&(_lock)), _lbl, \
+#define rdlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
+   if (rwlock_rdlock(&(_lock)) == 0) { _code_block; \
+      on_ecode_goto_perrno( rwlock_rdunlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(ecode, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+   } else { perrno(errno, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
-#define rdlock_on_ecode_goto_pecode(_lock, _lbl, _code_block) \
-   if ((ecode = rwlock_rdlock(&(_lock))) == 0) { _code_block; \
-      on_ecode_goto_pecode( rwlock_rdunlock(&(_lock)), _lbl, \
+#define tryrdlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
+   if (rwlock_tryrdlock(&(_lock)) == 0) { _code_block; \
+      on_ecode_goto_perrno( rwlock_rdunlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(ecode, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+   } else if (errno != EBUSY) { \
+      perrno(errno, FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
 
 /** No print/log level (blank) */
 #define PLEVEL_NONE  0
