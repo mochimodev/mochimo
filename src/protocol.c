@@ -323,6 +323,69 @@ BAD_OPCODE: set_errno(EMCM_PKTOPCODE); return (snp->status = VEBAD);
 }  /* end recv_file() */
 
 /**
+ * Send a ledger balance to a requesting server node connection.
+ * Converts WOTS+ addresses from protocol version 4 requests into
+ * it's Hashed address variant before searching the ledger.
+ * Protocol version 5 expects Hashed Ledger Transaction (LTRAN) format:
+ * addr (Hashed Address), trancode (Found), amount (Balance).
+ * Protocol version 4 expects WOTS+ Transaction (TXW) format:
+ * src_addr (WOTS+ Address), send_total (balance), change_total (Found).
+ * @param snp Pointer to server node to send balance
+ * @return (int) value representing operation result
+ * @retval VEWAITING on waiting for data
+ * @retval VETIMEOUT on connection timeout
+ * @retval VEOK on success; packet sent
+ * @retval VERROR on internal error
+*/
+int send_balance(SNODE *snp)
+{
+   TXW *txwp;
+   LENTRY *lep;
+   word16 len;
+
+   /* check if balance was retrieved */
+   if (snp->iowait == IO_RECV) {
+      /* check protocol version... */
+      if (PKT_IS_PV5(&(snp->pkt))) {
+         /* ... PVERSION 5 onwards uses Hashed addresses */
+         memset(snp->pkt.len, 0, sizeof(snp->pkt.len));
+         /* look up source address in ledger */
+         lep = le_find(snp->pkt.buffer);
+         if (lep) {
+            /* return ledger entry data */
+            len = (word16) sizeof(*lep);
+            put16(snp->pkt.len, len);
+            memcpy(snp->pkt.buffer, lep, len);
+         }
+      } else {
+         /* ... PVERSION 4 and below uses WOTS+ addresses */
+         txwp = (TXW *) snp->pkt.buffer;
+         len = get16(snp->pkt.len);
+         /* initialize return values */
+         memset(txwp->send_total, 0, sizeof(txwp->send_total));
+         memset(txwp->change_total, 0, sizeof(txwp->change_total));
+         /* look up source address in ledger */
+         lep = le_findw(txwp->src_addr);
+         if (lep) {
+            /* insert balance and indicate address was found */
+            put64(txwp->send_total, lep->balance);
+            txwp->change_total[0] = 1;
+         }
+      }
+
+      /* increment balance request counter */
+      Nbalance++;
+
+      /* initialize packet for sending */
+      init_pkt(snp, OP_SEND_BAL);
+      snp->iowait = IO_SEND;
+   }
+
+   /* send packet with ledger balance */
+   return send_pkt(snp);
+}  /* end send_balance() */
+
+/**
  * @private
  * Obtain the next send() length, in bytes. For compatibility between
  * pversion 4, C_VPDU capable pversion 4, and pversion 5 onwards, we
@@ -493,6 +556,7 @@ OP_RESTART:
          /* restart switch block on success */
          goto OP_RESTART;
       }  /* end case OP_HELLO_ACK */
+      case OP_BALANCE: send_balance(snp); break;
       default: {
          set_errno(EMCMOPCODE);
          snp->status = VERROR;
