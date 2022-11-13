@@ -203,6 +203,9 @@ enum mcm_errno_t {
    /** No transactions to handle */
    EMCMNOTXS,
 
+   /** Unexpected operation code */
+   EMCMOPCODE,
+
    /** Unspecified 64-bit math overflow */
    EMCM_MATH64_OVERFLOW,
    /** Unspecified 64-bit math underflow */
@@ -291,8 +294,6 @@ enum mcm_errno_t {
    EMCM_NOHELLO,
    /** Missing OP_HELLO_ACK packet */
    EMCM_NOHELLOACK,
-   /** Unrecognised operation code */
-   EMCM_OPCODE,
    /** Invalid operation code */
    EMCM_OPINVAL,
 

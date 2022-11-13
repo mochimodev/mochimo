@@ -13,13 +13,14 @@
 #include "protocol.h"
 
 /* internal support */
-#include "peer.h"
 #include "error.h"
+#include "ledger.h"
+#include "peer.h"
 
 /* external support */
-#include <string.h>
-#include "extlib.h"
 #include "crc16.h"
+#include "extlib.h"
+#include <string.h>
 
 #ifdef _WIN32
    #define set_sockerrno(e)   set_alterrno(e)
@@ -29,6 +30,10 @@
 
 #endif
 
+#define PKT_IS_PV5(p)   ( (p)->version[0] == 5 )
+
+/** Lifetime balance requests processed */
+unsigned Nbalance = 0;
 /** Lifetime packets received */
 unsigned Nrecvs = 0;
 /** Lifetime packet receive errors */
@@ -52,31 +57,12 @@ word8 Prevhash[32] = { 0 };
 word8 Weight[32] = { 0 };
 
 /**
- * Deallocate (cleanup) resources allocated within a SNODE.
- * NOTE: DOES NOT DEALLOCATE THE SNODE POINTER.
+ * Initialize a SNODE pointer for receive operation.
  * @param snp Pointer to SNODE
-*/
-void node_cleanup(SNODE *snp)
-{
-   /* ensure socket is closed */
-   if (snp->sd != INVALID_SOCKET) {
-      sock_close(snp->sd);
-      snp->sd = INVALID_SOCKET;
-   }
-   /* ensure DATA pointer is deallocated */
-   if (snp->fp != NULL) {
-      fclose(snp->fp);
-      snp->fp = NULL;
-   }
-}  /* end node_cleanup() */
-
-/**
- * Prepare a SNODE pointer for receiving.
- * @param snp Pointer to SNODE to prepare
  * @param sd Connection socket of SNODE
  * @param ip Connection ip of SNODE
 */
-void prep_receive(SNODE *snp, SOCKET sd, word32 ip)
+void init_receive(SNODE *snp, SOCKET sd, word32 ip)
 {
    /* prepare SNODE data receive */
    snp->sd = sd;
@@ -87,16 +73,16 @@ void prep_receive(SNODE *snp, SOCKET sd, word32 ip)
    snp->iowait = IO_RECV;
    snp->status = VEWAITING;
    ntoa(&ip, snp->id);
-}  /* end prep_receive() */
+}  /* end init_receive() */
 
 /**
- * Prepare a SNODE pointer for requesting.
+ * Initialize a SNODE pointer for request operation.
  * @param snp Pointer to SNODE to prepare
  * @param ip Connection ip of SNODE
  * @param opreq Request operation code
  * @param bnum Request IO value (blocknum), or NULL
 */
-void prep_request
+void init_request
    (SNODE *snp, word32 ip, word16 port, word16 opreq, void *bnum)
 {
    /* prepare SNODE data request */
@@ -109,14 +95,14 @@ void prep_request
    snp->status = VEWAITING;
    ntoa(&ip, snp->id);
    if (bnum) memcpy(snp->io, bnum, 8);
-}  /* end prep_request() */
+}  /* end init_request() */
 
 /**
- * Prepare a packet of SNODE with protocol data.
- * @param snp Pointer to SNODE containing packet to prepare
+ * Initialize a packet of SNODE with protocol data.
+ * @param snp Pointer to SNODE
  * @param opcode Operation code of packet
 */
-void prep_pkt(SNODE *snp, word16 opcode)
+void init_pkt(SNODE *snp, word16 opcode)
 {
    word16 len;
 
@@ -162,7 +148,7 @@ void prep_pkt(SNODE *snp, word16 opcode)
    /* compute packet crc16 checksum -- add trailer */
    put16(snp->pkt.crc16, crc16(&(snp->pkt), PKTCRC_INLEN(len)));
    put16(snp->pkt.trailer, TXEOT);
-}  /* end prep_pkt() */
+}  /* end init_pkt() */
 
 /**
  * @private
@@ -438,7 +424,25 @@ FAIL:
 }  /* end send_pkt() */
 
 /**
- * Network communication protocol for receiving.
+ * Deallocate (cleanup) allocated resources within a SNODE.
+ * @param snp Pointer to SNODE
+*/
+void cleanup_node(SNODE *snp)
+{
+   /* ensure socket is closed */
+   if (snp->sd != INVALID_SOCKET) {
+      sock_close(snp->sd);
+      snp->sd = INVALID_SOCKET;
+   }
+   /* ensure DATA pointer is deallocated */
+   if (snp->fp != NULL) {
+      fclose(snp->fp);
+      snp->fp = NULL;
+   }
+}  /* end cleanup_node() */
+
+/**
+ * Network communication protocol for receive operations.
  * NOTE: return value is also placed in snp->status
  * @param snp Pointer to a SNODE
  * @return (int) value representing operation result
@@ -448,7 +452,7 @@ FAIL:
  * @retval VERROR on internal error
  * @retval VEBAD on protocol violation; peer is now pinklisted
 */
-int node_receive(SNODE *snp)
+int receive_node(SNODE *snp)
 {
 OP_RESTART:
    /* check stage of communication */
@@ -464,7 +468,7 @@ OP_RESTART:
          /* prepare "acknowledgement" packet with handshake IDs */
          snp->id1 = get16(snp->pkt.id1);
          snp->id2 = rand16();
-         prep_pkt(snp, OP_HELLO_ACK);
+         init_pkt(snp, OP_HELLO_ACK);
          /* update iowait type */
          snp->iowait = IO_SEND;
       } /* fallthrough -- end OP_NULL*/
@@ -490,7 +494,7 @@ OP_RESTART:
          goto OP_RESTART;
       }  /* end case OP_HELLO_ACK */
       default: {
-         set_errno(EMCM_OPCODE);
+         set_errno(EMCMOPCODE);
          snp->status = VERROR;
       }  /* end default */
    }  /* end switch (snp->opcode) */
@@ -511,19 +515,20 @@ OP_RESTART:
 
    /* return resulting status */
    return snp->status;
-}  /* end node_receive() */
+}  /* end receive_node() */
 
 /**
- * Initiate a request to connect with a server.
- * NOTE: return value is also placed in snp->status
+ * @private
+ * @brief Initiate a connection to a server node.
+ * Return value is also placed in snp->status
  * @param snp Pointer to a SNODE
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
- * @retval VEOK on success; pkt is complete
+ * @retval VEOK on successful connection
  * @retval VERROR on internal error
 */
-static int request_connect(SNODE *snp)
+static int connect_node(SNODE *snp)
 {
    static const socklen_t len = (socklen_t) sizeof(struct sockaddr_in);
    struct sockaddr_in addr;
@@ -559,20 +564,10 @@ static int request_connect(SNODE *snp)
    }  /* end if (connect... */
 
    return (snp->status = VEOK);
-}  /* end request_connect() */
-
-static word16 opreq2opcode(word16 opreq)
-{
-   switch (opreq) {
-      case REQ_LAST_NEOGEN: return OP_GET_BLOCK;
-      case REQ_VAL_BLOCK: return OP_GET_BLOCK;
-      case REQ_VAL_TFILE: return OP_GET_TFILE;
-      default: return opreq;
-   }
-}
+}  /* end connect_node() */
 
 /**
- * Network communication protocol for requesting.
+ * Network communication protocol for request operations.
  * @param snp Pointer to a SNODE
  * @returns Status of request, as integer.
  * @retval VEWAITING on waiting for data
@@ -581,7 +576,7 @@ static word16 opreq2opcode(word16 opreq)
  * @retval VERROR on socket shutdown and/or error
  * @retval VEBAD on pkt protocol violation
 */
-int node_request(SNODE *snp)
+int request_node(SNODE *snp)
 {
 OP_RESTART:
    /* check stage of communication */
@@ -589,11 +584,11 @@ OP_RESTART:
       case OP_NULL: {
          /* check connection wait for initial connect */
          if (snp->iowait == IO_CONN) {
-            if (request_connect(snp)) break;
+            if (connect_node(snp)) break;
             /* prepare HELLO packet with initial handshake IDs */
             snp->id1 = rand16();
             snp->id2 = 0;
-            prep_pkt(snp, OP_HELLO);
+            init_pkt(snp, OP_HELLO);
             /* update socket operation type */
             snp->iowait = IO_SEND;
          }
@@ -617,17 +612,11 @@ OP_RESTART:
          snp->id2 = get16(snp->pkt.id2);
          /* check request type for additional packet io requirements */
          switch (snp->opreq) {
-            case REQ_LAST_NEOGEN: {
-               /* derive last neo-genesis from advertsied cblock */
-               put64(snp->io, snp->pkt.cblock);
-               snp->io[0] = 0;
-            }  /* fallthrough */
-            case REQ_VAL_BLOCK: /* fallthrough */
             case OP_GET_BLOCK: /* fallthrough */
             case OP_TF: memcpy(snp->pkt.blocknum, snp->io, 8); break;
          }
          /* prepare request operation */
-         prep_pkt(snp, opreq2opcode(snp->opreq));
+         init_pkt(snp, snp->opreq);
          /* update socket operation type */
          snp->iowait = IO_SEND;
       }  /* fallthrough -- end case OP_HELLO */
@@ -666,7 +655,7 @@ OP_RESTART:
          break;
       }  /* end case OP_TF */
       default: {
-         set_errno(EMCM_OPCODE);
+         set_errno(EMCMOPCODE);
          snp->status = VERROR;
       }  /* end default */
    }  /* end switch (snp->opcode) */
@@ -687,7 +676,7 @@ OP_RESTART:
 
    /* return resulting status */
    return snp->status;
-}  /* end node_request() */
+}  /* end request_node() */
 
 /* end include guard */
 #endif

@@ -198,15 +198,6 @@
  * NOTE: increment when adding more operation codes */
 #define LAST_OP         19
 
-/* extended operation codes (internal requests only) */
-
-/** Last neo-genesis block download request */
-#define REQ_LAST_NEOGEN ( 1 + LAST_OP )
-/** Blockchain file download and validate request */
-#define REQ_VAL_BLOCK   ( 2 + LAST_OP )
-/** Trailer file download and validate request */
-#define REQ_VAL_TFILE   ( 3 + LAST_OP )
-
 /* task wait codes */
 
 /** Waiting for connect (write buff) */

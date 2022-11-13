@@ -1,11 +1,6 @@
 
 #include "mcmd.h"
 
-#ifndef SERVER_THREADS
-   #define SERVER_THREADS  ( cpu_cores() )   /* system dependant */
-
-#endif
-
 /* exclusive support */
 #include "mcmd_server.c"
 

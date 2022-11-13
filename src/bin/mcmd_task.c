@@ -15,11 +15,11 @@ ThreadProc thrd_validate_pow(void *arg)
    int ecode;
    char bnumstr[17];
 
-   /* set name of thread - visible in htop */
-   thread_setname(thread_self(), "pow_validation");
-
 #undef FnMSG
 #define FnMSG(x) "thrd_validate_pow(): " x
+
+   /* set name of thread - visible in htop */
+   thread_setname(thread_self(), "pow_validator");
 
    /* acquire lock before loop condition */
    if (mutex_lock(&lock) != 0) goto FAIL;
@@ -130,19 +130,22 @@ static int server_async_bval(SNODE *snp)
 int server_async(SNODE *snp)
 {
 #undef FnMSG
-#define FnMSG(x) "server_async(%s):" x, snp->id
+#define FnMSG(x) "server_async(%s): " x, snp->id
 
    /* execute async protocol communication */
    if (snp->iowait <= IO_RECV) {
-      if (snp->opreq) node_request(snp);
-      else node_receive(snp);
+      if (snp->opreq) request_node(snp);
+      else {
+         if (receive_node(snp) > VEOK) {
+            perrno(errno, FnMSG("opcode= %" P16u), snp->opcode);
+         }
+      }
    }
 
    /* execute additional async routines (on protocol completion) */
    if (snp->iowait == IO_DONE && snp->status == VEOK) {
       switch (snp->opreq) {
-         case REQ_VAL_BLOCK: server_async_bval(snp); break;
-         case REQ_VAL_TFILE: server_async_tval(snp, NULL, NULL); break;
+         case OP_GET_BLOCK: server_async_bval(snp); break;
       }
    }
 
@@ -177,9 +180,10 @@ int server_init(SNODE *snp)
    /* BLOCKCHAIN PROCESSING, VALIDATION AND UPDATE */
 
    /* check request for block download */
-   if (snp && snp->opreq == REQ_VAL_BLOCK) {
+   if (snp && snp->opreq == OP_GET_BLOCK) {
       requests = 0;
       if (snp->status == VEOK) {
+         /* block was validated asynchronously */
          pfine(FnMSG("updating 0x%s..."), bnum2hex(snp->io, bnumstr));
          /* save block data to file */
          on_ecode_goto_perrno( fsave(snp->fp, "block.dat"),
@@ -202,8 +206,8 @@ int server_init(SNODE *snp)
          add64(bnum, one, bnum);
          /* if (bnum[0] == 0) add64(bnum, one, bnum); */
          /* repurpose SNODE to download next block */
-         node_cleanup(snp);
-         prep_request(snp, snp->ip, snp->port, REQ_VAL_BLOCK, bnum);
+         cleanup_node(snp);
+         init_request(snp, snp->ip, snp->port, OP_GET_BLOCK, bnum);
          pfine(FnMSG("requesting 0x%s..."), bnum2hex(bnum, bnumstr));
          return VEWAITING;  /* NOTE: SNODE is repurposed */
       } else if (cmp64(snp->io, tfbnum) > 0) {
@@ -239,21 +243,28 @@ int server_init(SNODE *snp)
          fpos *= sizeof(bt);
          on_ecode_goto_perrno( fseek64(snp->fp, fpos, SEEK_SET),
             FATAL, FnMSG("fseek() FAILURE"));
-         while (fread(&bt, sizeof(bt), 1, snp->fp)) {
+         while (ServerOk && fread(&bt, sizeof(bt), 1, snp->fp)) {
             /* get name of archive block */
             put64(bnum, bt.bnum);
             bc_fqan(fname, bt.bnum, bt.bhash);
             path_join(fpath, Bcdir_opt, fname);
             if (!fexists(fpath)) break;
             pfine(FnMSG("recovering 0x%s..."), bnum2hex(bt.bnum, bnumstr));
+            /* validate recovery block file */
+            if (validate_block(fpath, "tfile.dat") != VEOK) {
+               perrno(errno, FnMSG("validate_block(%s)"), fpath);
+               break;
+            }
             /* update chain with valid block file */
-            on_ecode_goto_perrno( snp->status = update_block(fpath),
-               INVALID, FnMSG("update_block(%s)"), fpath);
+            if (update_block(fpath) != VEOK) {
+               perrno(errno, FnMSG("update_block(%s)"), fpath);
+               break;
+            }
             add64(bt.bnum, one, bnum);
          }
          /* repurpose SNODE to initiate neo-genesis download */
-         node_cleanup(snp);
-         prep_request(snp, snp->ip, snp->port, REQ_VAL_BLOCK, bnum);
+         cleanup_node(snp);
+         init_request(snp, snp->ip, snp->port, OP_GET_BLOCK, bnum);
          pfine(FnMSG("requesting 0x%s..."), bnum2hex(bnum, bnumstr));
          return VEWAITING;  /* NOTE: SNODE is repurposed */
       }
@@ -393,8 +404,8 @@ INVALID:
       // shuffle32(qlist, qlistidx);
       requests++;
       /* repurpose SNODE to initiate Tfile download */
-      node_cleanup(snp);
-      prep_request(snp, *qlist, Dstport_opt, OP_GET_TFILE, bnum);
+      cleanup_node(snp);
+      init_request(snp, *qlist, Dstport_opt, OP_GET_TFILE, bnum);
       plog("Synchronizing with %s...", snp->id);
       pfine(FnMSG("requesting Tfile..."));
       return VEWAITING;  /* NOTE: SNODE is repurposed */

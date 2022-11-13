@@ -1,6 +1,11 @@
 
 #include "mcmd.h"
 
+#ifndef SERVER_THREADS
+   #define SERVER_THREADS  ( cpu_cores() )   /* system dependant */
+
+#endif
+
 int server_task_append(LinkedNode *lnp, LinkedList *llp);
 void server_task_cleanup(LinkedNode *lnp);
 LinkedNode *server_task_copy(SNODE *snp);
@@ -96,7 +101,7 @@ FATAL:
 void server_task_cleanup(LinkedNode *lnp)
 {
    /* perform cleanup of any internal resources */
-   node_cleanup((SNODE *) lnp->data);
+   cleanup_node((SNODE *) lnp->data);
    /* deallocate task data and task */
    free(lnp->data);
    free(lnp);
@@ -138,7 +143,7 @@ LinkedNode *server_task_receive(SOCKET sd, word32 ip)
    /* create LinkedNode with SNODE data */
    lnp = link_node_create(sizeof(SNODE));
    if (lnp == NULL) perrno(errno, FnMSG("link_node_create() FAILURE"));
-   else prep_receive((SNODE *) lnp->data, sd, ip);
+   else init_receive((SNODE *) lnp->data, sd, ip);
 
    return lnp;
 }  /* end server_task_receive() */
@@ -159,8 +164,8 @@ LinkedNode *server_task_request(word32 ip, word16 opreq, void *bnum)
 
    /* create LinkedNode with SNODE data */
    lnp = link_node_create(sizeof(SNODE));
-   if (lnp == NULL) perrno(errno, FnMSG("link_node_request() FAILURE"));
-   else prep_request((SNODE *) lnp->data, ip, Dstport_opt, opreq, bnum);
+   if (lnp == NULL) perrno(errno, FnMSG("link_request_node() FAILURE"));
+   else init_request((SNODE *) lnp->data, ip, Dstport_opt, opreq, bnum);
 
    return lnp;
 }  /* end server_task_request() */
