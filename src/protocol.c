@@ -34,6 +34,8 @@
 
 /** Lifetime balance requests processed */
 unsigned Nbalance = 0;
+/** Lifetime IP list requests processed */
+unsigned Niplist = 0;
 /** Lifetime packets received */
 unsigned Nrecvs = 0;
 /** Lifetime packet receive errors */
@@ -386,6 +388,44 @@ int send_balance(SNODE *snp)
 }  /* end send_balance() */
 
 /**
+ * Send an IP list to a requesting server node.
+ * The "recent" peers list is expected.
+ * @param snp Pointer to server node to send IP list
+ * @return (int) value representing operation result
+ * @retval VEWAITING on waiting for data
+ * @retval VETIMEOUT on connection timeout
+ * @retval VEOK on success; packet sent
+ * @retval VERROR on internal error
+*/
+int send_ipl(SNODE *snp)
+{
+   size_t sz = sizeof(*Rplist);
+   word16 len;
+
+   /* check if iIP list was retrieved */
+   if (snp->iowait == IO_RECV) {
+      /* fill IP list into packet buffer */
+      len = Rplistidx * sz;
+      if (PKT_IS_PV5(&(snp->pkt))) {
+         if (len > PKTBUFFLEN) len = (PKTBUFFLEN / sz) * sz;
+      } else if (len > PKTBUFFLEN_OLD) len = (PKTBUFFLEN_OLD / sz) * sz;
+      /* fill IP list into packet buffer */
+      memcpy(snp->pkt.buffer, Rplist, len);
+      put16(snp->pkt.len, len);
+
+      /* increment IP list request counter */
+      Niplist++;
+
+      /* initialize packet for sending */
+      init_pkt(snp, OP_SEND_IPL);
+      snp->iowait = IO_SEND;
+   }
+
+   /* send packet with ledger balance */
+   return send_pkt(snp);
+}  /* end send_ipl() */
+
+/**
  * @private
  * Obtain the next send() length, in bytes. For compatibility between
  * pversion 4, C_VPDU capable pversion 4, and pversion 5 onwards, we
@@ -556,6 +596,7 @@ OP_RESTART:
          /* restart switch block on success */
          goto OP_RESTART;
       }  /* end case OP_HELLO_ACK */
+      case OP_GET_IPL: send_ipl(snp); break;
       case OP_BALANCE: send_balance(snp); break;
       default: {
          set_errno(EMCMOPCODE);
