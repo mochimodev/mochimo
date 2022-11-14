@@ -176,47 +176,53 @@ void init_nack(SNODE *snp)
 
 /**
  * @private
- * Prepare variables for next recv(). For compatibility between
+ * Obtain the next data length, in bytes. For compatibility between
  * pversion 4, C_VPDU capable pversion 4, and pversion 5 onwards, we
- * require the capabilities information in the header of a packet to
- * know how much buffer data to receive.
+ * require the information in the header of a packet. This is NOT
+ * immediately possible if we are initiating a connection, so OP_HELLO
+ * packets will always be padded, until we can identify the capability
+ * of the connection we make, by checking the next received packet.
+ * NOTE: Maintaining a list of IPs identifying C_VPDU capabilities is
+ * flawed because it's possible to receive connections from multiple
+ * sources behind the same IP using different capabilities; be it
+ * nodes, wallets, APIs, tx bots or other scripts.
  * @param snp Pointer to SNODE
- * @todo Remove protocol version 4 compatibility after v3.0
+ * @returns (int) length, in bytes, of next packet
 */
-static int recv_len(SNODE *snp, char **buf, int *len, int *n)
+static int len_pkt(SNODE *snp, char **buf, int *len, int *n)
 {
-   /* determine position of and length of next data to recv */
+   /* determine position and length of next packet data */
    if (snp->bytes < PKTHDRLEN) {
-      /* receive packet header */
+      /* packet header */
       *n = snp->bytes;
       *len = PKTHDRLEN;
       *buf = (char *) snp->pkt.version;
-   } else if (PKT_HAS_C_VPDU(&(snp->pkt))) {
+   } else if (snp->c_vpdu) {
       *len = (int) get16(snp->pkt.len);
       if (snp->bytes < (PKTHDRLEN + *len)) {
-         /* receive packet buffer */
+         /* VPDU packet buffer */
          *n = snp->bytes - PKTHDRLEN;
          *buf = (char *) snp->pkt.buffer;
       } else {
-         /* receive packet trailer */
+         /* VPDU packet trailer */
          *n = snp->bytes - (PKTHDRLEN + *len);
          *len = PKTTLRLEN;
          *buf = (char *) snp->pkt.crc16;
       }
    } else if (snp->bytes < (PKTHDRLEN + PKTBUFFLEN_OLD)) {
-      /* receive packet buffer */
+      /* !VPDU packet buffer */
       *n = snp->bytes - PKTHDRLEN;
       *len = PKTBUFFLEN_OLD;
       *buf = (char *) snp->pkt.buffer;
    } else {
-      /* receive packet trailer */
+      /* !VPDU packet trailer */
       *n = snp->bytes - (PKTHDRLEN + PKTBUFFLEN_OLD);
       *len = PKTTLRLEN;
       *buf = (char *) snp->pkt.crc16;
    }
 
    return *len - *n;
-}  /* end recv_len() */
+}  /* end len_pkt() */
 
 /**
  * Receive a packet of data from a node.
@@ -239,7 +245,7 @@ int recv_pkt(SNODE *snp)
    pkt = &(snp->pkt);
 
    /* receive variable PDU into pkt */
-   while (recv_len(snp, &buf, &len, &n)) {
+   while (len_pkt(snp, &buf, &len, &n)) {
       if (len > PKTBUFFLEN) goto FAIL_OVERFLOW;
       count = recv(snp->sd, buf + n, len - n, 0);
       switch (count) {
@@ -503,56 +509,6 @@ int send_ipl(SNODE *snp)
 }  /* end send_ipl() */
 
 /**
- * @private
- * Obtain the next send() length, in bytes. For compatibility between
- * pversion 4, C_VPDU capable pversion 4, and pversion 5 onwards, we
- * require the information in the header of a packet. This is NOT
- * immediately possible if we are initiating a connection, so OP_HELLO
- * packets will always be padded, until we can identify the capability
- * of the connection we make, by checking the next received packet.
- * NOTE: Maintaining a list of IPs identifying C_VPDU capabilities is
- * flawed because it's possible to receive connections from multiple
- * sources behind the same IP using different capabilities; be it
- * nodes, wallets, APIs, tx bots or other scripts.
- * @param snp Pointer to SNODE
- * @returns (int) length, in bytes, of next send()
-*/
-static int send_len(SNODE *snp, char **buf, int *len, int *n)
-{
-   /* determine position of and length of next data to send */
-   if (snp->bytes < PKTHDRLEN) {
-      /* send packet header */
-      *n = snp->bytes;
-      *len = PKTHDRLEN;
-      *buf = (char *) snp->pkt.version;
-   } else if (snp->c_vpdu) {
-      *len = (int) get16(snp->pkt.len);
-      if (snp->bytes < (PKTHDRLEN + *len)) {
-         /* send packet buffer */
-         *n = snp->bytes - PKTHDRLEN;
-         *buf = (char *) snp->pkt.buffer;
-      } else {
-         /* send packet trailer */
-         *n = snp->bytes - (PKTHDRLEN + *len);
-         *len = PKTTLRLEN;
-         *buf = (char *) snp->pkt.crc16;
-      }
-   } else if (snp->bytes < (PKTHDRLEN + PKTBUFFLEN_OLD)) {
-      /* send packet buffer */
-      *n = snp->bytes - PKTHDRLEN;
-      *len = PKTBUFFLEN_OLD;
-      *buf = (char *) snp->pkt.buffer;
-   } else {
-      /* send packet trailer */
-      *n = snp->bytes - (PKTHDRLEN + PKTBUFFLEN_OLD);
-      *len = PKTTLRLEN;
-      *buf = (char *) snp->pkt.crc16;
-   }
-
-   return *len - *n;
-}  /* end send_len() */
-
-/**
  * Send a packet of data to an SNODE.
  * NOTE: return value is also placed in snp->status
  * @param snp Pointer to a SNODE
@@ -569,7 +525,7 @@ int send_pkt(SNODE *snp)
    int ecode, count, len, n;
 
    /* send PDUs of varying size and capabilities */
-   while (send_len(snp, &buf, &len, &n)) {
+   while (len_pkt(snp, &buf, &len, &n)) {
       count = send(snp->sd, buf + n, len - n, 0);
       switch (count) {
          case (-1):
