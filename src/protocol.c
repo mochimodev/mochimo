@@ -344,12 +344,10 @@ BAD_OPCODE: set_errno(EMCM_PKTOPCODE); return (snp->status = VEBAD);
 
 /**
  * Send a ledger balance to a requesting server node connection.
- * Converts WOTS+ addresses from protocol version 4 requests into
- * it's Hashed address variant before searching the ledger.
- * Protocol version 5 expects Hashed Ledger Transaction (LTRAN) format:
- * addr (Hashed Address), trancode (Found), amount (Balance).
- * Protocol version 4 expects WOTS+ Transaction (TXW) format:
- * src_addr (WOTS+ Address), send_total (balance), change_total (Found).
+ * Non-Hashed Address search requests are converted before search.
+ * NOTE: Protocol version 5 accepts Hashed or WOTS+ addresses and
+ * returns a Ledger Transaction (LTRAN) containing Ledger data where
+ * the value of @a trancode[0] indicates if the address was "found".
  * @param snp Pointer to server node to send balance
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
@@ -360,27 +358,40 @@ BAD_OPCODE: set_errno(EMCM_PKTOPCODE); return (snp->status = VEBAD);
 int send_balance(SNODE *snp)
 {
    TXW *txwp;
+   LTRAN *ltp;
    LENTRY *lep;
-   word16 len;
 
    /* check if balance was retrieved */
    if (snp->iowait == IO_RECV) {
       /* check protocol version... */
       if (PKT_IS_PV5(&(snp->pkt))) {
-         /* ... PVERSION 5 onwards uses Hashed addresses */
-         memset(snp->pkt.len, 0, sizeof(snp->pkt.len));
-         /* look up source address in ledger */
-         lep = le_find(snp->pkt.buffer);
+         /* ... PVERSION 5 onwards accepts multiple address types */
+         ltp = (LTRAN *) snp->pkt.buffer;
+         switch (get16(snp->pkt.len)) {
+            case TXWOTSLEN: le_convert(ltp->addr, snp->pkt.buffer); break;
+            /* ... add address type conversions here (like above) */
+            case TXADDRLEN: break; /* no action required */
+            default:
+               /* unsupported address type, send NACK... */
+               init_nack(snp);
+               goto SEND;
+         }
+         /* update the packet buffer data length */
+         put16(snp->pkt.len, sizeof(*ltp));
+         /* check if ledger data exists... */
+         lep = le_find(ltp->addr);
          if (lep) {
-            /* return ledger entry data */
-            len = (word16) sizeof(*lep);
-            put16(snp->pkt.len, len);
-            memcpy(snp->pkt.buffer, lep, len);
+            /* return "found" and ledger balance */
+            ltp->trancode[0] = 1;
+            put64(ltp->amount, lep->balance);
+         } else {
+            /* return "not found" and zero balance */
+            ltp->trancode[0] = 0;
+            memset(ltp->amount, 0, sizeof(ltp->amount));
          }
       } else {
-         /* ... PVERSION 4 and below uses WOTS+ addresses */
+         /* ... PVERSION 4 and below uses WOTS+ (TXW) */
          txwp = (TXW *) snp->pkt.buffer;
-         len = get16(snp->pkt.len);
          /* initialize return values */
          memset(txwp->send_total, 0, sizeof(txwp->send_total));
          memset(txwp->change_total, 0, sizeof(txwp->change_total));
@@ -398,7 +409,7 @@ int send_balance(SNODE *snp)
 
       /* initialize packet for sending */
       init_pkt(snp, OP_SEND_BAL);
-      snp->iowait = IO_SEND;
+SEND: snp->iowait = IO_SEND;
    }
 
    /* send packet with ledger balance */
