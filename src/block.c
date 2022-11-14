@@ -295,11 +295,14 @@ int update_block(char *fname)
       /* extract ledger from neo-genesis block */
       ecode = le_extract(fname);
       if (ecode) return ecode;
+      /* read block number of Tfile */
+      if (read_bnum(bnum, fname) != VEOK) return VERROR;
       /* trim tfile to neo-genesis block */
       if (cmp64(bt.bnum, bnum) <= 0) {
          /* trim tfile for append trailer -- reset weight */
          if (sub64(bt.bnum, one, bnum)) goto FAIL_UNDERFLOW;
          if (trim_tfile("tfile.dat", bnum) != VEOK) return VERROR;
+         memset(Weight, 0, sizeof(Weight));
          weigh_tfile("tfile.dat", Weight);
       }
    } else if (get32(bt.tcount) > 0) {
