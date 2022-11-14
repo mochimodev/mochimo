@@ -13,6 +13,7 @@
 #include "protocol.h"
 
 /* internal support */
+#include "chain.h"
 #include "error.h"
 #include "ledger.h"
 #include "peer.h"
@@ -20,6 +21,7 @@
 /* external support */
 #include "crc16.h"
 #include "extlib.h"
+#include "extmath.h"
 #include <string.h>
 
 #ifdef _WIN32
@@ -34,6 +36,8 @@
 
 /** Lifetime balance requests processed */
 unsigned Nbalance = 0;
+/** Lifetime hash requests processed */
+unsigned Nhashes = 0;
 /** Lifetime IP list requests processed */
 unsigned Niplist = 0;
 /** Lifetime Negative Acknowledgements */
@@ -417,6 +421,50 @@ SEND: snp->iowait = IO_SEND;
 }  /* end send_balance() */
 
 /**
+ * Send the block hash associated with a block number of the current chain.
+ * Uses the Trailer file (Tfile) for determining the current chain.
+ * @param snp Pointer to server node to send hash
+ * @return (int) value representing operation result
+ * @retval VEWAITING on waiting for data
+ * @retval VETIMEOUT on connection timeout
+ * @retval VEOK on success; packet sent
+ * @retval VERROR on internal error
+*/
+int send_hash(SNODE *snp)
+{
+   BTRAILER tft;
+
+   /* check if iIP list was retrieved */
+   if (snp->iowait == IO_RECV) {
+      /* IO block number must contain a block number <= the current */
+      if (PKT_IS_PV5(&(snp->pkt))) {
+         if (cmp64(snp->pkt.blocknum, Cblocknum) > 0) {
+            /* unsupported block number, send NACK... */
+            init_nack(snp);
+            goto SEND;
+         }
+      }
+      /* read hash of Trailer file */
+      if (read_tfile(&tft, snp->pkt.blocknum, 1, "tfile.dat") != 1) {
+         return VERROR;
+      }
+      /* place hash in packet buffer and adjust data length */
+      memcpy(snp->pkt.buffer, tft.bhash, sizeof(tft.bhash));
+      put16(snp->pkt.len, sizeof(tft.bhash));
+
+      /* increment hash request counter */
+      Nhashes++;
+
+      /* initialize packet for sending */
+      init_pkt(snp, OP_HASH);
+SEND: snp->iowait = IO_SEND;
+   }
+
+   /* send packet with block hash of current chain */
+   return send_pkt(snp);
+}  /* end send_hash() */
+
+/**
  * Send an IP list to a requesting server node.
  * The "recent" peers list is expected.
  * @param snp Pointer to server node to send IP list
@@ -627,6 +675,7 @@ OP_RESTART:
       }  /* end case OP_HELLO_ACK */
       case OP_GET_IPL: send_ipl(snp); break;
       case OP_BALANCE: send_balance(snp); break;
+      case OP_HASH: send_hash(snp); break;
       default: {
          set_errno(EMCMOPCODE);
          snp->status = VERROR;

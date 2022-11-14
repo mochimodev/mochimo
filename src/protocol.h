@@ -16,6 +16,7 @@
 #include "types.h"
 
 extern unsigned Nbalance;
+extern unsigned Nhashes;
 extern unsigned Niplist;
 extern unsigned Nnacks;
 extern unsigned Nrecvs;
@@ -43,8 +44,9 @@ void init_pkt(SNODE *snp, word16 opcode);
 int recv_pkt(SNODE *snp);
 int recv_file(SNODE *snp);
 int send_pkt(SNODE *snp);
-int send_ipl(SNODE *snp);
 int send_balance(SNODE *snp);
+int send_hash(SNODE *snp);
+int send_ipl(SNODE *snp);
 int receive_node(SNODE *snp);
 int request_node(SNODE *snp);
 
