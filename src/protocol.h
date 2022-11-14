@@ -17,6 +17,7 @@
 
 extern unsigned Nbalance;
 extern unsigned Niplist;
+extern unsigned Nnacks;
 extern unsigned Nrecvs;
 extern unsigned Nrecverrs;
 extern unsigned Nrecvsbad;

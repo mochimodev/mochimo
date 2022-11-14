@@ -36,6 +36,8 @@
 unsigned Nbalance = 0;
 /** Lifetime IP list requests processed */
 unsigned Niplist = 0;
+/** Lifetime Negative Acknowledgements */
+unsigned Nnacks = 0;
 /** Lifetime packets received */
 unsigned Nrecvs = 0;
 /** Lifetime packet receive errors */
@@ -151,6 +153,22 @@ void init_pkt(SNODE *snp, word16 opcode)
    put16(snp->pkt.crc16, crc16(&(snp->pkt), PKTCRC_INLEN(len)));
    put16(snp->pkt.trailer, TXEOT);
 }  /* end init_pkt() */
+
+/**
+ * Initialize a packet of SNODE with protocol data and OP_NACK.
+ * OP_NACK refers to a Negative Acknowledgment operation (usually
+ * sent in response to a request operation) identifying that the
+ * request was received successfully, but it contained an error.
+ * @param snp Pointer to SNODE
+*/
+void init_nack(SNODE *snp)
+{
+   /* initialize NACK protocol */
+   put16(snp->pkt.len, 0);
+   init_pkt(snp, OP_NACK);
+   /* increment NACK counter */
+   Nnacks++;
+}  /* end init_nack() */
 
 /**
  * @private
