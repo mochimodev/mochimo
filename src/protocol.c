@@ -13,6 +13,7 @@
 #include "protocol.h"
 
 /* internal support */
+#include "block.h"
 #include "chain.h"
 #include "error.h"
 #include "ledger.h"
@@ -427,6 +428,144 @@ SEND: snp->iowait = IO_SEND;
 }  /* end send_balance() */
 
 /**
+ * Send various files to a requesting server node.
+ * @param snp Pointer to server node to send IP list
+ * @return (int) value representing operation result
+ * @retval VEWAITING on waiting for send buffer
+ * @retval VETIMEOUT on connection timeout
+ * @retval VEOK on success; finished
+ * @retval VERROR on internal error
+*/
+int send_file(SNODE *snp)
+{
+   BTRAILER tft;
+   long long first, count;
+   FILE *fp;
+   word8 *bp;
+   word32 bnum[2];
+   word16 len;
+   char fname[FILENAME_MAX];
+   char fpath[FILENAME_MAX];
+
+   /* check if file is already allocated */
+   if (snp->iowait == IO_RECV) {
+      bp = snp->pkt.blocknum;
+      /* determine file type requested */
+      switch (get16(snp->pkt.opcode)) {
+         case OP_GET_BLOCK: {
+            /* read Tfile for hash of requested block */
+            if (read_tfile(&tft, bp, 1, "tfile.dat") != 1) return VERROR;
+            /* get archived file name */
+            bc_fqan(fname, snp->pkt.blocknum, tft.bhash);
+            path_join(fpath, Bcdir_opt, fname);
+            /* try opening file -- VERROR if unable to send */
+            snp->fp = fopen(fpath, "rb");
+            if (snp->fp == NULL) return VERROR;
+            /* ... file is open and ready for send */
+            break;
+         }  /* end case OP_GET_BLOCK */
+         case OP_GET_TFILE: {
+            /* FULL Tfile download */
+            first = 0;
+            count = LLONG_MAX;
+            goto PREP_TFILE;
+         }  /* end case OP_GET_TFILE */
+         case OP_TF: {
+            /* obtain parameters from packet IO blocknum */
+            bnum[1] = 0;
+            bnum[0] = get32(snp->pkt.blocknum);
+            count = get16(snp->pkt.blocknum + 4);
+            /* protocol version 5 introduces additional feedback... */
+            if (PKT_IS_PV5(&(snp->pkt))) {
+               /* ... IO MUST NOT be greater than current block number,
+               * and count must be non-zero up to 1000 */
+               if (cmp64(bnum, Cblocknum) > 0
+                  || count < 1 || count > 1000) {
+                  /* unsupported IO values, send NACK... */
+                  init_nack(snp);
+                  goto SEND;
+               }
+            } else if (count < 1 || count > 1000) return VERROR;
+            /* seek to appropriate location */
+            first = 0;
+            put64(&first, bnum);
+            first *= (long long) sizeof(tft);
+PREP_TFILE: /* create temporary file ("wb+") -- remove buffer */
+            snp->fp = tmpfile();
+            if (snp->fp == NULL) return VERROR;
+            setvbuf(snp->fp, NULL, _IONBF, 0);
+            /* open Tfile for copy */
+            fp = fopen("tfile.dat", "rb");
+            if (fp == NULL) return VERROR;
+            /* seek to appropriate location */
+            if (fseek64(fp, first, SEEK_SET) != 0) goto FAIL;
+            /* load requested Tfile data into temporary file */
+            while (count-- && fread(&tft, sizeof(tft), 1, fp)) {
+               if (fwrite(&tft, sizeof(tft), 1, snp->fp) != 1) goto FAIL;
+            }
+            break;
+         }  /* end case OP_TF (or OP_GET_TFILE) */
+         default: return VERROR;
+      }  /* end switch (get16(snp->pkt.opcode)) */
+
+      /* rewind temp file */
+      rewind(snp->fp);
+      /* read first chunk of data into packet buffer */
+      len = snp->c_vpdu ? PKTBUFFLEN : PKTBUFFLEN_OLD;
+      count = fread(snp->pkt.buffer, 1, len, snp->fp);
+      /* initialize packet for first send */
+      put16(snp->pkt.len, (word16) count);
+      init_pkt(snp, OP_SEND_FILE);
+SEND: snp->iowait = IO_SEND;
+   }  /* end if (snp->iowait == IO_RECV) */
+
+   /* divert to send_pkt() for NACK */
+   if (get16(snp->pkt.opcode) == OP_NACK) return send_pkt(snp);
+
+   return send_fp(snp);
+
+/* error handling */
+FAIL:
+   fclose(fp);
+   return VERROR;
+}  /* end send_file() */
+
+/**
+ * Send multiple packets of data froma FILE pointer to a SNODE.
+ * @param snp Pointer to a SNODE containing open FILE pointer
+ * @return (int) value representing operation result
+ * @retval VEWAITING on waiting for send buffer
+ * @retval VETIMEOUT on connection timeout
+ * @retval VEOK on success; FILE pointer EOF
+ * @retval VERROR on internal error
+*/
+int send_fp(SNODE *snp)
+{
+   size_t count, len;
+
+   /* send packet of data */
+   while (send_pkt(snp) == VEOK) {
+      /* check file pointer for end */
+      if (snp->fp == NULL) break;
+      /* read next chunk of data into packet buffer */
+      len = snp->c_vpdu ? PKTBUFFLEN : PKTBUFFLEN_OLD;
+      count = fread(snp->pkt.buffer, 1, len, snp->fp);
+      if (count < len) {
+         /* check for specific error -- close file pointer */
+         if (ferror(snp->fp)) snp->status = VERROR;
+         fclose(snp->fp);
+         snp->fp = NULL;
+      }
+      /* prepare packet of data */
+      put16(snp->pkt.len, (word16) count);
+      init_pkt(snp, OP_SEND_FILE);
+   } /* end while(send_pkt()) */
+
+   /* snp->status is set during send_pkt() */
+   return snp->status;
+}  /* end send_fp() */
+
+/**
  * Send the block hash associated with a block number of the current chain.
  * Uses the Trailer file (Tfile) for determining the current chain.
  * @param snp Pointer to server node to send hash
@@ -629,9 +768,13 @@ OP_RESTART:
          /* restart switch block on success */
          goto OP_RESTART;
       }  /* end case OP_HELLO_ACK */
+      case OP_GET_BLOCK: send_file(snp); break;
       case OP_GET_IPL: send_ipl(snp); break;
+      case OP_SEND_FILE: send_fp(snp); break;
+      case OP_GET_TFILE: send_file(snp); break;
       case OP_BALANCE: send_balance(snp); break;
       case OP_HASH: send_hash(snp); break;
+      case OP_TF: send_file(snp); break;
       default: {
          set_errno(EMCMOPCODE);
          snp->status = VERROR;

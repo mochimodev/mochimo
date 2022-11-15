@@ -45,6 +45,8 @@ int recv_pkt(SNODE *snp);
 int recv_file(SNODE *snp);
 int send_pkt(SNODE *snp);
 int send_balance(SNODE *snp);
+int send_file(SNODE *snp);
+int send_fp(SNODE *snp);
 int send_hash(SNODE *snp);
 int send_ipl(SNODE *snp);
 int receive_node(SNODE *snp);
