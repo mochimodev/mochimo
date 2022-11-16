@@ -356,9 +356,9 @@ BAD_OPCODE: set_errno(EMCM_PKTOPCODE); return (snp->status = VEBAD);
 /**
  * Send a ledger balance to a requesting server node connection.
  * Non-Hashed Address search requests are converted before search.
- * NOTE: Protocol version 5 accepts Hashed or WOTS+ addresses and
- * returns a Ledger Transaction (LTRAN) containing Ledger data where
- * the value of @a trancode[0] indicates if the address was "found".
+ * NOTE: Protocol version 5 accepts Hashed Addresses and returns
+ * a Ledger Transaction (LTRAN) containing Ledger data where the
+ * value of @a trancode[0] is set if the address was "found".
  * @param snp Pointer to server node to send balance
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
@@ -376,16 +376,12 @@ int send_balance(SNODE *snp)
    if (snp->iowait == IO_RECV) {
       /* check protocol version... */
       if (PKT_IS_PV5(&(snp->pkt))) {
-         /* ... PVERSION 5 onwards accepts multiple address types */
+         /* ... PVERSION 5 onwards uses Hashed Address */
          ltp = (LTRAN *) snp->pkt.buffer;
-         switch (get16(snp->pkt.len)) {
-            case TXWOTSLEN: le_convert(ltp->addr, snp->pkt.buffer); break;
-            /* ... add address type conversions here (like above) */
-            case TXADDRLEN: break; /* no action required */
-            default:
-               /* unsupported address type, send NACK... */
-               init_nack(snp);
-               goto SEND;
+         if (get16(snp->pkt.len) != TXADDRLEN) {
+            /* unsupported address type, send NACK... */
+            init_nack(snp);
+            goto SEND;
          }
          /* update the packet buffer data length */
          put16(snp->pkt.len, sizeof(*ltp));
