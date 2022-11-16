@@ -3,6 +3,22 @@
  * @brief Mochimo ledger support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
+ * @note **The trouble with Tags preceding their addresses...**<br/><br/>
+ * The whole situation just becomes far more expensive and unnecessary.
+ * Deterministic recovery of a cryptographic address would go from a
+ * simple "binary search" to an "exhaustive search" of the ledger.
+ * Implementing a complimentary binary search operation would require
+ * indexing 32 bytes of definitely not compressible data for every
+ * address in the ledger, in comparison to 12 bytes of potentially
+ * compressible data containing only tagged addresses.<br/><br/>
+ * @note **The trouble with deriving the "OTS Hash Address" from the
+ * public "SEED" of the WOTS+ signature scheme...**<br/><br/>
+ * If we change the current scheme to one that derives the "OTS Hash
+ * Address" from it's public "SEED", then the WOTS+ public key and
+ * subsequent Hashed Address also change to an unknowable result.
+ * This kind of transition requires all occupants of the ledger to
+ * transfer their funds to an address fitting the compliant scheme,
+ * before allowing further transactions to take place.
 */
 
 /* include guard */
