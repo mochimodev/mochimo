@@ -396,6 +396,40 @@ void set_print_level(int level)
 const char *mcm_errno_text(int errnum)
 {
    switch (errnum) {
+      case EMCMLEDEBIT:
+         return "Ledger entry debit did not match balance";
+      case EMCMLECREDITOVERFLOW:
+         return "Ledger entry credit overflowed the balance";
+      case EMCMLEDEPTH:
+         return "Maximum ledger depth reached";
+      case EMCMLENOTAVAIL:
+         return "Internal Ledger is not available";
+      case EMCMLETRANCODE:
+         return "Unknown ledger entry transaction code";
+      case EMCMNOTXS:
+         return "No transactions to handle";
+      case EMCMOPCODE:
+         return "Unknown operation code";
+      case EMCMOPHELLO:
+         return "Missing OP_HELLO packet";
+      case EMCMOPHELLOACK:
+         return "Missing OP_HELLO_ACK packet";
+      case EMCMOPRECV:
+         return "Unexpected operation code in receive protocol";
+      case EMCMOPSEND:
+         return "Unexpected operation code in request protocol";
+      case EMCMPKTCRC:
+         return "Invalid CRC16 packet hash";
+      case EMCMPKTIDS:
+         return "Unexpected packet identification";
+      case EMCMPKTNACK:
+         return "Unexpected negative acknowledgement";
+      case EMCMPKTNET:
+         return "Incompatible packet network";
+      case EMCMPKTOPCODE:
+         return "Invalid packet opcode";
+      case EMCMPKTTLR:
+         return "Invalid packet trailer";
       case EMCM_MATH64_OVERFLOW:
          return "Unspecified 64-bit math overflow";
       case EMCM_MATH64_UNDERFLOW:
@@ -472,26 +506,6 @@ const char *mcm_errno_text(int errnum)
          return "Bad Genesis hash";
       case EMCM_NZGEN:
          return "Non-zero Genesis data";
-      case EMCM_NOHELLO:
-         return "Missing OP_HELLO packet";
-      case EMCM_NOHELLOACK:
-         return "Missing OP_HELLO_ACK packet";
-      case EMCM_OPCODE:
-         return "Unrecognised operation code";
-      case EMCM_OPINVAL:
-         return "Invalid operation code";
-      case EMCM_PKTCRC:
-         return "Invalid CRC16 packet hash";
-      case EMCM_PKTIDS:
-         return "Unexpected packet identification";
-      case EMCM_PKTNACK:
-         return "Unexpected negative acknowledgement";
-      case EMCM_PKTNET:
-         return "Incompatible packet network";
-      case EMCM_PKTOPCODE:
-         return "Invalid packet opcode";
-      case EMCM_PKTTLR:
-         return "Invalid packet trailer";
       case EMCM_TX_AMOUNTS_OVERFLOW:
          return "Overflow of TX amounts";
       case EMCM_TX_CHG_ADDR:
