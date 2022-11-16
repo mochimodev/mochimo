@@ -203,8 +203,28 @@ enum mcm_errno_t {
    /** No transactions to handle */
    EMCMNOTXS,
 
-   /** Unexpected operation code */
+   /** Unknown operation code */
    EMCMOPCODE,
+   /** Missing OP_HELLO packet */
+   EMCMOPHELLO,
+   /** Missing OP_HELLO_ACK packet */
+   EMCMOPHELLOACK,
+   /** Unexpected operation code in receive protocol */
+   EMCMOPRECV,
+   /** Unexpected operation code in request protocol */
+   EMCMOPSEND,
+   /** Invalid CRC16 packet hash */
+   EMCMPKTCRC,
+   /** Unexpected packet identification */
+   EMCMPKTIDS,
+   /** Unexpected negative acknowledgement */
+   EMCMPKTNACK,
+   /** Incompatible packet network */
+   EMCMPKTNET,
+   /** Invalid packet opcode */
+   EMCMPKTOPCODE,
+   /** Invalid packet trailer */
+   EMCMPKTTLR,
 
    /** Unspecified 64-bit math overflow */
    EMCM_MATH64_OVERFLOW,
@@ -289,27 +309,6 @@ enum mcm_errno_t {
    EMCM_GENHASH,
    /** Non-zero Genesis data */
    EMCM_NZGEN,
-
-   /** Missing OP_HELLO packet */
-   EMCM_NOHELLO,
-   /** Missing OP_HELLO_ACK packet */
-   EMCM_NOHELLOACK,
-   /** Invalid operation code */
-   EMCM_OPINVAL,
-
-   /** Invalid CRC16 packet hash */
-   EMCM_PKTCRC,
-   /** Unexpected packet identification */
-   EMCM_PKTIDS,
-   /** Unexpected negative acknowledgement */
-   EMCM_PKTNACK,
-   /** Incompatible packet network */
-   EMCM_PKTNET,
-   /** Invalid packet opcode */
-   EMCM_PKTOPCODE,
-   /** Invalid packet trailer */
-   EMCM_PKTTLR,
-
 
    /** Overflow of TX amounts */
    EMCM_TX_AMOUNTS_OVERFLOW,

@@ -295,10 +295,10 @@ FAIL:
    return (snp->status = VERROR);
 
 /* protocol violation handling */
-BAD_CRC: set_errno(EMCM_PKTCRC); goto BAD;
-BAD_NET: set_errno(EMCM_PKTNET); goto BAD;
-BAD_TLR: set_errno(EMCM_PKTTLR); goto BAD;
-BAD_IDS: set_errno(EMCM_PKTIDS);
+BAD_CRC: set_errno(EMCMPKTCRC); goto BAD;
+BAD_NET: set_errno(EMCMPKTNET); goto BAD;
+BAD_TLR: set_errno(EMCMPKTTLR); goto BAD;
+BAD_IDS: set_errno(EMCMPKTIDS);
 BAD:
    Nrecvsbad++;
    return (snp->status = VEBAD);
@@ -346,11 +346,11 @@ int recv_file(SNODE *snp)
    return snp->status;
 
 /* error handling */
-FAIL_NACK: set_errno(EMCM_PKTNACK);
+FAIL_NACK: set_errno(EMCMPKTNACK);
 FAIL: return (snp->status = VERROR);
 
 /* protocol violation handling */
-BAD_OPCODE: set_errno(EMCM_PKTOPCODE); return (snp->status = VEBAD);
+BAD_OPCODE: set_errno(EMCMPKTOPCODE); return (snp->status = VEBAD);
 }  /* end recv_file() */
 
 /**
@@ -732,7 +732,7 @@ OP_RESTART:
          /* receive/check OP_HELLO packet */
          if (recv_pkt(snp)) break;
          if (snp->opcode != OP_HELLO) {
-            set_errno(EMCM_NOHELLO);
+            set_errno(EMCMOPHELLO);
             snp->status = VEBAD;
             break;
          }
@@ -757,7 +757,7 @@ OP_RESTART:
          /* recv'd opcode MUST be a "valid" operation code */
          /* NOTE: recv'd opcode MUST be checked here */
          if (snp->opcode < FIRST_OP || snp->opcode > LAST_OP) {
-            set_errno(EMCM_OPINVAL);
+            set_errno(EMCMOPCODE);
             snp->status = VERROR;
             break;
          }
@@ -772,7 +772,7 @@ OP_RESTART:
       case OP_HASH: send_hash(snp); break;
       case OP_TF: send_file(snp); break;
       default: {
-         set_errno(EMCMOPCODE);
+         set_errno(EMCMOPRECV);
          snp->status = VERROR;
       }  /* end default */
    }  /* end switch (snp->opcode) */
@@ -882,7 +882,7 @@ OP_RESTART:
          if (recv_pkt(snp)) break;
          /* check initial handshake protocol */
          if (snp->opcode != OP_HELLO_ACK) {
-            set_errno(EMCM_NOHELLOACK);
+            set_errno(EMCMOPHELLOACK);
             snp->status = VEBAD;
             break;
          }
@@ -916,7 +916,7 @@ OP_RESTART:
          if (recv_pkt(snp)) break;
          /* check response opcode */
          if (snp->opcode != OP_SEND_IPL) {
-            set_errno(EMCM_OPINVAL);
+            set_errno(EMCMOPCODE);
             snp->status = VEBAD;
             break;
          }
@@ -933,7 +933,7 @@ OP_RESTART:
          break;
       }  /* end case OP_TF */
       default: {
-         set_errno(EMCMOPCODE);
+         set_errno(EMCMOPSEND);
          snp->status = VERROR;
       }  /* end default */
    }  /* end switch (snp->opcode) */
