@@ -339,11 +339,12 @@ FAIL_IO:
 }  /* end le_compress() */
 
 /**
- * Convert a WOTS+ address to a Hashed address. Also copies tags.
- * @param hash Pointer to 64 byte Hashed address
+ * Convert a WOTS+ address to a Hashed address.
+ * Zero's the user configurable portion of data and copies the Tag.
  * @param wots Pointer to 2208 byte WOTS+ address
- */
-void le_convert(void *hash, void *wots)
+ * @param hash Pointer to 64 byte Hashed address
+*/
+void le_convert(void *wots, void *hash)
 {
    sha256(wots, TXWOTSLEN, hash);
    memcpy(
@@ -443,7 +444,7 @@ int le_extract(const char *ngfname)
          if (!first && le_cmpw(lew.addr, paddr) <= 0) goto FAIL_SORT;
          memcpy(paddr, lew.addr, sizeof(lew.addr));
          /* convert WOTS+ to Hashed address */
-         le_convert(le.addr, lew.addr);
+         le_convert(lew.addr, le.addr);
          put64(le.balance, lew.balance);
          /* write hashed ledger entries to ledger file */
          if (fwrite(&le, sizeof(le), 1, lfp) != 1) goto FAIL_IO;
@@ -534,7 +535,7 @@ LENTRY *le_findw(void *wots)
    /* sanity checks */
    if (wots == NULL) { set_errno(EINVAL); return NULL; }
    /* convert wots address to public key address */
-   le_convert(addr, wots);
+   le_convert(wots, addr);
 
    return le_find(addr);
 }  /* end le_findw() */
@@ -732,7 +733,7 @@ int le_update(char *fname)
          /* store the change address of afflicted transactions */
          if (WOTS_HAS_TAG(txw.src_addr) && tag_equal(
                WOTS_TAGp(txw.src_addr), WOTS_TAGp(txw.chg_addr))) {
-            le_convert(trp + (trpidx++ * TXADDRLEN), txw.chg_addr);
+            le_convert(txw.chg_addr, trp + (trpidx++ * TXADDRLEN));
          }
       }
       /* sort tagged redirects */
@@ -743,7 +744,7 @@ int le_update(char *fname)
       for (j = 0; j < tcount; j++) {
          if (fread(&txw, sizeof(txw), 1, fp) != 1) goto FAIL_IO2;
          /* debit source address by total */
-         le_convert(ltp[ltpidx].addr, txw.src_addr);
+         le_convert(txw.src_addr, ltp[ltpidx].addr);
          ltp[ltpidx].trancode[0] = (word8) '-';
          add64(txw.send_total, txw.change_total, ltp[ltpidx].amount);
          add64(ltp[ltpidx].amount, txw.tx_fee, ltp[ltpidx].amount);
@@ -755,14 +756,14 @@ int le_update(char *fname)
                trp, trpidx, TXADDRLEN, search_tag_in_addr);
             /* use found address or convert destination address */
             if (ptr) memcpy(ltp[ltpidx].addr, ptr, TXADDRLEN);
-            else le_convert(ltp[ltpidx].addr, txw.dst_addr);
+            else le_convert(txw.dst_addr, ltp[ltpidx].addr);
             ltp[ltpidx].trancode[0] = (word8) 'A';
             put64(ltp[ltpidx].amount, txw.send_total);
             ltpidx++;
          }
          /* credit change address by change total (if non-zero) */
          if (!iszero(txw.change_total, 8)) {
-            le_convert(ltp[ltpidx].addr, txw.chg_addr);
+            le_convert(txw.chg_addr, ltp[ltpidx].addr);
             ltp[ltpidx].trancode[0] = (word8) 'A';
             put64(ltp[ltpidx].amount, txw.change_total);
             ltpidx++;
@@ -773,7 +774,7 @@ int le_update(char *fname)
       /* Make ledger tran to add to or create mining address.
        * '...Money from nothing...'
        */
-      le_convert(ltp[ltpidx].addr, bhw.maddr);
+      le_convert(bhw.maddr, ltp[ltpidx].addr);
       ltp[ltpidx].trancode[0] = (word8) 'A';
       put64(ltp[ltpidx].amount, mrewards);
       ltpidx++;

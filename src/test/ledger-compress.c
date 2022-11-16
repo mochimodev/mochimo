@@ -37,7 +37,7 @@ LENTRY *random_ledger(size_t count)
          *((word32 *) &tag[4]) = i;
       }
       /* convert to hashed lentry */
-      le_convert(le[i].addr, lew.addr);
+      le_convert(lew.addr, le[i].addr);
       put64(le[i].balance, lew.balance);
    }
    /* sort ledger entries (WOTS+) */

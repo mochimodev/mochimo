@@ -92,7 +92,7 @@ void compare_remaining(LENTRY_W *lep, size_t count)
    /* try find all ledger entries by address and tag */
    for (counted = i = 0; i < count; i++) {
 
-      le_convert(lec.addr, lep[i].addr);
+      le_convert(lep[i].addr, lec.addr);
       put64(lec.balance, lep[i].balance);
 
       lef = le_findw(lep[i].addr);
@@ -115,7 +115,7 @@ void search_and_compare(LENTRY_W *lep, size_t count)
    /* try find all ledger entries by address and tag */
    for (i = 0; i < count; i++) {
 
-      le_convert(lec.addr, lep[i].addr);
+      le_convert(lep[i].addr, lec.addr);
       put64(lec.balance, lep[i].balance);
       /* check returned address tag compare */
       ASSERT_EQ_MSG(tag_equal(WOTS_TAGp(lep[i].addr), ADDR_TAGp(lec.addr)),
