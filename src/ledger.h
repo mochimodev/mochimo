@@ -70,7 +70,7 @@ void le_close(int depth);
 int le_cmpw(const void *a, const void *b);
 int le_cmp(const void *a, const void *b);
 int le_compress(const char *filename, int depth, int count);
-void le_convert(void *hash, void *addr);
+void le_convert(void *wots, void *hash);
 void le_delete(int depth);
 int le_extract(const char *ngfname);
 LENTRY *le_find(void *addr);
