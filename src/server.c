@@ -9,52 +9,71 @@
 #include "extlib.h"
 #include <string.h>
 
+/* standard server connection TIMEOUT, 30 seconds */
+#define SERVER_TIMEOUT  30
+
 #define ACCEPT_DROP(sd, x) \
    do { \
       pcustom(errno, PLEVEL_DEBUG, FnMSG("drop sd= %d (" x ")"), sd); \
       sock_close(sd); continue; \
    } while(0)
 
+/* MACRO for handling excessive connections on various systems
+ * NOTE: unnecessary when the server handler moves away from select() */
+#ifdef _WIN32
+   #define SELECT_CANNOT_HANDLE(sd) ( 0 )
+
+#else
+   #define SELECT_CANNOT_HANDLE(sd) ( sd >= FD_SETSIZE )
+
+#endif
+
 /**
  * @private for internal use only
 */
-static LinkedNode *server__accept_work(LinkedNode *lnp, SOCKET sd)
+static LinkedNode *server__accept_work(LinkedNode *lnp, SOCKET sd, int sio)
 {
-   ServerWork *swp;
+   AsyncWork *wp;
 
    /* create (or reuse supplied) LinkedNode with socket */
-   if (lnp == NULL) lnp = link_node_create(sizeof(ServerWork));
+   if (lnp == NULL) lnp = link_node_create(sizeof(AsyncWork));
    if (lnp == NULL) return NULL;
-   swp = (ServerWork *) lnp->data;
-   swp->sd = sd;
+   wp = (AsyncWork *) lnp->data;
+   wp->to = SERVER_TIMEOUT;
+   wp->sio = sio;
+   wp->sd = sd;
 
    return lnp;
 }  /* end server__accept_work() */
 
 /**
  * Cleanup server work releasing held resources back to the system.
- * @param lnp Pointer to ServerWork
+ * @param sp Pointer to Server
+ * @param wp Pointer to AsyncWork
  * @private for internal use only
 */
-static void server__cleanup_work(ServerWork *swp)
+static void server__cleanup_work(Server *sp, AsyncWork *wp)
 {
-   if (swp == NULL) return;
+   if (wp == NULL) return;
+   /* check for and execute additional cleanup process */
+   if (sp && sp->donefn) sp->donefn(wp);
    /* cleanup and deallocate work resources */
-   if (swp->sd != INVALID_SOCKET) sock_close(swp->sd);
-   if (swp->data != NULL) free(swp->data);
-   free(swp);
+   if (wp->sd != INVALID_SOCKET) sock_close(wp->sd);
+   if (wp->data != NULL) free(wp->data);
+   free(wp);
 }  /* end server__cleanup_work() */
 
 /**
  * Cleanup LinkedNode releasing held resources back to the system.
+ * @param sp Pointer to Server
  * @param lnp Pointer to LinkedNode
  * @private for internal use only
 */
-static void server__cleanup_node(LinkedNode *lnp)
+static void server__cleanup_node(Server *sp, LinkedNode *lnp)
 {
    if (lnp == NULL) return;
    /* cleanup and deallocate node resources */
-   server__cleanup_work(lnp->data);
+   server__cleanup_work(sp, lnp->data);
    free(lnp);
 }  /* end server__cleanup_node() */
 
@@ -74,11 +93,11 @@ static void server__cleanup(Server *sp)
    }
    while ((lnp = sp->inIO.next)) {
       link_node_remove(lnp, &(sp->inIO));
-      server__cleanup_node(lnp);
+      server__cleanup_node(sp, lnp);
    }
    while ((lnp = sp->outIO.next)) {
       link_node_remove(lnp, &(sp->outIO));
-      server__cleanup_node(lnp);
+      server__cleanup_node(sp, lnp);
    }
 }  /* end server__cleanup() */
 
@@ -88,13 +107,13 @@ static void server__cleanup(Server *sp)
 static int server__create_work(Server *sp, void *data)
 {
    LinkedNode *lnp;
-   ServerWork *swp;
+   AsyncWork *wp;
 
-   /* create LinkedNode with empty ServerWork */
-   lnp = server__accept_work(NULL, INVALID_SOCKET);
-   swp = lnp->data;
+   /* create LinkedNode with empty AsyncWork */
+   lnp = server__accept_work(NULL, INVALID_SOCKET, IO_CONN);
+   wp = lnp->data;
    /* pass data pointer if supplied */
-   if (data) swp->data = data;
+   if (data) wp->data = data;
    /* place in "ready" list for server worker processing */
    if (mutex_lock(&(sp->inlock)) != 0) goto FAIL;
    if (link_node_append(lnp, &(sp->inIO)) != 0) goto FAIL;
@@ -168,7 +187,7 @@ static ThreadProc server__main(void *arg)
    LinkedList waitIO;            /* lock-free work list waiting for IO */
    LinkedNode *lnp, *next_lnp;
    LinkedNode *alnp;
-   ServerWork *swp;
+   AsyncWork *wp;
    struct sockaddr *baddrp;
    struct timeval tv;            /* sleep time during IO checks */
    long dynasleep;               /* dynamic sleep for IO checks */
@@ -214,13 +233,13 @@ static ThreadProc server__main(void *arg)
          /* accept() new connections -- get socket ip */
          asd = accept(sp->lsd, NULL, NULL);
          if (asd == INVALID_SOCKET) break;
-         /* check socket is usable (<FD_SETSIZE) */
-         if (asd >= FD_SETSIZE) ACCEPT_DROP(asd, "FD_SETSIZE");
+         /* check socket can be handled */
+         if (SELECT_CANNOT_HANDLE(asd)) ACCEPT_DROP(asd, "sd");
          /* accept work with asd and aip data */
-         alnp = server__accept_work(alnp, asd);
+         alnp = server__accept_work(alnp, asd, IO_RECV);
          if (alnp == NULL) ACCEPT_DROP(asd, "err");
          /* call custom init function on accept()'d work */
-         if (sp->initfn && sp->initfn(alnp->data)) ACCEPT_DROP(asd, "pre");
+         if (sp->initfn && sp->initfn(alnp->data)) ACCEPT_DROP(asd, "init");
          /* add work to wait list */
          on_ecode_goto_perrno( link_node_append(alnp, &waitIO),
             SHUTDOWN, FnMSG("link_node_append(alnp, waitIO) FAILURE"));
@@ -235,19 +254,30 @@ static ThreadProc server__main(void *arg)
       nfds = INVALID_SOCKET;
       /* prepare fd_set's only if waiting for IO */
       if (waitIO.count) {
+         count = FD_SETSIZE;
          /* add "waiting" sockets to appropriate fd_set's -- adjust nsd */
-         for (lnp = waitIO.next; lnp; lnp = lnp->next) {
+         for (lnp = waitIO.next; count > 0 && lnp; lnp = next_lnp) {
+            next_lnp = lnp->next;
             /* dereference the server work */
-            swp = (ServerWork *) lnp->data;
+            wp = (AsyncWork *) lnp->data;
+            /* cleanup any stray work with an invalid socket descriptor */
+            if (wp->sd == INVALID_SOCKET) {
+               on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
+                  SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
+               server__cleanup_node(sp, lnp);
+               continue;
+            }
             /* check wait type -- update fd_sets accordingly */
-            switch (swp->sio) {
+            switch (wp->sio) {
                case IO_CONN: /* fallthrough -- same as IO_SEND */
-               case IO_SEND: FD_SET(swp->sd, &wfds); break;
-               case IO_RECV: FD_SET(swp->sd, &rfds); break;
+               case IO_SEND: FD_SET(wp->sd, &wfds); break;
+               case IO_RECV: FD_SET(wp->sd, &rfds); break;
                default: continue;
-            }  /* end switch (snp->sio) */
+            }  /* end switch (np->sio) */
             /* update nfds value if necessary */
-            if (nfds < swp->sd) nfds = swp->sd;
+            if (nfds < wp->sd) nfds = wp->sd;
+            /* decrement count */
+            count--;
          }  /* end for (lnp = waitIO... */
       }  /* end for if (waitIO.count) */
       /* set timeout as preferred sleep duration for this iteration */
@@ -265,12 +295,12 @@ static ThreadProc server__main(void *arg)
          /* store next link, as links may change */
          next_lnp = lnp->next;
          /* dereference the work */
-         swp = (ServerWork *) lnp->data;
+         wp = (AsyncWork *) lnp->data;
          /* check send/recv fd_set's and timeout */
          /* NOTE: "<= IO_SEND" includes IO_CONN in conditional check */
-         if ((swp->sio <= IO_SEND && FD_ISSET(swp->sd, &wfds)) ||
-            (swp->sio == IO_RECV && FD_ISSET(swp->sd, &rfds)) ||
-            (swp->to && difftime(Ltime, swp->to) > 0)) {
+         if ((wp->sio <= IO_SEND && FD_ISSET(wp->sd, &wfds)) ||
+            (wp->sio == IO_RECV && FD_ISSET(wp->sd, &rfds)) ||
+            (wp->to && difftime(Ltime, wp->to) > 0)) {
             /* move node from "wait" list to "ready" list */
             on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
                SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
@@ -313,16 +343,16 @@ SHUTDOWN:
       sp->lsd = INVALID_SOCKET;
    }
    /* free internally allocated or held resources */
-   server__cleanup_node(alnp);
+   server__cleanup_node(sp, alnp);
    while ((lnp = readyIO.next)) {
       on_ecode_goto_perrno( link_node_remove(lnp, &readyIO),
          FATAL, FnMSG("link_node_remove(readyIO) SHUTDOWN FAILURE"));
-      server__cleanup_node(lnp);
+      server__cleanup_node(sp, lnp);
    }
    while ((lnp = waitIO.next)) {
       on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
          FATAL, FnMSG("link_node_remove(readyIO) SHUTDOWN FAILURE"));
-      server__cleanup_node(lnp);
+      server__cleanup_node(sp, lnp);
    }
    /* local shutdown triggers global shutdown */
    sp->running = 0;
@@ -344,7 +374,7 @@ static ThreadProc server__worker(void *arg)
    Server *sp = arg;
 
    LinkedNode *lnp;
-   ServerWork *swp;
+   AsyncWork *wp;
    int deferproc;    /* indicates the processing of deferred work */
    int ecode;
 
@@ -366,9 +396,9 @@ static ThreadProc server__worker(void *arg)
          /* determine if work needs to be deferred */
          do {
             /* dereference server work */
-            swp = (ServerWork *) lnp->data;
+            wp = (AsyncWork *) lnp->data;
             /* check work deference */
-            if (swp->defer == 0) break;
+            if (wp->defer == 0) break;
             if (sp->deferthreads < server__defer_threshold(sp)) {
                sp->deferthreads++;
                deferproc = 1;
@@ -385,14 +415,13 @@ static ThreadProc server__worker(void *arg)
             FATAL, FnMSG("server inlock UNLOCK FAILURE"));
          /* dereference and process thread work io */
          thread_setname(thread_self(), "worker-processing");
-         if ((sp->workfn && sp->workfn(swp) == VEWAITING) ||
-               (sp->postfn && sp->postfn(swp) == VEWAITING)) {
+         if ((sp->procfn && sp->procfn(wp) == VEWAITING)) {
             /* return task to wait list for IO waiting */
             lock_on_ecode_goto_perrno( sp->outlock, FATAL, {
                on_ecode_goto_perrno( link_node_append(lnp, &(sp->outIO)),
                   FATAL, FnMSG("server outIO LIST FAILURE"));
             });
-         } else server__cleanup_node(lnp);
+         } else server__cleanup_node(sp, lnp);
          /* (re)acquire "in" work Lock */
          on_ecode_goto_perrno( mutex_lock(&(sp->inlock)),
             FATAL, FnMSG("server inlock LOCK FAILURE"));
@@ -504,21 +533,21 @@ FAIL_INIT0: return VERROR;
 }  /* end server_init() */
 
 /**
- * Set the IO process for a Server context.
+ * Set the io process functions for a Server context.
  * @param sp Pointer to Server context
  * @return (int) value indicating operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
 int server_setioprocess
-   (Server *sp, ServerProc initfn, ServerProc workfn, ServerProc postfn)
+   (Server *sp, AsyncProc donefn, AsyncProc initfn, AsyncProc procfn)
 {
    /* check server context */
    if (sp == NULL) goto FAIL_INVAL;
 
+   sp->donefn = donefn;
    sp->initfn = initfn;
-   sp->workfn = workfn;
-   sp->postfn = postfn;
+   sp->procfn = procfn;
 
 /* error handling */
 FAIL_INVAL: set_errno(EINVAL); return VERROR;
@@ -546,7 +575,7 @@ FAIL_INVAL: set_errno(EINVAL); return VERROR;
 
 /**
  * Shutdown a server context. Closes server socket
- * @param data Pointer to data for ServerWork
+ * @param data Pointer to data for AsyncWork
  * @returns (int) value representing the operation result
  * @retval VERROR on error; check errono for details
  * @retval VEOK on success
@@ -624,12 +653,9 @@ int server_start(Server *sp, word32 addr, word16 port, int workers)
    /* start the main handler thread... */
    sp->running = 1;
 
-   /* malloc space for LinkedNode */
-   lnp = malloc(sizeof(LinkedNode));
-   if (lnp == NULL) goto FAIL_INIT0;
-   /* malloc space for LinkedNode data (Thread) */
-   lnp->data = malloc(sizeof(Thread));
-   if (lnp->data == NULL) goto FAIL_INIT1;
+   /* create LinkedNode for Thread */
+   lnp = link_node_create(sizeof(Thread));
+   if (lnp == NULL) goto FAIL_INIT1;
    /* add LinkedNode to thread list */
    if (link_node_append(lnp, &(sp->active))) goto FAIL_INIT2;
    /* create (start) thread in LinkedNode data */
@@ -638,12 +664,9 @@ int server_start(Server *sp, word32 addr, word16 port, int workers)
    /* start (at least 1) worker threads to handle work... */
 
    do {
-      /* malloc space for LinkedNode */
-      lnp = malloc(sizeof(LinkedNode));
-      if (lnp == NULL) goto FAIL_INIT0;
-      /* malloc space for LinkedNode data (Thread) */
-      lnp->data = malloc(sizeof(Thread));
-      if (lnp->data == NULL) goto FAIL_INIT1;
+      /* create LinkedNode for Thread */
+      lnp = link_node_create(sizeof(Thread));
+      if (lnp == NULL) goto FAIL_INIT1;
       /* add LinkedNode to thread list */
       if (link_node_append(lnp, &(sp->active))) goto FAIL_INIT2;
       /* create (start) thread in LinkedNode data */
@@ -654,9 +677,8 @@ int server_start(Server *sp, word32 addr, word16 port, int workers)
    return VEOK;
 
 FAIL_INIT3: link_node_remove(lnp, &(sp->active));
-FAIL_INIT2: free(lnp->data);
-FAIL_INIT1: free(lnp);
-FAIL_INIT0:
+FAIL_INIT2: free(lnp->data); free(lnp);
+FAIL_INIT1:
    /* shutdown and cleanup threads */
    server_shutdown(sp);
    return VERROR;
@@ -664,7 +686,8 @@ FAIL_INIT0:
 
 /**
  * Create and enqueue server work with specified data.
- * @param data Pointer to data for ServerWork
+ * @param sp Pointer to Server
+ * @param data Pointer to data for AsyncWork
 */
 int server_work_create(Server *sp, void *data)
 {
@@ -672,10 +695,11 @@ int server_work_create(Server *sp, void *data)
 }  /* end server_work_create() */
 
 /**
- * Cleanup work releasing held resources back to the system.
- * @param lnp Pointer to ServerWork
+ * Cleanup AsyncWork releasing held resources back to the system.
+ * @param sp Pointer to Server
+ * @param wp Pointer to AsyncWork
 */
-void server_work_cleanup(ServerWork *swp)
+void server_work_cleanup(Server *sp, AsyncWork *wp)
 {
-   server__cleanup_work(swp);
+   server__cleanup_work(sp, wp);
 }  /* end server_work_cleanup() */

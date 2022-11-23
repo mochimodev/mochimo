@@ -18,17 +18,19 @@
 /* external support */
 #include "extlib.h"
 
+/** Asynchronous Work struct */
 typedef struct {
    void *data;    /**< server work data pointer */
    time_t to;     /**< socket inactivity timeout time */
    SOCKET sd;     /**< socket descriptor of connection */
-   int bytes;     /**< bytes read from, or sent to socket descriptor */
    short sio;     /**< socket IO wait type (IO_*) */
-   short defer;   /**< flag indicating the should be deferred under load */
-} ServerWork;
+   short defer;   /**< flag indicating work should be deferred */
+} AsyncWork;
 
-typedef int (*ServerProc)(ServerWork *snp);
+/** Asynchronous Process function used on AsyncWork in various states */
+typedef int (*AsyncProc)(AsyncWork *np);
 
+/** Server context struct */
 typedef struct {
    Mutex lock;                /**< mutually exclusive server lock */
    Mutex inlock;              /**< mutually exclusive "in" work lock */
@@ -37,11 +39,14 @@ typedef struct {
    Condition inalarm;         /**< condition variable "in" work signals */
    LinkedList active;         /**< list of active worker threads */
    LinkedList exited;         /**< list of exited worker threads */
-   LinkedList inIO;           /**< list of "in" work, ready for proc */
+   LinkedList inIO;           /**< list of "in" work, ready for io */
    LinkedList outIO;          /**< list of "out" work, waiting for io */
-   ServerProc initfn;         /**< fn called on work after accept() */
-   ServerProc workfn;         /**< fn called on work with active IO */
-   ServerProc postfn;         /**< fn called on work with completed IO */
+   /** work completion function called on completed work */
+   AsyncProc donefn;
+   /** work initialization function called on work received by accept() */
+   AsyncProc initfn;
+   /** work processing function called on work with active IO */
+   AsyncProc procfn;
    struct sockaddr_in addr;   /**< internet socket server address data */
    int deferthreads;          /**< threads processing deferred work */
    int idlethreads;           /**< threads idling -- not processing */
@@ -58,14 +63,14 @@ extern "C" {
 
 int server_destroy(Server *sp);
 int server_init(Server *sp, int af, int type, int proto);
-int server_setioprocess
-   (Server *sp, ServerProc initfn, ServerProc workfn, ServerProc postfn);
+int server_setprocess
+   (Server *sp, AsyncProc donefn, AsyncProc initfn, AsyncProc procfn);
 int server_setsockopt
    (Server *sp, int level, int optname, const char *optval, int optlen);
 int server_shutdown(Server *sp);
 int server_start(Server *sp, word32 addr, word16 port, int workers);
 int server_work_create(Server *sp, void *data);
-void server_work_cleanup(ServerWork *swp);
+void server_work_cleanup(Server *sp, AsyncWork *wp);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
