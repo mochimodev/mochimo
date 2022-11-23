@@ -36,21 +36,22 @@ extern word8 Weight[32];
 extern "C" {
 #endif
 
-void cleanup_node(SNODE *snp);
-void init_receive(SNODE *snp, SOCKET sd, word32 ip);
-void init_request
-   (SNODE *snp, word32 ip, word16 port, word16 opreq, void *bnum);
-void init_pkt(SNODE *snp, word16 opcode);
-int recv_pkt(SNODE *snp);
-int recv_file(SNODE *snp);
-int send_pkt(SNODE *snp);
-int send_balance(SNODE *snp);
-int send_file(SNODE *snp);
-int send_fp(SNODE *snp);
-int send_hash(SNODE *snp);
-int send_ipl(SNODE *snp);
-int receive_node(SNODE *snp);
-int request_node(SNODE *snp);
+void init_pkt(NODE *np, word16 opcode);
+int recv_pkt(NODE *np);
+int recv_file(NODE *np);
+int send_pkt(NODE *np);
+int send_balance(NODE *np);
+int send_file(NODE *np);
+int send_fp(NODE *np);
+int send_hash(NODE *np);
+int send_ipl(NODE *np);
+void node_cleanup(NODE *np);
+void node_init(NODE *np, word32 ip, word16 port, word16 opreq, void *bnum);
+int node_receive_handshake(NODE *np);
+int node_receive_operation(NODE *np);
+int node_request_connect(NODE *np, int nonblock);
+int node_request_handshake(NODE *np);
+int node_request_operation(NODE *np);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

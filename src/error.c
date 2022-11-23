@@ -409,15 +409,15 @@ const char *mcm_errno_text(int errnum)
       case EMCMNOTXS:
          return "No transactions to handle";
       case EMCMOPCODE:
-         return "Unknown operation code";
+         return "Unhandled operation code";
       case EMCMOPHELLO:
          return "Missing OP_HELLO packet";
       case EMCMOPHELLOACK:
          return "Missing OP_HELLO_ACK packet";
+      case EMCMOPNVAL:
+         return "Invalid operation code";
       case EMCMOPRECV:
-         return "Unexpected operation code in receive protocol";
-      case EMCMOPSEND:
-         return "Unexpected operation code in request protocol";
+         return "Received unexpected operation code";
       case EMCMPKTCRC:
          return "Invalid CRC16 packet hash";
       case EMCMPKTIDS:

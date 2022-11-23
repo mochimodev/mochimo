@@ -440,7 +440,7 @@ typedef struct {
 } PKT;
 
 /**
- * Server Node Struct.
+ * The Node struct. Handles Mochimo network protocol communication.
 */
 typedef struct {
    PKT pkt;       /**< data for active socket operations */
@@ -463,7 +463,7 @@ typedef struct {
     * Set by recv_pkt(). Read by send_pkt().
     * @todo adjust after v3.0 */
    int c_vpdu;
-} SNODE;
+} NODE;
 
 /**
  * Tag index struct.

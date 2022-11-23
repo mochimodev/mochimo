@@ -66,88 +66,47 @@ word8 Prevhash[32] = { 0 };
 word8 Weight[32] = { 0 };
 
 /**
- * Initialize a SNODE pointer for receive operation.
- * @param snp Pointer to SNODE
- * @param sd Connection socket of SNODE
- * @param ip Connection ip of SNODE
-*/
-void init_receive(SNODE *snp, SOCKET sd, word32 ip)
-{
-   /* prepare SNODE data receive */
-   snp->sd = sd;
-   snp->ip = ip;
-   snp->port = 0;
-   snp->opreq = OP_NULL;
-   snp->opcode = OP_NULL;
-   snp->iowait = IO_RECV;
-   snp->status = VEWAITING;
-   ntoa(&ip, snp->id);
-}  /* end init_receive() */
-
-/**
- * Initialize a SNODE pointer for request operation.
- * @param snp Pointer to SNODE to prepare
- * @param ip Connection ip of SNODE
- * @param opreq Request operation code
- * @param bnum Request IO value (blocknum), or NULL
-*/
-void init_request
-   (SNODE *snp, word32 ip, word16 port, word16 opreq, void *bnum)
-{
-   /* prepare SNODE data request */
-   snp->sd = INVALID_SOCKET;
-   snp->ip = ip;
-   snp->port = port;
-   snp->opreq = opreq;
-   snp->opcode = OP_NULL;
-   snp->iowait = IO_CONN;
-   snp->status = VEWAITING;
-   ntoa(&ip, snp->id);
-   if (bnum) memcpy(snp->io, bnum, 8);
-}  /* end init_request() */
-
-/**
- * Initialize a packet of SNODE with protocol data.
- * @param snp Pointer to SNODE
+ * Initialize a packet of NODE with protocol data.
+ * @param np Pointer to NODE
  * @param opcode Operation code of packet
 */
-void init_pkt(SNODE *snp, word16 opcode)
+void init_pkt(NODE *np, word16 opcode)
 {
    word16 len;
 
    /* fill packet with relevant information... */
-   snp->pkt.version[0] = PVERSION;
-   snp->pkt.version[1] = Cbits | C_VPDU;
-   put16(snp->pkt.network, TXNETWORK);
-   put16(snp->pkt.id1, snp->id1);
-   put16(snp->pkt.id2, snp->id2);
-   put16(snp->pkt.opcode, opcode);
-   put64(snp->pkt.cblock, Cblocknum);
-   memcpy(snp->pkt.cblockhash, Cblockhash, HASHLEN);
-   memcpy(snp->pkt.pblockhash, Prevhash, HASHLEN);
+   np->pkt.version[0] = PVERSION;
+   np->pkt.version[1] = Cbits | C_VPDU;
+   put16(np->pkt.network, TXNETWORK);
+   put16(np->pkt.id1, np->id1);
+   put16(np->pkt.id2, np->id2);
+   put16(np->pkt.opcode, opcode);
+   put64(np->pkt.cblock, Cblocknum);
+   memcpy(np->pkt.cblockhash, Cblockhash, HASHLEN);
+   memcpy(np->pkt.pblockhash, Prevhash, HASHLEN);
    /* ... but, do not overwrite TX ip map */
-   if (opcode != OP_TX) memcpy(snp->pkt.weight, Weight, HASHLEN);
+   if (opcode != OP_TX) memcpy(np->pkt.weight, Weight, HASHLEN);
 
    /* store (actual) packet buffer length for CRC hash */
-   len = get16(snp->pkt.len);
+   len = get16(np->pkt.len);
 
    /************************************/
    /* PROTOCOL VERSION 4 COMPATIBILITY */
 
    /* check for VPDU capability */
    /** @todo adjust after v3.0 */
-   if (!snp->c_vpdu) {
+   if (!np->c_vpdu) {
       /* protocol version 4 packets use a fixed length PDU */
       if (len < PKTBUFFLEN_OLD) len = PKTBUFFLEN_OLD;
       /* opcode specific checks */
-      switch (get16(snp->pkt.opcode)) {
+      switch (get16(np->pkt.opcode)) {
          /* for initial compatibility, set len param to fixed length PDU */
-         case OP_HELLO: put16(snp->pkt.len, PKTBUFFLEN_OLD); break;
+         case OP_HELLO: put16(np->pkt.len, PKTBUFFLEN_OLD); break;
          /* for peerlist compatibility, some opcodes MUST have ZERO len */
-         case OP_TX: put16(snp->pkt.len, 0); break;
-         case OP_FOUND: put16(snp->pkt.len, 0); break;
-         case OP_GET_IPL: put16(snp->pkt.len, 0); break;
-         case OP_GET_TFILE: put16(snp->pkt.len, 0); break;
+         case OP_TX: put16(np->pkt.len, 0); break;
+         case OP_FOUND: put16(np->pkt.len, 0); break;
+         case OP_GET_IPL: put16(np->pkt.len, 0); break;
+         case OP_GET_TFILE: put16(np->pkt.len, 0); break;
       }
    }
 
@@ -155,22 +114,22 @@ void init_pkt(SNODE *snp, word16 opcode)
    /****************************************/
 
    /* compute packet crc16 checksum -- add trailer */
-   put16(snp->pkt.crc16, crc16(&(snp->pkt), PKTCRC_INLEN(len)));
-   put16(snp->pkt.trailer, TXEOT);
+   put16(np->pkt.crc16, crc16(&(np->pkt), PKTCRC_INLEN(len)));
+   put16(np->pkt.trailer, TXEOT);
 }  /* end init_pkt() */
 
 /**
- * Initialize a packet of SNODE with protocol data and OP_NACK.
+ * Initialize a packet of NODE with protocol data and OP_NACK.
  * OP_NACK refers to a Negative Acknowledgment operation (usually
  * sent in response to a request operation) identifying that the
  * request was received successfully, but it contained an error.
- * @param snp Pointer to SNODE
+ * @param np Pointer to NODE
 */
-void init_nack(SNODE *snp)
+void init_nack(NODE *np)
 {
    /* initialize NACK protocol */
-   put16(snp->pkt.len, 0);
-   init_pkt(snp, OP_NACK);
+   put16(np->pkt.len, 0);
+   init_pkt(np, OP_NACK);
    /* increment NACK counter */
    Nnacks++;
 }  /* end init_nack() */
@@ -187,39 +146,39 @@ void init_nack(SNODE *snp)
  * flawed because it's possible to receive connections from multiple
  * sources behind the same IP using different capabilities; be it
  * nodes, wallets, APIs, tx bots or other scripts.
- * @param snp Pointer to SNODE
+ * @param np Pointer to NODE
  * @returns (int) length, in bytes, of next packet
 */
-static int len_pkt(SNODE *snp, char **buf, int *len, int *n)
+static int len_pkt(NODE *np, char **buf, int *len, int *n)
 {
    /* determine position and length of next packet data */
-   if (snp->bytes < PKTHDRLEN) {
+   if (np->bytes < PKTHDRLEN) {
       /* packet header */
-      *n = snp->bytes;
+      *n = np->bytes;
       *len = PKTHDRLEN;
-      *buf = (char *) snp->pkt.version;
-   } else if (snp->c_vpdu) {
-      *len = (int) get16(snp->pkt.len);
-      if (snp->bytes < (PKTHDRLEN + *len)) {
+      *buf = (char *) np->pkt.version;
+   } else if (np->c_vpdu) {
+      *len = (int) get16(np->pkt.len);
+      if (np->bytes < (PKTHDRLEN + *len)) {
          /* VPDU packet buffer */
-         *n = snp->bytes - PKTHDRLEN;
-         *buf = (char *) snp->pkt.buffer;
+         *n = np->bytes - PKTHDRLEN;
+         *buf = (char *) np->pkt.buffer;
       } else {
          /* VPDU packet trailer */
-         *n = snp->bytes - (PKTHDRLEN + *len);
+         *n = np->bytes - (PKTHDRLEN + *len);
          *len = PKTTLRLEN;
-         *buf = (char *) snp->pkt.crc16;
+         *buf = (char *) np->pkt.crc16;
       }
-   } else if (snp->bytes < (PKTHDRLEN + PKTBUFFLEN_OLD)) {
+   } else if (np->bytes < (PKTHDRLEN + PKTBUFFLEN_OLD)) {
       /* !VPDU packet buffer */
-      *n = snp->bytes - PKTHDRLEN;
+      *n = np->bytes - PKTHDRLEN;
       *len = PKTBUFFLEN_OLD;
-      *buf = (char *) snp->pkt.buffer;
+      *buf = (char *) np->pkt.buffer;
    } else {
       /* !VPDU packet trailer */
-      *n = snp->bytes - (PKTHDRLEN + PKTBUFFLEN_OLD);
+      *n = np->bytes - (PKTHDRLEN + PKTBUFFLEN_OLD);
       *len = PKTTLRLEN;
-      *buf = (char *) snp->pkt.crc16;
+      *buf = (char *) np->pkt.crc16;
    }
 
    return *len - *n;
@@ -227,8 +186,8 @@ static int len_pkt(SNODE *snp, char **buf, int *len, int *n)
 
 /**
  * Receive a packet of data from a node.
- * NOTE: return value is also placed in snp->status
- * @param snp Pointer to a node
+ * NOTE: return value is also placed in np->status
+ * @param np Pointer to a node
  * @return (int) value representing receive result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
@@ -236,55 +195,55 @@ static int len_pkt(SNODE *snp, char **buf, int *len, int *n)
  * @retval VERROR on socket error
  * @retval VEBAD on protocol violation
 */
-int recv_pkt(SNODE *snp)
+int recv_pkt(NODE *np)
 {
    PKT *pkt;
    char *buf;
    int ecode, count, len, n;
 
    /* init */
-   pkt = &(snp->pkt);
+   pkt = &(np->pkt);
 
    /* receive variable PDU into pkt */
-   while (len_pkt(snp, &buf, &len, &n)) {
+   while (len_pkt(np, &buf, &len, &n)) {
       if (len > PKTBUFFLEN) goto FAIL_OVERFLOW;
-      count = recv(snp->sd, buf + n, len - n, 0);
+      count = recv(np->sd, buf + n, len - n, 0);
       switch (count) {
          case (-1):
             ecode = sock_errno;
             /* check timeout if waiting for data */
             if (sock_waiting(ecode)) {
-               if (difftime(time(NULL), snp->to) > 0) {
-                  return (snp->status = VETIMEOUT);
-               } else return (snp->status = VEWAITING);
+               if (difftime(time(NULL), np->to) > 0) {
+                  return (np->status = VETIMEOUT);
+               } else return (np->status = VEWAITING);
             } else goto FAIL_ECODE;    /* socket error ocurred */
          case 0: goto FAIL_SHUTDOWN;   /* socket was shutdown */
          default:
             /* reset timeout, add recv'd bytes, update length */
-            snp->to = time(NULL) + TIMEOUT;
-            snp->bytes += count;
+            np->to = time(NULL) + TIMEOUT;
+            np->bytes += count;
       }  /* end switch (count... */
-   }  /* end for (n = snp... */
+   }  /* end for (n = np... */
 
    /* full packet received: set c_vpdu, opcode and reset bytes */
-   snp->c_vpdu = PKT_HAS_C_VPDU(&(snp->pkt));
-   snp->opcode = get16(snp->pkt.opcode);
-   snp->bytes = 0;
+   np->c_vpdu = PKT_HAS_C_VPDU(&(np->pkt));
+   np->opcode = get16(np->pkt.opcode);
+   np->bytes = 0;
 
    /* check crc16 checksum, network version, and trailer */
-   len = snp->c_vpdu ? get16(snp->pkt.len) : PKTBUFFLEN_OLD;
+   len = np->c_vpdu ? get16(np->pkt.len) : PKTBUFFLEN_OLD;
    if (get16(pkt->crc16) != crc16(pkt, PKTCRC_INLEN(len))) goto BAD_CRC;
    if (get16(pkt->network) != TXNETWORK) goto BAD_NET;
    if (get16(pkt->trailer) != TXEOT) goto BAD_TLR;
    /* check handshake IDs on all operations (except during handshake) */
-   if (snp->opcode >= FIRST_OP) {
-      if (snp->id1 != get16(pkt->id1)) goto BAD_IDS;
-      if (snp->id2 != get16(pkt->id2)) goto BAD_IDS;
+   if (np->opcode >= FIRST_OP) {
+      if (np->id1 != get16(pkt->id1)) goto BAD_IDS;
+      if (np->id2 != get16(pkt->id2)) goto BAD_IDS;
    }
 
    /* success -- increment recv's */
    Nrecvs++;
-   return (snp->status = VEOK);
+   return (np->status = VEOK);
 
 /* error handling */
 FAIL_OVERFLOW: set_errno(EOVERFLOW); goto FAIL;
@@ -292,7 +251,7 @@ FAIL_SHUTDOWN: set_errno(ECONNABORTED); goto FAIL;
 FAIL_ECODE: set_sockerrno(ecode);
 FAIL:
    Nrecverrs++;
-   return (snp->status = VERROR);
+   return (np->status = VERROR);
 
 /* protocol violation handling */
 BAD_CRC: set_errno(EMCMPKTCRC); goto BAD;
@@ -301,13 +260,13 @@ BAD_TLR: set_errno(EMCMPKTTLR); goto BAD;
 BAD_IDS: set_errno(EMCMPKTIDS);
 BAD:
    Nrecvsbad++;
-   return (snp->status = VEBAD);
+   return (np->status = VEBAD);
 }  /* end recv_pkt() */
 
 /**
- * Receive multiple packets of data into a file for a SNODE.
+ * Receive multiple packets of data into a file for a NODE.
  * NOTE: File data is received into a DATA pointer.
- * @param snp Pointer to a SNODE
+ * @param np Pointer to a NODE
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
@@ -315,42 +274,42 @@ BAD:
  * @retval VERROR on internal error
  * @retval VEBAD on protocol violation
 */
-int recv_file(SNODE *snp)
+int recv_file(NODE *np)
 {
    int len;
 
    /* receive packet of data */
-   while (recv_pkt(snp) == VEOK) {
+   while (recv_pkt(np) == VEOK) {
       /* check recv'd opcode is OP_SEND_FILE */
-      if (snp->opcode == OP_NACK) goto FAIL_NACK;
-      if (snp->opcode != OP_SEND_FILE) goto BAD_OPCODE;
+      if (np->opcode == OP_NACK) goto FAIL_NACK;
+      if (np->opcode != OP_SEND_FILE) goto BAD_OPCODE;
       /* check received length */
-      len = get16(snp->pkt.len);
+      len = get16(np->pkt.len);
       if (len) {
          /* allocate temporary file if no file allocated */
-         if (snp->fp == NULL) {
-            snp->fp = tmpfile();
-            if (snp->fp == NULL) goto FAIL;
+         if (np->fp == NULL) {
+            np->fp = tmpfile();
+            if (np->fp == NULL) goto FAIL;
          }
          /* write packet buffer to DATA pointer */
-         if (fwrite(PKTBUFF(&(snp->pkt)), len, 1, snp->fp) != 1) goto FAIL;
+         if (fwrite(PKTBUFF(&(np->pkt)), len, 1, np->fp) != 1) goto FAIL;
       }
       /* check EOF condition -- check VPDU capability bit */
       /** @todo adjust after v3.0 */
-      if (!snp->c_vpdu) {
+      if (!np->c_vpdu) {
          if (len < PKTBUFFLEN_OLD) break;
       } else if (len < PKTBUFFLEN) break;
    } /* end while(recv_pkt()) */
 
-   /* snp->status is set during recv_pkt() */
-   return snp->status;
+   /* np->status is set during recv_pkt() */
+   return np->status;
 
 /* error handling */
 FAIL_NACK: set_errno(EMCMPKTNACK);
-FAIL: return (snp->status = VERROR);
+FAIL: return (np->status = VERROR);
 
 /* protocol violation handling */
-BAD_OPCODE: set_errno(EMCMPKTOPCODE); return (snp->status = VEBAD);
+BAD_OPCODE: set_errno(EMCMPKTOPCODE); return (np->status = VEBAD);
 }  /* end recv_file() */
 
 /**
@@ -359,32 +318,32 @@ BAD_OPCODE: set_errno(EMCMPKTOPCODE); return (snp->status = VEBAD);
  * NOTE: Protocol version 5 accepts Hashed Addresses and returns
  * a Ledger Transaction (LTRAN) containing Ledger data where the
  * value of @a trancode[0] is set if the address was "found".
- * @param snp Pointer to server node to send balance
+ * @param np Pointer to server node to send balance
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
  * @retval VEOK on success; packet sent
  * @retval VERROR on internal error
 */
-int send_balance(SNODE *snp)
+int send_balance(NODE *np)
 {
    TXW *txwp;
    LTRAN *ltp;
    LENTRY *lep;
 
    /* check if balance was retrieved */
-   if (snp->iowait == IO_RECV) {
+   if (np->iowait == IO_RECV) {
       /* check protocol version... */
-      if (PKT_IS_PV5(&(snp->pkt))) {
+      if (PKT_IS_PV5(&(np->pkt))) {
          /* ... PVERSION 5 onwards uses Hashed Address */
-         ltp = (LTRAN *) snp->pkt.buffer;
-         if (get16(snp->pkt.len) != TXADDRLEN) {
+         ltp = (LTRAN *) np->pkt.buffer;
+         if (get16(np->pkt.len) != TXADDRLEN) {
             /* unsupported address type, send NACK... */
-            init_nack(snp);
+            init_nack(np);
             goto SEND;
          }
          /* update the packet buffer data length */
-         put16(snp->pkt.len, sizeof(*ltp));
+         put16(np->pkt.len, sizeof(*ltp));
          /* check if ledger data exists... */
          lep = le_find(ltp->addr);
          if (lep) {
@@ -398,7 +357,7 @@ int send_balance(SNODE *snp)
          }
       } else {
          /* ... PVERSION 4 and below uses WOTS+ (TXW) */
-         txwp = (TXW *) snp->pkt.buffer;
+         txwp = (TXW *) np->pkt.buffer;
          /* initialize return values */
          memset(txwp->send_total, 0, sizeof(txwp->send_total));
          memset(txwp->change_total, 0, sizeof(txwp->change_total));
@@ -415,24 +374,24 @@ int send_balance(SNODE *snp)
       Nbalance++;
 
       /* initialize packet for sending */
-      init_pkt(snp, OP_SEND_BAL);
-SEND: snp->iowait = IO_SEND;
+      init_pkt(np, OP_SEND_BAL);
+SEND: np->iowait = IO_SEND;
    }
 
    /* send packet with ledger balance */
-   return send_pkt(snp);
+   return send_pkt(np);
 }  /* end send_balance() */
 
 /**
  * Send various files to a requesting server node.
- * @param snp Pointer to server node to send IP list
+ * @param np Pointer to server node to send IP list
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for send buffer
  * @retval VETIMEOUT on connection timeout
  * @retval VEOK on success; finished
  * @retval VERROR on internal error
 */
-int send_file(SNODE *snp)
+int send_file(NODE *np)
 {
    BTRAILER tft;
    long long first, count;
@@ -444,19 +403,19 @@ int send_file(SNODE *snp)
    char fpath[FILENAME_MAX];
 
    /* check if file is already allocated */
-   if (snp->iowait == IO_RECV) {
-      bp = snp->pkt.blocknum;
+   if (np->iowait == IO_RECV) {
+      bp = np->pkt.blocknum;
       /* determine file type requested */
-      switch (get16(snp->pkt.opcode)) {
+      switch (get16(np->pkt.opcode)) {
          case OP_GET_BLOCK: {
             /* read Tfile for hash of requested block */
             if (read_tfile(&tft, bp, 1, "tfile.dat") != 1) return VERROR;
             /* get archived file name */
-            bc_fqan(fname, snp->pkt.blocknum, tft.bhash);
+            bc_fqan(fname, np->pkt.blocknum, tft.bhash);
             path_join(fpath, Bcdir_opt, fname);
             /* try opening file -- VERROR if unable to send */
-            snp->fp = fopen(fpath, "rb");
-            if (snp->fp == NULL) return VERROR;
+            np->fp = fopen(fpath, "rb");
+            if (np->fp == NULL) return VERROR;
             /* ... file is open and ready for send */
             break;
          }  /* end case OP_GET_BLOCK */
@@ -469,16 +428,16 @@ int send_file(SNODE *snp)
          case OP_TF: {
             /* obtain parameters from packet IO blocknum */
             bnum[1] = 0;
-            bnum[0] = get32(snp->pkt.blocknum);
-            count = get16(snp->pkt.blocknum + 4);
+            bnum[0] = get32(np->pkt.blocknum);
+            count = get16(np->pkt.blocknum + 4);
             /* protocol version 5 introduces additional feedback... */
-            if (PKT_IS_PV5(&(snp->pkt))) {
+            if (PKT_IS_PV5(&(np->pkt))) {
                /* ... IO MUST NOT be greater than current block number,
                * and count must be non-zero up to 1000 */
                if (cmp64(bnum, Cblocknum) > 0
                   || count < 1 || count > 1000) {
                   /* unsupported IO values, send NACK... */
-                  init_nack(snp);
+                  init_nack(np);
                   goto SEND;
                }
             } else if (count < 1 || count > 1000) return VERROR;
@@ -487,9 +446,9 @@ int send_file(SNODE *snp)
             put64(&first, bnum);
             first *= (long long) sizeof(tft);
 PREP_TFILE: /* create temporary file ("wb+") -- remove buffer */
-            snp->fp = tmpfile();
-            if (snp->fp == NULL) return VERROR;
-            setvbuf(snp->fp, NULL, _IONBF, 0);
+            np->fp = tmpfile();
+            if (np->fp == NULL) return VERROR;
+            setvbuf(np->fp, NULL, _IONBF, 0);
             /* open Tfile for copy */
             fp = fopen("tfile.dat", "rb");
             if (fp == NULL) return VERROR;
@@ -497,28 +456,28 @@ PREP_TFILE: /* create temporary file ("wb+") -- remove buffer */
             if (fseek64(fp, first, SEEK_SET) != 0) goto FAIL;
             /* load requested Tfile data into temporary file */
             while (count-- && fread(&tft, sizeof(tft), 1, fp)) {
-               if (fwrite(&tft, sizeof(tft), 1, snp->fp) != 1) goto FAIL;
+               if (fwrite(&tft, sizeof(tft), 1, np->fp) != 1) goto FAIL;
             }
             break;
          }  /* end case OP_TF (or OP_GET_TFILE) */
          default: return VERROR;
-      }  /* end switch (get16(snp->pkt.opcode)) */
+      }  /* end switch (get16(np->pkt.opcode)) */
 
       /* rewind temp file */
-      rewind(snp->fp);
+      rewind(np->fp);
       /* read first chunk of data into packet buffer */
-      len = snp->c_vpdu ? PKTBUFFLEN : PKTBUFFLEN_OLD;
-      count = fread(snp->pkt.buffer, 1, len, snp->fp);
+      len = np->c_vpdu ? PKTBUFFLEN : PKTBUFFLEN_OLD;
+      count = fread(np->pkt.buffer, 1, len, np->fp);
       /* initialize packet for first send */
-      put16(snp->pkt.len, (word16) count);
-      init_pkt(snp, OP_SEND_FILE);
-SEND: snp->iowait = IO_SEND;
-   }  /* end if (snp->iowait == IO_RECV) */
+      put16(np->pkt.len, (word16) count);
+      init_pkt(np, OP_SEND_FILE);
+SEND: np->iowait = IO_SEND;
+   }  /* end if (np->iowait == IO_RECV) */
 
    /* divert to send_pkt() for NACK */
-   if (get16(snp->pkt.opcode) == OP_NACK) return send_pkt(snp);
+   if (get16(np->pkt.opcode) == OP_NACK) return send_pkt(np);
 
-   return send_fp(snp);
+   return send_fp(np);
 
 /* error handling */
 FAIL:
@@ -527,126 +486,126 @@ FAIL:
 }  /* end send_file() */
 
 /**
- * Send multiple packets of data froma FILE pointer to a SNODE.
- * @param snp Pointer to a SNODE containing open FILE pointer
+ * Send multiple packets of data froma FILE pointer to a NODE.
+ * @param np Pointer to a NODE containing open FILE pointer
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for send buffer
  * @retval VETIMEOUT on connection timeout
  * @retval VEOK on success; FILE pointer EOF
  * @retval VERROR on internal error
 */
-int send_fp(SNODE *snp)
+int send_fp(NODE *np)
 {
    size_t count, len;
 
    /* send packet of data */
-   while (send_pkt(snp) == VEOK) {
+   while (send_pkt(np) == VEOK) {
       /* check file pointer for end */
-      if (snp->fp == NULL) break;
+      if (np->fp == NULL) break;
       /* read next chunk of data into packet buffer */
-      len = snp->c_vpdu ? PKTBUFFLEN : PKTBUFFLEN_OLD;
-      count = fread(snp->pkt.buffer, 1, len, snp->fp);
+      len = np->c_vpdu ? PKTBUFFLEN : PKTBUFFLEN_OLD;
+      count = fread(np->pkt.buffer, 1, len, np->fp);
       if (count < len) {
          /* check for specific error -- close file pointer */
-         if (ferror(snp->fp)) snp->status = VERROR;
-         fclose(snp->fp);
-         snp->fp = NULL;
+         if (ferror(np->fp)) np->status = VERROR;
+         fclose(np->fp);
+         np->fp = NULL;
       }
       /* prepare packet of data */
-      put16(snp->pkt.len, (word16) count);
-      init_pkt(snp, OP_SEND_FILE);
+      put16(np->pkt.len, (word16) count);
+      init_pkt(np, OP_SEND_FILE);
    } /* end while(send_pkt()) */
 
-   /* snp->status is set during send_pkt() */
-   return snp->status;
+   /* np->status is set during send_pkt() */
+   return np->status;
 }  /* end send_fp() */
 
 /**
  * Send the block hash associated with a block number of the current chain.
  * Uses the Trailer file (Tfile) for determining the current chain.
- * @param snp Pointer to server node to send hash
+ * @param np Pointer to server node to send hash
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
  * @retval VEOK on success; packet sent
  * @retval VERROR on internal error
 */
-int send_hash(SNODE *snp)
+int send_hash(NODE *np)
 {
    BTRAILER tft;
 
    /* check if iIP list was retrieved */
-   if (snp->iowait == IO_RECV) {
+   if (np->iowait == IO_RECV) {
       /* IO block number must contain a block number <= the current */
-      if (PKT_IS_PV5(&(snp->pkt))) {
-         if (cmp64(snp->pkt.blocknum, Cblocknum) > 0) {
+      if (PKT_IS_PV5(&(np->pkt))) {
+         if (cmp64(np->pkt.blocknum, Cblocknum) > 0) {
             /* unsupported block number, send NACK... */
-            init_nack(snp);
+            init_nack(np);
             goto SEND;
          }
       }
       /* read hash of Trailer file */
-      if (read_tfile(&tft, snp->pkt.blocknum, 1, "tfile.dat") != 1) {
+      if (read_tfile(&tft, np->pkt.blocknum, 1, "tfile.dat") != 1) {
          return VERROR;
       }
       /* place hash in packet buffer and adjust data length */
-      memcpy(snp->pkt.buffer, tft.bhash, sizeof(tft.bhash));
-      put16(snp->pkt.len, sizeof(tft.bhash));
+      memcpy(np->pkt.buffer, tft.bhash, sizeof(tft.bhash));
+      put16(np->pkt.len, sizeof(tft.bhash));
 
       /* increment hash request counter */
       Nhashes++;
 
       /* initialize packet for sending */
-      init_pkt(snp, OP_HASH);
-SEND: snp->iowait = IO_SEND;
+      init_pkt(np, OP_HASH);
+SEND: np->iowait = IO_SEND;
    }
 
    /* send packet with block hash of current chain */
-   return send_pkt(snp);
+   return send_pkt(np);
 }  /* end send_hash() */
 
 /**
  * Send an IP list to a requesting server node.
  * The "recent" peers list is expected.
- * @param snp Pointer to server node to send IP list
+ * @param np Pointer to server node to send IP list
  * @return (int) value representing operation result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
  * @retval VEOK on success; packet sent
  * @retval VERROR on internal error
 */
-int send_ipl(SNODE *snp)
+int send_ipl(NODE *np)
 {
    size_t sz = sizeof(*Rplist);
    word16 len;
 
    /* check if iIP list was retrieved */
-   if (snp->iowait == IO_RECV) {
+   if (np->iowait == IO_RECV) {
       /* fill IP list into packet buffer */
       len = Rplistidx * sz;
-      if (PKT_IS_PV5(&(snp->pkt))) {
+      if (PKT_IS_PV5(&(np->pkt))) {
          if (len > PKTBUFFLEN) len = (PKTBUFFLEN / sz) * sz;
       } else if (len > PKTBUFFLEN_OLD) len = (PKTBUFFLEN_OLD / sz) * sz;
       /* fill IP list into packet buffer */
-      memcpy(snp->pkt.buffer, Rplist, len);
-      put16(snp->pkt.len, len);
+      memcpy(np->pkt.buffer, Rplist, len);
+      put16(np->pkt.len, len);
 
       /* increment IP list request counter */
       Niplist++;
 
       /* initialize packet for sending */
-      init_pkt(snp, OP_SEND_IPL);
-      snp->iowait = IO_SEND;
+      init_pkt(np, OP_SEND_IPL);
+      np->iowait = IO_SEND;
    }
 
    /* send packet with ledger balance */
-   return send_pkt(snp);
+   return send_pkt(np);
 }  /* end send_ipl() */
 
 /**
- * Send a packet of data to an SNODE.
- * NOTE: return value is also placed in snp->status
- * @param snp Pointer to a SNODE
+ * Send a packet of data to an NODE.
+ * NOTE: return value is also placed in np->status
+ * @param np Pointer to a NODE
  * @return (int) value representing send result
  * @retval VEWAITING on waiting for data
  * @retval VETIMEOUT on connection timeout
@@ -654,270 +613,362 @@ int send_ipl(SNODE *snp)
  * @retval VERROR on internal error
  * @retval VEBAD on protocol violation
 */
-int send_pkt(SNODE *snp)
+int send_pkt(NODE *np)
 {
    char *buf;
    int ecode, count, len, n;
 
    /* send PDUs of varying size and capabilities */
-   while (len_pkt(snp, &buf, &len, &n)) {
-      count = send(snp->sd, buf + n, len - n, 0);
+   while (len_pkt(np, &buf, &len, &n)) {
+      count = send(np->sd, buf + n, len - n, 0);
       switch (count) {
          case (-1):
             ecode = sock_errno;
             /* check timeout if waiting for data */
             if (sock_waiting(ecode)) {
-               if (difftime(time(NULL), snp->to) > 0) {
-                  return (snp->status = VETIMEOUT);
-               } else return (snp->status = VEWAITING);
+               if (difftime(time(NULL), np->to) > 0) {
+                  return (np->status = VETIMEOUT);
+               } else return (np->status = VEWAITING);
             } else goto FAIL_ECODE;    /* socket error ocurred */
          case 0: goto FAIL_SHUTDOWN;   /* socket was shutdown */
          default:
             /* reset timeout, add recv'd bytes, update length */
-            snp->to = time(NULL) + TIMEOUT;
-            snp->bytes += count;
+            np->to = time(NULL) + TIMEOUT;
+            np->bytes += count;
       }  /* end switch (count... */
-   }  /* end for (n = snp... */
+   }  /* end for (n = np... */
 
    /* full packet received: set opcode and reset bytes */
-   snp->opcode = get16(snp->pkt.opcode);
-   snp->bytes = 0;
+   np->opcode = get16(np->pkt.opcode);
+   np->bytes = 0;
 
    /* success -- increment send's */
    Nsends++;  /* requires atomic operation */
-   return (snp->status = VEOK);
+   return (np->status = VEOK);
 
 FAIL_SHUTDOWN: set_errno(ECONNABORTED); goto FAIL;
 FAIL_ECODE: set_sockerrno(ecode);
 FAIL:
    Nsenderrs++;
-   return (snp->status = VERROR);
+   return (np->status = VERROR);
 }  /* end send_pkt() */
 
 /**
- * Deallocate (cleanup) allocated resources within a SNODE.
- * @param snp Pointer to SNODE
+ * Close an open file pointer of NODE.
+ * @param np Pointer to NODE
+ * @private for internal use only
 */
-void cleanup_node(SNODE *snp)
+static void node__close_file(NODE *np)
 {
-   /* ensure socket is closed */
-   if (snp->sd != INVALID_SOCKET) {
-      sock_close(snp->sd);
-      snp->sd = INVALID_SOCKET;
+   /* ensure FILE pointer is deallocated */
+   if (np->fp != NULL) {
+      fclose(np->fp);
+      np->fp = NULL;
    }
-   /* ensure DATA pointer is deallocated */
-   if (snp->fp != NULL) {
-      fclose(snp->fp);
-      snp->fp = NULL;
-   }
-}  /* end cleanup_node() */
+}  /* end node__close_file() */
 
 /**
- * Network communication protocol for receive operations.
- * NOTE: return value is also placed in snp->status
- * @param snp Pointer to a SNODE
- * @return (int) value representing operation result
- * @retval VEWAITING on waiting for data
- * @retval VETIMEOUT on connection timeout
- * @retval VEOK on success; pkt is complete
- * @retval VERROR on internal error
- * @retval VEBAD on protocol violation; peer is now pinklisted
+ * Close an open socket descriptor of NODE, and clear iowait and timeout.
+ * @param np Pointer to NODE
+ * @private for internal use only
 */
-int receive_node(SNODE *snp)
+static void node__close_socket(NODE *np)
 {
-OP_RESTART:
+   /* ensure socket is closed */
+   if (np->sd != INVALID_SOCKET) {
+      sock_close(np->sd);
+      np->sd = INVALID_SOCKET;
+   }
+   np->iowait = IO_DONE;
+   np->to = 0;
+}  /* end node__close_socket() */
+
+/**
+ * Cleanup NODE resources.
+ * @param np Pointer to NODE
+*/
+void node_cleanup(NODE *np)
+{
+   node__close_file(np);
+   node__close_socket(np);
+}  /* end node_cleanup() */
+
+/**
+ * Initialize a NODE for receive or request operations.
+ * @param np Pointer to NODE
+ * @param ip Connection ip of NODE
+ * @param port Connection port of NODE, or 0 for receive
+ * @param opreq Request operation code, or OP_NULL for receive
+ * @param bnum Request IO value (blocknum), or NULL for receive
+*/
+void node_init(NODE *np, word32 ip, word16 port, word16 opreq, void *bnum)
+{
+   memset(np, 0, sizeof(*np));
+   /* prepare NODE data */
+   np->to = time(NULL) + TIMEOUT;
+   np->ip = ip;
+   np->port = port;
+   np->opreq = opreq;
+   np->opcode = OP_NULL;
+   np->status = VEWAITING;
+   ntoa(&ip, np->id);
+   if (bnum) memcpy(np->io, bnum, 8);
+}  /* end node_init() */
+
+/**
+ * Network communication protocol for receive handshake.
+ * NOTE: return value is also placed in np->status
+ * @param np Pointer to a NODE
+ * @returns (int) value representing the handshake result
+ * @retval VEWAITING on waiting for data; check np->iowait data type
+ * @retval VETIMEOUT on handshake timeout
+ * @retval VEOK on successful handshake
+ * @retval VERROR on internal error; check errno for details
+ * @retval VEBAD on protocol violation; check errno for details
+ * @exception errno=EMCMOPCODE Unexpected handshake operation code
+ * @exception errno=EMCMNOHELLO Node did not provide a HELLO packet
+ * @exception errno=EMCMOPNVAL Node provided an invalid handshake code
+*/
+int node_receive_handshake(NODE *np)
+{
    /* check stage of communication */
-   switch (snp->opcode) {
+   switch (np->opcode) {
       case OP_NULL: {
          /* receive/check OP_HELLO packet */
-         if (recv_pkt(snp)) break;
-         if (snp->opcode != OP_HELLO) {
+         if (recv_pkt(np)) break;
+         if (np->opcode != OP_HELLO) {
             set_errno(EMCMOPHELLO);
-            snp->status = VEBAD;
+            np->status = VEBAD;
             break;
          }
          /* prepare "acknowledgement" packet with handshake IDs */
-         snp->id1 = get16(snp->pkt.id1);
-         snp->id2 = rand16();
-         init_pkt(snp, OP_HELLO_ACK);
+         np->id1 = get16(np->pkt.id1);
+         np->id2 = rand16();
+         init_pkt(np, OP_HELLO_ACK);
          /* update iowait type */
-         snp->iowait = IO_SEND;
+         np->iowait = IO_SEND;
       } /* fallthrough -- end OP_NULL*/
       case OP_HELLO: {
          /* send OP_HELLO_ACK packet */
-         if (send_pkt(snp)) break;
+         if (send_pkt(np)) break;
          /* update iowait type and break */
-         snp->iowait = IO_RECV;
-         snp->status = VEWAITING;
+         np->iowait = IO_RECV;
+         np->status = VEWAITING;
          break;  /* VEWAITING for recv */
       }  /* end case OP_HELLO (or OP_NULL) */
       case OP_HELLO_ACK: {
          /* receive request packet */
-         if (recv_pkt(snp)) break;
+         if (recv_pkt(np)) break;
          /* recv'd opcode MUST be a "valid" operation code */
          /* NOTE: recv'd opcode MUST be checked here */
-         if (snp->opcode < FIRST_OP || snp->opcode > LAST_OP) {
-            set_errno(EMCMOPCODE);
-            snp->status = VERROR;
-            break;
+         if (np->opcode < FIRST_OP || np->opcode > LAST_OP) {
+            set_errno(EMCMOPNVAL);
+            np->status = VEBAD;
          }
-         /* restart switch block on success */
-         goto OP_RESTART;
+         break;
       }  /* end case OP_HELLO_ACK */
-      case OP_GET_BLOCK: send_file(snp); break;
-      case OP_GET_IPL: send_ipl(snp); break;
-      case OP_SEND_FILE: send_fp(snp); break;
-      case OP_GET_TFILE: send_file(snp); break;
-      case OP_BALANCE: send_balance(snp); break;
-      case OP_HASH: send_hash(snp); break;
-      case OP_TF: send_file(snp); break;
       default: {
-         set_errno(EMCMOPRECV);
-         snp->status = VERROR;
+         set_errno(EMCMOPCODE);
+         np->status = VERROR;
       }  /* end default */
-   }  /* end switch (snp->opcode) */
+   }  /* end switch (np->opcode) */
 
-   /* check protocol status */
-   if (snp->status != VEWAITING) {
-      /* close socket, set iowait done, remove timeout */
-      sock_close(snp->sd);
-      snp->sd = INVALID_SOCKET;
-      snp->iowait = IO_DONE;
-      snp->to = 0;
-      /* check naughty peers -- pinklist */
-      if (snp->status == VEBAD2 || snp->status == VEBAD) {
-         if (snp->status == VEBAD2) epinklist(snp->ip);
-         pinklist(snp->ip);
-      }
+   /* check status of handshake -- close on fail */
+   if (np->status != VEWAITING && np->status != VEOK) {
+      node__close_socket(np);
    }
 
    /* return resulting status */
-   return snp->status;
-}  /* end receive_node() */
+   return np->status;
+}  /* end node_receive_handshake() */
 
 /**
- * @private
- * @brief Initiate a connection to a server node.
- * Return value is also placed in snp->status
- * @param snp Pointer to a SNODE
+ * Network communication protocol for receive operations.
+ * NOTE: return value is also placed in np->status
+ * @param np Pointer to a NODE
+ * @returns (int) value representing the operation result
+ * @retval VEWAITING on waiting for data; check np->iowait data type
+ * @retval VETIMEOUT on communication timeout
+ * @retval VEOK on successful communication
+ * @retval VERROR on internal error; check errno for details
+ * @retval VEBAD on protocol violation; check errno for details
+ * @exception errno=EMCMOPCODE Unexpected operation code
+ * @exception errno=EMCMOPRECV Received unexpected operation code
+*/
+int node_receive_operation(NODE *np)
+{
+   /* check stage of communication */
+   switch (np->opcode) {
+      case OP_FOUND: np->status = VEOK; break;
+      case OP_GET_BLOCK: send_file(np); break;
+      case OP_GET_IPL: send_ipl(np); break;
+      case OP_SEND_FILE: send_fp(np); break;
+      case OP_GET_TFILE: send_file(np); break;
+      case OP_BALANCE: send_balance(np); break;
+      case OP_HASH: send_hash(np); break;
+      case OP_TF: send_file(np); break;
+      default: {
+         set_errno(EMCMOPCODE);
+         np->status = VERROR;
+      }  /* end default */
+   }  /* end switch (np->opcode) */
+
+   /* check status of operation -- close on fail */
+   if (np->status != VEWAITING) {
+      node__close_socket(np);
+   }
+
+   /* return resulting status */
+   return np->status;
+}  /* end node_request_operation() */
+
+/**
+ * Initiate a connection to a NODE.
+ * NOTE: return value is also placed in np->status
+ * @param np Pointer to a NODE
+ * @param nonblock When set, configures socket for nonblocking operations
  * @return (int) value representing operation result
- * @retval VEWAITING on waiting for data
+ * @retval VEWAITING on waiting for connection
  * @retval VETIMEOUT on connection timeout
  * @retval VEOK on successful connection
- * @retval VERROR on internal error
+ * @retval VERROR on internal error; check errno for details
+ * @private for internal use only
 */
-static int connect_node(SNODE *snp)
+int node_request_connect(NODE *np, int nonblock)
 {
    static const socklen_t len = (socklen_t) sizeof(struct sockaddr_in);
    struct sockaddr_in addr;
    int ecode;
 
-   /* create non-blocking socket, AF_INET = IPv4 */
-   if (snp->sd == INVALID_SOCKET) {
-      snp->sd = socket(AF_INET, SOCK_STREAM, 0);
-      if (snp->sd == INVALID_SOCKET || sock_set_nonblock(snp->sd)) {
+   /* create socket, AF_INET = IPv4 */
+   if (np->sd == INVALID_SOCKET) {
+      np->sd = socket(AF_INET, SOCK_STREAM, 0);
+      if (np->sd == INVALID_SOCKET ||
+            (nonblock && sock_set_nonblock(np->sd))) {
          set_sockerrno(sock_errno);
-         return (snp->status = VERROR);
+         return (np->status = VERROR);
       }
       /* reset timeout for initial connect */
-      snp->to = time(NULL) + TIMEOUT;
-   }  /* end if (snp->sd... */
+      np->to = time(NULL) + TIMEOUT;
+   }  /* end if (np->sd... */
    /* prepare socket address struct */
    memset((char *) &addr, 0, sizeof(addr));
-   addr.sin_addr.s_addr = snp->ip;
+   addr.sin_addr.s_addr = np->ip;
    addr.sin_family = AF_INET;
-   addr.sin_port = htons(snp->port);
+   addr.sin_port = htons(np->port);
    /* check connection to addr */
-   if (connect(snp->sd, (struct sockaddr *) &addr, len)) {
+   if (connect(np->sd, (struct sockaddr *) &addr, len)) {
       ecode = sock_errno;
       /* check timeout if waiting for connect */
       if (sock_connected(ecode)) ecode = 0;
       else if (sock_connecting(ecode)) {
-         if (difftime(time(NULL), snp->to) > 0) {
-            return (snp->status = VETIMEOUT);
-         } else return (snp->status = VEWAITING);
+         if (difftime(time(NULL), np->to) > 0) {
+            node__close_socket(np);
+            return (np->status = VETIMEOUT);
+         } else return (np->status = VEWAITING);
       }
       set_sockerrno(sock_errno);
-      return (snp->status = VERROR);
+      node__close_socket(np);
+      return (np->status = VERROR);
    }  /* end if (connect... */
 
-   return (snp->status = VEOK);
-}  /* end connect_node() */
+   /* prepare HELLO packet with initial handshake IDs */
+   np->id1 = rand16();
+   np->id2 = 0;
+   init_pkt(np, OP_HELLO);
+   /* update socket operation type */
+   np->iowait = IO_SEND;
+
+   return (np->status = VEOK);
+}  /* end node_request_connect() */
 
 /**
- * Network communication protocol for request operations.
- * @param snp Pointer to a SNODE
- * @returns Status of request, as integer.
- * @retval VEWAITING on waiting for data
- * @retval VETIMEOUT on socket timeout
- * @retval VEOK on protocol completion
- * @retval VERROR on socket shutdown and/or error
- * @retval VEBAD on pkt protocol violation
+ * Network communication protocol for request handshake.
+ * @param np Pointer to a NODE
+ * @returns (int) value representing the handshake result
+ * @retval VEWAITING on waiting for data; check np->iowait data type
+ * @retval VETIMEOUT on handshake timeout
+ * @retval VEOK on successful handshake
+ * @retval VERROR on internal error; check errno for details
+ * @retval VEBAD on protocol violation; check errno for details
+ * @exception errno=EMCMNOHELLOACK Node did not provide a HELLO_ACK packet
+ * @exception errno=EMCMOPCODE Unexpected handshake operation code
 */
-int request_node(SNODE *snp)
+int node_request_handshake(NODE *np)
 {
-OP_RESTART:
    /* check stage of communication */
-   switch (snp->opcode) {
+   switch (np->opcode) {
       case OP_NULL: {
-         /* check connection wait for initial connect */
-         if (snp->iowait == IO_CONN) {
-            if (connect_node(snp)) break;
-            /* prepare HELLO packet with initial handshake IDs */
-            snp->id1 = rand16();
-            snp->id2 = 0;
-            init_pkt(snp, OP_HELLO);
-            /* update socket operation type */
-            snp->iowait = IO_SEND;
-         }
          /* send OP_HELLO packet */
-         if (send_pkt(snp)) break;
-         /* update socket operation type -- wait for recv */
-         snp->iowait = IO_RECV;
-         snp->status = VEWAITING;
-         break;
-      } /* end case OP_NULL */
+         if (send_pkt(np)) break;
+         /* update socket operation type */
+         np->iowait = IO_RECV;
+      } /* fallthrough -- end case OP_NULL */
       case OP_HELLO: {
          /* recv OP_HELLO packet */
-         if (recv_pkt(snp)) break;
+         if (recv_pkt(np)) break;
          /* check initial handshake protocol */
-         if (snp->opcode != OP_HELLO_ACK) {
+         if (np->opcode != OP_HELLO_ACK) {
             set_errno(EMCMOPHELLOACK);
-            snp->status = VEBAD;
+            np->status = VEBAD;
             break;
          }
          /* save second handshake ID */
-         snp->id2 = get16(snp->pkt.id2);
+         np->id2 = get16(np->pkt.id2);
          /* check request type for additional packet io requirements */
-         switch (snp->opreq) {
+         switch (np->opreq) {
             case OP_GET_BLOCK: /* fallthrough */
-            case OP_TF: memcpy(snp->pkt.blocknum, snp->io, 8); break;
+            case OP_TF: memcpy(np->pkt.blocknum, np->io, 8); break;
          }
          /* prepare request operation */
-         init_pkt(snp, snp->opreq);
+         init_pkt(np, np->opreq);
          /* update socket operation type */
-         snp->iowait = IO_SEND;
+         np->iowait = IO_SEND;
       }  /* fallthrough -- end case OP_HELLO */
       case OP_HELLO_ACK: {
          /* send request packet */
-         if (send_pkt(snp)) break;
-         /* check special operations that only send */
-         switch (snp->opcode) {
-            case OP_MBLOCK: goto OP_RESTART;
-            default: break;
-         }
+         if (send_pkt(np)) break;
          /* update socket operation type -- wait for recv */
-         snp->iowait = IO_RECV;
-         snp->status = VEWAITING;
+         np->iowait = IO_RECV;
          break;
       }  /* end case OP_HELLO_ACK */
+      default: {
+         set_errno(EMCMOPCODE);
+         np->status = VERROR;
+      }  /* end default */
+   }  /* end switch (np->opcode) */
+
+   /* check status of handshake -- close on fail */
+   if (np->status != VEWAITING && np->status != VEOK) {
+      node__close_socket(np);
+   }
+
+   /* return resulting status */
+   return np->status;
+}  /* end node_request_handshake() */
+
+/**
+ * Network communication protocol for request operation.
+ * @param np Pointer to a NODE
+ * @returns (int) value representing the operation result
+ * @retval VEWAITING on waiting for data; check np->iowait data type
+ * @retval VETIMEOUT on communication timeout
+ * @retval VEOK on successful communication
+ * @retval VERROR on internal error; check errno for details
+ * @retval VEBAD on protocol violation; check errno for details
+ * @exception errno=EMCMOPCODE Unexpected operation code
+ * @exception errno=EMCMOPRECV Received unexpected operation code
+*/
+int node_request_operation(NODE *np)
+{
+   switch (np->opcode) {
       case OP_GET_IPL: {
          /* receive request packet */
-         if (recv_pkt(snp)) break;
+         if (recv_pkt(np)) break;
          /* check response opcode */
-         if (snp->opcode != OP_SEND_IPL) {
-            set_errno(EMCMOPCODE);
-            snp->status = VEBAD;
+         if (np->opcode != OP_SEND_IPL) {
+            set_errno(EMCMOPRECV);
+            np->status = VERROR;
             break;
          }
          break;
@@ -928,33 +979,24 @@ OP_RESTART:
       case OP_TF: /* fallthrough */
       case OP_SEND_FILE: {
          /* receive file -- recv_file() checks opcode */
-         snp->status = recv_file(snp);
-         /* if (snp->status) break; */
+         np->status = recv_file(np);
+         /* if (np->status) break; */
          break;
       }  /* end case OP_TF */
       default: {
-         set_errno(EMCMOPSEND);
-         snp->status = VERROR;
+         set_errno(EMCMOPCODE);
+         np->status = VERROR;
       }  /* end default */
-   }  /* end switch (snp->opcode) */
+   }  /* end switch (np->opcode) */
 
-   /* check protocol status */
-   if (snp->status != VEWAITING) {
-      /* close socket, set iowait done, remove timeout */
-      sock_close(snp->sd);
-      snp->sd = INVALID_SOCKET;
-      snp->iowait = IO_DONE;
-      snp->to = 0;
-      /* check naughty peers -- pinklist */
-      if (snp->status == VEBAD2 || snp->status == VEBAD) {
-         if (snp->status == VEBAD2) epinklist(snp->ip);
-         pinklist(snp->ip);
-      }
+   /* check status of operation -- close on fail */
+   if (np->status != VEWAITING) {
+      node__close_socket(np);
    }
 
    /* return resulting status */
-   return snp->status;
-}  /* end request_node() */
+   return np->status;
+}  /* end node_request_operation() */
 
 /* end include guard */
 #endif

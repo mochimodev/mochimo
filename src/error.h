@@ -203,16 +203,16 @@ enum mcm_errno_t {
    /** No transactions to handle */
    EMCMNOTXS,
 
-   /** Unknown operation code */
+   /** Unhandled operation code */
    EMCMOPCODE,
    /** Missing OP_HELLO packet */
    EMCMOPHELLO,
    /** Missing OP_HELLO_ACK packet */
    EMCMOPHELLOACK,
-   /** Unexpected operation code in receive protocol */
+   /** Invalid operation code */
+   EMCMOPNVAL,
+   /** Received unexpected operation code */
    EMCMOPRECV,
-   /** Unexpected operation code in request protocol */
-   EMCMOPSEND,
    /** Invalid CRC16 packet hash */
    EMCMPKTCRC,
    /** Unexpected packet identification */
