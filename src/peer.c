@@ -15,6 +15,7 @@
 /* external support */
 #include <string.h>
 #include "extlib.h"
+#include "extmath.h"
 
 /** Current pink list. Intended reset on block update */
 word32 Cpinklist[CPINKLEN] = { 0 };
@@ -118,27 +119,71 @@ word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx)
    return ip;
 }
 
-word32 addpeer_d(word32 ip, word32 **dlist, word32 *len, word32 *idx)
+word32 quorum_addpeer(QUORUM *qp, word32 ip)
 {
    void *ptr;
    word32 i;
 
    if (ip == 0) return 0;
    if (Noprivate_opt && isprivate(ip)) return 0;  /* v.28 */
-   if (search32(ip, *dlist, *len) != NULL) return 0;
-   if (*idx >= *len) {
-      ptr = realloc(*dlist, sizeof(word32) * (*len + 32));
+   if (search32(ip, qp->list, qp->len) != NULL) return 0;
+   if (qp->idx >= qp->len) {
+      ptr = realloc(qp->list, sizeof(*(qp->list)) * (qp->len + 32));
       if (ptr == NULL) return 0;
-      *len += 32;
-      *dlist = ptr;
+      qp->len += 32;
+      qp->list = ptr;
       /* zero new section of list */
-      for (i = *idx; i < *len; i++) (*dlist)[i] = 0;
+      for (i = qp->idx; i < qp->len; i++) (qp->list)[i] = 0;
    }
    /* add peer to dynamic list */
-   (*dlist)[(*idx)++] = ip;
+   qp->list[qp->idx++] = ip;
 
    return ip;
-}  /* end addpeer_d() */
+}
+
+int quorum_cleanup(QUORUM *qp)
+{
+   if (qp->list) free(qp->list);
+   memset(qp, 0, sizeof(*qp));
+   return 0;
+}
+
+word32 quorum_drop(QUORUM *qp, word32 ip)
+{
+   return remove32(ip, qp->list, qp->len, &(qp->idx));
+}
+
+int quorum_update(QUORUM *qp, NODE *np)
+{
+   int ecode;
+
+   if (np == NULL) return quorum_cleanup(qp);
+
+   /* check existing quorum to compare */
+   if (qp->idx) {
+      ecode = cmp256(qp->weight, np->pkt.weight);
+      /* reset quorum (for higher advertised chain) */
+      if (ecode < 0) quorum_cleanup(qp);
+      else if (ecode == 0) {
+         /* add peer to quorum on matching hash */
+         if (memcmp(qp->bhash, np->pkt.cblockhash, 32) == 0) {
+            return quorum_addpeer(qp, np->ip);
+         }
+      }
+   }  /* end if (qp->idx) */
+   /* if no quorum (or quorum was reset), compare weight */
+   if (qp->idx == 0 && cmp256(np->pkt.weight, qp->weight) > 0) {
+      /* add peer to quorum, and set quorum data on success */
+      if (quorum_addpeer(qp, np->ip)) {
+         memcpy(qp->bhash, np->pkt.cblockhash, 32);
+         memcpy(qp->weight, np->pkt.weight, 32);
+         put64(qp->bnum, np->pkt.cblock);
+         return np->ip;
+      }
+   }
+
+   return 0;
+}
 
 /**
  * Save a peer list to disk.
