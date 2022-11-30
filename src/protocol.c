@@ -893,6 +893,19 @@ CONTINUE:
          np->id2 = get16(np->pkt.id2);
          /* check request type for additional packet io requirements */
          switch (np->opreq) {
+            case OP_FOUND: {
+               /* load Tfile proof */
+               buffp = np->pkt.buffer;
+               bnump = np->pkt.blocknum;
+               if (sub64(Cblocknum, (word32[2]) { (54 - 1), 0 }, bnump)) {
+                  memset(bnump, 0, 8);
+                  count = (int) get32(Cblocknum) + 1;
+               } else count = 54;
+               if (read_tfile(buffp, bnump, count, "tfile.dat") != count) {
+                  return (np->status = VERROR);
+               }
+               break;
+            }  /* end case OP_FOUND */
             case OP_GET_BLOCK: /* fallthrough */
             case OP_TF: memcpy(np->pkt.blocknum, np->io, 8); break;
          }
@@ -908,36 +921,7 @@ CONTINUE:
          np->iowait = IO_RECV;
          goto CONTINUE;  /* cheap imitation */
       }  /* end case OP_HELLO_ACK */
-      default: {
-         set_errno(EMCMOPCODE);
-         np->status = VERROR;
-      }  /* end default */
-   }  /* end switch (np->opcode) */
-
-   /* check status of handshake -- close on fail */
-   if (np->status != VEWAITING && np->status != VEOK) {
-      node__close_socket(np);
-   }
-
-   /* return resulting status */
-   return np->status;
-}  /* end node_request_handshake() */
-
-/**
- * Network communication protocol for request operation.
- * @param np Pointer to a NODE
- * @returns (int) value representing the operation result
- * @retval VEWAITING on waiting for data; check np->iowait data type
- * @retval VETIMEOUT on communication timeout
- * @retval VEOK on successful communication
- * @retval VERROR on internal error; check errno for details
- * @retval VEBAD on protocol violation; check errno for details
- * @exception errno=EMCMOPCODE Unexpected operation code
- * @exception errno=EMCMOPRECV Received unexpected operation code
-*/
-int node_request_operation(NODE *np)
-{
-   switch (np->opcode) {
+      case OP_FOUND: break;
       case OP_GET_IPL: {
          /* receive request packet */
          if (recv_pkt(np)) break;
