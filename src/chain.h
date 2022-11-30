@@ -28,7 +28,7 @@ int read_bnum(void *bnum, char *filename);
 int read_hdrlen(void *hdrlen, char *filename);
 int read_tfile(void *buffer, void *bnum, int count, char *tfname);
 int read_trailer(BTRAILER *btp, char *fname);
-int trim_tfile(char *tfname, void *highbnum);
+int trim_tfile(char *tfname, void *highbnum, void *weight);
 int validate_pow(BTRAILER *btp);
 int validate_trailer(BTRAILER *btp, BTRAILER *pbtp);
 int validate_tfile_fp(FILE *tfp, void *bnum, void *weight, int part);

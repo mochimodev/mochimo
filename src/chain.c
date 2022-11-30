@@ -335,12 +335,13 @@ FAIL_IO:
 
 /**
  * Trim the Tfile to a specified block number (inclusive).
- * @param highbnum Pointer to a 64-bit block number to trim the Tfile to
+ * @param highbnum Pointer to 64-bit block number to trim Tfile to
+ * @param weight Pointer to place weight of trimmed Tfile
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int trim_tfile(char *tfname, void *highbnum)
+int trim_tfile(char *tfname, void *highbnum, void *weight)
 {
    static word32 one[2] = { 1, 0 };
 
@@ -362,6 +363,9 @@ int trim_tfile(char *tfname, void *highbnum)
    if (fpout == NULL) goto FAIL_IO;
    /* perform Tfile read and rewrite */
    while (fread(&bt, sizeof(bt), 1, fp)) {
+      if (weight && bt.bnum[0] != 0xff) {
+         add_weight(weight, bt.difficulty[0], bt.bnum);
+      }
       if (fwrite(&bt, sizeof(bt), 1, fpout) != 1) break;
       if (iszero(bnum, 8) || sub64(bnum, one, bnum)) break;
    }
