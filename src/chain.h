@@ -19,6 +19,7 @@ extern "C" {
 #endif
 
 void add_weight(word8 *weight, word8 difficulty, word8 *bnum);
+int append_tfile_fp(FILE *fp, char *tfilename);
 int append_tfile(char *filename, char *tfilename);
 void get_mreward(void *reward, void *bnum);
 int get_tfrewards(char *fname, void *rewards, void *bnum);

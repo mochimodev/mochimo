@@ -35,6 +35,32 @@ void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
 }  /* end add_weight() */
 
 /**
+ * Append FILE pointer data to a Tfile.
+ * @param fp FILE pointer containing data to append
+ * @param tfilename Filename of a Trailer file
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int append_tfile_fp(FILE *fp, char *tfilename)
+{
+   BTRAILER bt;
+   FILE *tfp;
+
+   tfp = fopen(tfilename, "ab");
+   if (tfp == NULL) return VERROR;
+   while (fread(&bt, sizeof(bt), 1, fp) == 1) {
+      if (fwrite(&bt, sizeof(bt), 1, tfp) != 1) goto FAIL;
+   }
+   fclose(tfp);
+
+   return VEOK;
+
+/* error handling */
+FAIL: fclose(tfp); return VERROR;
+}  /* end append_tfile_fp() */
+
+/**
  * Append the (block) Trailer of a specified filename, to a Tfile.
  * @param filename Filename of a Blockchain file
  * @param tfilename Filename of a Trailer file
@@ -44,21 +70,18 @@ void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
 */
 int append_tfile(char *filename, char *tfilename)
 {
-   BTRAILER bt;
    FILE *fp;
-   size_t count;
+   int ecode;
 
-   /* get trailer from specified file */
-   if (read_trailer(&bt, filename) != VEOK) return VERROR;
-
-   fp = fopen(tfilename, "ab");
+   fp = fopen(filename, "rb");
    if (fp == NULL) return VERROR;
-   count = fwrite(&bt, 1, sizeof(bt), fp);
+   ecode = fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) == 0 ? VEOK : VERROR;
+   if (ecode == VEOK) ecode = append_tfile_fp(fp, tfilename);
    fclose(fp);
 
-   /* return result of write */
-   return (count != sizeof(bt)) ? VERROR : VEOK;
-}  /* append_tfile() */
+   /* return ecode */
+   return ecode;
+}  /* end append_tfile() */
 
 /**
  * Compute the mining reward for a specified block number.
