@@ -593,13 +593,14 @@ int validate_tfile(char *tfname, void *highbnum, void *highweight)
 
 /**
  * Get the weight of a Trailer file. Trailer file is assumed Valid.
- * @param tfname Filename of Tfile to validate
- * @param weight Pointer to place weight
+ * @param tfname Filename of Tfile to get weight from
+ * @param bnum Pointer to bnum of last weight to add, or NULL
+ * @param weight Pointer to add weight
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int weigh_tfile(char *tfname, void *highweight)
+int weigh_tfile(char *tfname, void *bnum, void *weight)
 {
    BTRAILER bt;
    FILE *tfp;
@@ -611,8 +612,10 @@ int weigh_tfile(char *tfname, void *highweight)
    while (fread(&bt, sizeof(bt), 1, tfp)) {
       /* Let the neo-genesis (not the 0x..ff) add weight to the chain. */
       if (bt.bnum[0] != 0xff) {
-         add_weight(highweight, bt.difficulty[0], bt.bnum);
+         add_weight(weight, bt.difficulty[0], bt.bnum);
       }
+      /* break when we reach specified bnum */
+      if (bnum && cmp64(bnum, bt.bnum) <= 0) break;
    }
    fclose(tfp);
 

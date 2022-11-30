@@ -33,7 +33,7 @@ int validate_pow(BTRAILER *btp);
 int validate_trailer(BTRAILER *btp, BTRAILER *pbtp);
 int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight);
 int validate_tfile(char *tfname, void *highbnum, void *highweight);
-int weigh_tfile(char *tfname, void *highweight);
+int weigh_tfile(char *tfname, void *bnum, void *weight);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
