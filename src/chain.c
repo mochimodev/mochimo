@@ -225,6 +225,39 @@ word32 next_difficulty(BTRAILER *btp)
 } /* end next_difficulty() */
 
 /**
+ * Print trailer information (typically on block update).
+ * @param btp Pointer to block trailer with data to print
+ */
+void ptrailer(BTRAILER *btp)
+{
+   long long blocknumber;
+   word32 btxs, btime, bdiff;
+   char str[256], *haiku1, *haiku2, *haiku3;
+
+   /* prepare block stats */
+   blocknumber = 0;
+   put64(&blocknumber, btp->bnum);
+   btxs = get32(btp->tcount);
+   bdiff = get32(btp->difficulty);
+   btime = get32(btp->stime) - get32(btp->time0);
+   /* print haiku on solved block, else  print block type */
+   if (btxs) {
+      /* expand and split haiku into lines for printing */
+      trigg_expand(btp->nonce, str);
+      haiku1 = strtok(str, "\n");
+      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+      print("\n/) %s\n(=: %s\n\\) %s\n", haiku1, haiku2, haiku3);
+   } else if (btp->bnum[0]) print("\n(=: pseudo-block :=)\n");
+   else if (!iszero(btp->bnum, 8)) print("\n(=: neogenesis-block :=)\n");
+   else print("\n(=: genesis-block :=)\n");
+   /* print block identification adn details */
+   print("0x%s(%lld)#%s\n", bnum2hex(btp->bnum, str), blocknumber,
+      addr2hex(btp->bhash, &str[18]));
+   print("Time: %us, Diff: %u, Txs: %u\n", btime, bdiff, btxs);
+}  /* end ptrailer() */
+
+/**
  * Read the block number value from the trailer of a blockchain file.
  * @param bnum Pointer to buffer to place block number value
  * @param filename Filename of block to read from

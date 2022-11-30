@@ -24,6 +24,7 @@ int append_tfile(char *filename, char *tfilename);
 void get_mreward(void *reward, void *bnum);
 int get_tfrewards(char *fname, void *rewards, void *bnum);
 word32 next_difficulty(BTRAILER *btp);
+void ptrailer(BTRAILER *btp);
 int read_bnum(void *bnum, char *filename);
 int read_hdrlen(void *hdrlen, char *filename);
 int read_tfile(void *buffer, void *bnum, int count, char *tfname);
