@@ -719,21 +719,21 @@ void node_init
 }  /* end node_init() */
 
 /**
- * Network communication protocol for receive handshake.
+ * Network communication protocol for receive operations.
  * NOTE: return value is also placed in np->status
  * @param np Pointer to a NODE
- * @returns (int) value representing the handshake result
+ * @returns (int) value representing the operation result
  * @retval VEWAITING on waiting for data; check np->iowait data type
- * @retval VETIMEOUT on handshake timeout
- * @retval VEOK on successful handshake
+ * @retval VETIMEOUT on communication timeout
+ * @retval VEOK on successful communication
  * @retval VERROR on internal error; check errno for details
  * @retval VEBAD on protocol violation; check errno for details
- * @exception errno=EMCMOPCODE Unexpected handshake operation code
- * @exception errno=EMCMNOHELLO Node did not provide a HELLO packet
- * @exception errno=EMCMOPNVAL Node provided an invalid handshake code
+ * @exception errno=EMCMOPCODE Unexpected operation code
+ * @exception errno=EMCMOPRECV Received unexpected operation code
 */
-int node_receive_handshake(NODE *np)
+int node_receive_operation(NODE *np)
 {
+CONTINUE:
    /* check stage of communication */
    switch (np->opcode) {
       case OP_NULL: {
@@ -768,40 +768,9 @@ int node_receive_handshake(NODE *np)
             set_errno(EMCMOPNVAL);
             np->status = VEBAD;
          }
-         break;
+         goto CONTINUE;  /* cheap immitation */
       }  /* end case OP_HELLO_ACK */
-      default: {
-         set_errno(EMCMOPCODE);
-         np->status = VERROR;
-      }  /* end default */
-   }  /* end switch (np->opcode) */
-
-   /* check status of handshake -- close on fail */
-   if (np->status != VEWAITING && np->status != VEOK) {
-      node__close_socket(np);
-   }
-
-   /* return resulting status */
-   return np->status;
-}  /* end node_receive_handshake() */
-
-/**
- * Network communication protocol for receive operations.
- * NOTE: return value is also placed in np->status
- * @param np Pointer to a NODE
- * @returns (int) value representing the operation result
- * @retval VEWAITING on waiting for data; check np->iowait data type
- * @retval VETIMEOUT on communication timeout
- * @retval VEOK on successful communication
- * @retval VERROR on internal error; check errno for details
- * @retval VEBAD on protocol violation; check errno for details
- * @exception errno=EMCMOPCODE Unexpected operation code
- * @exception errno=EMCMOPRECV Received unexpected operation code
-*/
-int node_receive_operation(NODE *np)
-{
-   /* check stage of communication */
-   switch (np->opcode) {
+      case OP_TX: /* fallthrough */
       case OP_FOUND: np->status = VEOK; break;
       case OP_GET_BLOCK: send_file(np); break;
       case OP_GET_IPL: send_ipl(np); break;
@@ -817,13 +786,11 @@ int node_receive_operation(NODE *np)
    }  /* end switch (np->opcode) */
 
    /* check status of operation -- close on fail */
-   if (np->status != VEWAITING) {
-      node__close_socket(np);
-   }
+   if (np->status != VEWAITING) node__close_socket(np);
 
    /* return resulting status */
    return np->status;
-}  /* end node_request_operation() */
+}  /* end node_receive_operation() */
 
 /**
  * Initiate a connection to a NODE.
@@ -875,33 +842,39 @@ int node_request_connect(NODE *np, int nonblock)
       return (np->status = VERROR);
    }  /* end if (connect... */
 
-   /* prepare HELLO packet with initial handshake IDs */
-   np->id1 = rand16();
-   np->id2 = 0;
-   init_pkt(np, OP_HELLO);
-   /* update socket operation type */
-   np->iowait = IO_SEND;
-
    return (np->status = VEOK);
 }  /* end node_request_connect() */
 
 /**
- * Network communication protocol for request handshake.
+ * Network communication protocol for request operation.
  * @param np Pointer to a NODE
- * @returns (int) value representing the handshake result
+ * @returns (int) value representing the operation result
  * @retval VEWAITING on waiting for data; check np->iowait data type
- * @retval VETIMEOUT on handshake timeout
- * @retval VEOK on successful handshake
+ * @retval VETIMEOUT on communication timeout
+ * @retval VEOK on successful communication
  * @retval VERROR on internal error; check errno for details
  * @retval VEBAD on protocol violation; check errno for details
- * @exception errno=EMCMNOHELLOACK Node did not provide a HELLO_ACK packet
- * @exception errno=EMCMOPCODE Unexpected handshake operation code
+ * @exception errno=EMCMOPCODE Unexpected operation code
+ * @exception errno=EMCMOPRECV Received unexpected operation code
 */
-int node_request_handshake(NODE *np)
+int node_request_operation(NODE *np)
 {
-   /* check stage of communication */
+   void *buffp, *bnump;
+   int count;
+
+CONTINUE:
    switch (np->opcode) {
       case OP_NULL: {
+         /* check connection wait for initial connect */
+         if (np->iowait == IO_CONN) {
+            if (node_request_connect(np, 1)) break;
+            /* prepare HELLO packet with initial handshake IDs */
+            np->id1 = rand16();
+            np->id2 = 0;
+            init_pkt(np, OP_HELLO);
+            /* update socket operation type */
+            np->iowait = IO_SEND;
+         }
          /* send OP_HELLO packet */
          if (send_pkt(np)) break;
          /* update socket operation type */
@@ -933,7 +906,7 @@ int node_request_handshake(NODE *np)
          if (send_pkt(np)) break;
          /* update socket operation type -- wait for recv */
          np->iowait = IO_RECV;
-         break;
+         goto CONTINUE;  /* cheap imitation */
       }  /* end case OP_HELLO_ACK */
       default: {
          set_errno(EMCMOPCODE);
@@ -993,9 +966,7 @@ int node_request_operation(NODE *np)
    }  /* end switch (np->opcode) */
 
    /* check status of operation -- close on fail */
-   if (np->status != VEWAITING) {
-      node__close_socket(np);
-   }
+   if (np->status != VEWAITING) node__close_socket(np);
 
    /* return resulting status */
    return np->status;
