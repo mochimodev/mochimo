@@ -521,13 +521,15 @@ BAD_PHASH: set_errno(EMCM_PHASH); return VERROR;
 /**
  * Validate an opened Trailer file (excludes PoW validation).
  * @param tfp Open Tfile FILE pointer to validate
- * @param highbnum Pointer to place highest validated bnum
- * @param highweight Pointer to place highest validated weight
+ * @param bnum Pointer to place validated bnum
+ * @param weight Pointer to add validated weight
+ * @param part Flag indicating validation of a partial Tfile.
+ * When set, skips validation of the first trailer entry.
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight)
+int validate_tfile_fp(FILE *tfp, void *bnum, void *weight, int part)
 {
    BTRAILER bt, bt_prev, *btp;
    long long filelen;
@@ -546,16 +548,19 @@ int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight)
    }
    rewind(tfp);
 
+   /* skip Genesis validation on partial Tfile */
+   if (part) fread((btp = &bt_prev), sizeof(bt), 1, tfp);
+
    /* validate every block trailer against previous
     * NOTE: Genesis block trailer is validated by itself */
-   while (fread(&bt, sizeof(BTRAILER), 1, tfp)) {
+   while (fread(&bt, sizeof(bt), 1, tfp)) {
       ecode = validate_trailer(&bt, btp);
       if (ecode) return ecode;
       /* update highest block number and cumulative chain weight */
-      if (highbnum) put64(highbnum, bt.bnum);
+      if (bnum) put64(bnum, bt.bnum);
       /* Let the neo-genesis (not the 0x..ff) add weight to the chain. */
-      if (highweight && bt.bnum[0] != 0xff) {
-         add_weight(highweight, bt.difficulty[0], bt.bnum);
+      if (weight && bt.bnum[0] != 0xff) {
+         add_weight(weight, bt.difficulty[0], bt.bnum);
       }
       /* shift block trailer (sets btp) */
       memcpy((btp = &bt_prev), &bt, sizeof(bt));
@@ -572,20 +577,20 @@ int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight)
 /**
  * Validate a Trailer file (excludes PoW validation).
  * @param tfname Filename of Tfile to validate
- * @param highbnum Pointer to place highest validated bnum
- * @param highweight Pointer to place highest validated weight
+ * @param bnum Pointer to place validated bnum
+ * @param weight Pointer to add validated weight
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int validate_tfile(char *tfname, void *highbnum, void *highweight)
+int validate_tfile(char *tfname, void *bnum, void *weight)
 {
    FILE *tfp;
    int ecode;
 
    tfp = fopen(tfname, "rb");
    if (tfp == NULL) return VERROR;
-   ecode = validate_tfile_fp(tfp, highbnum, highweight);
+   ecode = validate_tfile_fp(tfp, bnum, weight, 0);
    fclose(tfp);
 
    return ecode;

@@ -31,8 +31,8 @@ int read_trailer(BTRAILER *btp, char *fname);
 int trim_tfile(char *tfname, void *highbnum);
 int validate_pow(BTRAILER *btp);
 int validate_trailer(BTRAILER *btp, BTRAILER *pbtp);
-int validate_tfile_fp(FILE *tfp, void *highbnum, void *highweight);
-int validate_tfile(char *tfname, void *highbnum, void *highweight);
+int validate_tfile_fp(FILE *tfp, void *bnum, void *weight, int part);
+int validate_tfile(char *tfname, void *bnum, void *weight);
 int weigh_tfile(char *tfname, void *bnum, void *weight);
 
 #ifdef __cplusplus
