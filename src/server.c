@@ -115,15 +115,16 @@ static int server__create_work(Server *sp, void *data)
    /* pass data pointer if supplied */
    if (data) wp->data = data;
    /* place in "ready" list for server worker processing */
-   if (mutex_lock(&(sp->inlock)) != 0) goto FAIL;
+   if (mutex_lock(&(sp->lock)) != 0) goto FAIL;
    if (link_node_append(lnp, &(sp->inIO)) != 0) goto FAIL;
-   if (mutex_unlock(&(sp->inlock)) != 0) goto FATAL;
+   condition_signal(&(sp->alarm));
+   if (mutex_unlock(&(sp->lock)) != 0) goto FATAL;
 
    return VEOK;
 
 FAIL:
    /* release lock and return error */
-   if (mutex_unlock(&(sp->inlock)) == 0) return VERROR;
+   if (mutex_unlock(&(sp->lock)) == 0) return VERROR;
 
 FATAL:
    /* kill server on fatal error */
@@ -183,8 +184,8 @@ static ThreadProc server__main(void *arg)
    Server *sp = arg;
 
    fd_set rfds, wfds;            /* descriptor sets for IO checks */
-   LinkedList readyIO;           /* lock-free work list ready for IO */
-   LinkedList waitIO;            /* lock-free work list waiting for IO */
+   LinkedList readyIO = { 0 };   /* lock-free work list ready for IO */
+   LinkedList waitIO = { 0 };    /* lock-free work list waiting for IO */
    LinkedNode *lnp, *next_lnp;
    LinkedNode *alnp;
    AsyncWork *wp;
@@ -211,7 +212,7 @@ static ThreadProc server__main(void *arg)
    /* SERVER BIND PHASE */
 
    /* (try) bind address with listening socket */
-   thread_setname(thread_self(), "server-binding");
+   thread_setname(thread_self(), "binding");
    while (bind(sp->lsd, baddrp, sizeof(sp->addr))) {
       /* check shutdown signal -- wait a sec before re-attempt... */
       if (sp->running == 0) goto SHUTDOWN;
@@ -225,7 +226,7 @@ static ThreadProc server__main(void *arg)
    /* SERVER IO PHASE */
 
    /* running check */
-   thread_setname(thread_self(), "server-listening");
+   thread_setname(thread_self(), "listening");
    while (sp->running) {
 
       /* iterate backlog'd connections */
@@ -248,6 +249,9 @@ static ThreadProc server__main(void *arg)
          alnp = NULL;
       }  /* end for (i = 0; i < SERVER_LISTEN_LIMIT ... */
 
+      /* update Ltime for timeout check */
+      time(&Ltime);
+
       /* zero fd sets and reset highest descriptor */
       FD_ZERO(&rfds);
       FD_ZERO(&wfds);
@@ -266,6 +270,14 @@ static ThreadProc server__main(void *arg)
                   SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
                server__cleanup_node(sp, lnp);
                continue;
+            } else if (wp->to && difftime(Ltime, wp->to) > 0) {
+               /* move node from "wait" list to "ready" list */
+               on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
+                  SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
+               /* append work to the appropriate list */
+               on_ecode_goto_perrno( link_node_append(lnp, &readyIO),
+                  SHUTDOWN, FnMSG("link_node_append(readyIO) FAILURE"));
+               continue;
             }
             /* check wait type -- update fd_sets accordingly */
             switch (wp->sio) {
@@ -282,16 +294,14 @@ static ThreadProc server__main(void *arg)
       }  /* end for if (waitIO.count) */
       /* set timeout as preferred sleep duration for this iteration */
       tv.tv_sec = 0;
-      tv.tv_usec = 1000L * dynasleep++;
+      tv.tv_usec = 1000L * dynasleep;
+      if (dynasleep < 500) dynasleep++;
       /* check number of "waiting" sockets ready for send/recv/fail */
       count = select((int) (nfds + 1), &rfds, &wfds, NULL, &tv);
       /* IMPORTANT: tv's value at this point SHOULD NOT be re-used */
 
-      /* update Ltime for timeout check */
-      time(&Ltime);
-
       /* walk waitIO with respect to count -- hide 'n' seek */
-      for (lnp = waitIO.next; count && lnp; lnp = next_lnp) {
+      for (lnp = waitIO.next; count > 0 && lnp; lnp = next_lnp) {
          /* store next link, as links may change */
          next_lnp = lnp->next;
          /* dereference the work */
@@ -299,14 +309,14 @@ static ThreadProc server__main(void *arg)
          /* check send/recv fd_set's and timeout */
          /* NOTE: "<= IO_SEND" includes IO_CONN in conditional check */
          if ((wp->sio <= IO_SEND && FD_ISSET(wp->sd, &wfds)) ||
-            (wp->sio == IO_RECV && FD_ISSET(wp->sd, &rfds)) ||
-            (wp->to && difftime(Ltime, wp->to) > 0)) {
+            (wp->sio == IO_RECV && FD_ISSET(wp->sd, &rfds)) ) {
             /* move node from "wait" list to "ready" list */
             on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
                SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
             /* append work to the appropriate list */
             on_ecode_goto_perrno( link_node_append(lnp, &readyIO),
                SHUTDOWN, FnMSG("link_node_append(readyIO) FAILURE"));
+            count--;
          }  /* end (in)activity checks... */
       }  /* end for (lnp = waitIO... */
 
@@ -317,7 +327,7 @@ static ThreadProc server__main(void *arg)
          /* store list counts */
          count = readyIO.count;
          /* try (NON-BLOCKING) acquire work lock for link list */
-         trylock_on_ecode_goto_perrno( sp->inlock, SHUTDOWN, {
+         trylock_on_ecode_goto_perrno( sp->lock, SHUTDOWN, {
             /* link ReadyIO to ActiveIO */
             on_ecode_goto_perrno( link_list_append(&readyIO, &(sp->inIO)),
                SHUTDOWN, FnMSG("link_list(readyIO, sp->inIO) FAILURE"));
@@ -329,7 +339,7 @@ static ThreadProc server__main(void *arg)
       }  /* end if (readyIO.count) */
 
       /* try (NON-BLOCKING) link InactiveIO to WaitIO */
-      trylock_on_ecode_goto_perrno( sp->outlock, SHUTDOWN, {
+      trylock_on_ecode_goto_perrno( sp->lock2, SHUTDOWN, {
          on_ecode_goto_perrno( link_list_append(&(sp->outIO), &waitIO),
             SHUTDOWN, FnMSG("link_list(outIO, waitIO) FAILURE"));
       });
@@ -384,10 +394,11 @@ static ThreadProc server__worker(void *arg)
 
    /* init */
    deferproc = 0;
+   thread_setname(thread_self(), "async-io");
 
    /* acquire "in" work Lock */
-   on_ecode_goto_perrno( mutex_lock(&(sp->inlock)),
-      FATAL, FnMSG("server inlock (init) LOCK FAILURE"));
+   on_ecode_goto_perrno( mutex_lock(&(sp->lock)),
+      FATAL, FnMSG("server lock (init) LOCK FAILURE"));
 
    /* main thread loop -- prioritize SyncIO tasks */
    while (sp->running) {
@@ -411,22 +422,21 @@ static ThreadProc server__worker(void *arg)
          on_ecode_goto_perrno( link_node_remove(lnp, &(sp->inIO)),
             FATAL, FnMSG("server inIO LIST FAILURE"));
          /* release work lock */
-         on_ecode_goto_perrno( mutex_unlock(&(sp->inlock)),
-            FATAL, FnMSG("server inlock UNLOCK FAILURE"));
+         on_ecode_goto_perrno( mutex_unlock(&(sp->lock)),
+            FATAL, FnMSG("server lock UNLOCK FAILURE"));
          /* dereference and process thread work io */
-         thread_setname(thread_self(), "worker-processing");
          if ((sp->procfn && sp->procfn(wp) == VEWAITING)) {
             /* return task to wait list for IO waiting */
-            lock_on_ecode_goto_perrno( sp->outlock, FATAL, {
+            lock_on_ecode_goto_perrno( sp->lock2, FATAL, {
                on_ecode_goto_perrno( link_node_append(lnp, &(sp->outIO)),
                   FATAL, FnMSG("server outIO LIST FAILURE"));
             });
          } else server__cleanup_node(sp, lnp);
          /* (re)acquire "in" work Lock */
-         on_ecode_goto_perrno( mutex_lock(&(sp->inlock)),
-            FATAL, FnMSG("server inlock LOCK FAILURE"));
+         on_ecode_goto_perrno( mutex_lock(&(sp->lock)),
+            FATAL, FnMSG("server lock LOCK FAILURE"));
          /* check SHUTDOWN for jump */
-         if (sp->running) goto SHUTDOWN;
+         if (sp->running == 0) goto SHUTDOWN;
          /* restore deference parameters */
          if (deferproc) {
             sp->deferthreads--;
@@ -435,8 +445,9 @@ static ThreadProc server__worker(void *arg)
       }  /* end while ((lnp = sp->worklst.next)) */
       /* wait for condition, sleepy time ... */
       sp->idlethreads++;
-      thread_setname(thread_self(), "worker-idle");
-      ecode = condition_wait(&(sp->inalarm), &(sp->inlock));
+      thread_setname(thread_self(), "async-idle");
+      ecode = condition_wait(&(sp->alarm), &(sp->lock));
+      thread_setname(thread_self(), "async-io");
       sp->idlethreads--;
       /* ... wakeup (spurious?), check ecode ... */
       if (ecode) {
@@ -449,8 +460,8 @@ SHUTDOWN:
    pdebug(FnMSG("recv'd shutdown signal"));
 
    /* release work list lock */
-   on_ecode_goto_perrno( mutex_unlock(&(sp->inlock)),
-      FATAL, FnMSG("server inlock (end) UNLOCK FAILURE"));
+   on_ecode_goto_perrno( mutex_unlock(&(sp->lock)),
+      FATAL, FnMSG("server lock (end) UNLOCK FAILURE"));
 
    return server__exit(sp);
 
@@ -477,11 +488,10 @@ int server_destroy(Server *sp)
    /* deallocate server resources */
    server__cleanup(sp);
    /* destroy condition variables */
-   condition_destroy(&(sp->inalarm));
+   condition_destroy(&(sp->alarm2));
    condition_destroy(&(sp->alarm));
    /* destroy mutually exclusive access locks */
-   mutex_destroy(&(sp->outlock));
-   mutex_destroy(&(sp->inlock));
+   mutex_destroy(&(sp->lock2));
    mutex_destroy(&(sp->lock));
 
    /* server resources destroyed */
@@ -504,11 +514,10 @@ int server_init(Server *sp, int af, int type, int proto)
    memset(sp, 0, sizeof(*sp));
    /* initialize mutually exclusive access locks */
    if (mutex_init(&(sp->lock)) != 0) goto FAIL_INIT0;
-   if (mutex_init(&(sp->inlock)) != 0) goto FAIL_INIT1;
-   if (mutex_init(&(sp->outlock)) != 0) goto FAIL_INIT2;
+   if (mutex_init(&(sp->lock2)) != 0) goto FAIL_INIT1;
    /* initialize condition variables */
    if (condition_init(&(sp->alarm)) != 0) goto FAIL_INIT3;
-   if (condition_init(&(sp->inalarm)) != 0) goto FAIL_INIT4;
+   if (condition_init(&(sp->alarm2)) != 0) goto FAIL_INIT4;
 
    /* obtain listening socket descriptor */
    sp->lsd = socket(af, type, proto);
@@ -524,10 +533,9 @@ int server_init(Server *sp, int af, int type, int proto)
    return VEOK;
 
 /* error handling / de-initialization */
-FAIL_INIT5: condition_destroy(&(sp->inalarm));
+FAIL_INIT5: condition_destroy(&(sp->alarm2));
 FAIL_INIT4: condition_destroy(&(sp->alarm));
-FAIL_INIT3: mutex_destroy(&(sp->outlock));
-FAIL_INIT2: mutex_destroy(&(sp->inlock));
+FAIL_INIT3: mutex_destroy(&(sp->lock2));
 FAIL_INIT1: mutex_destroy(&(sp->lock));
 FAIL_INIT0: return VERROR;
 }  /* end server_init() */
@@ -549,6 +557,8 @@ int server_setioprocess
    sp->initfn = initfn;
    sp->procfn = procfn;
 
+   return VEOK;
+
 /* error handling */
 FAIL_INVAL: set_errno(EINVAL); return VERROR;
 }  /* end server_setioprocess() */
@@ -560,8 +570,8 @@ FAIL_INVAL: set_errno(EINVAL); return VERROR;
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int server_setsockopt
-   (Server *sp, int level, int optname, const char *optval, int optlen)
+int server_setsockopt(Server *sp, int level, int optname,
+   const void *optval, socklen_t optlen)
 {
    /* check server data can accept a socket option */
    if (sp == NULL || sp->lsd == INVALID_SOCKET) goto FAIL_INVAL;
@@ -606,7 +616,9 @@ int server_shutdown(Server *sp)
    for (llp = &(sp->active); llp->count; llp = &(sp->active)) {
       /* wait for threads to finish, up to 5 seconds... */
       if (condition_timedwait(alarmp, lockp, 5000)) {
-         plog("Taking too long, terminating...");
+         if (errno == CONDITION_TIMEOUT) {
+            plog("Taking too long, terminating...");
+         } else perrno(errno, FnMSG("condition_timedwait() FAILURE"));
          break;
       }
       /* join with any exited threads */
@@ -649,6 +661,8 @@ int server_start(Server *sp, word32 addr, word16 port, int workers)
    /* prepare remaining address structure for binding */
    sp->addr.sin_addr.s_addr = addr;
    sp->addr.sin_port = htons(port);
+
+   sp->numthreads = workers;
 
    /* start the main handler thread... */
    sp->running = 1;

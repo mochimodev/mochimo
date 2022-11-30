@@ -33,10 +33,9 @@ typedef int (*AsyncProc)(AsyncWork *np);
 /** Server context struct */
 typedef struct {
    Mutex lock;                /**< mutually exclusive server lock */
-   Mutex inlock;              /**< mutually exclusive "in" work lock */
-   Mutex outlock;             /**< mutually exclusive "out" work lock */
+   Mutex lock2;               /**< mutually exclusive secondary lock */
    Condition alarm;           /**< condition variable server signals */
-   Condition inalarm;         /**< condition variable "in" work signals */
+   Condition alarm2;          /**< condition variable secondary signals */
    LinkedList active;         /**< list of active worker threads */
    LinkedList exited;         /**< list of exited worker threads */
    LinkedList inIO;           /**< list of "in" work, ready for io */
@@ -63,10 +62,10 @@ extern "C" {
 
 int server_destroy(Server *sp);
 int server_init(Server *sp, int af, int type, int proto);
-int server_setprocess
+int server_setioprocess
    (Server *sp, AsyncProc donefn, AsyncProc initfn, AsyncProc procfn);
-int server_setsockopt
-   (Server *sp, int level, int optname, const char *optval, int optlen);
+int server_setsockopt(Server *sp, int level, int optname,
+   const void *optval, socklen_t optlen);
 int server_shutdown(Server *sp);
 int server_start(Server *sp, word32 addr, word16 port, int workers);
 int server_work_create(Server *sp, void *data);
