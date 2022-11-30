@@ -284,7 +284,8 @@ int update_block(char *fname)
    static word8 one[8] = { 1, 0 };
 
    BTRAILER bt;
-   word8 bnum[8] = { 0 };
+   word8 weight[32];
+   word8 bnum[8];
    int ecode;
 
    /* read block trailer */
@@ -299,11 +300,11 @@ int update_block(char *fname)
       if (read_bnum(bnum, fname) != VEOK) return VERROR;
       /* trim tfile to neo-genesis block */
       if (cmp64(bt.bnum, bnum) <= 0) {
+         memset(weight, 0, sizeof(weight));
          /* trim tfile for append trailer -- reset weight */
          if (sub64(bt.bnum, one, bnum)) goto FAIL_UNDERFLOW;
-         if (trim_tfile("tfile.dat", bnum) != VEOK) return VERROR;
-         memset(Weight, 0, sizeof(Weight));
-         weigh_tfile("tfile.dat", Weight);
+         if (trim_tfile("tfile.dat", bnum, weight) != VEOK) return VERROR;
+         memcpy(Weight, weight, sizeof(weight));
       }
    } else if (get32(bt.tcount) > 0) {
       /* update ledger with transaction data */
