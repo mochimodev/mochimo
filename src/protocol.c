@@ -696,23 +696,26 @@ void node_cleanup(NODE *np)
 /**
  * Initialize a NODE for receive or request operations.
  * @param np Pointer to NODE
- * @param ip Connection ip of NODE
- * @param port Connection port of NODE, or 0 for receive
+ * @param sd Receiving SOCKET descriptor, or INVALID_SOCKET for request
+ * @param ip Request ip, or receive ip
+ * @param port Request connection port, or 0 for receive
  * @param opreq Request operation code, or OP_NULL for receive
  * @param bnum Request IO value (blocknum), or NULL for receive
 */
-void node_init(NODE *np, word32 ip, word16 port, word16 opreq, void *bnum)
+void node_init
+   (NODE *np, SOCKET sd, word32 ip, word16 port, word16 opreq, void *bnum)
 {
    memset(np, 0, sizeof(*np));
    /* prepare NODE data */
-   np->to = time(NULL) + TIMEOUT;
+   np->sd = sd;
    np->ip = ip;
    np->port = port;
    np->opreq = opreq;
-   np->opcode = OP_NULL;
+   np->iowait = opreq ? IO_CONN : IO_RECV;
    np->status = VEWAITING;
-   ntoa(&ip, np->id);
+   np->to = time(NULL) + TIMEOUT;
    if (bnum) memcpy(np->io, bnum, 8);
+   ntoa(&ip, np->id);
 }  /* end node_init() */
 
 /**

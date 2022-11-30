@@ -46,11 +46,10 @@ int send_fp(NODE *np);
 int send_hash(NODE *np);
 int send_ipl(NODE *np);
 void node_cleanup(NODE *np);
-void node_init(NODE *np, word32 ip, word16 port, word16 opreq, void *bnum);
-int node_receive_handshake(NODE *np);
+void node_init
+   (NODE *np, SOCKET sd, word32 ip, word16 port, word16 opreq, void *bnum);
 int node_receive_operation(NODE *np);
 int node_request_connect(NODE *np, int nonblock);
-int node_request_handshake(NODE *np);
 int node_request_operation(NODE *np);
 
 #ifdef __cplusplus
