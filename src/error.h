@@ -387,6 +387,7 @@ char *hash2hex(void *hash, int count, char *hex);
 char *bnum2hex(void *bnum, char *hex);
 char *bnum2hex64(void *bnum, char *hex);
 char *block2id(void *bnum, void *bhash, char *id);
+char *op2str(unsigned op);
 char *weight2hex(void *weight, char *hex);
 int mcm_fqan(char *buf, char *pre, char *ext, void *bnum, void *bhash);
 int path_count_join(char *buf, int count, ...);

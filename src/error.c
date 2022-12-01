@@ -180,6 +180,38 @@ char *block2id(void *bnum, void *bhash, char *id)
 }  /* end block2id() */
 
 /**
+ * Convert an operation code to an identifying string.
+ * @param op Value of the opcode to convert
+ * @returns Character pointer to identifying string
+*/
+char *op2str(unsigned op)
+{
+   switch (op) {
+      case OP_NULL: return "OP_NULL";
+      case OP_HELLO: return "OP_HELLO";
+      case OP_HELLO_ACK: return "OP_HELLO_ACK";
+      case OP_TX: return "OP_TX";
+      case OP_FOUND: return "OP_FOUND";
+      case OP_GET_BLOCK: return "OP_GET_BLOCK";
+      case OP_GET_IPL: return "OP_GET_IPL";
+      case OP_SEND_FILE: return "OP_SEND_FILE";
+      case OP_SEND_IPL: return "OP_SEND_IPL";
+      case OP_BUSY: return "OP_BUSY";
+      case OP_NACK: return "OP_NACK";
+      case OP_GET_TFILE: return "OP_GET_TFILE";
+      case OP_BALANCE: return "OP_BALANCE";
+      case OP_SEND_BAL: return "OP_SEND_BAL";
+      case OP_RESOLVE: return "OP_RESOLVE";
+      case OP_GET_CBLOCK: return "OP_GET_CBLOCK";
+      case OP_MBLOCK: return "OP_MBLOCK";
+      case OP_HASH: return "OP_HASH";
+      case OP_TF: return "OP_TF";
+      case OP_IDENTIFY: return "OP_IDENTIFY";
+      default: return "OP_UNKNOWN";
+   }  /* end switch (op) */
+}  /* end op2str() */
+
+/**
  * Convert a 256-bit chain weightto a hexadecimal string.
  * Leading zeros are ommited from hexidecimal string result.
  * @param weight Pointer to 256-bit chain weight (or equivalent value)
