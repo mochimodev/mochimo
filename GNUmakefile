@@ -193,7 +193,6 @@ $(MODLIB): $(OBJECTS)
 
 # build submodule libraries, within associated directories
 $(SUBLIBS): %:
-	git submodule update --init --recursive
 	@make library -C $(INCLUDEDIR)/$(word 2,$(subst /, ,$@))
 
 # build coverage file, within out directory
@@ -224,6 +223,10 @@ $(BUILDDIR)/%.cu.o: $(SUBLIBS) $(SOURCEDIR)/%.cu
 $(BUILDDIR)/%.o: $(SUBLIBS) $(SOURCEDIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) -c $(SOURCEDIR)/$*.c -o $@ $(CCFLAGS) $(CFLAGS) $(VERDEF)
+
+# initialize submodules, within include directory
+$(INCLUDEDIRS): %:
+	git submodule update --init --recursive
 
 # include depends rules created during "build object file" process
 -include $(DEPENDS)
