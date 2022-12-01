@@ -462,6 +462,70 @@ const char *mcm_errno_text(int errnum)
          return "Invalid packet opcode";
       case EMCMPKTTLR:
          return "Invalid packet trailer";
+      case EMCMTXCHGEXISTS:
+         return "Change address is not in Ledger";
+      case EMCMTXCHGNOLE:
+         return "Change address is not in Ledger";
+      case EMCMTXCHGNOTAG:
+         return "Change address is not Tagged";
+      case EMCMTXDSTNOLE:
+         return "Destination address is not in Ledger";
+      case EMCMTXDSTNOTAG:
+         return "Destination address is not Tagged";
+      case EMCMTXDUP:
+         return "Duplicate transaction ID";
+      case EMCMTXFEE:
+         return "Fee is invalid";
+      case EMCMTXFEEOVERFLOW:
+         return "Overflow of transaction feees";
+      case EMCMTXID:
+         return "Bad transaction ID";
+      case EMCMTXOVERFLOW:
+         return "Overflow of transaction amounts";
+      case EMCMTXSORT:
+         return "Bad transaction sort";
+      case EMCMTXSRCISCHG:
+         return "Source address is change address";
+      case EMCMTXSRCISDST:
+         return "Source address is destination address";
+      case EMCMTXSRCNOLE:
+         return "Source address is not in Ledger";
+      case EMCMTXSRCNOTAG:
+         return "Source address is not Tagged";
+      case EMCMTXTAGCHG:
+         return "Invalid Tag activation (change address already exists)";
+      case EMCMTXTAGSRC:
+         return "Invalid Tag activation (source address is tagged)";
+      case EMCMTXTOTAL:
+         return "Transaction total does not match ledger balance";
+      case EMCMTXWOTS:
+         return "WOTS+ signature invalid";
+      case EMCMXTXCHGTOTAL:
+         return "eXtended TX change total is less than fee";
+      case EMCMXTXDSTAMOUNT:
+         return "eXtended TX destination amount is zero";
+      case EMCMXTXFEES:
+         return "eXtended TX fee does not match tally";
+      case EMCMXTXHASPUNCT:
+         return "eXtended TX MEMO contains punctuation character";
+      case EMCMXTXNONPRINT:
+         return "eXtended TX MEMO contains non-printable character";
+      case EMCMXTXNOTERM:
+         return "eXtended TX MEMO is missing a null terminator";
+      case EMCMXTXNZTPADDING:
+         return "eXtended TX contains non-zero trailing padding";
+      case EMCMXTXSENDTOTAL:
+         return "eXtended TX send total is zero";
+      case EMCMXTXTAGMATCH:
+         return "eXtended TX destination tag matches source tag";
+      case EMCMXTXTAGMISMATCH:
+         return "eXtended TX source tag does not match change tag";
+      case EMCMXTXTAGNOLE:
+         return "eXtended TX destination tag is not in Ledger";
+      case EMCMXTXTOTALS:
+         return "eXtended TX total does not match tally";
+      case EMCMXTXNODEF:
+         return "eXtended TX type is not defined";
       case EMCM_MATH64_OVERFLOW:
          return "Unspecified 64-bit math overflow";
       case EMCM_MATH64_UNDERFLOW:
@@ -538,60 +602,6 @@ const char *mcm_errno_text(int errnum)
          return "Bad Genesis hash";
       case EMCM_NZGEN:
          return "Non-zero Genesis data";
-      case EMCM_TX_AMOUNTS_OVERFLOW:
-         return "Overflow of TX amounts";
-      case EMCM_TX_CHG_ADDR:
-         return "Bad TX change address";
-      case EMCM_TX_CHG_TAG:
-         return "Bad TX change tag";
-      case EMCM_TX_DST_ADDR:
-         return "Bad TX destination address";
-      case EMCM_TX_DST_TAG:
-         return "Bad TX destination tag";
-      case EMCM_TX_DUP:
-         return "Duplicate TX ID";
-      case EMCM_TX_FEE:
-         return "Bad TX fee";
-      case EMCM_TX_ID:
-         return "Bad TX ID";
-      case EMCM_TX_SIG:
-         return "Bad TX signature";
-      case EMCM_TX_SORT:
-         return "Bad TX sort";
-      case EMCM_TX_SRC_ADDR:
-         return "Bad TX source address";
-      case EMCM_TX_SRC_LE_BALANCE:
-         return "Bad TX amounts, not equal to src ledger balance";
-      case EMCM_TX_SRC_NOT_FOUND:
-         return "Bad TX source, not found in ledger";
-      case EMCM_TX_SRC_TAG:
-         return "Bad TX source tag";
-      case EMCM_TX_SRC_TAGGED:
-         return "Bad TX, src tag != chg tag, and src tag non-default";
-      case EMCM_TXMDST_AMOUNTS:
-         return "Bad multi-destination TX amounts do not match total";
-      case EMCM_TXMDST_AMOUNTS_OVERFLOW:
-         return "Bad multi-destination TX amounts overflowed";
-      case EMCM_TXMDST_CHG_DISSOLVE:
-         return "Bad multi-destination TX change tag will dissolve";
-      case EMCM_TXMDST_DST_AMOUNT:
-         return "Bad multi-destination TX destination amount is zero";
-      case EMCM_TXMDST_DST_IS_SRC:
-         return "Bad multi-destination TX destination tag is source tag";
-      case EMCM_TXMDST_FEES:
-         return "Bad multi-destination TX fees do not cover tx fee";
-      case EMCM_TXMDST_FEES_OVERFLOW:
-         return "Bad multi-destination TX fees overflowed";
-      case EMCM_TXMDST_SRC_NOT_CHG:
-         return "Bad multi-destination TX src tag != chg tag";
-      case EMCM_TXMDST_SRC_TAG:
-         return "Bad multi-destination TX missing src tag";
-      case EMCM_TXWOTS_SIG:
-         return "Bad TX, WOTS+ signature invalid";
-      case EMCM_XTX_NZTPADDING:
-         return "eXtended TX contains non-zero trailing padding";
-      case EMCM_XTX_UNDEFINED:
-         return "eXtended TX type is not defined";
       default: return NULL;
    }  /* end switch (errnum) */
 }  /* end mcm_errno_text() */

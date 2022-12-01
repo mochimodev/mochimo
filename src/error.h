@@ -226,6 +226,72 @@ enum mcm_errno_t {
    /** Invalid packet trailer */
    EMCMPKTTLR,
 
+   /** Change address is not in Ledger */
+   EMCMTXCHGEXISTS,
+   /** Change address is not in Ledger */
+   EMCMTXCHGNOLE,
+   /** Change address is not Tagged */
+   EMCMTXCHGNOTAG,
+   /** Destination address is not in Ledger */
+   EMCMTXDSTNOLE,
+   /** Destination address is not Tagged */
+   EMCMTXDSTNOTAG,
+   /** Duplicate transaction ID */
+   EMCMTXDUP,
+   /** Fee is invalid */
+   EMCMTXFEE,
+   /** Overflow of transaction feees */
+   EMCMTXFEEOVERFLOW,
+   /** Bad transaction ID */
+   EMCMTXID,
+   /** Overflow of transaction amounts */
+   EMCMTXOVERFLOW,
+   /** Bad transaction sort */
+   EMCMTXSORT,
+   /** Source address is change address */
+   EMCMTXSRCISCHG,
+   /** Source address is destination address */
+   EMCMTXSRCISDST,
+   /** Source address is not in Ledger */
+   EMCMTXSRCNOLE,
+   /** Source address is not Tagged */
+   EMCMTXSRCNOTAG,
+   /** Invalid Tag activation (change address already exists) */
+   EMCMTXTAGCHG,
+   /** Invalid Tag activation (source address is tagged) */
+   EMCMTXTAGSRC,
+   /** Transaction total does not match ledger balance */
+   EMCMTXTOTAL,
+   /** WOTS+ signature invalid */
+   EMCMTXWOTS,
+
+   /** eXtended TX change total is less than fee */
+   EMCMXTXCHGTOTAL,
+   /** eXtended TX destination amount is zero */
+   EMCMXTXDSTAMOUNT,
+   /** eXtended TX fee does not match tally */
+   EMCMXTXFEES,
+   /** eXtended TX MEMO contains punctuation character */
+   EMCMXTXHASPUNCT,
+   /** eXtended TX MEMO contains non-printable character */
+   EMCMXTXNONPRINT,
+   /** eXtended TX MEMO is missing a null terminator */
+   EMCMXTXNOTERM,
+   /** eXtended TX contains non-zero trailing padding */
+   EMCMXTXNZTPADDING,
+   /** eXtended TX send total is zero */
+   EMCMXTXSENDTOTAL,
+   /** eXtended TX destination tag matches source tag */
+   EMCMXTXTAGMATCH,
+   /** eXtended TX source tag does not match change tag */
+   EMCMXTXTAGMISMATCH,
+   /** eXtended TX destination tag is not in Ledger */
+   EMCMXTXTAGNOLE,
+   /** eXtended TX total does not match tally */
+   EMCMXTXTOTALS,
+   /** eXtended TX type is not defined */
+   EMCMXTXNODEF,
+
    /** Unspecified 64-bit math overflow */
    EMCM_MATH64_OVERFLOW,
    /** Unspecified 64-bit math underflow */
@@ -309,70 +375,6 @@ enum mcm_errno_t {
    EMCM_GENHASH,
    /** Non-zero Genesis data */
    EMCM_NZGEN,
-
-   /** Overflow of TX amounts */
-   EMCM_TX_AMOUNTS_OVERFLOW,
-   /** Bad TX change address */
-   EMCM_TX_CHG_ADDR,
-   /** Bad TX change tag */
-   EMCM_TX_CHG_TAG,
-   /** Bad TX destination address */
-   EMCM_TX_DST_ADDR,
-   /** Bad TX destination tag */
-   EMCM_TX_DST_TAG,
-   /** Duplicate TX ID */
-   EMCM_TX_DUP,
-   /** Bad TX fee */
-   EMCM_TX_FEE,
-   /** Bad TX ID */
-   EMCM_TX_ID,
-   /** Bad TX signature */
-   EMCM_TX_SIG,
-   /** Bad TX sort */
-   EMCM_TX_SORT,
-   /** Bad TX source address */
-   EMCM_TX_SRC_ADDR,
-   /** Bad TX amounts, not equal to src ledger balance */
-   EMCM_TX_SRC_LE_BALANCE,
-   /** Bad TX source, not found in ledger */
-   EMCM_TX_SRC_NOT_FOUND,
-   /** Bad TX source tag */
-   EMCM_TX_SRC_TAG,
-   /** Bad TX, src tag != chg tag, and src tag non-default */
-   EMCM_TX_SRC_TAGGED,
-
-   /** Bad multi-destination TX amounts do not match total */
-   EMCM_TXMDST_AMOUNTS,
-   /** Bad multi-destination TX amounts overflowed */
-   EMCM_TXMDST_AMOUNTS_OVERFLOW,
-   /** Bad multi-destination TX change tag will dissolve */
-   EMCM_TXMDST_CHG_DISSOLVE,
-   /** Bad multi-destination TX destination amount is zero */
-   EMCM_TXMDST_DST_AMOUNT,
-   /** Bad multi-destination TX destination tag is source tag */
-   EMCM_TXMDST_DST_IS_SRC,
-   /** Bad multi-destination TX fees do not cover tx fee */
-   EMCM_TXMDST_FEES,
-   /** Bad multi-destination TX fees overflowed */
-   EMCM_TXMDST_FEES_OVERFLOW,
-   /** Bad multi-destination TX src tag != chg tag */
-   EMCM_TXMDST_SRC_NOT_CHG,
-   /** Bad multi-destination TX missing src tag */
-   EMCM_TXMDST_SRC_TAG,
-
-   /** Bad TX, WOTS+ signature invalid */
-   EMCM_TXWOTS_SIG,
-
-   /** eXtended TX contains punctuation character */
-   EMCMXTXHASPUNCT,
-   /** eXtended TX contains non-printable character */
-   EMCMXTXNONPRINT,
-   /** eXtended TX missing null terminator */
-   EMCMXTXNOTERM,
-   /** eXtended TX contains non-zero trailing padding */
-   EMCM_XTX_NZTPADDING,
-   /** eXtended TX type is not defined */
-   EMCM_XTX_UNDEFINED,
 };
 
 /* C/C++ compatible function prototypes */

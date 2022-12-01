@@ -161,9 +161,9 @@ BAD_TCOUNT: set_errno(EMCM_TCOUNT); return VEBAD;
 BAD_FILELEN: set_errno(EMCM_FILELEN); return VEBAD;
 BAD_MREWARD: set_errno(EMCM_MREWARD); return VEBAD;
 BAD_MADDR: set_errno(EMCM_MADDR); return VEBAD;
-BAD_TX_ID: set_errno(EMCM_TX_ID); return VEBAD;
-BAD_TX_SORT: set_errno(EMCM_TX_SORT); return VEBAD;
-BAD_TX_DUP: set_errno(EMCM_TX_DUP); return VEBAD;
+BAD_TX_ID: set_errno(EMCMTXID); return VEBAD;
+BAD_TX_SORT: set_errno(EMCMTXSORT); return VEBAD;
+BAD_TX_DUP: set_errno(EMCMTXDUP); return VEBAD;
 BAD_MREWARD_OVERFLOW: set_errno(EMCM_MREWARDS_OVERFLOW); return VEBAD;
 BAD_MROOT: set_errno(EMCM_MROOT); return VEBAD;
 BAD_BHASH: set_errno(EMCM_BHASH);
@@ -295,8 +295,8 @@ int blockw(char *fname, TXW *txw_clean, size_t count, char *tfname)
    return VEOK;
 
 /* error handling */
-FAIL_IO_SORT: set_errno(EMCM_TX_SORT); goto FAIL_IO;
-FAIL_IO_DUP: set_errno(EMCM_TX_DUP); goto FAIL_IO;
+FAIL_IO_SORT: set_errno(EMCMTXSORT); goto FAIL_IO;
+FAIL_IO_DUP: set_errno(EMCMTXDUP); goto FAIL_IO;
 FAIL_IO_NOTX: set_errno(EMCMNOTXS);
 FAIL_IO:
    if (feof(fp)) set_errno(EMCM_EOF);
