@@ -181,15 +181,10 @@ version:
 
 # include custom recipe configurations here
 
-install-cudaminer:
-	@echo && echo "Checking Build..."
-	@make miner CFLAGS=-DCUDA --no-print-directory
-	@echo && echo "Installing (Cuda) Miner..."
-	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/miner $(BINDIR)/
-	@echo "Ensuring permissions..."
-	@chmod +x $(BINDIR)/miner
-	@echo && echo "Mochimo (Cuda) Miner Installed!"
-	@echo
+alpha-pkg: cleanall
+	-rm -r .git .github .src .vscode bin docs
+	-rm -r $(wildcard $(INCLUDEDIR)/**/.github)
+	-rm -r $(wildcard $(INCLUDEDIR)/**/docs)
 
 install-mochimo:
 	@echo && echo "Checking Build..."
