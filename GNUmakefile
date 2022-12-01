@@ -24,6 +24,7 @@ INCLUDEDIR:= include
 SOURCEDIR:= src
 TESTBUILDDIR:= $(BUILDDIR)/test
 TESTSOURCEDIR:= $(SOURCEDIR)/test
+BINSOURCEDIR:= $(SOURCEDIR)/bin
 
 # build definitions
 GITVERSION:=$(shell git describe --always --dirty --tags || echo "<no-ver>")
@@ -44,6 +45,7 @@ MODLIB:= $(BUILDDIR)/lib$(MODULE).a
 COVERAGE:= $(BUILDDIR)/coverage.info
 
 # source files: test (base/cuda), base, cuda
+BCSRCS:= $(sort $(wildcard $(BINSOURCEDIR)/*.c))
 CUSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.cu))
 CSRCS:= $(sort $(wildcard $(SOURCEDIR)/*.c))
 TCUSRCS:= $(sort $(wildcard $(TESTSOURCEDIR)/*-cu.c))
@@ -55,9 +57,9 @@ CUOBJS:= $(patsubst $(SOURCEDIR)/%.cu,$(BUILDDIR)/%.cu.o,$(CUSRCS))
 TCOBJS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.o,$(TCSRCS))
 TCUOBJS:= $(patsubst $(SOURCEDIR)/%-cu.c,$(BUILDDIR)/%-cu.o,$(TCUSRCS))
 
-# dependency files; compatible onlywith *.c files
+# dependency files; compatible only with *.c files
 DEPENDS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.d, \
-	$(CSRCS) $(TCSRCS) $(TCUSRCS) $(TCLSRCS))
+	$(BCSRCS) $(CSRCS) $(TCSRCS) $(TCUSRCS) $(TCLSRCS))
 
 # dynamic working set of objects; dependant on compilation flags
 OBJECTS:= $(COBJS) $(if $(CUDEF),$(CUOBJS),)
