@@ -43,7 +43,7 @@ if test -d $MOCHIMO_DIR; then echo
       echo "   This can take up to 90 seconds..." && echo
       systemctl stop mochimo.service
       ### Rebuild from source
-      su $MOCHIMO_USER -c "make -C $MOCHIMO_DIR cleanall install-mochimo"
+      su $MOCHIMO_USER -c "make -C $MOCHIMO_DIR cleanall install"
       if test $? -ne 0; then
          echo "   FAILED TO REBUILD UPDATE FROM SOURCE!!!" && echo
          ### Restart existing service and exit
@@ -60,7 +60,7 @@ else
    ### Clone mochimo <branch> into directory
    su $MOCHIMO_USER -c "git clone $BRANCH_OPT https://github.com/mochimodev/mochimo.git $MOCHIMO_DIR"
    ### Build from source
-   su $MOCHIMO_USER -c "make -C $MOCHIMO_DIR install-mochimo"
+   su $MOCHIMO_USER -c "make -C $MOCHIMO_DIR install"
    if test $? -ne 0; then
       echo "   FAILED TO BUILD MOCHIMO FROM SOURCE!!!" && echo
       exit 1
@@ -77,7 +77,7 @@ User=$MOCHIMO_USER
 Group=$MOCHIMO_USER
 WorkingDirectory=$MOCHIMO_DIR/bin/
 ExecStartPre=/bin/sh -c 'until ping -c1 1.1.1.1; do sleep 1; done;'
-ExecStart=/bin/bash $MOCHIMO_DIR/bin/gomochi -n
+ExecStart=/bin/bash $MOCHIMO_DIR/bin/mcmd -ll 5
 [Install]
 WantedBy=multi-user.target
 EOF
