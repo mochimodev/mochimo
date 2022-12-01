@@ -186,30 +186,24 @@ alpha-pkg: cleanall
 	-rm -r $(wildcard $(INCLUDEDIR)/**/.github)
 	-rm -r $(wildcard $(INCLUDEDIR)/**/docs)
 
-install-mochimo:
-	@echo && echo "Checking Build..."
-	@make mochimo --no-print-directory
-	@echo && echo "Installing Mochimo Server..."
-	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/mochimo $(BINDIR)/
-	@echo "Installing support files..."
-	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
+install: $(BUILDDIR)/bin/mcmd
+	@echo && echo "Installing Mochimo Server Daemon..."
+	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/mcmd $(BINDIR)/
+	@echo "Installing supporting filesystem..."
+	@mkdir -p $(BINDIR)/d/bc
+	@cp $(SOURCEDIR)/_init/* $(BINDIR)/d/
 	@echo "Ensuring permissions..."
-	@chmod +x $(BINDIR)/*-external.sh
-	@chmod +x $(BINDIR)/gomochi
-	@chmod +x $(BINDIR)/mochimo
-	@echo && echo "Mochimo Server Installed!"
+	@chmod +x $(BINDIR)/d/*-external.sh
+	@chmod +x $(BINDIR)/mcmd
+	@echo && echo "Mochimo Server Daemon Installed!"
 	@echo
-
-miner: $(BUILDDIR)/bin/miner
-
-mochimo: $(BUILDDIR)/bin/mochimo
 
 uninstall:
 	@echo "Removing support files..."
-	@rm $(patsubst $(SOURCEDIR)/_init/%,$(BINDIR)/%, \
+	@rm $(patsubst $(SOURCEDIR)/_init/%,$(BINDIR)/d/%, \
 		$(wildcard $(SOURCEDIR)/_init/*)) 2>/dev/null || :
 	@echo "Removing binaries..."
-	@rm $(addprefix $(BINDIR)/,mochimo miner) 2>/dev/null || :
+	@rm $(addprefix $(BINDIR)/,mcmd) 2>/dev/null || :
 	@echo && echo "Uninstall complete!" && echo
 	@echo "NOTE: remove build files with: \`make clean\`"
 	@echo "NOTE: remove the working directly within bin/, manually"
