@@ -183,124 +183,6 @@ int mcmd__create_request(word32 ip, word16 opreq, void *bnum)
 FAIL: return VERROR;
 }  /* end mcmd__create_request() */
 
-int mcmd__quorum(NODE *np)
-{
-   static int first_scan = 1;
-   static int network_found;
-   static int requests;
-
-   word32 bnum[2];
-   word32 *plist, plistlen, i;
-   char bnumstr[17], weightstr[65];
-   int ecode;
-
-#undef FnMSG
-#define FnMSG(x) "mcmd__quorum(): " x
-
-   /* clear local peerlist */
-   plist = NULL;
-   plistlen = 0;
-
-   /* check scan state */
-   if (np == NULL) {
-      /* check scanned peers */
-      if (Scanned.idx == 0) {
-         /* initialize network scan */
-         plog("Scanning network...");
-         plistlen = RPLISTLEN;
-         plist = Rplist;
-      } else {
-         /* cleanup quorums */
-         quorum_cleanup(&Quorum);
-         quorum_cleanup(&Scanned);
-         return VEOK;
-      }
-   } else if (np->opreq == OP_GET_IPL) {
-      requests--;
-      /* check success of connection */
-      if (np->status == VEOK) {
-         if (quorum_update(&Quorum, np)) network_found = 1;
-         /* process IP List on first scan */
-         if (first_scan) {
-            plist = (word32 *) PKTBUFF(&np->pkt);
-            plistlen = (word32) get16(np->pkt.len) / sizeof(word32);
-            /* limit list length to size of packet (just in case) */
-            if (plistlen > PKTBUFFLEN) {
-               plistlen = (word32) PKTBUFFLEN / sizeof(word32);
-            }
-         }
-      }  /* end if (np->status == VEOK) */
-      /* log found Node */
-      bnum2hex(np->pkt.cblock, bnumstr);
-      weight2hex(np->pkt.weight, weightstr);
-      pfine(FnMSG("%s 0x%s 0x%s -- %d remaining"),
-         np->id, bnumstr, weightstr, requests);
-   }
-
-   /* "recent" peers list requires read lock */
-   if (plist == Rplist) {
-      on_ecode_goto_perrno( rwlock_rdlock(&RplistLock),
-         FATAL, FnMSG("RplistLock LOCK FAILURE"));
-   }
-
-   /* request OP_GET_IPL on peerlist members */
-   for (i = 0; i < plistlen && plist[i]; i++) {
-      if (quorum_addpeer(&Scanned, plist[i])) {
-         if (mcmd__create_request(plist[i], OP_GET_IPL, NULL) == VEOK) {
-            requests++;
-         }
-      }  /* end if (quorum_addpeer... */
-   }  /* end for (i = 0; i < plistlen... */
-
-   /* "recent" peers list requires read unlock */
-   if (plist == Rplist) {
-      on_ecode_goto_perrno( rwlock_rdunlock(&RplistLock),
-         FATAL, FnMSG("RplistLock UNLOCK FAILURE"));
-   }
-
-   /* wait for OP_GET_IPL requests to finish */
-   if (requests) return VEOK;
-
-   /* report highchain */
-   plog("Quorum members: %d / %d", Quorum.idx, Quorum_opt);
-   plog("Quorum chain: 0x%s / 0x%s", bnum2hex(Quorum.bnum, bnumstr),
-      weight2hex(Quorum.weight, weightstr));
-
-   /* check quorum requirements */
-   if (Quorum.idx == 0) {
-      plog("No higher chain available");
-      if (first_scan && !network_found) {
-         pwarn("NETWORK NOT FOUND!");
-         plog("Please check network configuration...");
-      }
-   } else if (Quorum.idx < Quorum_opt) {
-      /* remove quorum peers from scan list and clear quorum list */
-      for (i = 0; i < Quorum.idx; i++) {
-         quorum_drop(&Scanned, Quorum.list[i]);
-      }
-      quorum_cleanup(&Quorum);
-      plog("(re)Scanning network...");
-      /* perform rescan on scan list peers */
-      for (first_scan = i = 0; i < Scanned.idx; i++, requests++) {
-         if (mcmd__create_request(Scanned.list[i], OP_GET_IPL, NULL)) break;
-      }
-   } else {
-      /* build OP_TF bnum parameter */
-      bnum[0] = get32(Quorum.bnum);
-      bnum[1] = (bnum[0] < 1000) ? bnum[0] + 1 : 1000;
-      bnum[0] -= (bnum[0] < 1000) ? bnum[0] : (1000 - 1);
-      /* request OP_TF from quorum members */
-      plog("Synchronizing with %s...", ntoa(Quorum.list, bnumstr));
-      return mcmd__create_request(Quorum.list[0], OP_TF, bnum);
-   }
-
-   return VEOK;
-
-FATAL:
-   Running = 0;
-   return VERROR;
-}  /* end mcmd__quorum() */
-
 /**
  * @brief 
  * @param np 
@@ -470,25 +352,124 @@ FATAL:
 */
 int mcmd__syncup(NODE *np)
 {
+   static QUORUM quorum, scan;
    static word32 one[2] = { 1 };
+   static int first_scan = 1;
+   static int network_found;
+   static int requests;
 
    BTRAILER tbt, bt;
    Thread *thrdp;
+   word32 *plist, plistlen, ip, u;
+   word32 bnum[2];
    word8 weight[32];
-   word8 bnum[8];
    int count, i;
    int partial;
    int ecode;
    char hexstr[65];
+   char bnumstr[17];
 
 #undef FnMSG
 #define FnMSG(x) "mcmd__syncup(%s, %"P16u"): " x, np->id, np->opcode
 
    /* init */
-   ecode = np->status;
+   ecode = VERROR;
+   plistlen = 0;
+   plist = NULL;
 
-   /* check node status */
-   if (np && np->status == VEOK) {
+   /* ORDER OF OPERATIONS:
+    * - is np NULL? syncup initialization trigger
+    * - is OP_GET_IPL? process OP_GET_IPL request (any status)
+    * - is status VEOK? check blockchain synchronization stage
+    * - is (any) opreq? DROP peer during init
+    */
+
+   if (np == NULL) {
+      /* initialize network scan */
+      plog("Scanning network...");
+      plistlen = RPLISTLEN;
+      plist = Rplist;
+      goto SCAN_PEERS;
+   } else if (np->opreq == OP_GET_IPL) {
+      /*******************************/
+      /* PEERLIST REQUEST PROCESSING */
+      requests--;
+      /* check success of connection */
+      if (np->status == VEOK) {
+         if (quorum_update(&quorum, np)) network_found = 1;
+         /* process IP List on first scan */
+         if (first_scan) {
+            plist = (word32 *) PKTBUFF(&np->pkt);
+            plistlen = (word32) get16(np->pkt.len) / sizeof(word32);
+            /* limit list length to size of packet (just in case) */
+            if (plistlen > PKTBUFFLEN) {
+               plistlen = (word32) PKTBUFFLEN / sizeof(word32);
+            }
+         }
+      }  /* end if (np->status == VEOK) */
+      /* log found Node */
+      bnum2hex(np->pkt.cblock, bnumstr);
+      weight2hex(np->pkt.weight, hexstr);
+      pfine(FnMSG("%s 0x%s 0x%s -- %d remaining"),
+         np->id, bnumstr, hexstr, requests);
+SCAN_PEERS:
+      /* "recent" peers list requires read lock */
+      if (plist == Rplist) {
+         on_ecode_goto_perrno( rwlock_rdlock(&RplistLock),
+            FATAL, FnMSG("RplistLock LOCK FAILURE"));
+      }
+      /* request OP_GET_IPL on peerlist members */
+      for (u = 0; u < plistlen && plist[u]; u++) {
+         ip = plist[u];
+         if (quorum_addpeer(&scan, ip)) {
+            if (mcmd__create_request(ip, OP_GET_IPL, NULL) == VEOK) {
+               requests++;
+            }
+         }  /* end if (quorum_addpeer... */
+      }  /* end for (u = 0; u < plistlen... */
+      /* "recent" peers list requires read unlock */
+      if (plist == Rplist) {
+         on_ecode_goto_perrno( rwlock_rdunlock(&RplistLock),
+            FATAL, FnMSG("RplistLock UNLOCK FAILURE"));
+      }   /* wait for OP_GET_IPL requests to finish */
+      /* wait for all async requests */
+      if (requests) return VEOK;
+      /* report highchain */
+      bnum2hex(quorum.bnum, bnumstr);
+      weight2hex(quorum.weight, hexstr);
+      plog("Quorum members: %d / %d", quorum.idx, Quorum_opt);
+      plog("Quorum chain: 0x%s / 0x%s", bnumstr, hexstr);
+      /* check quorum requirements */
+      if (quorum.idx == 0) {
+         plog("No higher chain available");
+         if (first_scan && !network_found) {
+            pwarn("NETWORK NOT FOUND!");
+            plog("Please check network configuration...");
+         }
+      } else if (quorum.idx < Quorum_opt) {
+         /* remove quorum peers from scan list and clear quorum list */
+         for (u = 0; u < quorum.idx; u++) {
+            quorum_drop(&scan, quorum.list[u]);
+         }
+         quorum_cleanup(&quorum);
+         plog("(re)Scanning network...");
+         /* perform rescan on scan list peers */
+         for (first_scan = 0, u = 0; u < scan.idx; u++) {
+            ip = scan.list[u];
+            if (mcmd__create_request(ip, OP_GET_IPL, NULL) == VEOK) {
+               requests++;
+            }
+         }
+      } else {
+         /* build OP_TF bnum parameter */
+         bnum[0] = get32(quorum.bnum);
+         bnum[1] = (bnum[0] < 1000) ? bnum[0] + 1 : 1000;
+         bnum[0] -= (bnum[0] < 1000) ? bnum[0] : (1000 - 1);
+         /* request OP_TF from quorum members */
+         plog("Synchronizing with %s...", ntoa(quorum.list, bnumstr));
+         return mcmd__create_request(quorum.list[0], OP_TF, bnum);
+      }
+   } else if (np->status == VEOK) {
       /*************************************/
       /* TFILE/PROOF VALIDATION PROCESSING */
       memset(weight, 0, 32);
@@ -510,7 +491,7 @@ int mcmd__syncup(NODE *np)
          goto TF;
       }  /* end if (np->opcode == OP_FOUND) */
       if (np->opreq == OP_TF) {
-         pdebug(FnMSG("checking OP_TF data..."));
+         pdebug(FnMSG("checking OP_TF response..."));
 TF:      /* perform partial chain analysis checks
           * - is there a gap between our chain and the proof?
           * - is there a chain split preceeding the proof?
@@ -545,28 +526,28 @@ TF:      /* perform partial chain analysis checks
          goto TFILE;
       }  /* end if (np->opreq == OP_TF) */
       if (np->opreq == OP_GET_TFILE) {
-         pdebug(FnMSG("checking OP_GET_TFILE data..."));
          partial = 0;
 TFILE:   /* validate partial Tfile in file pointer */
+         pdebug(FnMSG("validating Tfile data..."));
          on_ecode_goto_perrno(
             validate_tfile_fp(np->fp, bnum, weight, partial),
             DROP, FnMSG("(partial) Tfile validation FAILURE"));
          /* check Tfile bnum/weight against Quorum (or self) */
-         if (cmp64(bnum, Quorum.bnum) < 0) {
-            pdebug(FnMSG("Tfile 0x%s"), bnum2hex(bnum, hexstr));
-            pdebug(FnMSG("Quorum 0x%s"), bnum2hex(Quorum.bnum, hexstr));
+         if (cmp64(bnum, quorum.bnum) < 0) {
+            pdebug(FnMSG("Tfile 0x%s"), bnum2hex(bnum, bnumstr));
+            pdebug(FnMSG("Quorum 0x%s"), bnum2hex(quorum.bnum, bnumstr));
             goto_perr(DROP, FnMSG("tfile bnum less than advertised"));
-         } else if (cmp256(weight, Quorum.weight) < 0) {
+         } else if (cmp256(weight, quorum.weight) < 0) {
             pdebug(FnMSG("Tfile 0x%s"), weight2hex(weight, hexstr));
-            pdebug(FnMSG("Quorum 0x%s"), weight2hex(Quorum.weight, hexstr));
+            pdebug(FnMSG("Quorum 0x%s"), weight2hex(quorum.weight, hexstr));
             goto_perr(DROP, FnMSG("tfile weight less than advertised"));
          }
          /* rewind file pointer and create threads for PoW validation */
          thrdp = malloc(cpu_cores() * sizeof(*thrdp));
-         if (thrdp == NULL) perrno(errno, FnMSG("malloc(threads) FAILURE"));
+         if (thrdp == NULL) perrno(FnMSG("malloc(threads) FAILURE"));
          for (rewind(np->fp), count = cpu_cores(), i = 0; i < count; i++) {
             if (thread_create(&thrdp[i], dist__pow_val, np) != 0) {
-               perrno(errno, FnMSG("thread_create() FAILURE"));
+               perrno(FnMSG("thread_create() FAILURE"));
                pwarn("PoW validation may be slower than usual");
                count = i;
                break;
@@ -580,7 +561,7 @@ TFILE:   /* validate partial Tfile in file pointer */
          /* wait for threads to finish */
          for (i = 0; i < count; i++) {
             if (thread_join(thrdp[i]) != 0) {
-               perrno(errno, FnMSG("thread_join(%d) FAILURE"), i);
+               perrno(FnMSG("thread_join(%d) FAILURE"), i);
             }
          }
          /* cleanup thread malloc */
@@ -628,34 +609,31 @@ TFILE:   /* validate partial Tfile in file pointer */
          add64(Cblocknum, one, bnum);
          return mcmd__create_request(np->ip, OP_GET_BLOCK, bnum);
       }  /* end if (np->opreq == OP_GET_BLOCK) */
-   } else if (np && np->opreq) {
-   /* np->status != VEOK */
+   } else if (np->opreq) {
 DROP: np->status = ecode;
       if (Ininit) {
-         if (cmp64(Cblocknum, Quorum.bnum) >= 0) {
-            /* reset init flag */
-            Ininit = 0;
-            /* clear quorum lists */
-            quorum_cleanup(&Quorum);
-            quorum_cleanup(&Scanned);
-            /* trigger OP_FOUND broadcast */
+         if (cmp64(Cblocknum, quorum.bnum) >= 0) {
+            plog("\nVeronica says, \"You're done!\"\n");
+            /* trigger OP_FOUND broadcast -- cleanup */
             mcmd__send_found(NULL);
-            return plog("\nVeronica says, \"You're done!\"\n");
+            quorum_cleanup(&quorum);
+            quorum_cleanup(&scan);
+            Ininit = 0;
          } else {
             plog("Dropping %s...", np->id);
-            remove32(np->ip, Quorum.list, Quorum.len, &(Quorum.idx));
-            return mcmd__quorum(np);
+            remove32(np->ip, quorum.list, quorum.len, &(quorum.idx));
+            remove32(np->ip, scan.list, scan.len, &(scan.idx));
          }
       }
    }
 
-   /* finished */
-   return np->status;
+   /* hmmm... */
+   return VERROR;
 
 FATAL:
    Running = 0;
 FAIL:
-   return (np->status = VERROR);
+   return VERROR;
 }  /* end mcmd__syncup() */
 
 /**
