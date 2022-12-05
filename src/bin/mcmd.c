@@ -7,6 +7,7 @@
 #include "peer.h"
 #include "protocol.h"
 #include "server.h"
+#include "transaction.h"
 #include "trigg.h"
 
 /* external support */
