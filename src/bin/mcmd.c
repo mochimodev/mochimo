@@ -637,26 +637,64 @@ FAIL:
 }  /* end mcmd__syncup() */
 
 /**
- * @private
+ * @brief Validate and process incoming transactions
+ * @details Reference Chart: https://app.code2flow.com/HaB1Ut
+ * @param np Pointer to NODE containing incoming transaction
+ * @return (int) value representing the operation result
  */
-static ThreadProc mcmd__worker(void *ignore)
+int mcmd__transaction(NODE *np)
 {
-   LinkedNode *lnp, *next_lnp;
-   NODE *np;
-   int ecode;
+   static word32 one[2] = { 1 };
+
+   TXW txw;
+   FILE *fp;
+   char *txfile;
+   word32 bnum[2];
 
 #undef FnMSG
-#define FnMSG(x)  "mcmd__worker(%x): " x, thread_selfid()
-   pdebug(FnMSG("created..."));
-   (void)ignore;
+#define FnMSG(x) "mcmd__transaction(%s): " x, np->id
 
-   /* trigger network scan */
-   mcmd__quorum(NULL);
-   thread_setname(thread_self(), "mcmd-main");
+   /* check status of receive */
+   if (np && np->status == VEOK) {
+      txfile = NULL;
+      /* copy transaction to local buffer */
+      memcpy(&txw, np->pkt.buffer, sizeof(txw));
+      /* validate transaction */
+      np->status = txw_val(&txw, Myfee);
+      /* VEBAD or VEBAD2; discard (always) invalid transactions */
+      if (np->status == VEOK) {
+         pfine(FnMSG("is valid -> send to txclean.dat"));
+         txfile = "txclean.dat";
+      } else if (np->status == VERROR) {
+         pfine(FnMSG("is invalid..."));
+         /* transaction is invalid, discard unless behind one block */
+         add64(Cblocknum, one, bnum);
+         if (cmp64(np->pkt.cblock, bnum) == 0) {
+            /* build OP_TF bnum parameter */
+            bnum[1] = (bnum[0] < 54) ? bnum[0] + 1 : 54;
+            bnum[0] -= (bnum[0] < 54) ? bnum[0] : (54 - 1);
+            /* request OP_FOUND-like request with OP_TF */
+            pfine(FnMSG("triggered OP_TF proof request..."));
+            mcmd__create_request(np->ip, OP_TF, bnum);
+            /* hold transaction for update */
+            pfine(FnMSG("holding transaction..."));
+            txfile = "txhold.dat";
+         }
+      } else pfine(FnMSG("is invalid!"));
+      /* store transaction in appropriate file, or discard */
+      if (txfile) {
+         fp = fopen(txfile, "ab");
+         if (fp == NULL) return perrno(FnMSG("fopen(%s) FAILURE"), txfile);
+         sha256(&txw, sizeof(txw) - HASHLEN, txw.tx_id);
+         if (fwrite(&txw, sizeof(txw), 1, fp) != 1) {
+            perrno(FnMSG("fwrite(%s) FAILURE"), txfile);
+         }
+         fclose(fp);
+      }
+   }  /* end if (np && np->status == VEOK) */
 
-   /* acquire syncIO Lock */
-   on_ecode_goto_perrno( mutex_lock(&SyncIOLock),
-      FATAL, FnMSG("SyncIO (init) LOCK FAILURE"));
+   return np->status;
+}  /* end mcmd__transaction() */
 
    /* main thread loop */
    while (Running) {
