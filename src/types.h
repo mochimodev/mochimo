@@ -206,11 +206,9 @@
 #define IO_SEND         1
 /** Waiting for socket (read buff) */
 #define IO_RECV         2
-/** Waiting for read-only access to "update lock" */
-#define RO_ULCK         3
 /** Finished. Not waiting.
  * NOTE: increment when adding more wait types */
-#define IO_DONE         4
+#define IO_DONE         3
 
 /* network data */
 

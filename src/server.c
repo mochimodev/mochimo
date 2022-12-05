@@ -451,7 +451,7 @@ static ThreadProc server__worker(void *arg)
       sp->idlethreads--;
       /* ... wakeup (spurious?), check ecode ... */
       if (ecode) {
-         perrno(ecode, FnMSG("CONDITION FAILURE"));
+         perrno(FnMSG("CONDITION FAILURE"));
          goto FATAL;
       }
    }  /* end while (sp->running) */
@@ -618,7 +618,7 @@ int server_shutdown(Server *sp)
       if (condition_timedwait(alarmp, lockp, 5000)) {
          if (errno == CONDITION_TIMEOUT) {
             plog("Taking too long, terminating...");
-         } else perrno(errno, FnMSG("condition_timedwait() FAILURE"));
+         } else perrno(FnMSG("condition_timedwait() FAILURE"));
          break;
       }
       /* join with any exited threads */

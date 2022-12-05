@@ -34,9 +34,9 @@
  * - Blockchain validator sets fee to trailer Mfee.
  * @param tx Pointer to a MEMO Hashed transaction to validate
  * @param fee Pointer to fee to validate against
- * @return (int) value representing operation result
- * @retval VEOK on success, multi-destination transaction is valid
- * @retval VERROR on error, check errno for details
+ * @return (int) value representing validation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
 int tx_memo_val(TX_MEMO *mtx, void *fee)
 {
@@ -79,11 +79,11 @@ int tx_memo_val(TX_MEMO *mtx, void *fee)
  * Validate a Hashed transaction. Requires an open ledger.
  * @param tx Pointer to a Hashed transaction to validate
  * @param fee Pointer to fee to validate against
- * @return (int) value representing operation result
- * @retval VEOK on success, transaction is valid
- * @retval VERROR on internal error, check errno for details
- * @retval VEBAD on protocol violation, bad transaction data
- * @retval VEBAD2 on malicious violation, invalid WOTS+ signature
+ * @return (int) value representing validation result
+ * @retval VEBAD2 on invalid signature; check errno for details
+ * @retval VEBAD on bad transaction data; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
 int tx_val(TX *tx, void *fee)
 {
@@ -184,8 +184,8 @@ int tx_val(TX *tx, void *fee)
  * @param tx Pointer to a MDST WOTS+ transaction to validate
  * @param fee Pointer to fee to validate against
  * @return (int) value representing operation result
- * @retval VEOK on success, multi-destination transaction is valid
- * @retval VERROR on error, check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
 int txw_mdst_val(TXW_MDST *mtx, void *fee)
 {
@@ -239,11 +239,11 @@ int txw_mdst_val(TXW_MDST *mtx, void *fee)
  * Validate a WOTS+ transaction. Requires an open ledger.
  * @param tx Pointer to a WOTS+ transaction to validate
  * @param fee Pointer to fee to validate against
- * @return (int) value representing operation result
- * @retval VEOK on success, transaction is valid
- * @retval VERROR on internal error, check errno for details
- * @retval VEBAD on protocol violation, bad transaction data
- * @retval VEBAD2 on malicious violation, invalid WOTS+ signature
+ * @return (int) value representing validation result
+ * @retval VEBAD2 on invalid signature; check errno for details
+ * @retval VEBAD on bad transaction data; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
 int txw_val(TXW *tx, void *fee)
 {
@@ -315,7 +315,7 @@ int txw_val(TXW *tx, void *fee)
    PUBSEEDp = src_addr + TXSIGLEN;
    memcpy(ADRS, PUBSEEDp + 32, 32);  /* copy WOTS ADRS[] */
    wots_pk_from_sig(PUBKEY, tx->tx_sig, MESSAGE, PUBSEEDp, ADRS);
-   if (memcmp(PUBKEY, tx->src_addr, TXSIGLEN) != 0) TXBAD(EMCMTXWOTS);
+   if (memcmp(PUBKEY, tx->src_addr, TXSIGLEN) != 0) TXBAD2(EMCMTXWOTS);
    /* check for eXtended TX transaction type */
    if (is_xtx) {
       /* eXtended TX transaction type validation methods */

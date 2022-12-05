@@ -692,7 +692,7 @@ int pcustom(int e, int ll, const char *fmt, ...)
       va_start(args, fmt);
       vfprintf(fp, fmt, args);
       va_end(args);
-      if (e != INVALID_ERRNO) {
+      if (e != NOERRNO) {
          fprintf(fp, ": (%d) %s\n", e, strerror_mcm(e, error, 64));
       } else fprintf(fp, "\n");
 
@@ -710,7 +710,7 @@ int pcustom(int e, int ll, const char *fmt, ...)
       va_start(args, fmt);
       vfprintf(Outputfp, fmt, args);
       va_end(args);
-      if (e != INVALID_ERRNO) {
+      if (e != NOERRNO) {
          fprintf(Outputfp, ": (%d) %s\n", e, strerror_mcm(e, error, 64));
       } else fprintf(Outputfp, "\n");
    }

@@ -38,10 +38,10 @@
    { perr(__VA_ARGS__); goto _lbl; }
 
 #define goto_pecode(_lbl, ...) \
-   { perrno(ecode, __VA_ARGS__); goto _lbl; }
+   { perrno(__VA_ARGS__); goto _lbl; }
 
 #define goto_perrno(_lbl, ...) \
-   { perrno(errno, __VA_ARGS__); goto _lbl; }
+   { perrno(__VA_ARGS__); goto _lbl; }
 
 #define on_ecode_goto_perr(_cmd, _lbl, ...) \
    if ((ecode = (_cmd))) goto_perr(_lbl, __VA_ARGS__)
@@ -57,7 +57,7 @@
       on_ecode_goto_perrno( mutex_unlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
    } else { \
-      perrno(errno, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+      perrno(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
 #define lock_on_ecode_goto_perr(_lock, _lbl, _code_block) \
    if (mutex_lock(&(_lock)) == 0) { _code_block; \
@@ -70,26 +70,26 @@
       on_ecode_goto_perrno( mutex_unlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
    } else if (errno != EBUSY) { \
-      perrno(errno, FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
+      perrno(FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
 
 #define wrlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (rwlock_wrlock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( rwlock_wrunlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(errno, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+   } else { perrno(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
 #define rdlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (rwlock_rdlock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( rwlock_rdunlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(errno, FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+   } else { perrno(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
 
 #define tryrdlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (rwlock_tryrdlock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( rwlock_rdunlock(&(_lock)), _lbl, \
          FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
    } else if (errno != EBUSY) { \
-      perrno(errno, FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
+      perrno(FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
 
 /** No print/log level (blank) */
 #define PLEVEL_NONE  0
@@ -110,7 +110,7 @@
 */
 #define NUM_PLEVELS  6
 
-#define INVALID_ERRNO   ( (0x7fffffff) )
+#define NOERRNO   ( (0x7fffffff) )
 
 /**
  * Print/log an error message, with description of @a errnum.
@@ -118,42 +118,42 @@
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VERROR, per pcustom()
 */
-#define perrno(E, ...)  pcustom(E, PLEVEL_ERROR, __VA_ARGS__)
+#define perrno(...)  pcustom(errno, PLEVEL_ERROR, __VA_ARGS__)
 
 /**
  * Print/log an error message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VERROR, per pcustom()
 */
-#define perr(...)       pcustom(INVALID_ERRNO, PLEVEL_ERROR, __VA_ARGS__)
+#define perr(...)    pcustom(NOERRNO, PLEVEL_ERROR, __VA_ARGS__)
 
 /**
  * Print/log a warning message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define pwarn(...)      pcustom(INVALID_ERRNO, PLEVEL_WARN, __VA_ARGS__)
+#define pwarn(...)   pcustom(NOERRNO, PLEVEL_WARN, __VA_ARGS__)
 
 /**
  * Print/log a standard message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define plog(...)       pcustom(INVALID_ERRNO, PLEVEL_LOG, __VA_ARGS__)
+#define plog(...)    pcustom(NOERRNO, PLEVEL_LOG, __VA_ARGS__)
 
 /**
  * Print/log a fine message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define pfine(...)      pcustom(INVALID_ERRNO, PLEVEL_FINE, __VA_ARGS__)
+#define pfine(...)   pcustom(NOERRNO, PLEVEL_FINE, __VA_ARGS__)
 
 /**
  * Print/log a debug message.
  * @param ... arguments you would normally pass to printf()
  * @returns (int) VEOK, per pcustom()
 */
-#define pdebug(...)     pcustom(INVALID_ERRNO, PLEVEL_DEBUG, __VA_ARGS__)
+#define pdebug(...)  pcustom(NOERRNO, PLEVEL_DEBUG, __VA_ARGS__)
 
 /**
  * Write a file path into a buffer by joining multiple strings together
