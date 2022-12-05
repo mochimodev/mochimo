@@ -333,6 +333,7 @@ static int mcmd__send_found(NODE *np)
    static word32 plist[RPLISTLEN];
    static word32 plistidx;
 
+   int inprogress = plist[0];
    int ecode;
 
 #undef FnMSG
@@ -347,6 +348,8 @@ static int mcmd__send_found(NODE *np)
       on_ecode_goto_perrno( rwlock_rdunlock(&RplistLock),
          FATAL, FnMSG("RplistLock UNLOCK FAILURE"));
       pfine(FnMSG("broadcasting OP_FOUND to recent peers, %u"), plistidx);
+      /* bail if already in progress */
+      if (inprogress) return VEOK;
    } else remove32(np->ip, plist, RPLISTLEN, &plistidx);
 
    /* broadcast to next peer (if any) */
