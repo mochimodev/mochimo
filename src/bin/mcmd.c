@@ -1118,6 +1118,7 @@ int usage(void)
 
       "\n\nOPTIONS:"
       "\n   --                         Forces the end of OPTIONS arguments"
+      "\n   -d, --daemon-threads=<num> Set daemon thread count to <num>"
       "\n   --dir-bc=<dir>             Set block archive directory to <dir>"
       "\n   --dir-sp=<dir>             Set chain split directory to <dir>"
       "\n   -h, --help                 Print this usage information"
@@ -1128,6 +1129,7 @@ int usage(void)
       "\n      The operating system may impose additional restrictions..."
       "\n   --private-peers            Allow private peers in peer lists"
       "\n   -q, --quorum=<num>         Set network quorum size to <num>"
+      "\n   -s, --server-threads=<num> Set server thread count to <num>"
       "\n   --version                  Print the current software version"
 
       "\n\nOPTIONS (logging):"
@@ -1186,9 +1188,10 @@ int main (int argc, char *argv[])
    static char *char_opt, *char_opt2;     /* char for cli options */
    static char *proc_name, *working_dir;
 
-   Thread syncthread;
    Server *nsp = &NodeServer;             /* Node Server pointer */
-   //int node_io_threads;
+   Thread *thrdp = NULL;
+   int daemon_threads = 2;
+   int server_threads = 1;
 
    redirect_signals();
    /* use multiple sources of entropy for improved prng */
@@ -1199,8 +1202,6 @@ int main (int argc, char *argv[])
    set_print_level(PLEVEL_LOG);
    Noprivate_opt = 1;
    Cbits |= C_PUSH;
-   /* init server defaults */
-   //node_io_threads = cpu_cores();
    sock_startup();
 
    /* derive process name, check for duplicates */
@@ -1216,7 +1217,17 @@ int main (int argc, char *argv[])
          /* OPTIONS */
          if (eoa || argument(argv[j], NULL, "--")) {
             /* flag to skip remaining options with leading '-' */
-            if (eoa++ == 0) pfine("... end of arguments");
+         else if (argument(argv[j], "-d", "--daemon-threads")) {
+            /* obtain daemon thread count */
+            char_opt = argvalue(&j, argc, argv);
+            if (char_opt == NULL) goto_perr(USAGE, "Missing thread count");
+            int_opt = atoi(char_opt);
+            if (int_opt < 1) goto_perr(USAGE, "Invalid thread count");
+            if (int_opt > cpu_cores())
+               pwarn("Thread count exceeds logical CPU cores...");
+            plog("... daemon thread count = %s", char_opt);
+            /* set daemon thread count */
+            daemon_threads = int_opt;
          }
          else if (argument(argv[j], NULL, "--dir-bc")) {
             /* obtain blockchain archive directory */
@@ -1275,6 +1286,18 @@ USAGE:      usage();
             pfine("... quorum = %s (%u)", char_opt, uint_opt);
             /* set quorum number */
             Quorum_opt = uint_opt;
+         }
+         else if (argument(argv[j], "-s", "--server-threads")) {
+            /* obtain server thread count */
+            char_opt = argvalue(&j, argc, argv);
+            if (char_opt == NULL) goto_perr(USAGE, "Missing thread count");
+            int_opt = atoi(char_opt);
+            if (int_opt < 1) goto_perr(USAGE, "Invalid thread count");
+            if (int_opt > cpu_cores())
+               pwarn("Thread count exceeds logical CPU cores...");
+            plog("... server thread count = %s", char_opt);
+            /* set server thread count */
+            server_threads = int_opt;
          }
          else if (argument(argv[j], NULL, "--Veronica")) {
             veronica();
@@ -1453,18 +1476,24 @@ USAGE:      usage();
       server_setioprocess(nsp, mcmd_iodone, mcmd_ioinit, mcmd_ioproc),
       EXIT, "server_setioprocess(node) FAILURE");
    on_ecode_goto_perrno(
-      server_start(nsp, INADDR_ANY, Port_opt, 3 /*node_io_threads*/),
+      server_start(nsp, INADDR_ANY, Port_opt, server_threads),
       EXIT, "server_start(node) FAILURE");
 
    plog("Node Server started on 0.0.0.0:%u...", Port_opt);
 
-   /* start the Mochimo Server Daemon sync thread */
-   on_ecode_goto_perrno(
-      thread_create(&syncthread, mcmd__worker, NULL),
-      SHUTDOWN, "Failed to start mcmd__worker() thread");
+   /* start Mochimo daemon threads */
+   thrdp = calloc(daemon_threads, sizeof(Thread));
+   for (j = 0; j < daemon_threads; j++) {
+      on_ecode_goto_perrno(
+         thread_create(&thrdp[j], mcmd__worker, &CompleteIO),
+         SHUTDOWN, "Failed to start mcmd__worker() thread");
+   }
 
-   /* BLOCK and wait for main processing thread to exit */
-   thread_join(syncthread);
+   /* trigger network scan */
+   mcmd__syncup(NULL);
+
+   /* BLOCK and wait for daemon threads to exit */
+   for (j = 0; j < daemon_threads; j++) thread_join(thrdp[j]);
 
 SHUTDOWN:
    /* shutdown server/s */
