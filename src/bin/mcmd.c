@@ -33,14 +33,19 @@
    ((np)->pkt.version[0] == 4 && get16((np)->pkt.len) == 1) || \
    ((np)->pkt.version[0] == 5 && ((np)->pkt.version[1] & C_WALLET)) )
 
-/* synchronous processing list, lock and alarm */
-LinkedList SyncIO = { 0 };
-Mutex SyncIOLock = MUTEX_INITIALIZER;
-Condition SyncIOAlarm = CONDITION_INITIALIZER;
+#define WORKLIST_INITIALIZER \
+   { .lock = MUTEX_INITIALIZER, .alarm = CONDITION_INITIALIZER, { 0 } }
+
+typedef struct {
+   Mutex lock;
+   Condition alarm;
+   LinkedList list;
+} WorkList;
+
+/* work processing list (incl. lock and alarm) */
+WorkList CompleteIO = WORKLIST_INITIALIZER;
 
 Server NodeServer;
-QUORUM Scanned;
-QUORUM Quorum;
 
 /* Recent peers lock */
 RWLock RplistLock = RWLOCK_INITIALIZER;
@@ -865,7 +870,7 @@ FATAL:
    Unthread;
 }  /* end mcmd__worker() */
 
-/* transfer a NODE reference out of AsyncWork for sync processing */
+/* transfer a NODE out of AsyncWork into a WorkList */
 static int mcmd_asyncwork_transfer(AsyncWork *wp)
 {
    LinkedNode *lnp;
@@ -877,22 +882,22 @@ static int mcmd_asyncwork_transfer(AsyncWork *wp)
 
    if (wp->data == NULL) return VERROR;
    np = (NODE *) wp->data;
-   /* create an empty LinkedNode */
+   /* add NODE pointer to an empty LinkedNode */
    lnp = link_node_create(0);
    if (lnp) lnp->data = np;
-   else return perrno(errno, FnMSG("link_node_create() FAILURE"));
+   else return perrno(FnMSG("link_node_create() FAILURE"));
    /* add reference to LinkedNode and append to SyncIO (guarded) */
-   lock_on_ecode_goto_perrno( SyncIOLock, FAIL, {
-      on_ecode_goto_perrno( link_node_append(lnp, &SyncIO),
+   lock_on_ecode_goto_perrno( CompleteIO.lock, FAIL, {
+      on_ecode_goto_perrno( link_node_append(lnp, &(CompleteIO.list)),
          FAIL_LOCKED, FnMSG("link_node_append() FAILURE"));
-      condition_signal(&SyncIOAlarm);
+      condition_signal(&(CompleteIO.alarm));
    });
 
    /* remove NODE reference and return VEOK */
    wp->data = NULL;
    return VEOK;
 
-FAIL_LOCKED: mutex_unlock(&SyncIOLock);
+FAIL_LOCKED: mutex_unlock(&(CompleteIO.lock));
 FAIL: free(lnp);
    return VERROR;
 }  /* end mcmd_asyncwork_transfer() */
@@ -904,7 +909,7 @@ static void mcmd_asyncwork_update(AsyncWork *wp)
 
    if (wp->data == NULL) return;
    np = (NODE *) wp->data;
-   /* defer work involving potential Disk IO */
+   /* defer work involving Disk IO */
    wp->defer = np->fp ? 1 : 0;
    /* update AsyncWork state */
    wp->sio = np->iowait;
@@ -913,54 +918,48 @@ static void mcmd_asyncwork_update(AsyncWork *wp)
 }  /* end mcmd_asyncwork_update() */
 
 /* deallocate and dereference NODE data from completed AsyncWork */
-static int mcmd_io_done(AsyncWork *wp)
+static int mcmd_iodone(AsyncWork *wp)
 {
    /* perform NODE specific cleanup and update AsyncWork */
    if (wp->data) node_cleanup(wp->data);
    mcmd_asyncwork_update(wp);
    return VEOK;
-}  /* end mcmd_io_done() */
+}  /* end mcmd_iodone() */
 
 /* initialize AsyncWork with NODE data for the MCM Server Daemon */
-static int mcmd_io_init(AsyncWork *wp)
+static int mcmd_ioinit(AsyncWork *wp)
 {
    NODE *np;
    word32 ip;
-   int ecode;
    char ipstr[16];
 
 #undef FnMSG
-#define FnMSG(x) "mcmd_io_init(%d, %s)" x, wp->sd, ntoa(&ip, ipstr)
+#define FnMSG(x) "mcmd_ioinit(%d, %s)" x, wp->sd, ntoa(&ip, ipstr)
 
-   /* get ip of socket */
+   /* get socket ip and perform initialization checks */
    ip = get_sock_ip(wp->sd);
-   /* check pinklisted ip */
-   on_ecode_goto_perr( pinklisted(ip), FAIL, FnMSG("pinklisted"));
-   /* set socket non-blocking */
-   on_ecode_goto_perrno( sock_set_nonblock(wp->sd),
-      FAIL, FnMSG("sock_set_nonblock() FAILURE"));
-   /* create NODE for io handling */
-   wp->data = malloc(sizeof(NODE));
-   if (wp->data == NULL) goto_perrno(FAIL, FnMSG("malloc(NODE) FAILURE"));
+   if (pinklisted(ip)) return perr(FnMSG("pinklisted"));
 
+   /* create NODE for io handling and set socket non-blocking */
+   wp->data = malloc(sizeof(NODE));
+   if (wp->data == NULL) return perrno(FnMSG("malloc(NODE) FAILURE"));
+   if (sock_set_nonblock(wp->sd)) return perr(FnMSG("non-block FAILURE"));
    /* initialize NODE for receiving */
    np = (NODE *) wp->data;
    node_init(np, wp->sd, ip, 0, OP_NULL, NULL);
+   /* update timeout */
    wp->to = np->to;
 
    return VEOK;
-
-/* error handling */
-FAIL: return VERROR;
-}  /* end mcmd_io_init() */
+}  /* end mcmd_ioinit() */
 
 /* process AsyncWork for the MCM Server Daemon */
-static int mcmd_io_proc(AsyncWork *wp)
+static int mcmd_ioproc(AsyncWork *wp)
 {
    NODE *np = (NODE *) wp->data;
 
 #undef FnMSG
-#define FnMSG(x) "mcmd_io_proc(%d, %s): " x, wp->sd, np->id
+#define FnMSG(x) "mcmd_ioproc(%d, %s): " x, wp->sd, np ? np->id : "(null)"
 
    /* check for NODE reference is valid */
    if (np == NULL) return perr(FnMSG("invalid NODE reference"));
@@ -972,36 +971,17 @@ static int mcmd_io_proc(AsyncWork *wp)
    }
 
    /* update AsyncWork state */
-   mcmd_asyncwork_update(wp);
+   wp->sio = np->iowait;
+   wp->sd = np->sd;
+   wp->to = np->to;
+   /* defer disk IO work */
+   wp->defer = np->fp ? 1 : 0;
 
-   /* check completed operations */
+   /* transfer completed work, or return NODE status */
    if (np->iowait == IO_DONE) {
-      /* all opreq operations require synchronous processing */
-      if (np->opreq) return mcmd_asyncwork_transfer(wp);
-      else if (np->status == VEOK) {
-         /* custom report errors as FINE logs from receive operations */
-         pfine(FnMSG("recv'd OK, opcode= %" P16u), np->opcode);
-         /* succesful non-opreq operations are queried... */
-         switch (np->opcode) {
-            /* OP_FOUND broadcasts require synchronous processing */
-            case OP_FOUND: return mcmd_asyncwork_transfer(wp);
-         }
-      } else if (np->status != VEWAITING) {
-         /* custom report errors as FINE logs from receive operations */
-         pcustom(errno, PLEVEL_FINE, FnMSG("status= %d, opcode= %" P16u),
-            np->status, np->opcode);
-      }
-   }
-
-   /* check naughty peers -- pinklist */
-   if (np->status == VEBAD2 || np->status == VEBAD) {
-      if (np->status == VEBAD2) epinklist(np->ip);
-      pinklist(np->ip);
-   }
-
-   /* return last node status */
-   return np->status;
-}  /* end mcmd_io_proc() */
+      return mcmd_asyncwork_transfer(wp);
+   } else return np->status;
+}  /* end mcmd_ioproc() */
 
 void signal_handler(int sig)
 {
@@ -1465,7 +1445,7 @@ USAGE:      usage();
       server_setsockopt(nsp, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)),
       EXIT, "server_setsockopt(node, SOL_SOCKET, SO_REUSEADDR) FAILURE");
    on_ecode_goto_perrno(
-      server_setioprocess(nsp, mcmd_io_done, mcmd_io_init, mcmd_io_proc),
+      server_setioprocess(nsp, mcmd_iodone, mcmd_ioinit, mcmd_ioproc),
       EXIT, "server_setioprocess(node) FAILURE");
    on_ecode_goto_perrno(
       server_start(nsp, INADDR_ANY, Port_opt, 3 /*node_io_threads*/),
