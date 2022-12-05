@@ -1002,9 +1002,9 @@ void signal_handler(int sig)
 		case SIGFPE:  plog("Caught SIGFPE"); break;
 		case SIGILL:  plog("Caught SIGILL"); break;
 		case SIGINT:  plog("Caught SIGINT"); break;
-		case SIGSEGV: plog("Caught SIGINT"); break;
+		case SIGSEGV: plog("Caught SIGSEGV"); break;
 		case SIGTERM: plog("Caught SIGTERM"); break;
-		default: plog("Caught signal %d", sig);
+		default: plog("Caught SIG(%d)", sig);
 	}
    /* signal server shutdown -- or exit */
    if (Running) {
@@ -1190,17 +1190,11 @@ int main (int argc, char *argv[])
    Server *nsp = &NodeServer;             /* Node Server pointer */
    //int node_io_threads;
 
+   redirect_signals();
    /* use multiple sources of entropy for improved prng */
    srand((unsigned int) time(NULL));
    srand16((word32) time(NULL), (word32) rand(), (word32) getpid());
    srand16fast((word32) time(NULL) ^ rand() ^ getpid());
-   /* redirect signals */
-   signal(SIGABRT, signal_handler);
-	signal(SIGFPE,  signal_handler);
-	signal(SIGILL,  signal_handler);
-	signal(SIGINT,  signal_handler);
-	signal(SIGSEGV, signal_handler);
-	signal(SIGTERM, signal_handler);
    /* init process defaults */
    set_print_level(PLEVEL_LOG);
    Noprivate_opt = 1;
