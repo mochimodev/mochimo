@@ -696,71 +696,154 @@ int mcmd__transaction(NODE *np)
    return np->status;
 }  /* end mcmd__transaction() */
 
+static void mcmd__worker_process(LinkedNode *lnp)
+{
+   NODE *np;
+
+   /* dereference and process NODE data */
+   np = (NODE *) lnp->data;
+   switch (np->opreq) {
+      /* process "request" operations */
+      case OP_FOUND: mcmd__send_found(np); break;
+      case OP_GET_BLOCK: mcmd__syncup(np); break;
+      case OP_GET_IPL: mcmd__syncup(np); break;
+      case OP_GET_TFILE: mcmd__syncup(np); break;
+      case OP_TF: mcmd__syncup(np); break;
+      default: switch (np->opcode) {
+         /* process "receive" (incoming) operations */
+         default: pdebug(FnMSG("Unhandled opcode= %u"), np->opcode); break;
+         case OP_TX: mcmd__transaction(np); break;
+         case OP_FOUND: mcmd__syncup(np); break;
+      }
+   }
+   /* check naughty peers -- pinklist */
+   if (np->status == VEBAD2 || np->status == VEBAD) {
+      if (np->status == VEBAD2) epinklist(np->ip);
+      pinklist(np->ip);
+   }
+   /* cleanup resources */
+   mcmd__cleanup_node(lnp);
+}  /* end mcmd__worker_process() */
+
+static void mcmd__worker_sync(LinkedNode *lnp)
+{
+   static Mutex syncupLock = MUTEX_INITIALIZER;
+   static WorkList syncupIO = { 0 };
+
+   LinkedNode *next_lnp;
+   int ecode;
+
+#undef FnMSG
+#define FnMSG(x)  "mcmd__worker_sync(%x): " x, thread_selfid()
+
+   /* place syncup work in syncupIO list */
+   lock_on_ecode_goto_perrno( syncupIO.lock, FATAL, {
+      on_ecode_goto_perrno( link_node_append(lnp, &(syncupIO.list)),
+         SYNCUPIO_LOCKED, FnMSG("link_node_append() FAILURE"));
+      /* try acquire syncupLock */
+      trylock_on_ecode_goto_perrno( syncupLock, SYNCUPIO_LOCKED, {
+         thread_setname(thread_self(), "mcmd-sync");
+         /* check next syncupIO */
+         for (lnp = syncupIO.list.next; Running && lnp; lnp = next_lnp) {
+            next_lnp = lnp->next;
+            /* skip sync tasks while waiting for Syncwait */
+            if (Syncwait && Syncwait != lnp->data) continue;
+            /* reset Syncwait */
+            Syncwait = NULL;
+            /* remove syncupIO node -- release lock */
+            on_ecode_goto_perrno(
+               link_node_remove(lnp, &(syncupIO.list)),
+               FATAL, FnMSG("LIST FAILURE"));
+            on_ecode_goto_perrno(
+               mutex_unlock(&(syncupIO.lock)),
+               FATAL, FnMSG("UNLOCK FAILURE"))
+            /* process data -- cleanup occurs in function */
+            mcmd__worker_process(lnp);
+            /* (re)acquire SyncupIO Lock */
+            on_ecode_goto_perrno(
+               mutex_lock(&(syncupIO.lock)),
+               FATAL, FnMSG("LOCK FAILURE"));
+            /* restart list processing */
+            next_lnp = syncupIO.list.next;
+         }  /* while (Running && ... */
+         thread_setname(thread_self(), "mcmd-async");
+      });  /* end trylock_on_ecode... */
+   });  /* end lock_on_ecode...*/
+
+SYNCUPIO_LOCKED:
+   /* try release locked mutex */
+   on_ecode_goto_perrno(
+      mutex_unlock(&(syncupIO.lock)), FATAL, FnMSG("UNLOCK FAILURE"));
+
+   return;
+
+FATAL:
+   Running = 0;
+}  /* end mcmd__worker_sync() */
+
+/**
+ * @private
+ */
+static ThreadProc mcmd__worker(void *arg)
+{
+   WorkList *wlp = (WorkList *) arg;
+   Condition *alarmp = &(wlp->alarm);
+   LinkedList *listp = &(wlp->list);
+   Mutex *lockp = &(wlp->lock);
+
+   LinkedNode *lnp;
+   NODE *np;
+   int ecode;
+
+#undef FnMSG
+#define FnMSG(x)  "mcmd__worker(%x): " x, thread_selfid()
+   thread_setname(thread_self(), "mcmd-async");
+   pdebug(FnMSG("created..."));
+
+   /* acquire syncIO Lock */
+   on_ecode_goto_perrno(
+      mutex_lock(lockp), FATAL, FnMSG("(init)LOCK FAILURE"));
+
    /* main thread loop */
    while (Running) {
-      /* check/pull next SyncIO node */
-      for (lnp = SyncIO.next; lnp; lnp = next_lnp) {
-         next_lnp = lnp->next;
-         /* remove SyncIO node */
-         on_ecode_goto_perrno( link_node_remove(lnp, &SyncIO),
-            FATAL, FnMSG("SyncIO LIST FAILURE"));
-         /* release SyncIO lock */
-         on_ecode_goto_perrno( mutex_unlock(&SyncIOLock),
-            FATAL, FnMSG("SyncIO UNLOCK FAILURE"));
-         /* dereference and process NODE data */
+      /* check/pull next work */
+      while ((lnp = listp->next)) {
+         /* remove work node -- release worklock */
+         on_ecode_goto_perrno(
+            link_node_remove(lnp, listp), FATAL, FnMSG("LIST FAILURE"));
+         on_ecode_goto_perrno(
+            mutex_unlock(lockp), FATAL, FnMSG("UNLOCK FAILURE"));
+         /* determine if work requires synchronous processing */
          np = (NODE *) lnp->data;
-         if (np->opreq) {
-            switch (np->opreq) {
-               case OP_FOUND: mcmd__send_found(np); break;
-               case OP_GET_BLOCK: mcmd__syncup(np); break;
-               case OP_GET_IPL: mcmd__quorum(np); break;
-               case OP_GET_TFILE: mcmd__syncup(np); break;
-               case OP_TF: mcmd__syncup(np); break;
+         switch (np->opreq) {
+            /* transfer work to sync processing for following opreq */
+            case OP_FOUND:  /* fallthrough -- requires sync */
+            case OP_GET_BLOCK:  /* fallthrough -- requires sync */
+            case OP_GET_IPL:  /* fallthrough -- requires sync */
+            case OP_GET_TFILE:  /* fallthrough -- requires sync */
+            case OP_TF: mcmd__worker_sync(lnp); break;
+            default: {
+               /* OP_FOUND broadcasts also require sync processing */
+               /* ... otherwise, process "incoming" asynchronously */
+               if (np->opcode == OP_FOUND) {
+                  mcmd__worker_sync(lnp);
+               } else mcmd__worker_process(lnp);
             }
-         } else {
-            switch (np->opcode) {
-               case OP_FOUND: {
-                  /* skip incoming OP_FOUND while already Syncing */
-                  if (Syncnp && Syncnp != np) {
-                     /* (re)acquire SyncIO Lock */
-                     on_ecode_goto_perrno( mutex_lock(&SyncIOLock),
-                        FATAL, FnMSG("SyncIO LOCK FAILURE"));
-                     /* (re)insert link node */
-                     on_ecode_goto_perrno(
-                        link_node_insert(lnp, next_lnp, &SyncIO),
-                        FATAL, FnMSG("SyncIO (insert) LIST FAILURE"));
-                     /* continue loop */
-                     continue;
-                  }
-                  /* ignore incoming OP_FOUND while Ininit */
-                  if (Ininit) {
-                     pfine(FnMSG("Ignoring OP_FOUND while Ininit..."));
-                  } else mcmd__syncup(np);
-                  break;
-               }
-            }
-         }
-         /* check naughty peers -- pinklist */
-         if (np->status == VEBAD2 || np->status == VEBAD) {
-            if (np->status == VEBAD2) epinklist(np->ip);
-            pinklist(np->ip);
-         }
-         /* cleanup resources */
-         mcmd__cleanup_node(lnp);
-         /* (re)acquire SyncIO Lock */
-         on_ecode_goto_perrno( mutex_lock(&SyncIOLock),
-            FATAL, FnMSG("SyncIO LOCK FAILURE"));
+         }  /* end switch (op->req) */
+         /* (re)acquire worklock */
+         on_ecode_goto_perrno(
+            mutex_lock(lockp), FATAL, FnMSG("(re)LOCK FAILURE"));
          /* check SHUTDOWN for jump */
          if (!Running) goto SHUTDOWN;
-      }  /* end while ((lnp = SyncIO.next)) */
+      }  /* end while ((lnp = listp->next)) */
 
       /* perform additional checks */
 
-      /* wait for condition, sleepy time capped at 1 second intervals... */
-      if (condition_timedwait(&SyncIOAlarm, &SyncIOLock, 1000)) {
+      /* wait for work, sleepy time capped at 1 second intervals... */
+      if (condition_timedwait(alarmp, lockp, 1000)) {
          /* ... wakeup (spurious?), check errno ... */
          if (errno != CONDITION_TIMEOUT) {
-            perrno(errno, FnMSG("CONDITION FAILURE"));
+            perrno(FnMSG("CONDITION FAILURE"));
             goto FATAL;
          }
       }
@@ -769,9 +852,9 @@ int mcmd__transaction(NODE *np)
 SHUTDOWN:
    pdebug(FnMSG("recv'd shutdown signal"));
 
-   /* release sync lock */
-   on_ecode_goto_perrno( mutex_unlock(&SyncIOLock),
-      FATAL, FnMSG("SyncIO (shutdown) UNLOCK FAILURE"));
+   /* release worklock */
+   on_ecode_goto_perrno(
+      mutex_unlock(lockp), FATAL, FnMSG("(exit) UNLOCK FAILURE"));
 
    Unthread;
 
