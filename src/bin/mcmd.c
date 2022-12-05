@@ -55,7 +55,7 @@ int Ininit = 1;
 int Inscan = 1;
 int Running = 1;
 int Nopush_opt = 0;
-NODE *Syncnp = NULL;
+NODE *Syncwait = NULL;
 word32 Mfee[2] = { MFEE, 0 };
 word32 Myfee[2] = { MFEE, 0 };
 word32 Quorum_opt = 4;
@@ -181,6 +181,13 @@ int mcmd__create_request(word32 ip, word16 opreq, void *bnum)
    node_init(np, INVALID_SOCKET, ip, Dstport_opt, opreq, bnum);
    on_ecode_goto_perrno( server_work_create(&NodeServer, np),
       FAIL, FnMSG("server_work_create() FAILURE"));
+
+   /* store Syncwait task on certain tasks */
+   switch (opreq) {
+      case OP_GET_BLOCK:  /* fallthrough */
+      case OP_GET_TFILE:  /* fallthrough */
+      case OP_TF: Syncwait = np; break;
+   }
 
    return VEOK;
 
