@@ -230,6 +230,8 @@ int mcmd__resync(NODE *np)
 #undef FnMSG
 #define FnMSG(x) "mcmd__resync(%s): " x, np->id
 
+   plog("Updating blockchain...");
+
    /* ensure backups of chain before continuing */
    if (!fexists("tfile.bak") && fcopy("tfile.dat", "tfile.bak") != 0) {
       goto_perrno(FATAL, FnMSG("Tfile backup FAILURE"));
@@ -559,6 +561,7 @@ TFILE:   /* validate partial Tfile in file pointer */
             pdebug(FnMSG("Quorum 0x%s"), weight2hex(quorum.weight, hexstr));
             goto_perr(DROP, FnMSG("tfile weight less than advertised"));
          }
+         plog("Validating PoW (can take some time)...");
          /* rewind file pointer and create threads for PoW validation */
          thrdp = malloc(cpu_cores() * sizeof(*thrdp));
          if (thrdp == NULL) perrno(FnMSG("malloc(threads) FAILURE"));
