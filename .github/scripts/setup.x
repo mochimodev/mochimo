@@ -35,9 +35,14 @@ if test -d $MOCHIMO_DIR; then echo
    ### Ensure correct ownership of existing mochimo directory
    chown -R $MOCHIMO_USER:$MOCHIMO_USER $MOCHIMO_DIR
    ### Perform update on git repo
-   su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR pull"
-   ### Check for effective updates
-   CURRCOMMIT=$(su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR rev-parse HEAD 2>/dev/null")
+   if su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR pull"; then
+      ### Check for effective updates
+      CURRCOMMIT=$(su $MOCHIMO_USER -c "git -C $MOCHIMO_DIR rev-parse HEAD 2>/dev/null")
+   else
+      ### Assume alpha package
+      echo "   ... force update for (assumed) alpha package"
+      CURRCOMMIT=ALPHAPACKAGE
+   fi
    if test ! "$PREVCOMMIT" = "$CURRCOMMIT"; then echo
       echo "   Stopping Mochimo service."
       echo "   This can take up to 90 seconds..." && echo
