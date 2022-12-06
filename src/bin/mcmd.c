@@ -88,7 +88,7 @@ int archive_block(char *blockfile)
 
    /* get blockfile trailer data */
    if (read_trailer(&bt, blockfile) != VEOK) {
-      return perrno(errno, FnMSG("read_trailer(%s) FAILURE"), blockfile);
+      return perrno(FnMSG("read_trailer(%s) FAILURE"), blockfile);
    }
    /* build archive path and name -- clear path */
    bc_fqan(fname, bt.bnum, bt.bhash);
@@ -96,7 +96,7 @@ int archive_block(char *blockfile)
    remove(fpath);
    /* archive file to specified path */
    if (rename(blockfile, fpath) != 0) {
-      return perrno(errno, FnMSG("rename(%s, %s) FAILURE"), fname, fpath);
+      return perrno(FnMSG("rename(%s, %s) FAILURE"), fname, fpath);
    }
 
    return VEOK;
@@ -140,7 +140,7 @@ ThreadProc dist__pow_val(void *arg)
       if (mutex_lock(&lock) != 0) goto FAIL;
       if (ecode) {
          bnum2hex(bt.bnum, bnumstr);
-         perrno(errno, FnMSG("0x%s INVALID"), bnumstr);
+         perrno(FnMSG("0x%s INVALID"), bnumstr);
          np->status = ecode;
       }
    }
@@ -302,12 +302,12 @@ int mcmd__resync(NODE *np)
       pfine(FnMSG("recovering 0x%s..."), bnum2hex(bt.bnum, bnumstr));
       /* update chain with valid block file */
       if (update_block(fpath) != VEOK) {
-         perrno(errno, FnMSG("update_block(%s)"), fpath);
+         perrno(FnMSG("update_block(%s)"), fpath);
          break;
       }
       /* maintain next sync block */
       add64(syncblock, one, syncblock);
-   }
+   } /* resync'd as much as possible */
 
    /* get next block number */
    return mcmd__create_request(np->ip, OP_GET_BLOCK, syncblock);
@@ -321,7 +321,7 @@ FAIL_FP:
    goto FAIL;
 FATAL: Running = 0;
 FAIL: return (np->status = VERROR);
-}
+}  /* end mcmd__resync() */
 
 /**
  * @brief 
@@ -1034,7 +1034,7 @@ int check_directory(const char *dir) {
       dir ? dir : "", dir ? PATH_SEPARATOR : "");
    /* touch the file and remove it, checking for failures */
    if (ftouch(permchk) || remove(permchk)) {
-      return perrno(errno, "%s%spermission FAILURE",
+      return perrno("%s%spermission FAILURE",
          dir ? dir : "", dir ? PATH_SEPARATOR " " : "");
    }
 
@@ -1124,9 +1124,7 @@ int usage(void)
       "\n   -h, --help                 Print this usage information"
       "\n   --no-pinklist              Disable the pinklist of evil peers"
       "\n   --no-pushblock             Disable block push capability"
-      "\n   -p, --port=<num>"
-      "\n      Set server port number to <num>. Valid range is (1-65535)."
-      "\n      The operating system may impose additional restrictions..."
+      "\n   -p, --port=<num>           Set server port number to <num>"
       "\n   --private-peers            Allow private peers in peer lists"
       "\n   -q, --quorum=<num>         Set network quorum size to <num>"
       "\n   -s, --server-threads=<num> Set server thread count to <num>"
@@ -1217,6 +1215,8 @@ int main (int argc, char *argv[])
          /* OPTIONS */
          if (eoa || argument(argv[j], NULL, "--")) {
             /* flag to skip remaining options with leading '-' */
+            if (eoa++ == 0) plog("... end of arguments");
+         }
          else if (argument(argv[j], "-d", "--daemon-threads")) {
             /* obtain daemon thread count */
             char_opt = argvalue(&j, argc, argv);
@@ -1233,7 +1233,7 @@ int main (int argc, char *argv[])
             /* obtain blockchain archive directory */
             char_opt = argvalue(&j, argc, argv);
             if (char_opt == NULL) goto_perr(USAGE, "Missing bc directory");
-            pfine("... blockchain archive directory = %s", char_opt);
+            plog("... blockchain archive directory = %s", char_opt);
             /* set blockchain archive directory */
             Bcdir_opt = char_opt;
          }
@@ -1241,7 +1241,7 @@ int main (int argc, char *argv[])
             /* obtain blockchain split directory */
             char_opt = argvalue(&j, argc, argv);
             if (char_opt == NULL) goto_perr(USAGE, "Missing sp directory");
-            pfine("... blockchain split directory = %s", char_opt);
+            plog("... blockchain split directory = %s", char_opt);
             /* set blockchain split directory */
             Spdir_opt = char_opt;
          }
@@ -1251,12 +1251,12 @@ USAGE:      usage();
             goto EXIT;
          }
          else if (argument(argv[j], NULL, "--no-pinklist")) {
-            pfine("... pinklist disabled");
+            plog("... pinklist disabled");
             /* set "nopinklist" flag */
             Nopinklist_opt = 1;
          }
          else if (argument(argv[j], NULL, "--no-pushblock")) {
-            pfine("... push blocks disabled");
+            plog("... push blocks disabled");
             /* unset PUSH capability bit and set "nopush" flag */
             Cbits &= ~(C_PUSH);
             Nopush_opt = 1;
@@ -1268,12 +1268,12 @@ USAGE:      usage();
             int_opt = atoi(char_opt);
             if (int_opt < 1 || int_opt > 65535)
                goto_perr(USAGE, "Invalid port number");
-            pfine("... port = %s (%d)", char_opt, int_opt);
+            plog("... port = %s (%d)", char_opt, int_opt);
             /* set port number for receive and destination ports */
             Port_opt = Dstport_opt = (word16) int_opt;
          }
          else if (argument(argv[j], NULL, "--private-peers")) {
-            pfine("... private peers enabled");
+            plog("... private peers enabled");
             /* set "noprivate" flag */
             Noprivate_opt = 0;
          }
@@ -1283,7 +1283,7 @@ USAGE:      usage();
             if (char_opt == NULL) goto_perr(USAGE, "Missing quorum size");
             uint_opt = strtoul(char_opt, NULL, 0);
             if (uint_opt < 1) goto_perr(USAGE, "Invalid quorum size");
-            pfine("... quorum = %s (%u)", char_opt, uint_opt);
+            plog("... quorum = %s (%u)", char_opt, uint_opt);
             /* set quorum number */
             Quorum_opt = uint_opt;
          }
@@ -1316,7 +1316,7 @@ USAGE:      usage();
             if (char_opt == NULL) goto_perr(USAGE, "Missing log level");
             int_opt = atoi(char_opt);
             if (int_opt < 0) goto_perr(USAGE, "Invalid log level");
-            pfine("... log level = %s (%d)", char_opt, int_opt);
+            plog("... log level = %s (%d)", char_opt, int_opt);
             /* set (printed) log level */
             set_print_level(int_opt);
          }
@@ -1324,7 +1324,7 @@ USAGE:      usage();
             /* obtain output log filename, use LOGNAME if not specified */
             char_opt = argvalue(&j, argc, argv);
             if (char_opt == NULL) char_opt = LOGNAME;
-            pfine("... output log file = %s", char_opt);
+            plog("... output log file = %s", char_opt);
             /* set LOGGING capability bit and open output log file */
             Cbits |= C_LOGGING;
             set_output_file(char_opt, "a");
@@ -1335,7 +1335,7 @@ USAGE:      usage();
             if (char_opt == NULL) goto_perr(USAGE, "Missing output level");
             int_opt = atoi(char_opt);
             if (int_opt < 0) goto_perr(USAGE, "Invalid output level");
-            pfine("... output level = %s (%d)", char_opt, int_opt);
+            plog("... output level = %s (%d)", char_opt, int_opt);
             /* set (output) log level */
             set_output_level(int_opt);
          }
@@ -1345,37 +1345,37 @@ USAGE:      usage();
             /* obtain peerlist filename */
             Coreip_opt = argvalue(&j, argc, argv);
             if (Coreip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            pfine("... core peerlist = %s", Coreip_opt);
+            plog("... core peerlist = %s", Coreip_opt);
          }
          else if (argument(argv[j], "-ep", "--epink-plist")) {
             /* obtain peerlist filename */
             Epinkip_opt = argvalue(&j, argc, argv);
             if (Epinkip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            pfine("... epoch pinklist = %s", Epinkip_opt);
+            plog("... epoch pinklist = %s", Epinkip_opt);
          }
          else if (argument(argv[j], "-lp", "--local-plist")) {
             /* obtain peerlist filename */
             Localip_opt = argvalue(&j, argc, argv);
             if (Localip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            pfine("... local peerlist = %s", Localip_opt);
+            plog("... local peerlist = %s", Localip_opt);
          }
          else if (argument(argv[j], "-rp", "--recent-plist")) {
             /* obtain peerlist filename */
             Recentip_opt = argvalue(&j, argc, argv);
             if (Recentip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            pfine("... recent peerlist = %s", Recentip_opt);
+            plog("... recent peerlist = %s", Recentip_opt);
          }
          else if (argument(argv[j], "-sp", "--start-plist")) {
             /* obtain peerlist filename */
             Startip_opt = argvalue(&j, argc, argv);
             if (Startip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            pfine("... start peerlist = %s", Startip_opt);
+            plog("... start peerlist = %s", Startip_opt);
          }
          else if (argument(argv[j], "-sw", "--start-weblist")) {
             /* obtain peerlist address */
             Starthttp_opt = argvalue(&j, argc, argv);
             if (Starthttp_opt == NULL) goto_perr(USAGE, "Missing address");
-            pfine("... start weblist = %s", Starthttp_opt);
+            plog("... start weblist = %s", Starthttp_opt);
          }
          /********************/
          /* ADVANCED OPTIONS */
@@ -1385,7 +1385,7 @@ USAGE:      usage();
             if (char_opt == NULL) goto_perr(USAGE, "Missing fee value");
             int_opt = atoi(char_opt);
             if (int_opt < MFEE) goto_perr(USAGE, "Invalid fee value");
-            pfine("... mining fee (Myfee) = %s (%d)", char_opt, int_opt);
+            plog("... mining fee (Myfee) = %s (%d)", char_opt, int_opt);
             /* set Myfee, and MFEE capability bit if non-standard */
             Myfee[0] = int_opt;
             if (cmp64(Myfee, Mfee)) Cbits |= C_MFEE;
@@ -1399,7 +1399,7 @@ USAGE:      usage();
             else goto_perr(USAGE, "Malformed protocol data");
             Sanctuary_opt = strtoul(char_opt, NULL, 0);
             Lastday_opt = (strtoul(char_opt2, NULL, 0) + 255) & 0xffffff00;
-            pfine("... Sanctuary %s (%lu), %s (%lu)",
+            plog("... Sanctuary %s (%lu), %s (%lu)",
                char_opt, (unsigned long) Sanctuary_opt,
                char_opt2, (unsigned long) Lastday_opt);
          }
@@ -1408,7 +1408,7 @@ USAGE:      usage();
             char_opt = argvalue(&j, argc, argv);
             if (*char_opt == '2') { Dstport_opt = PORT1; Port_opt = PORT2; }
             else { char_opt = "1"; Dstport_opt = PORT2; Port_opt = PORT1; }
-            pfine("... virtual mode = %c", *char_opt);
+            plog("... virtual mode = %c", *char_opt);
          }
          /*********************/
          /* DEVELOPER OPTIONS */
@@ -1419,7 +1419,7 @@ USAGE:      usage();
             char_opt = argvalue(&j, argc, argv);
             if (char_opt == NULL) goto_perr(USAGE, "Missing block number");
             Trustblock_opt = strtoul(char_opt, NULL, 0);
-            pfine("... trust block = %s (%lu)", char_opt,
+            plog("... trust block = %s (%lu)", char_opt,
                (unsigned long) Trustblock_opt);
          }
          /******************/
@@ -1429,7 +1429,7 @@ USAGE:      usage();
          /* additional non-option arguments */
          if (working_dir == NULL) {
             working_dir = argv[j];
-            pfine("-- working directory = %s", working_dir);
+            plog("-- working directory = %s", working_dir);
          }
       }  /* end if arguments... */
    }  /* end for j */
@@ -1449,7 +1449,7 @@ USAGE:      usage();
    /* change working directory -- check location */
    if (working_dir == NULL) working_dir = "d";
    if (cd(working_dir) != 0) {
-      perrno(errno, "Cannot change DIRECTORY to \"%s\"", working_dir);
+      perrno("Cannot change DIRECTORY to \"%s\"", working_dir);
       plog("Working directory unavailable. Check installation.");
       goto EXIT;
    } else if (fexists(proc_name)) {
