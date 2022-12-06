@@ -232,7 +232,7 @@ void ptrailer(BTRAILER *btp)
 {
    long long blocknumber;
    word32 btxs, btime, bdiff;
-   char str[256], *haiku1, *haiku2, *haiku3;
+   char str[256], *hp1, *hp2, *hp3;
 
    /* prepare block stats */
    blocknumber = 0;
@@ -244,17 +244,17 @@ void ptrailer(BTRAILER *btp)
    if (btxs) {
       /* expand and split haiku into lines for printing */
       trigg_expand(btp->nonce, str);
-      haiku1 = strtok(str, "\n");
-      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
-      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-      print("\n/) %s\n(=: %s\n\\) %s\n", haiku1, haiku2, haiku3);
-   } else if (btp->bnum[0]) print("\n(=: pseudo-block :=)\n");
-   else if (!iszero(btp->bnum, 8)) print("\n(=: neogenesis-block :=)\n");
-   else print("\n(=: genesis-block :=)\n");
+      hp1 = strtok(str, "\n");
+      hp2 = strtok(&hp1[strlen(hp1) + 1], "\n");
+      hp3 = strtok(&hp2[strlen(hp2) + 1], "\n");
+      plog("\n\n/) %s\n(=: %s\n\\) %s", hp1, hp2, hp3);
+   } else if (btp->bnum[0]) plog("\n\n(=: pseudo-block :=)");
+   else if (!iszero(btp->bnum, 8)) plog("\n\n(=: neogenesis-block :=)");
+   else plog("\n\n(=: genesis-block :=)");
    /* print block identification adn details */
-   print("0x%s(%lld)#%s\n", bnum2hex(btp->bnum, str), blocknumber,
+   plog("0x%s(%lld)#%s", bnum2hex(btp->bnum, str), blocknumber,
       addr2hex(btp->bhash, &str[18]));
-   print("Time: %us, Diff: %u, Txs: %u\n", btime, bdiff, btxs);
+   plog("Time: %us, Diff: %u, Txs: %u", btime, bdiff, btxs);
 }  /* end ptrailer() */
 
 /**

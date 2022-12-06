@@ -388,8 +388,11 @@ int set_output_file(char *fname, char *mode)
    mutex_lock(&Outputlock);
    if (Outputfp) fclose(Outputfp);
    if (fname && mode) {
+      /* open output file -- set line buffered */
       Outputfp = fopen(fname, mode);
-      if (Outputfp == NULL) ecode = 1;
+      if (Outputfp == NULL || setvbuf(Outputfp, NULL, _IOLBF, BUFSIZ)) {
+         ecode = 1;
+      }
    } else Outputfp = NULL;
    mutex_unlock(&Outputlock);
 
@@ -736,10 +739,10 @@ void phostinfo(void)
    /* get local machine name and IP address */
    gethostname(hostname, sizeof(hostname));
    gethostip(addrname, sizeof(addrname));
-   print("Local Machine Info\n");
-   print("  Machine name: %s\n", *hostname ? hostname : "unknown");
-   print("  IPv4 address: %s\n", *addrname ? addrname : "0.0.0.0");
-   print("\n");
+   plog("Local Machine Info");
+   plog("  Machine name: %s", *hostname ? hostname : "unknown");
+   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
+   plog("");
 }  /* end phostinfo() */
 
 /**
