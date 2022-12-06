@@ -490,6 +490,7 @@ SCAN_PEERS:
       /* TFILE/PROOF VALIDATION PROCESSING */
       memset(weight, 0, 32);
       if (np->opcode == OP_FOUND) {
+         if (Ininit) return pdebug(FnMSG("Ignoring OP_FOUND during init"));
          pdebug(FnMSG("checking OP_FOUND broadcast..."));
          /* check advertised weight */
          if (cmp256(np->pkt.weight, Weight) <= 0) {
@@ -669,6 +670,9 @@ int mcmd__transaction(NODE *np)
 
 #undef FnMSG
 #define FnMSG(x) "mcmd__transaction(%s): " x, np->id
+
+   /* ignore transactions during initialization */
+   if (Ininit) return pdebug(FnMSG("Ignoring OP_TX during init"));
 
    /* check status of receive */
    if (np && np->status == VEOK) {
