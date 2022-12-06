@@ -184,6 +184,7 @@ version:
 # include custom recipe configurations here
 
 alpha-pkg: cleanall
+	@cp .github/scripts/setup.x ./
 	-rm -r .git .github .src .vscode bin docs
 	-rm -r $(wildcard $(INCLUDEDIR)/**/.github)
 	-rm -r $(wildcard $(INCLUDEDIR)/**/docs)
