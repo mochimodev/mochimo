@@ -1463,7 +1463,7 @@ USAGE:      usage();
    }
 
    /* check directory structure and permissions */
-   if (check_directory("") != VEOK) goto EXIT;
+   if (check_directory(NULL) != VEOK) goto EXIT;
    if (check_directory(Bcdir_opt) != VEOK) goto EXIT;
 
    /* intialize peers, chain files -- start server */
