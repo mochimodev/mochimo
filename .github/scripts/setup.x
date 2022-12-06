@@ -70,14 +70,14 @@ fi
 ### Create or update systemd service file
 cat <<EOF >/etc/systemd/system/mochimo.service
 [Unit]
-Description=Mochimo Relay Node
+Description=Mochimo Server Daemon
 After=network.target
 [Service]
 User=$MOCHIMO_USER
 Group=$MOCHIMO_USER
 WorkingDirectory=$MOCHIMO_DIR/bin/
 ExecStartPre=/bin/sh -c 'until ping -c1 1.1.1.1; do sleep 1; done;'
-ExecStart=/bin/bash $MOCHIMO_DIR/bin/mcmd -ll 5
+ExecStart=$MOCHIMO_DIR/bin/mcmd -ll 5 -ol 3 -o output.log
 [Install]
 WantedBy=multi-user.target
 EOF
