@@ -723,6 +723,9 @@ static void mcmd__worker_process(LinkedNode *lnp)
 {
    NODE *np;
 
+#undef FnMSG
+#define FnMSG(x)  "mcmd__worker_process(%x): " x, thread_selfid()
+
    /* dereference and process NODE data */
    np = (NODE *) lnp->data;
    switch (np->opreq) {
@@ -733,10 +736,14 @@ static void mcmd__worker_process(LinkedNode *lnp)
       case OP_GET_TFILE: mcmd__syncup(np); break;
       case OP_TF: mcmd__syncup(np); break;
       default: switch (np->opcode) {
-         /* process "receive" (incoming) operations */
-         default: pdebug(FnMSG("Unhandled opcode= %u"), np->opcode); break;
          case OP_TX: mcmd__transaction(np); break;
          case OP_FOUND: mcmd__syncup(np); break;
+         /* process "receive" (incoming) operations */
+         default: {
+            pdebug(FnMSG("Unhandled opcode= %s (%u)"),
+               op2str(np->opcode), np->opcode);
+            break;
+         }
       }
    }
    /* check naughty peers -- pinklist */
