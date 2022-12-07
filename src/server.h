@@ -47,6 +47,7 @@ typedef struct {
    /** work processing function called on work with active IO */
    AsyncProc procfn;
    struct sockaddr_in addr;   /**< internet socket server address data */
+   const char *name;          /**< name of server, for thread names */
    int deferthreads;          /**< threads processing deferred work */
    int idlethreads;           /**< threads idling -- not processing */
    int numthreads;            /**< total server threads */
@@ -61,7 +62,7 @@ extern "C" {
 #endif
 
 int server_destroy(Server *sp);
-int server_init(Server *sp, int af, int type, int proto);
+int server_init(Server *sp, const char *name, int af, int type, int proto);
 int server_setioprocess
    (Server *sp, AsyncProc donefn, AsyncProc initfn, AsyncProc procfn);
 int server_setsockopt(Server *sp, int level, int optname,

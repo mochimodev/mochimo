@@ -197,6 +197,7 @@ static ThreadProc server__main(void *arg)
    SOCKET nfds;                  /* for select(nfds, ...) */
    int ecode, count, i;
    char ipstr[16];
+   char name[16];
 
 #undef FnMSG
 #define FnMSG(x)  "server__main(%s:%u): " x, \
@@ -210,9 +211,10 @@ static ThreadProc server__main(void *arg)
 
    /*********************/
    /* SERVER BIND PHASE */
+   snprintf(name, sizeof(name), "%s-binding", sp->name);
+   thread_setname(thread_self(), name);
 
    /* (try) bind address with listening socket */
-   thread_setname(thread_self(), "binding");
    while (bind(sp->lsd, baddrp, sizeof(sp->addr))) {
       /* check shutdown signal -- wait a sec before re-attempt... */
       if (sp->running == 0) goto SHUTDOWN;
@@ -224,9 +226,10 @@ static ThreadProc server__main(void *arg)
 
    /*******************/
    /* SERVER IO PHASE */
+   snprintf(name, sizeof(name), "%s-listening", sp->name);
+   thread_setname(thread_self(), name);
 
    /* running check */
-   thread_setname(thread_self(), "listening");
    while (sp->running) {
 
       /* iterate backlog'd connections */
@@ -387,6 +390,7 @@ static ThreadProc server__worker(void *arg)
    AsyncWork *wp;
    int deferproc;    /* indicates the processing of deferred work */
    int ecode;
+   char name[16];
 
 #undef FnMSG
 #define FnMSG(x)  "server__worker(%x): " x, thread_selfid()
@@ -394,7 +398,6 @@ static ThreadProc server__worker(void *arg)
 
    /* init */
    deferproc = 0;
-   thread_setname(thread_self(), "async-io");
 
    /* acquire "in" work Lock */
    on_ecode_goto_perrno( mutex_lock(&(sp->lock)),
@@ -402,6 +405,8 @@ static ThreadProc server__worker(void *arg)
 
    /* main thread loop -- prioritize SyncIO tasks */
    while (sp->running) {
+      snprintf(name, sizeof(name), "%s-async", sp->name);
+      thread_setname(thread_self(), name);
       /* check/pull next work */
       while ((lnp = sp->inIO.next)) {
          /* determine if work needs to be deferred */
@@ -443,11 +448,11 @@ static ThreadProc server__worker(void *arg)
             deferproc = 0;
          }
       }  /* end while ((lnp = sp->worklst.next)) */
+      snprintf(name, sizeof(name), "%s-idle", sp->name);
+      thread_setname(thread_self(), name);
       /* wait for condition, sleepy time ... */
       sp->idlethreads++;
-      thread_setname(thread_self(), "async-idle");
       ecode = condition_wait(&(sp->alarm), &(sp->lock));
-      thread_setname(thread_self(), "async-io");
       sp->idlethreads--;
       /* ... wakeup (spurious?), check ecode ... */
       if (ecode) {
@@ -504,12 +509,11 @@ FAIL_ACCES: set_errno(EACCES); return VERROR;
 /**
  * Initialize a server context.
  * @param sp Pointer to Server context
- * @param numthrds Number of threads for executing work
  * @return (int) value indicating operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int server_init(Server *sp, int af, int type, int proto)
+int server_init(Server *sp, const char *name, int af, int type, int proto)
 {
    memset(sp, 0, sizeof(*sp));
    /* initialize mutually exclusive access locks */
@@ -528,6 +532,9 @@ int server_init(Server *sp, int af, int type, int proto)
 
    /* set default backlog size */
    sp->backlog = 1024;
+
+   /* set server name */
+   sp->name = name;
 
    /* server created */
    return VEOK;
