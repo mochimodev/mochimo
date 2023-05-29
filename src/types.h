@@ -20,6 +20,8 @@
 
 /* ---------------- BEGIN CONFIGURABLE DEFINITIONS --------------------- */
 
+/** socket connection timeout (seconds) */
+#define TIMEOUT_CONN 3
 /** socket communication timeout (seconds) */
 #define TIMEOUT      10
 /** listen() queue length */
@@ -33,16 +35,12 @@
 /** local peer list length */
 #define LPLISTLEN    16
 /** recent peer list length */
-#define RPLISTLEN    128
+#define RPLISTLEN    32
 
 /** directory for blockchain storage */
 #define BCDIR        "bc"
-/** directory for downloaded file storage */
-#define DLDIR        "dl"
 /** directory for ledger transaction storage */
 #define LTDIR        "lt"
-/** directory for chain split storage */
-#define SPDIR        "sp"
 /** directory for transaction storage */
 #define TXDIR        "tx"
 
@@ -222,7 +220,7 @@
 #define PORT2           2096
 
 /** Network protocol version currently in use */
-#define PVERSION        5
+#define PVERSION        4
 /** Network TX protocol version */
 #define TXNETWORK       1337
 /** End-of-transmission id for packets */
@@ -320,7 +318,7 @@
 /** Block number of multi-destination transaction flag activation */
 #define MTXTRIGGER      133333
 /** Block number of v3.0 blockchain upgrades */
-#define V30TRIGGER      0x70000
+#define V30TRIGGER      0x80000 /* MUST NOT BE A NEOGENESIS */
 
 /* struct size definitions */
 
@@ -403,7 +401,11 @@ typedef struct {
 */
 typedef struct {
    word8 addr[TXADDRLEN];     /**< Hashed address */
-   /** Transaction type code. '-' = debit, 'A' = credit (sorts last!) */
+   /** Transaction type code. In sorted order:
+    * - 0 = Not found (balance requests),
+    * - 1 = Found (balance requests),
+    * - '-' = debit (ledger update),
+    * - 'A' = credit (ledger update) */
    word8 trancode[1];
    word8 amount[TXAMOUNTLEN]; /**< Transaction amount */
 } LTRAN;
@@ -442,7 +444,7 @@ typedef struct {
 */
 typedef struct {
    PKT pkt;       /**< data for active socket operations */
-   FILE *fp;      /**< FILE pointer for receiving large sets of data */
+   FILE *fp;      /**< FILE pointer data (for recv/send operations) */
    time_t to;     /**< socket inactivity timeout time */
    word32 ip;     /**< connection ip of this task */
    word16 id1;    /**< handshake id#1 */
