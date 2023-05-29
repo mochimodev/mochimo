@@ -26,6 +26,7 @@ extern word32 Lplist[LPLISTLEN];
 extern word32 Lplistidx;
 extern word32 Rplist[RPLISTLEN];
 extern word32 Rplistidx;
+extern RWLock Rplistlock;
 
 extern word8 Nopinklist_opt;
 extern word8 Noprivate_opt;

@@ -29,6 +29,7 @@ word32 Lplistidx = 0;
 /** Recent peer list. Rotates with certain successful connections */
 word32 Rplist[RPLISTLEN] = { 0 };
 word32 Rplistidx = 0;
+RWLock Rplistlock = RWLOCK_INITIALIZER;
 
 /** Disable pinklist IP's when set */
 word8 Nopinklist_opt;
@@ -150,6 +151,7 @@ int quorum_cleanup(QUORUM *qp)
 
 word32 quorum_drop(QUORUM *qp, word32 ip)
 {
+   if (qp == NULL || qp->list == NULL) return 0;
    return remove32(ip, qp->list, qp->len, &(qp->idx));
 }
 
