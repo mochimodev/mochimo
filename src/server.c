@@ -197,7 +197,6 @@ static ThreadProc server__main(void *arg)
    SOCKET nfds;                  /* for select(nfds, ...) */
    int ecode, count, i;
    char error[64];
-   char ipstr[16];
    char name[16];
 
    /* init */
@@ -616,7 +615,6 @@ int server_shutdown(Server *sp)
    LinkedList *llp;
    LinkedNode *lnp;
    Mutex *lockp;
-   int ecode;
 
    /* init */
    alarmp = &(sp->alarm);
@@ -668,7 +666,7 @@ int server_shutdown(Server *sp)
 
 FATAL:
    /* done */
-   return ecode;
+   return VERROR;
 }  /* ens server_shutdown() */
 
 /**
