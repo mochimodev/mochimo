@@ -37,9 +37,9 @@ word32 Lastday_opt = 0;
 /** Sanctuary fee (nanoMCM) (configurable option) */
 word32 Sanctuary_opt = 0;
 /** Ledger filename (configurable option) */
-char *Lefname_opt = "ledger.dat";
+const char *Lefname_opt = "ledger.dat";
 /** Tag index filename (configurable option) */
-char *Tifname_opt = "tagidx.dat";
+const char *Tifname_opt = "tagidx.dat";
 
 static int fread_clean(void *buf, size_t size, size_t count, FILE **fp)
 {
@@ -388,8 +388,8 @@ void le_convert(void *wots, void *hash)
 {
    sha256(wots, TXWOTSLEN, hash);
    memcpy(
-      (char *) hash + (TXADDRLEN - HASHLEN),
-      (char *) wots + (TXWOTSLEN - HASHLEN),
+      (unsigned char *) hash + (TXADDRLEN - HASHLEN),
+      (unsigned char *) wots + (TXWOTSLEN - HASHLEN),
       HASHLEN
    );
 }  /* end le_convert() */
@@ -742,7 +742,7 @@ int le_transpose(void)
    return VEOK;
 }  /* end le_transpose() */
 
-int le_update(char *fname)
+int le_update(const char *fname)
 {
    static const char *lfname = "ledger.up";
 

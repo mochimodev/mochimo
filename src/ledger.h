@@ -56,8 +56,8 @@
 /* global variables */
 extern word32 Sanctuary_opt;
 extern word32 Lastday_opt;
-extern char *Lefname_opt;
-extern char *Tifname_opt;
+extern const char *Lefname_opt;
+extern const char *Tifname_opt;
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
@@ -80,7 +80,7 @@ int le_renew(void *fee);
 int le_splice(const char *filename, int depth, int count);
 int le_restore(const char *dir);
 int le_transpose(void);
-int le_update(char *fname);
+int le_update(const char *fname);
 int tag_cmp(const void *a, const void *b);
 int tag_equal(const void *a, const void *b);
 int tag_extract(const char *lfname, const char *tfname);
