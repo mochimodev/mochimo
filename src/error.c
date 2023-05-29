@@ -20,13 +20,10 @@
 #include <stdarg.h>  /* for va_list support */
 
 /* Initialize default runtime configuration */
-static Mutex Printlock = MUTEX_INITIALIZER;
-static Mutex Outputlock = MUTEX_INITIALIZER;
-static FILE *Outputfp;
-static int Printlevel;
-static int Outputlevel;
-static unsigned int Nprinterrs;
-static unsigned int Nprintlogs;
+static unsigned int Ntracelogs = 0;
+static int TraceTimestamps = 0;
+static int TraceFunctions = 0;
+static int Tracelevel;
 
 /* Windows compatibility */
 #ifdef _WIN32
@@ -135,10 +132,13 @@ char *hash2hex(void *hash, int count, char *hex)
 */
 char *bnum2hex(void *bnum, char *hex)
 {
-   word32 *b32 = (word32 *) bnum;
+   word32 *b32;
 
-   if (b32[1]) snprintf(hex, 17, "%" P32x "%08" P32x, b32[1], b32[0]);
-   else snprintf(hex, 17, "%" P32x, b32[0]);
+   if (bnum) {
+      b32 = (word32 *) bnum;
+      if (b32[1]) snprintf(hex, 17, "%" P32x "%08" P32x, b32[1], b32[0]);
+      else snprintf(hex, 17, "%" P32x, b32[0]);
+   } else snprintf(hex, 17, "(null)");
 
    return hex;
 }  /* end bnum2hex() */
@@ -151,10 +151,13 @@ char *bnum2hex(void *bnum, char *hex)
 */
 char *bnum2hex64(void *bnum, char *hex)
 {
-   word8 *bp = (word8 *) bnum;
+   word8 *bp;
 
-   snprintf(hex, 17, "%02x%02x%02x%02x%02x%02x%02x%02x",
-      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
+   if (bnum) {
+      bp = (word8 *) bnum;
+      snprintf(hex, 17, "%02x%02x%02x%02x%02x%02x%02x%02x",
+         bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
+   } else snprintf(hex, 17, "(null)");
 
    return hex;
 }  /* end bnum2hex64() */
@@ -210,6 +213,24 @@ char *op2str(unsigned op)
       default: return "OP_UNKNOWN";
    }  /* end switch (op) */
 }  /* end op2str() */
+
+/**
+ * Convert a function return code to an identifying string.
+ * @param ve Function return code to convert
+ * @returns Character pointer to identifying string
+*/
+char *ve2str(unsigned ve)
+{
+   switch (ve) {
+      case VEWAITING: return "VEWAITING";
+      case VETIMEOUT: return "VETIMEOUT";
+      case VEOK: return "VEOK";
+      case VERROR: return "VERROR";
+      case VEBAD: return "VEBAD";
+      case VEBAD2: return "VEBAD2";
+      default: return "VE_UNKNOWN";
+   }  /* end switch (ve) */
+}  /* end ve2str() */
 
 /**
  * Convert a 256-bit chain weightto a hexadecimal string.
@@ -342,83 +363,6 @@ void clear_right(FILE *fp)
    if (fp == stdout || fp == stderr) fprintf(fp, "\x1b[K");
 
 #endif
-}
-
-/**
- * Get the number of errors logged by print_extended().
- * @returns unsigned int -- Number of error logs
-*/
-unsigned int get_num_errs(void)
-{
-   unsigned int counter;
-
-   mutex_lock(&Outputlock);
-   counter = Nprinterrs;
-   mutex_unlock(&Outputlock);
-
-   return counter;
-}
-
-/**
- * Get the number of logs counted by print_extended().
- * @returns unsigned int -- Number of logs
-*/
-unsigned int get_num_logs(void)
-{
-   unsigned int counter;
-
-   mutex_lock(&Outputlock);
-   counter = Nprintlogs;
-   mutex_unlock(&Outputlock);
-
-   return counter;
-}
-
-/**
- * Set the output file for printing logs to file.
- * If @a fname or @a mode are `NULL`, output file is closed.
- * @param fname file name of output file
- * @param mode file mode of output file (e.g. "w" or "a")
- * @returns 0 on success, else 1 on error (see @a errno for details)
-*/
-int set_output_file(char *fname, char *mode)
-{
-   int ecode = 0;
-
-   mutex_lock(&Outputlock);
-   if (Outputfp) fclose(Outputfp);
-   if (fname && mode) {
-      /* open output file -- set line buffered */
-      Outputfp = fopen(fname, mode);
-      if (Outputfp == NULL || setvbuf(Outputfp, NULL, _IOLBF, BUFSIZ)) {
-         ecode = 1;
-      }
-   } else Outputfp = NULL;
-   mutex_unlock(&Outputlock);
-
-   return ecode;
-}
-
-/**
- * Set the print level for printing to output.
- * @param level The print level allowed to print to output file
-*/
-void set_output_level(int level)
-{
-   mutex_lock(&Outputlock);
-   Outputlevel = level;
-   mutex_unlock(&Outputlock);
-}
-
-/**
- * Set the print level for printing to screen.
- * @param level The print level allowed to print to screen
-*/
-void set_print_level(int level)
-{
-   mutex_lock(&Printlock);
-   Printlevel = level;
-   mutex_unlock(&Printlock);
 }
 
 /**
@@ -633,117 +577,103 @@ char *strerror_mcm(int errnum, char *buf, size_t bufsz)
 }  /* end strerror_mcm() */
 
 /**
- * Print a message to stdout.
- * @param fmt A string format (or message) for printing
- * @param ... Variable arguments supporting the format string
- * @note Prints to screen, regardless of specified print level.
+ * Get the number of trace logs counted by ptrace().
+ * @returns Number of logs
 */
-void print(const char *fmt, ...)
+unsigned int ptrace_num_logs(void)
 {
-   va_list args;
-
-   mutex_lock(&Printlock);
-
-   va_start(args, fmt);
-   vfprintf(stdout, fmt, args);
-   va_end(args);
-
-   mutex_unlock(&Printlock);
+   return Ntracelogs;
 }
 
 /**
- * Print to screen and log to file.
- * If not using a custom errno and log level pair, consider using:
- * perrno(), perr(), pwarn(), plog(), pfine(), or pdebug()
- * @param e error number ( @a errno ) associated with log
- * @param ll print level of log
- * @param fmt A string format (or message) to log
- * @param ... Variable arguments supporting @a fmt
- * @returns int -- VERROR for PLEVEL_ERROR, else VEOK
+ * Set the option for tracing function names in trace logs.
+ * @param val Value to set option (boolean)
 */
-int pcustom(int e, int ll, const char *fmt, ...)
+void ptrace_functions(int val)
 {
-   static const char *PLEVEL_PREFIX[NUM_PLEVELS] = {
-      "", "Error. ", "Warning... ", "", "FINE: ", "DEBUG: "
-   };
-
-   struct tm dt;
-   time_t t;
-   FILE *fp;
-   va_list args;
-   int return_code;
-   char error[64] = "";
-   char timestamp[32] = "";
-
-   /* set return code */
-   return_code = (ll == PLEVEL_ERROR);
-
-   /* ignore NULL fmt's and insufficient print levels */
-   if (fmt == NULL) return return_code;
-   if ((Outputfp == NULL || Outputlevel < ll) && Printlevel < ll) {
-      return return_code;
-   }
-
-   /* determine std print location -- per print level */
-   fp = (ll == PLEVEL_ERROR) ? stderr : stdout;
-
-   /* print to screen */
-   if (Printlevel >= ll) {
-      mutex_lock(&Printlock);
-
-      fprintf(fp, "%s", PLEVEL_PREFIX[ll]);
-      va_start(args, fmt);
-      vfprintf(fp, fmt, args);
-      va_end(args);
-      if (e != NOERRNO) {
-         fprintf(fp, ": (%d) %s\n", e, strerror_mcm(e, error, 64));
-      } else fprintf(fp, "\n");
-
-      mutex_unlock(&Printlock);
-   }
-
-   mutex_lock(&Outputlock);
-
-   /* print to output, timestamp: "yyyy-mm-ddThh:mm:ss+0000" */
-   if (Outputfp && Outputlevel >= ll) {
-      time(&t);
-      localtime_r(&t, &dt);
-      strftime(timestamp, sizeof(timestamp) - 1, "%FT%T%z - ", &dt);
-      fprintf(Outputfp, "%s%s", timestamp, PLEVEL_PREFIX[ll]);
-      va_start(args, fmt);
-      vfprintf(Outputfp, fmt, args);
-      va_end(args);
-      if (e != NOERRNO) {
-         fprintf(Outputfp, ": (%d) %s\n", e, strerror_mcm(e, error, 64));
-      } else fprintf(Outputfp, "\n");
-   }
-
-   /* increment appropriate print counter */
-   if (ll == PLEVEL_ERROR) Nprinterrs++;
-   Nprintlogs++;
-
-   mutex_unlock(&Outputlock);
-
-   return return_code;
-}  /* end pcustom() */
+   TraceFunctions = val;
+}
 
 /**
- * Print local host info on stdout.
- * @returns 0 on succesful operation, or (-1) on error.
+ * Set the trace logging level cap.
+ * @param ll Trace logging level to print (inclusive)
 */
-void phostinfo(void)
+void ptrace_level(int ll)
 {
-   char hostname[64] = "";
-   char addrname[64] = "";
+   Tracelevel = ll;
+}
 
-   /* get local machine name and IP address */
-   gethostname(hostname, sizeof(hostname));
-   gethostip(addrname, sizeof(addrname));
-   plog("Local Machine Info");
-   plog("  Machine name: %s", *hostname ? hostname : "unknown");
-   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
-   plog("");
-}  /* end phostinfo() */
+/**
+ * Set the option for tracing function names in trace logs.
+ * @param val Value to set option (boolean)
+*/
+void ptrace_timestamp(int val)
+{
+   TraceTimestamps = val;
+}
+
+/**
+ * Print a trace log to screen.
+ * @param ll trace level of log
+ * @param func function name where log occurrred
+ * @param line line number where log occurrred
+ * @param fmt A string format (or message) to log
+ * @param ... Variable arguments supporting @a fmt
+*/
+void ptrace(int ll, const char *func, int line, const char *fmt, ...)
+{
+   static Mutex lock = MUTEX_INITIALIZER;
+   static const char *PTRACE_TYPE[] = {
+      "", "ERROR! ", "ERROR! ", "Warning... ", "", "DEBUG: "
+   };
+
+   time_t t;
+   struct tm dt;
+   va_list args;
+   int ecode = errno;
+   char error[64] = "";
+   char timestamp[28] = "";
+
+   /* ignore NULL fmt and invalid trace levels */
+   if (fmt == NULL || Tracelevel < ll) return;
+
+   /* obtain timestamp when required */
+   if (TraceTimestamps) {
+      time(&t);
+      localtime_r(&t, &dt);
+      strftime(timestamp, sizeof(timestamp), "[%F %T%z] ", &dt);
+   }
+
+   /* obtain errno description when required */
+   if (ll == PTRACE_ERRNO) strerror_mcm(ecode, error, sizeof(error));
+
+   /* acquire exclusive access for non-overlapping logs */
+   mutex_lock(&lock);
+
+   /* print log operation */
+   if (TraceTimestamps) {
+      printf("%s ", timestamp);
+   }
+   printf("%s", PTRACE_TYPE[ll]);
+   if (TraceFunctions) {
+      printf("<%s:%d> ", func, line);
+   }
+   va_start(args, fmt);
+   vprintf(fmt, args);
+   va_end(args);
+   if (ll == PTRACE_ERRNO) {
+      printf(": (%d) %s", ecode, error);
+   }
+   /* finaliz and flush with a newline */
+   printf("\n");
+   fflush(stdout);
+
+   /* release exclusive access */
+   mutex_unlock(&lock);
+
+   /* increment trace log counter */
+   Ntracelogs++;
+}  /* end ptrace() */
 
 /**
  * Check for duplicate running processes, by @a name. Checks running dups
@@ -798,25 +728,6 @@ int proc_dups(const char *name)
 
    return result;
 }  /* end proc_dups() */
-
-/**
- * Print (and log) a splashscreen with version information to screen
- * @param execname Name of running process
- * @param version Version string of process
- * @param copy_details Flag to print copyright details when set
-*/
-void psplash(char *execname, char *version, int copy_details)
-{
-   plog("");
-   plog("%s %s, built " __DATE__ " " __TIME__, execname, version);
-   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
-   if (copy_details) {
-      plog("See the License Agreement at the links below:");
-      plog("   https://mochimo.org/license.pdf (PDF version)");
-      plog("   https://mochimo.org/license (TEXT version)");
-      plog("");
-   }
-}
 
 /* end include guard */
 #endif

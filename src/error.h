@@ -3,6 +3,12 @@
  * @brief Mochimo error codes, logging and string support.
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
+ * @todo TRACE LOGGING SIMPLIFICATION
+ * The intent was to utilize the syslog of UNIX-like systems to simplify
+ * trace logging, however there does not appear to be a suitable WIN32
+ * equivalent. Creating one, even to simply write to a file on WIN32,
+ * makes the simplification a little redundant... Simultaneous file
+ * logging may need to be reintroduced.
 */
 
 /* include guard */
@@ -91,69 +97,55 @@
    } else if (errno != EBUSY) { \
       perrno(FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
 
-/** No print/log level (blank) */
-#define PLEVEL_NONE  0
-/** Error print/log level */
-#define PLEVEL_ERROR 1
-/** Warning print/log level */
-#define PLEVEL_WARN  2
-/** Standard print/log level */
-#define PLEVEL_LOG   3
-/** Fine print/log level */
-#define PLEVEL_FINE  4
-/** Debug print/log level */
-#define PLEVEL_DEBUG 5
+/* trace logging constants */
+#define PTRACE_ALERT 0
+#define PTRACE_ERRNO 1
+#define PTRACE_ERROR 2
+#define PTRACE_WARN  3
+#define PTRACE_INFO  4
+#define PTRACE_DEBUG 5
 
 /**
- * @private
- * Number of print levels. Increment when adding more.
-*/
-#define NUM_PLEVELS  6
-
-#define NOERRNO   ( (0x7fffffff) )
-
-/**
- * Print/log an error message, with description of @a errnum.
- * @param E @a errno associated with error log message
+ * Print an alert level trace log.
  * @param ... arguments you would normally pass to printf()
- * @returns (int) VERROR, per pcustom()
 */
-#define perrno(...)  pcustom(errno, PLEVEL_ERROR, __VA_ARGS__)
+#define palert(...) \
+   ptrace(PTRACE_ALERT, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
- * Print/log an error message.
+ * Print an error level trace log, with description of @a errnum.
  * @param ... arguments you would normally pass to printf()
- * @returns (int) VERROR, per pcustom()
 */
-#define perr(...)    pcustom(NOERRNO, PLEVEL_ERROR, __VA_ARGS__)
+#define perrno(...) \
+   ptrace(PTRACE_ERRNO, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
- * Print/log a warning message.
+ * Print an error level trace log.
  * @param ... arguments you would normally pass to printf()
- * @returns (int) VEOK, per pcustom()
 */
-#define pwarn(...)   pcustom(NOERRNO, PLEVEL_WARN, __VA_ARGS__)
+#define perr(...) \
+   ptrace(PTRACE_ERROR, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
- * Print/log a standard message.
+ * Print a warning level trace log.
  * @param ... arguments you would normally pass to printf()
- * @returns (int) VEOK, per pcustom()
 */
-#define plog(...)    pcustom(NOERRNO, PLEVEL_LOG, __VA_ARGS__)
+#define pwarn(...) \
+   ptrace(PTRACE_WARN, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
- * Print/log a fine message.
+ * Print an information level trace log.
  * @param ... arguments you would normally pass to printf()
- * @returns (int) VEOK, per pcustom()
 */
-#define pfine(...)   pcustom(NOERRNO, PLEVEL_FINE, __VA_ARGS__)
+#define plog(...) \
+   ptrace(PTRACE_INFO, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
- * Print/log a debug message.
+ * Print a debugging level trace log.
  * @param ... arguments you would normally pass to printf()
- * @returns (int) VEOK, per pcustom()
 */
-#define pdebug(...)  pcustom(NOERRNO, PLEVEL_DEBUG, __VA_ARGS__)
+#define pdebug(...) \
+   ptrace(PTRACE_DEBUG, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
  * Write a file path into a buffer by joining multiple strings together
@@ -390,23 +382,20 @@ char *bnum2hex(void *bnum, char *hex);
 char *bnum2hex64(void *bnum, char *hex);
 char *block2id(void *bnum, void *bhash, char *id);
 char *op2str(unsigned op);
+char *ve2str(unsigned ve);
 char *weight2hex(void *weight, char *hex);
 int mcm_fqan(char *buf, char *pre, char *ext, void *bnum, void *bhash);
 int path_count_join(char *buf, int count, ...);
 void move_cursor(int x, int y);
 void clear_right(FILE *fp);
-unsigned int get_num_errs(void);
-unsigned int get_num_logs(void);
-int set_output_file(char *fname, char *mode);
-void set_output_level(int level);
-void set_print_level(int level);
 const char *mcm_errno_text(int errnum);
 char *strerror_mcm(int errnum, char *buf, size_t bufsz);
-void print(const char *fmt, ...);
-int pcustom(int e, int ll, const char *fmt, ...);
-void phostinfo(void);
+unsigned int ptrace_num_logs(void);
+void ptrace_functions(int val);
+void ptrace_level(int ll);
+void ptrace_timestamp(int val);
+void ptrace(int ll, const char *func, int line, const char *fmt, ...);
 int proc_dups(const char *name);
-void psplash(char *execname, char *version, int copy_details);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
