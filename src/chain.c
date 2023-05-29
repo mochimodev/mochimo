@@ -42,7 +42,7 @@ void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int append_tfile_fp(FILE *fp, char *tfilename)
+int append_tfile_fp(FILE *fp, const char *tfilename)
 {
    BTRAILER bt;
    FILE *tfp;
@@ -68,7 +68,7 @@ FAIL: fclose(tfp); return VERROR;
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int append_tfile(char *filename, char *tfilename)
+int append_tfile(const char *filename, const char *tfilename)
 {
    FILE *fp;
    int ecode;
@@ -136,7 +136,7 @@ void get_mreward(void *reward, void *bnum)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int get_tfrewards(char *fname, void *rewards, void *bnum)
+int get_tfrewards(const char *fname, void *rewards, void *bnum)
 {
    /* premine value = 4757066000000000 */
    static word32 premine[2] = { 0xbd1a6400, 0x0010e686 };
@@ -232,7 +232,7 @@ void ptrailer(BTRAILER *btp)
 {
    long long blocknumber;
    word32 btxs, btime, bdiff;
-   char str[256], *hp1, *hp2, *hp3;
+   char str[256], *hp2, *hp3;
 
    /* prepare block stats */
    blocknumber = 0;
@@ -244,18 +244,43 @@ void ptrailer(BTRAILER *btp)
    if (btxs) {
       /* expand and split haiku into lines for printing */
       trigg_expand(btp->nonce, str);
-      hp1 = strtok(str, "\n");
-      hp2 = strtok(&hp1[strlen(hp1) + 1], "\n");
-      hp3 = strtok(&hp2[strlen(hp2) + 1], "\n");
-      plog("\n\n/) %s\n(=: %s\n\\) %s", hp1, hp2, hp3);
-   } else if (btp->bnum[0]) plog("\n\n(=: pseudo-block :=)");
-   else if (!iszero(btp->bnum, 8)) plog("\n\n(=: neogenesis-block :=)");
-   else plog("\n\n(=: genesis-block :=)");
+      *(hp3 = strrchr(str, '\n')) = '\0';
+      *(hp2 = strrchr(str, '\n')) = '\0';
+      plog("/) %s", str);
+      plog("(=: %s", ++hp2);
+      plog("\\) %s", ++hp3);
+   } else if (btp->bnum[0]) plog("(=: pseudo-block :=)");
+   else if (!iszero(btp->bnum, 8)) plog("(=: neogenesis-block :=)");
+   else plog("(=: genesis-block :=)");
    /* print block identification adn details */
-   plog("0x%s(%lld)#%s", bnum2hex(btp->bnum, str), blocknumber,
+   plog("ID: 0x%s(%lld)#%s", bnum2hex(btp->bnum, str), blocknumber,
       addr2hex(btp->bhash, &str[18]));
    plog("Time: %us, Diff: %u, Txs: %u", btime, bdiff, btxs);
 }  /* end ptrailer() */
+
+/**
+ * Read the block number value from the trailer of an open blockchain file.
+ * @param bnum Pointer to buffer to place block number value
+ * @param fp Open FILE pointer
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int read_bnum_fp(void *bnum, FILE *fp)
+{
+   int result;
+
+   /* check file pointer and read bnum in BTRAILER */
+   result = fseek64(fp, -(sizeof(BTRAILER) - HASHLEN), SEEK_END);
+   if (result == 0) {
+      result = fread(bnum, 8, 1, fp);
+      if (result == 1) {
+         return VEOK;
+      }
+   }
+
+   return VERROR;
+}  /* end read_bnum() */
 
 /**
  * Read the block number value from the trailer of a blockchain file.
@@ -265,24 +290,19 @@ void ptrailer(BTRAILER *btp)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int read_bnum(void *bnum, char *filename)
+int read_bnum(void *bnum, const char *filename)
 {
    FILE *fp;
+   int result;
 
    /* open file and read bnum in BTRAILER */
    fp = fopen(filename, "rb");
    if (fp == NULL) return VERROR;
-   if (fseek64(fp, -(sizeof(BTRAILER) - HASHLEN), SEEK_END)) goto FAIL_IO;
-   if (fread(bnum, 8, 1, fp) != 1) goto FAIL_IO;
+   result = read_bnum_fp(bnum, fp);
    fclose(fp);
 
    /* success */
-   return VEOK;
-
-/* error handling */
-FAIL_IO:
-   fclose(fp);
-   return VERROR;
+   return result;
 }  /* end read_bnum() */
 
 /**
@@ -293,7 +313,7 @@ FAIL_IO:
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int read_hdrlen(void *hdrlen, char *filename)
+int read_hdrlen(void *hdrlen, const char *filename)
 {
    FILE *fp;
 
@@ -314,12 +334,12 @@ int read_hdrlen(void *hdrlen, char *filename)
 /**
  * Read Tfile data into a buffer.
  * @param buffer Pointer to buffer to read Tfile data into
- * @param bnum Block number at which to start reading from Tfile
+ * @param bnum Start block number to read from Tfile
  * @param count Number of trailers to read from Tfile
  * @return (int) number of records read from Tfile, which may be less
  * than count if an error ocurrs. Check errno for details.
 */
-int read_tfile(void *buffer, void *bnum, int count, char *tfname)
+int read_tfile(void *buffer, void *bnum, int count, const char *tfname)
 {
    long long offset;
    FILE *fp;
@@ -347,7 +367,7 @@ int read_tfile(void *buffer, void *bnum, int count, char *tfname)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int read_trailer(BTRAILER *btp, char *fname)
+int read_trailer(BTRAILER *btp, const char *fname)
 {
    FILE *fp;
 
@@ -374,7 +394,7 @@ FAIL_IO:
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int trim_tfile(char *tfname, void *highbnum, void *weight)
+int trim_tfile(const char *tfname, void *highbnum, void *weight)
 {
    static word32 one[2] = { 1, 0 };
 
@@ -620,7 +640,7 @@ int validate_tfile_fp(FILE *tfp, void *bnum, void *weight, int part)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int validate_tfile(char *tfname, void *bnum, void *weight)
+int validate_tfile(const char *tfname, void *bnum, void *weight)
 {
    FILE *tfp;
    int ecode;
@@ -642,7 +662,7 @@ int validate_tfile(char *tfname, void *bnum, void *weight)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int weigh_tfile(char *tfname, void *bnum, void *weight)
+int weigh_tfile(const char *tfname, void *bnum, void *weight)
 {
    BTRAILER bt;
    FILE *tfp;
