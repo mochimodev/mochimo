@@ -27,9 +27,6 @@ typedef struct {
    short defer;   /**< flag indicating work should be deferred */
 } AsyncWork;
 
-/** Asynchronous Process function used on AsyncWork in various states */
-typedef int (*AsyncProc)(AsyncWork *np);
-
 /** Server context struct */
 typedef struct {
    Mutex lock;                /**< mutually exclusive server lock */
@@ -40,12 +37,19 @@ typedef struct {
    LinkedList exited;         /**< list of exited worker threads */
    LinkedList inIO;           /**< list of "in" work, ready for io */
    LinkedList outIO;          /**< list of "out" work, waiting for io */
-   /** work completion function called on completed work */
-   AsyncProc donefn;
-   /** work initialization function called on work received by accept() */
-   AsyncProc initfn;
-   /** work processing function called on work with active IO */
-   AsyncProc procfn;
+   /**
+    * Event function called on work received by accept().
+    * Return non-zero to drop accepted socket connection.
+    */
+   int (*on_accept)(AsyncWork *);
+   /**
+    * Event function called on completed work.
+    * Typically indicated with IO_DONE in the @a sio property
+    * of the work, or by returning 
+   */
+   int (*on_finish)(AsyncWork *);
+   /** Event function called on work with active IO (indicated by sio) */
+   int (*on_io)(AsyncWork *);
    struct sockaddr_in addr;   /**< internet socket server address data */
    const char *name;          /**< name of server, for thread names */
    int deferthreads;          /**< threads processing deferred work */
@@ -63,10 +67,6 @@ extern "C" {
 
 int server_destroy(Server *sp);
 int server_init(Server *sp, const char *name, int af, int type, int proto);
-int server_setioprocess
-   (Server *sp, AsyncProc donefn, AsyncProc initfn, AsyncProc procfn);
-int server_setsockopt(Server *sp, int level, int optname,
-   const void *optval, socklen_t optlen);
 int server_shutdown(Server *sp);
 int server_start(Server *sp, word32 addr, word16 port, int workers);
 int server_work_create(Server *sp, void *data);

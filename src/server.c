@@ -12,14 +12,8 @@
 /* standard server connection TIMEOUT, 30 seconds */
 #define SERVER_TIMEOUT  30
 
-#define ACCEPT_DROP(sd, x) \
-   do { \
-      pcustom(errno, PLEVEL_DEBUG, FnMSG("drop sd= %d (" x ")"), sd); \
-      sock_close(sd); continue; \
-   } while(0)
-
-/* MACRO for handling excessive connections on various systems
- * NOTE: unnecessary when the server handler moves away from select() */
+/* MACRO for handling excessive connections on various systems */
+/** @todo migrate to cross platform polling solution */
 #ifdef _WIN32
    #define SELECT_CANNOT_HANDLE(sd) ( 0 )
 
@@ -56,7 +50,7 @@ static void server__cleanup_work(Server *sp, AsyncWork *wp)
 {
    if (wp == NULL) return;
    /* check for and execute additional cleanup process */
-   if (sp && sp->donefn) sp->donefn(wp);
+   if (sp->on_finish) sp->on_finish(wp);
    /* cleanup and deallocate work resources */
    if (wp->sd != INVALID_SOCKET) sock_close(wp->sd);
    if (wp->data != NULL) free(wp->data);
@@ -184,18 +178,19 @@ static ThreadProc server__main(void *arg)
    Server *sp = arg;
 
    fd_set rfds, wfds;            /* descriptor sets for IO checks */
-   LinkedList readyIO = { 0 };   /* lock-free work list ready for IO */
-   LinkedList waitIO = { 0 };    /* lock-free work list waiting for IO */
+   LinkedList ready_io = { 0 };  /* lock-free work list ready for IO */
+   LinkedList wait_io = { 0 };   /* lock-free work list waiting for IO */
    LinkedNode *lnp, *next_lnp;
    LinkedNode *alnp;
    AsyncWork *wp;
-   struct sockaddr *baddrp;
+   struct sockaddr *bindaddrp;
    struct timeval tv;            /* sleep time during IO checks */
    long dynasleep;               /* dynamic sleep for IO checks */
-   time_t Ltime;
+   time_t currtime;
    SOCKET asd;                   /* next socket descriptor */
    SOCKET nfds;                  /* for select(nfds, ...) */
    int ecode, count, i;
+   char error[64];
    char ipstr[16];
    char name[16];
 
@@ -204,7 +199,7 @@ static ThreadProc server__main(void *arg)
    ntoa(&(sp->addr.sin_addr.s_addr), ipstr), sp->addr.sin_port
 
    /* init */
-   baddrp = (struct sockaddr *) &(sp->addr);
+   bindaddrp = (struct sockaddr *) &(sp->addr);
    dynasleep = 0;
    alnp = NULL;
    i = 0;
@@ -215,7 +210,7 @@ static ThreadProc server__main(void *arg)
    thread_setname(thread_self(), name);
 
    /* (try) bind address with listening socket */
-   while (bind(sp->lsd, baddrp, sizeof(sp->addr))) {
+   while (bind(sp->lsd, bindaddrp, sizeof(sp->addr))) {
       /* check shutdown signal -- wait a sec before re-attempt... */
       if (sp->running == 0) goto SHUTDOWN;
       millisleep(1000);
@@ -238,48 +233,61 @@ static ThreadProc server__main(void *arg)
          asd = accept(sp->lsd, NULL, NULL);
          if (asd == INVALID_SOCKET) break;
          /* check socket can be handled */
-         if (SELECT_CANNOT_HANDLE(asd)) ACCEPT_DROP(asd, "sd");
+         if (SELECT_CANNOT_HANDLE(asd)) {
+            pdebug("drop sd= %d: select() OVERLOAD", asd);
+            sock_close(asd);
+            continue;
+         }
          /* accept work with asd and aip data */
          alnp = server__accept_work(alnp, asd, IO_RECV);
-         if (alnp == NULL) ACCEPT_DROP(asd, "err");
-         /* call custom init function on accept()'d work */
-         if (sp->initfn && sp->initfn(alnp->data)) ACCEPT_DROP(asd, "init");
+         if (alnp == NULL) {
+            strerror_mcm((ecode = errno), error, sizeof(error));
+            pdebug("drop sd= %d: (%d) %s", asd, ecode, error);
+            sock_close(asd);
+            continue;
+         }
+         /* call custom event function on accept()'d work... */
+         if (sp->on_accept && sp->on_accept(alnp->data) != 0) {
+            /* ... if function returns non-zero, drop connection */
+            sock_close(asd);
+            continue;
+         }
          /* add work to wait list */
-         on_ecode_goto_perrno( link_node_append(alnp, &waitIO),
-            SHUTDOWN, FnMSG("link_node_append(alnp, waitIO) FAILURE"));
+         on_ecode_goto_perrno( link_node_append(alnp, &wait_io),
+            SHUTDOWN, FnMSG("link_node_append(alnp, wait_io) FAILURE"));
          /* dynamic sleep reset -- reset alnp */
          if (dynasleep) dynasleep = 0;
          alnp = NULL;
       }  /* end for (i = 0; i < SERVER_LISTEN_LIMIT ... */
 
-      /* update Ltime for timeout check */
-      time(&Ltime);
+      /* update currtime for timeout check */
+      time(&currtime);
 
       /* zero fd sets and reset highest descriptor */
       FD_ZERO(&rfds);
       FD_ZERO(&wfds);
       nfds = INVALID_SOCKET;
       /* prepare fd_set's only if waiting for IO */
-      if (waitIO.count) {
+      if (wait_io.count) {
          count = FD_SETSIZE;
          /* add "waiting" sockets to appropriate fd_set's -- adjust nsd */
-         for (lnp = waitIO.next; count > 0 && lnp; lnp = next_lnp) {
+         for (lnp = wait_io.next; count > 0 && lnp; lnp = next_lnp) {
             next_lnp = lnp->next;
             /* dereference the server work */
             wp = (AsyncWork *) lnp->data;
             /* cleanup any stray work with an invalid socket descriptor */
             if (wp->sd == INVALID_SOCKET) {
-               on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
-                  SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
+               on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
+                  SHUTDOWN, FnMSG("link_node_remove(wait_io) FAILURE"));
                server__cleanup_node(sp, lnp);
                continue;
-            } else if (wp->to && difftime(Ltime, wp->to) > 0) {
+            } else if (wp->to && difftime(currtime, wp->to) > 0) {
                /* move node from "wait" list to "ready" list */
-               on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
-                  SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
+               on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
+                  SHUTDOWN, FnMSG("link_node_remove(wait_io) FAILURE"));
                /* append work to the appropriate list */
-               on_ecode_goto_perrno( link_node_append(lnp, &readyIO),
-                  SHUTDOWN, FnMSG("link_node_append(readyIO) FAILURE"));
+               on_ecode_goto_perrno( link_node_append(lnp, &ready_io),
+                  SHUTDOWN, FnMSG("link_node_append(ready_io) FAILURE"));
                continue;
             }
             /* check wait type -- update fd_sets accordingly */
@@ -293,8 +301,8 @@ static ThreadProc server__main(void *arg)
             if (nfds < wp->sd) nfds = wp->sd;
             /* decrement count */
             count--;
-         }  /* end for (lnp = waitIO... */
-      }  /* end for if (waitIO.count) */
+         }  /* end for (lnp = wait_io... */
+      }  /* end for if (wait_io.count) */
       /* set timeout as preferred sleep duration for this iteration */
       tv.tv_sec = 0;
       tv.tv_usec = 1000L * dynasleep;
@@ -303,8 +311,8 @@ static ThreadProc server__main(void *arg)
       count = select((int) (nfds + 1), &rfds, &wfds, NULL, &tv);
       /* IMPORTANT: tv's value at this point SHOULD NOT be re-used */
 
-      /* walk waitIO with respect to count -- hide 'n' seek */
-      for (lnp = waitIO.next; count > 0 && lnp; lnp = next_lnp) {
+      /* walk wait_io with respect to count -- hide 'n' seek */
+      for (lnp = wait_io.next; count > 0 && lnp; lnp = next_lnp) {
          /* store next link, as links may change */
          next_lnp = lnp->next;
          /* dereference the work */
@@ -314,37 +322,37 @@ static ThreadProc server__main(void *arg)
          if ((wp->sio <= IO_SEND && FD_ISSET(wp->sd, &wfds)) ||
             (wp->sio == IO_RECV && FD_ISSET(wp->sd, &rfds)) ) {
             /* move node from "wait" list to "ready" list */
-            on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
-               SHUTDOWN, FnMSG("link_node_remove(waitIO) FAILURE"));
+            on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
+               SHUTDOWN, FnMSG("link_node_remove(wait_io) FAILURE"));
             /* append work to the appropriate list */
-            on_ecode_goto_perrno( link_node_append(lnp, &readyIO),
-               SHUTDOWN, FnMSG("link_node_append(readyIO) FAILURE"));
+            on_ecode_goto_perrno( link_node_append(lnp, &ready_io),
+               SHUTDOWN, FnMSG("link_node_append(ready_io) FAILURE"));
             count--;
          }  /* end (in)activity checks... */
-      }  /* end for (lnp = waitIO... */
+      }  /* end for (lnp = wait_io... */
 
       /* check "ready" lists */
-      if (readyIO.count) {
+      if (ready_io.count) {
          /* dynamic sleep reset */
          if (dynasleep) dynasleep = 0;
          /* store list counts */
-         count = readyIO.count;
+         count = ready_io.count;
          /* try (NON-BLOCKING) acquire work lock for link list */
          trylock_on_ecode_goto_perrno( sp->lock, SHUTDOWN, {
-            /* link ReadyIO to ActiveIO */
-            on_ecode_goto_perrno( link_list_append(&readyIO, &(sp->inIO)),
-               SHUTDOWN, FnMSG("link_list(readyIO, sp->inIO) FAILURE"));
+            /* link ready_io to ActiveIO */
+            on_ecode_goto_perrno( link_list_append(&ready_io, &(sp->inIO)),
+               SHUTDOWN, FnMSG("link_list(ready_io, sp->inIO) FAILURE"));
             /* signal idle threads indicating available work */
             if (count <= sp->idlethreads) {
                while (count--) condition_signal(&(sp->alarm));
             } else condition_broadcast(&(sp->alarm));
          });
-      }  /* end if (readyIO.count) */
+      }  /* end if (ready_io.count) */
 
-      /* try (NON-BLOCKING) link InactiveIO to WaitIO */
+      /* try (NON-BLOCKING) link InactiveIO to wait_io */
       trylock_on_ecode_goto_perrno( sp->lock2, SHUTDOWN, {
-         on_ecode_goto_perrno( link_list_append(&(sp->outIO), &waitIO),
-            SHUTDOWN, FnMSG("link_list(outIO, waitIO) FAILURE"));
+         on_ecode_goto_perrno( link_list_append(&(sp->outIO), &wait_io),
+            SHUTDOWN, FnMSG("link_list(outIO, wait_io) FAILURE"));
       });
    }  /* end while (sp->running) */
    pdebug(FnMSG("recv'd shutdown signal"));
@@ -357,14 +365,14 @@ SHUTDOWN:
    }
    /* free internally allocated or held resources */
    server__cleanup_node(sp, alnp);
-   while ((lnp = readyIO.next)) {
-      on_ecode_goto_perrno( link_node_remove(lnp, &readyIO),
-         FATAL, FnMSG("link_node_remove(readyIO) SHUTDOWN FAILURE"));
+   while ((lnp = ready_io.next)) {
+      on_ecode_goto_perrno( link_node_remove(lnp, &ready_io),
+         FATAL, FnMSG("link_node_remove(ready_io) SHUTDOWN FAILURE"));
       server__cleanup_node(sp, lnp);
    }
-   while ((lnp = waitIO.next)) {
-      on_ecode_goto_perrno( link_node_remove(lnp, &waitIO),
-         FATAL, FnMSG("link_node_remove(readyIO) SHUTDOWN FAILURE"));
+   while ((lnp = wait_io.next)) {
+      on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
+         FATAL, FnMSG("link_node_remove(ready_io) SHUTDOWN FAILURE"));
       server__cleanup_node(sp, lnp);
    }
    /* local shutdown triggers global shutdown */
@@ -430,7 +438,7 @@ static ThreadProc server__worker(void *arg)
          on_ecode_goto_perrno( mutex_unlock(&(sp->lock)),
             FATAL, FnMSG("server lock UNLOCK FAILURE"));
          /* dereference and process thread work io */
-         if ((sp->procfn && sp->procfn(wp) == VEWAITING)) {
+         if ((sp->on_io && sp->on_io(wp) == VEWAITING)) {
             /* return task to wait list for IO waiting */
             lock_on_ecode_goto_perrno( sp->lock2, FATAL, {
                on_ecode_goto_perrno( link_node_append(lnp, &(sp->outIO)),
@@ -546,49 +554,6 @@ FAIL_INIT3: mutex_destroy(&(sp->lock2));
 FAIL_INIT1: mutex_destroy(&(sp->lock));
 FAIL_INIT0: return VERROR;
 }  /* end server_init() */
-
-/**
- * Set the io process functions for a Server context.
- * @param sp Pointer to Server context
- * @return (int) value indicating operation result
- * @retval VERROR on error; check errno for details
- * @retval VEOK on success
-*/
-int server_setioprocess
-   (Server *sp, AsyncProc donefn, AsyncProc initfn, AsyncProc procfn)
-{
-   /* check server context */
-   if (sp == NULL) goto FAIL_INVAL;
-
-   sp->donefn = donefn;
-   sp->initfn = initfn;
-   sp->procfn = procfn;
-
-   return VEOK;
-
-/* error handling */
-FAIL_INVAL: set_errno(EINVAL); return VERROR;
-}  /* end server_setioprocess() */
-
-/**
- * Set a socket option for the Server socket.
- * @param sp Pointer to Server context
- * @return (int) value indicating operation result
- * @retval VERROR on error; check errno for details
- * @retval VEOK on success
-*/
-int server_setsockopt(Server *sp, int level, int optname,
-   const void *optval, socklen_t optlen)
-{
-   /* check server data can accept a socket option */
-   if (sp == NULL || sp->lsd == INVALID_SOCKET) goto FAIL_INVAL;
-
-   /* return the result of set socket option */
-   return setsockopt(sp->lsd, level, optname, optval, optlen);
-
-/* error handling */
-FAIL_INVAL: set_errno(EINVAL); return VERROR;
-}  /* end server_setsockopt() */
 
 /**
  * Shutdown a server context. Closes server socket
