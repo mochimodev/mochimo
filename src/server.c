@@ -22,6 +22,12 @@
 
 #endif
 
+#define server__fatal(name, ...) { \
+   ptrace_functions(1); \
+   perrno(__VA_ARGS__); \
+   palert("CRITICAL SERVER(%s) RUNTIME ERROR", name); \
+}
+
 /**
  * @private for internal use only
 */
@@ -194,10 +200,6 @@ static ThreadProc server__main(void *arg)
    char ipstr[16];
    char name[16];
 
-#undef FnMSG
-#define FnMSG(x)  "server__main(%s:%u): " x, \
-   ntoa(&(sp->addr.sin_addr.s_addr), ipstr), sp->addr.sin_port
-
    /* init */
    bindaddrp = (struct sockaddr *) &(sp->addr);
    dynasleep = 0;
@@ -253,8 +255,10 @@ static ThreadProc server__main(void *arg)
             continue;
          }
          /* add work to wait list */
-         on_ecode_goto_perrno( link_node_append(alnp, &wait_io),
-            SHUTDOWN, FnMSG("link_node_append(alnp, wait_io) FAILURE"));
+         if (link_node_append(alnp, &wait_io)) {
+            server__fatal(sp->name, "link_node_append() FAILURE");
+            goto SHUTDOWN;
+         };
          /* dynamic sleep reset -- reset alnp */
          if (dynasleep) dynasleep = 0;
          alnp = NULL;
@@ -277,17 +281,22 @@ static ThreadProc server__main(void *arg)
             wp = (AsyncWork *) lnp->data;
             /* cleanup any stray work with an invalid socket descriptor */
             if (wp->sd == INVALID_SOCKET) {
-               on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
-                  SHUTDOWN, FnMSG("link_node_remove(wait_io) FAILURE"));
+               if (link_node_remove(lnp, &wait_io)) {
+                  server__fatal(sp->name, "link_node_remove() FAILURE");
+                  goto SHUTDOWN;
+               };
                server__cleanup_node(sp, lnp);
                continue;
             } else if (wp->to && difftime(currtime, wp->to) > 0) {
                /* move node from "wait" list to "ready" list */
-               on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
-                  SHUTDOWN, FnMSG("link_node_remove(wait_io) FAILURE"));
-               /* append work to the appropriate list */
-               on_ecode_goto_perrno( link_node_append(lnp, &ready_io),
-                  SHUTDOWN, FnMSG("link_node_append(ready_io) FAILURE"));
+               if (link_node_remove(lnp, &wait_io)) {
+                  server__fatal(sp->name, "link_node_remove() FAILURE");
+                  goto SHUTDOWN;
+               }
+               if (link_node_append(lnp, &ready_io)) {
+                  server__fatal(sp->name, "link_node_append() FAILURE");
+                  goto SHUTDOWN;
+               }
                continue;
             }
             /* check wait type -- update fd_sets accordingly */
@@ -322,11 +331,13 @@ static ThreadProc server__main(void *arg)
          if ((wp->sio <= IO_SEND && FD_ISSET(wp->sd, &wfds)) ||
             (wp->sio == IO_RECV && FD_ISSET(wp->sd, &rfds)) ) {
             /* move node from "wait" list to "ready" list */
-            on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
-               SHUTDOWN, FnMSG("link_node_remove(wait_io) FAILURE"));
-            /* append work to the appropriate list */
-            on_ecode_goto_perrno( link_node_append(lnp, &ready_io),
-               SHUTDOWN, FnMSG("link_node_append(ready_io) FAILURE"));
+            if (link_node_remove(lnp, &wait_io)) {
+               server__fatal(sp->name, "link_node_remove() FAILURE");
+               goto SHUTDOWN;
+            } else if (link_node_append(lnp, &ready_io)) {
+               server__fatal(sp->name, "link_node_append() FAILURE");
+               goto SHUTDOWN;
+            }
             count--;
          }  /* end (in)activity checks... */
       }  /* end for (lnp = wait_io... */
@@ -338,24 +349,38 @@ static ThreadProc server__main(void *arg)
          /* store list counts */
          count = ready_io.count;
          /* try (NON-BLOCKING) acquire work lock for link list */
-         trylock_on_ecode_goto_perrno( sp->lock, SHUTDOWN, {
+         if (mutex_trylock(&(sp->lock)) == 0) {
             /* link ready_io to ActiveIO */
-            on_ecode_goto_perrno( link_list_append(&ready_io, &(sp->inIO)),
-               SHUTDOWN, FnMSG("link_list(ready_io, sp->inIO) FAILURE"));
+            if (link_list_append(&ready_io, &(sp->inIO))) {
+               server__fatal(sp->name, "link_list_append() FAILURE");
+               goto SHUTDOWN;
+            }
             /* signal idle threads indicating available work */
             if (count <= sp->idlethreads) {
                while (count--) condition_signal(&(sp->alarm));
             } else condition_broadcast(&(sp->alarm));
-         });
+            /* release lock if acquired */
+            if (mutex_unlock(&(sp->lock))) {
+               server__fatal(sp->name, "UNLOCK FAILURE");
+               goto SHUTDOWN;
+            }
+         }  /* end if (mutex_trylock... */
       }  /* end if (ready_io.count) */
 
       /* try (NON-BLOCKING) link InactiveIO to wait_io */
-      trylock_on_ecode_goto_perrno( sp->lock2, SHUTDOWN, {
-         on_ecode_goto_perrno( link_list_append(&(sp->outIO), &wait_io),
-            SHUTDOWN, FnMSG("link_list(outIO, wait_io) FAILURE"));
-      });
+      if (mutex_trylock(&(sp->lock2)) == 0) {
+         if (link_list_append(&(sp->outIO), &wait_io)) {
+            server__fatal(sp->name, "link_list_append() FAILURE");
+            goto SHUTDOWN;
+         }
+         /* release lock if acquired */
+         if (mutex_unlock(&(sp->lock2))) {
+            server__fatal(sp->name, "UNLOCK FAILURE");
+            goto SHUTDOWN;
+         }
+      }  /* end if (mutex_trylock... */
    }  /* end while (sp->running) */
-   pdebug(FnMSG("recv'd shutdown signal"));
+   pdebug("server recv'd shutdown signal");
 
 SHUTDOWN:
    /* close listening socket */
@@ -366,22 +391,26 @@ SHUTDOWN:
    /* free internally allocated or held resources */
    server__cleanup_node(sp, alnp);
    while ((lnp = ready_io.next)) {
-      on_ecode_goto_perrno( link_node_remove(lnp, &ready_io),
-         FATAL, FnMSG("link_node_remove(ready_io) SHUTDOWN FAILURE"));
+      if (link_node_remove(lnp, &ready_io)) {
+         server__fatal(sp->name, "ready_io SHUTDOWN FAILURE");
+         goto FATAL;
+      }
       server__cleanup_node(sp, lnp);
    }
    while ((lnp = wait_io.next)) {
-      on_ecode_goto_perrno( link_node_remove(lnp, &wait_io),
-         FATAL, FnMSG("link_node_remove(ready_io) SHUTDOWN FAILURE"));
+      if (link_node_remove(lnp, &wait_io)) {
+         server__fatal(sp->name, "wait_io SHUTDOWN FAILURE");
+         goto FATAL;
+      }
       server__cleanup_node(sp, lnp);
    }
-   /* local shutdown triggers global shutdown */
+   /* trigger worker thread shutdown */
    sp->running = 0;
    /* return result of server__exit() */
    return server__exit(sp);
 
 FATAL:
-   pdebug(FnMSG("FATAL ERROR, TERMINATING..."));
+   pdebug("FATAL ERROR, TERMINATING...");
    /* kill server on fatal error */
    sp->running = 0;
    Unthread;
@@ -400,19 +429,19 @@ static ThreadProc server__worker(void *arg)
    int ecode;
    char name[16];
 
-#undef FnMSG
-#define FnMSG(x)  "server__worker(%x): " x, thread_selfid()
-   pdebug(FnMSG("created..."));
-
    /* init */
+   pdebug("server worker(%x) starting...", thread_selfid());
    deferproc = 0;
 
    /* acquire "in" work Lock */
-   on_ecode_goto_perrno( mutex_lock(&(sp->lock)),
-      FATAL, FnMSG("server lock (init) LOCK FAILURE"));
+   if (mutex_lock(&(sp->lock))) {
+      server__fatal(sp->name, "server inIO (init) LOCK FAILURE");
+      goto FATAL;
+   }
 
    /* main thread loop -- prioritize SyncIO tasks */
    while (sp->running) {
+      /* indicate thread is currently in asynchronous mode */
       snprintf(name, sizeof(name), "%s-async", sp->name);
       thread_setname(thread_self(), name);
       /* check/pull next work */
@@ -432,23 +461,39 @@ static ThreadProc server__worker(void *arg)
          /* check work was obtained */
          if (lnp == NULL) break;
          /* remove task node from work list */
-         on_ecode_goto_perrno( link_node_remove(lnp, &(sp->inIO)),
-            FATAL, FnMSG("server inIO LIST FAILURE"));
+         if (link_node_remove(lnp, &(sp->inIO))) {
+            server__fatal(sp->name, "server inIO LIST FAILURE");
+            goto FATAL;
+         }
          /* release work lock */
-         on_ecode_goto_perrno( mutex_unlock(&(sp->lock)),
-            FATAL, FnMSG("server lock UNLOCK FAILURE"));
+         if (mutex_unlock(&(sp->lock))) {
+            server__fatal(sp->name, "server inIO UNLOCK FAILURE");
+            goto FATAL;
+         }
          /* dereference and process thread work io */
          if ((sp->on_io && sp->on_io(wp) == VEWAITING)) {
             /* return task to wait list for IO waiting */
-            lock_on_ecode_goto_perrno( sp->lock2, FATAL, {
-               on_ecode_goto_perrno( link_node_append(lnp, &(sp->outIO)),
-                  FATAL, FnMSG("server outIO LIST FAILURE"));
-            });
+            if (mutex_lock(&(sp->lock2))) {
+               server__fatal(sp->name, "server outIO LOCK FAILURE");
+               goto FATAL;
+            }
+            if (link_node_append(lnp, &(sp->outIO))) {
+               server__fatal(sp->name, "server outIO LIST FAILURE");
+               /* release lock on failure */
+               mutex_unlock(&(sp->lock2));
+               goto FATAL;
+            }
+            if (mutex_unlock(&(sp->lock2))) {
+               server__fatal(sp->name, "server outIO UNLOCK FAILURE");
+               goto FATAL;
+            }
          } else server__cleanup_node(sp, lnp);
          /* (re)acquire "in" work Lock */
-         on_ecode_goto_perrno( mutex_lock(&(sp->lock)),
-            FATAL, FnMSG("server lock LOCK FAILURE"));
-         /* check SHUTDOWN for jump */
+         if (mutex_lock(&(sp->lock))) {
+            server__fatal(sp->name, "server inIO LOCK FAILURE");
+            goto FATAL;
+         }
+         /* check SHUTDOWN flag for jump */
          if (sp->running == 0) goto SHUTDOWN;
          /* restore deference parameters */
          if (deferproc) {
@@ -456,6 +501,7 @@ static ThreadProc server__worker(void *arg)
             deferproc = 0;
          }
       }  /* end while ((lnp = sp->worklst.next)) */
+      /* indicate thread is currently in idle mode */
       snprintf(name, sizeof(name), "%s-idle", sp->name);
       thread_setname(thread_self(), name);
       /* wait for condition, sleepy time ... */
@@ -464,22 +510,24 @@ static ThreadProc server__worker(void *arg)
       sp->idlethreads--;
       /* ... wakeup (spurious?), check ecode ... */
       if (ecode) {
-         perrno(FnMSG("CONDITION FAILURE"));
+         perrno("CONDITION FAILURE");
          goto FATAL;
       }
    }  /* end while (sp->running) */
 
 SHUTDOWN:
-   pdebug(FnMSG("recv'd shutdown signal"));
+   pdebug("server worker recv'd shutdown signal");
 
    /* release work list lock */
-   on_ecode_goto_perrno( mutex_unlock(&(sp->lock)),
-      FATAL, FnMSG("server lock (end) UNLOCK FAILURE"));
+   if (mutex_unlock(&(sp->lock))) {
+      server__fatal(sp->name, "server inIO (end) UNLOCK FAILURE");
+      goto FATAL;
+   }
 
    return server__exit(sp);
 
 FATAL:
-   pdebug(FnMSG("FATAL ERROR, TERMINATING..."));
+   palert("FATAL SERVER WORKER ERROR, TERMINATING...");
    /* kill server on fatal error */
    sp->running = 0;
    Unthread;
@@ -570,15 +618,15 @@ int server_shutdown(Server *sp)
    Mutex *lockp;
    int ecode;
 
-#undef FnMSG
-#define FnMSG(x) "server_shutdown(): " x
-
    /* init */
    alarmp = &(sp->alarm);
    lockp = &(sp->lock);
 
    /* acquire server lock */
-   on_ecode_goto_perrno( mutex_lock(lockp), FATAL, "LOCK FAILURE");
+   if (mutex_lock(lockp)) {
+      server__fatal(sp->name, "LOCK FAILURE");
+      goto FATAL;
+   }
 
    /* flag for graceful shutdown */
    sp->running = 0;
@@ -590,16 +638,20 @@ int server_shutdown(Server *sp)
       if (condition_timedwait(alarmp, lockp, 5000)) {
          if (errno == CONDITION_TIMEOUT) {
             plog("Taking too long, terminating...");
-         } else perrno(FnMSG("condition_timedwait() FAILURE"));
+         } else perrno("condition_timedwait() FAILURE");
          break;
       }
       /* join with any exited threads */
       llp = &(sp->exited);
       while ((lnp = llp->next)) {
-         on_ecode_goto_perrno( link_node_remove(lnp, llp),
-            FATAL, FnMSG("link_node_remove() FAILURE"));
-         on_ecode_goto_perrno( thread_join(*((Thread *) lnp->data)),
-            FATAL, FnMSG("thread_join() FAILURE"));
+         if (link_node_remove(lnp, llp)) {
+            server__fatal(sp->name, "link_node_remove() FAILURE");
+            goto FATAL;
+         }
+         if (thread_join(*((Thread *) lnp->data))) {
+            server__fatal(sp->name, "thread_join() FAILURE");
+            goto FATAL;
+         }
          /* free LinkedNode and associated data */
          free(lnp->data);
          free(lnp);
@@ -607,7 +659,10 @@ int server_shutdown(Server *sp)
    }  /* end while (sp->active.count) */
 
    /* release thread lock when finished */
-   on_ecode_goto_perrno( mutex_unlock(lockp), FATAL, "UNLOCK FAILURE");
+   if (mutex_unlock(lockp)) {
+      server__fatal(sp->name, "UNLOCK FAILURE");
+      goto FATAL;
+   }
 
    return VEOK;
 
