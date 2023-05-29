@@ -25,14 +25,6 @@
 #include "extmath.h"
 #include <string.h>
 
-#ifdef _WIN32
-   #define set_sockerrno(e)   set_alterrno(e)
-
-#else
-   #define set_sockerrno(e)   set_errno(e)
-
-#endif
-
 #define PKT_IS_PV5(p)   ( (p)->version[0] == 5 )
 
 /** Lifetime balance requests processed */
@@ -770,8 +762,8 @@ CONTINUE:
          }
          goto CONTINUE;  /* cheap immitation */
       }  /* end case OP_HELLO_ACK */
-      case OP_TX: /* fallthrough */
-      case OP_FOUND: np->status = VEOK; break;
+      case OP_TX: /* tranceive complete */ break;
+      case OP_FOUND: /* tranceive complete */ break;
       case OP_GET_BLOCK: send_file(np); break;
       case OP_GET_IPL: send_ipl(np); break;
       case OP_SEND_FILE: send_fp(np); break;
@@ -819,7 +811,7 @@ int node_request_connect(NODE *np, int nonblock)
          return (np->status = VERROR);
       }
       /* reset timeout for initial connect */
-      np->to = time(NULL) + TIMEOUT;
+      np->to = time(NULL) + TIMEOUT_CONN;
    }  /* end if (np->sd... */
    /* prepare socket address struct */
    memset((char *) &addr, 0, sizeof(addr));
@@ -842,6 +834,13 @@ int node_request_connect(NODE *np, int nonblock)
       return (np->status = VERROR);
    }  /* end if (connect... */
 
+   /* prepare HELLO packet with initial handshake IDs */
+   np->id1 = rand16();
+   np->id2 = 0;
+   init_pkt(np, OP_HELLO);
+   /* update socket operation type */
+   np->iowait = IO_SEND;
+
    return (np->status = VEOK);
 }  /* end node_request_connect() */
 
@@ -859,21 +858,12 @@ int node_request_connect(NODE *np, int nonblock)
 */
 int node_request_operation(NODE *np)
 {
-   void *buffp, *bnump;
-   int count;
-
 CONTINUE:
    switch (np->opcode) {
       case OP_NULL: {
          /* check connection wait for initial connect */
          if (np->iowait == IO_CONN) {
             if (node_request_connect(np, 1)) break;
-            /* prepare HELLO packet with initial handshake IDs */
-            np->id1 = rand16();
-            np->id2 = 0;
-            init_pkt(np, OP_HELLO);
-            /* update socket operation type */
-            np->iowait = IO_SEND;
          }
          /* send OP_HELLO packet */
          if (send_pkt(np)) break;
@@ -881,7 +871,7 @@ CONTINUE:
          np->iowait = IO_RECV;
       } /* fallthrough -- end case OP_NULL */
       case OP_HELLO: {
-         /* recv OP_HELLO packet */
+         /* recv OP_HELLO_ACK packet */
          if (recv_pkt(np)) break;
          /* check initial handshake protocol */
          if (np->opcode != OP_HELLO_ACK) {
@@ -893,16 +883,19 @@ CONTINUE:
          np->id2 = get16(np->pkt.id2);
          /* check request type for additional packet io requirements */
          switch (np->opreq) {
+            case OP_TX: {
+               /* load file data where provided */
+               if (np->fp) {
+                  fread(np->pkt.buffer, sizeof(TXW) - HASHLEN, 1, np->fp);
+                  put16(np->pkt.len, sizeof(TXW) - HASHLEN);
+               }
+               break;
+            }  /* end case OP_FOUND */
             case OP_FOUND: {
-               /* load Tfile proof */
-               buffp = np->pkt.buffer;
-               bnump = np->pkt.blocknum;
-               if (sub64(Cblocknum, (word32[2]) { (54 - 1), 0 }, bnump)) {
-                  memset(bnump, 0, 8);
-                  count = (int) get32(Cblocknum) + 1;
-               } else count = 54;
-               if (read_tfile(buffp, bnump, count, "tfile.dat") != count) {
-                  return (np->status = VERROR);
+               /* load file data where provided */
+               if (np->fp) {
+                  fread(np->pkt.buffer, sizeof(BTRAILER) * 54, 1, np->fp);
+                  put16(np->pkt.len, sizeof(BTRAILER) * 54);
                }
                break;
             }  /* end case OP_FOUND */
@@ -921,6 +914,7 @@ CONTINUE:
          np->iowait = IO_RECV;
          goto CONTINUE;  /* cheap imitation */
       }  /* end case OP_HELLO_ACK */
+      case OP_TX: break;
       case OP_FOUND: break;
       case OP_GET_IPL: {
          /* receive request packet */

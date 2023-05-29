@@ -15,6 +15,14 @@
 /* internal support */
 #include "types.h"
 
+#ifdef _WIN32
+   #define set_sockerrno(e)   set_alterrno(e)
+
+#else
+   #define set_sockerrno(e)   set_errno(e)
+
+#endif
+
 extern unsigned Nbalance;
 extern unsigned Nhashes;
 extern unsigned Niplist;
