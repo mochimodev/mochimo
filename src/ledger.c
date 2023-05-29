@@ -196,6 +196,46 @@ FAIL_IO: fclose(fp); return VERROR;
 }  /* end le_append() */
 
 /**
+ * Backup the Ledger tree to a specified directory.
+ * @param dir Backup directory name
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int le_backup(const char *dir)
+{
+   char backup[FILENAME_MAX];
+   char lefname[FILENAME_MAX];
+   int i;
+
+   if (dir == NULL || dir[0] == '\0') goto FAIL_INVAL;
+
+   /* acquire shared read access */
+   if (rwlock_rdlock(&Lelock)) return VERROR;
+
+   /* copy all ledger tree depths to backup directory */
+   for (i = 0; i < Leidx; i++) {
+      snprintf(lefname, FILENAME_MAX, "%s.%d", Lefname_opt, i);
+      path_join(backup, dir, lefname);
+      /* clear location and move ledger file */
+      remove(backup);
+      if (rename(lefname, backup) != 0) goto FAIL;
+   }
+   /* incase of previous failure, always delete next tree depth */
+   snprintf(lefname, FILENAME_MAX, "%s.%d", Lefname_opt, i);
+   path_join(backup, dir, lefname);
+   remove(backup);
+
+   /* release shared read access */
+   rwlock_rdunlock(&Lelock);
+
+   return VEOK;
+
+FAIL: rwlock_rdunlock(&Lelock); return VERROR;
+FAIL_INVAL: set_errno(EINVAL); return VERROR;
+}  /* end le_backup() */
+
+/**
  * Close LSMT Ledger and Tagidx to a specified depth (inclusive).
  * @code le_close(0); @endcode ... closes the entire tree.
  * @param depth Depth at which to close the Ledger (inclusive)
@@ -599,6 +639,46 @@ FAIL_IO:
    if (fp) fclose(fp);
    return VERROR;
 }  /* end le_renew() */
+
+/**
+ * Restore the Ledger tree from a specified "backup" directory.
+ * @param dir Backup directory name
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int le_restore(const char *dir)
+{
+   char backup[FILENAME_MAX];
+   char lefname[FILENAME_MAX];
+   int i;
+
+   if (dir == NULL || dir[0] == '\0') goto FAIL_INVAL;
+
+   /* acquire exclusive write access */
+   if (rwlock_wrlock(&Lelock)) return VERROR;
+
+   /* copy all ledger tree depths from backup directory */
+   for (i = 0; ; i++) {
+      snprintf(lefname, FILENAME_MAX, "%s.%d", Lefname_opt, i);
+      path_join(backup, dir, lefname);
+      if (!fexists(backup)) break;
+      /* clear location and move ledger file */
+      remove(lefname);
+      if (rename(backup, lefname) != 0) goto FAIL;
+   }
+   /* incase of previous failure, always delete next tree depth */
+   snprintf(lefname, FILENAME_MAX, "%s.%d", Lefname_opt, i);
+   remove(lefname);
+
+   /* release exclusive write access */
+   rwlock_wrunlock(&Lelock);
+
+   return VEOK;
+
+FAIL: rwlock_rdunlock(&Lelock); return VERROR;
+FAIL_INVAL: set_errno(EINVAL); return VERROR;
+}  /* end le_restore() */
 
 /**
  * Splice a ledger file depth into the ledger tree.
