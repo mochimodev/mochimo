@@ -24,10 +24,10 @@ extern "C" {
 
 /* block_legacy.c */
 int blockw_val_fp(FILE *fp, BTRAILER *btp);
-int blockw_val(char *fname, char *tfname);
-int blockw(char *fname, TXW *txw_clean, size_t count, char *tfname);
-int neogenw_val_fp(FILE *fp, char *tfname);
-int neogenw_val(char *fname, char *tfname);
+int blockw_val(const char *fname, const char *tfname);
+int blockw(const char *fname, TXW *txw_clean, size_t count, const char *tfname);
+int neogenw_val_fp(FILE *fp, const char *tfname);
+int neogenw_val(const char *fname, const char *tfname);
 
 /* block.c */
 int neogen(char *fname, char *lfname, char *tfname);

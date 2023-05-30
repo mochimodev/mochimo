@@ -180,7 +180,7 @@ BAD:
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int blockw_val(char *fname, char *tfname)
+int blockw_val(const char *fname, const char *tfname)
 {
    BTRAILER prev_bt;
    FILE *fp;
@@ -210,7 +210,7 @@ int blockw_val(char *fname, char *tfname)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int blockw(char *fname, TXW *txw_clean, size_t count, char *tfname)
+int blockw(const char *fname, TXW *txw_clean, size_t count, const char *tfname)
 {
    static word8 one[8] = { 1, 0 };
 
@@ -318,7 +318,7 @@ FAIL_IO:
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int neogenw_val_fp(FILE *fp, char *tfname)
+int neogenw_val_fp(FILE *fp, const char *tfname)
 {
    LENTRY_W le, prev_le;
    SHA256_CTX cctx;
@@ -415,7 +415,7 @@ BAD_SORT: set_errno(EMCM_LE_SORT); return VEBAD;
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int neogenw_val(char *fname, char *tfname)
+int neogenw_val(const char *fname, const char *tfname)
 {
    FILE *fp;
    int ecode;
