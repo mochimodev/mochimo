@@ -61,41 +61,41 @@
 #define lock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (mutex_lock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( mutex_unlock(&(_lock)), _lbl, \
-         FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
+         makeSTR(_lock) " UNLOCK FAILURE"); \
    } else { \
-      perrno(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+      perrno(makeSTR(_lock) " LOCK FAILURE"); goto _lbl; }
 
 #define lock_on_ecode_goto_perr(_lock, _lbl, _code_block) \
    if (mutex_lock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perr( mutex_unlock(&(_lock)), _lbl, \
-         FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perr(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+         makeSTR(_lock) " UNLOCK FAILURE"); \
+   } else { perr(makeSTR(_lock) " LOCK FAILURE"); goto _lbl; }
 
 #define trylock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (mutex_trylock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( mutex_unlock(&(_lock)), _lbl, \
-         FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
+         makeSTR(_lock) " UNLOCK FAILURE"); \
    } else if (errno != EBUSY) { \
-      perrno(FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
+      perrno(makeSTR(_lock) " TRYLOCK FAILURE"); goto _lbl; }
 
 #define wrlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (rwlock_wrlock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( rwlock_wrunlock(&(_lock)), _lbl, \
-         FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+         makeSTR(_lock) " UNLOCK FAILURE"); \
+   } else { perrno(makeSTR(_lock) " LOCK FAILURE"); goto _lbl; }
 
 #define rdlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (rwlock_rdlock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( rwlock_rdunlock(&(_lock)), _lbl, \
-         FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
-   } else { perrno(FnMSG(makeSTR(_lock) " LOCK FAILURE")); goto _lbl; }
+         makeSTR(_lock) " UNLOCK FAILURE"); \
+   } else { perrno(makeSTR(_lock) " LOCK FAILURE"); goto _lbl; }
 
 #define tryrdlock_on_ecode_goto_perrno(_lock, _lbl, _code_block) \
    if (rwlock_tryrdlock(&(_lock)) == 0) { _code_block; \
       on_ecode_goto_perrno( rwlock_rdunlock(&(_lock)), _lbl, \
-         FnMSG(makeSTR(_lock) " UNLOCK FAILURE")); \
+         makeSTR(_lock) " UNLOCK FAILURE"); \
    } else if (errno != EBUSY) { \
-      perrno(FnMSG(makeSTR(_lock) " TRYLOCK FAILURE")); goto _lbl; }
+      perrno(makeSTR(_lock) " TRYLOCK FAILURE"); goto _lbl; }
 
 /* trace logging constants */
 #define PTRACE_ALERT 0
