@@ -30,6 +30,12 @@
 
 #endif
 
+#define perrno_exit(...)   { perrno(__VA_ARGS__); exit(0); }
+#define perr_exit(...)     { perr(__VA_ARGS__); exit(0); }
+
+#define perrno_fatal(...)  { fatal(); perrno(__VA_ARGS__); }
+#define perr_fatal(...)    { fatal(); perr(__VA_ARGS__); }
+
 #define NODE_IS_WALLET(np)   ( \
    ((np)->pkt.version[0] == 4 && get16((np)->pkt.len) == 1) || \
    ((np)->pkt.version[0] == 5 && ((np)->pkt.version[1] & C_WALLET)) )
@@ -44,617 +50,834 @@ typedef struct {
 } WorkList;
 
 /* work processing list (incl. lock and alarm) */
+Server MCMDServer, *MCMDIO = &MCMDServer;
 WorkList CompleteIO = WORKLIST_INITIALIZER;
 
-Server NodeServer;
+static RWLock UpdateLock = RWLOCK_INITIALIZER;
+/* NOTE: Update lock states...
+ * - read locked (shared) during tx validation
+ * - write locked (exclusive) during block update */
 
-/* Recent peers lock */
-RWLock RplistLock = RWLOCK_INITIALIZER;
+/** Recent transactions list (for checking duplicates) */
+/* static RWLock RecentTxsLock = RWLOCK_INITIALIZER; */
+/* static HashSet RecentTxs; */
 
 /* Mochimo globals */
-int Ininit = 1;
-int Inscan = 1;
-int Running = 1;
-int Nopush_opt = 0;
-NODE *Syncwait = NULL;
-word32 Mfee[2] = { MFEE, 0 };
-word32 Myfee[2] = { MFEE, 0 };
-word32 Quorum_opt = 4;
-word64 Trustblock_opt = 0;
-word16 Dstport_opt = PORT1;
-word16 Port_opt = PORT1;
-
-/* cli options for directories */
-char *Spdir_opt = "sp";
+static time_t Ptime;
+static NODE *Syncwait;     /* Block sync until this NODE is returned */
+static int Ininit;
+static int Running;
+static int Quorum_opt;
+static int Nopush_opt;
+static word64 Trustblock_opt;
+static word32 Mfee[2];
+static word32 Myfee[2];
+static word16 Dstport_opt;
 
 /* cli options for peerlist filenames */
-char *Coreip_opt = "coreip.lst";
-char *Epinkip_opt = "epink.lst";
-char *Localip_opt = "local.lst";
-char *Recentip_opt = "recent.lst";
-char *Startip_opt = "start.lst";
+static char *Epinkip_opt = "epink.lst";
+static char *Localip_opt = "local.lst";
+static char *Recentip_opt = "recent.lst";
 
-/* cli options for peerlist web address */
-char *Starthttp_opt = "https://mochimo.org/peers/start";
+/* Scanned peer list parameters -- for quorum scan */
+static int Scanning;
+static word32 *Splist, Splistidx, Splistlen;
+/* Quorum peer list parameters -- + bnum, bhash, weight */
+static word32 *Qplist, Qplistidx, Qplistlen;
+static word8 Qbnum[8], Qbhash[HASHLEN], Qweight[32];
 
-int archive_block(char *blockfile)
+static void fatal(void) {
+   palert("CRITICAL RUNTIME ERROR!");
+   /* elevate trace details */
+   ptrace_functions(1);
+   /* flag shutdown */
+   Running = 0;
+}
+
+static void mcmd__cleanup(LinkedNode *lnp)
 {
-   BTRAILER bt;
-   char fname[FILENAME_MAX];
-   char fpath[FILENAME_MAX];
+   NODE *np;
 
-#undef FnMSG
-#define FnMSG(x) "archive_block(%s): " x, blockfile
+   /* check valid NODE data */
+   np = (NODE *) lnp->data;
+   if (np != NULL) {
+      /* acquire (exclusive) recent peers list lock */
+      if (rwlock_wrlock(&Rplistlock) != 0) {
+         perrno_fatal("Rplistlock LOCK FAILURE");
+         return;
+      }
+      /* update peerlists under certain conditions */
+      switch (np->status) {
+         case VEBAD2: {
+            /* naughty peers go to (epoch) pinklist */
+            epinklist(np->ip);
+            /* remove peer from recent peers list */
+            remove32(np->ip, Rplist, RPLISTLEN, &Rplistidx);
+         }  /* fallthrough */
+         /* add peer to (standard) pinklist if BAD */
+         case VEBAD: pinklist(np->ip); break;
+         case VEOK: {
+            /* add recent peer under verified network activity */
+            if (np->opcode == OP_TX || np->opcode == OP_FOUND) {
+               addpeer(np->ip, Rplist, RPLISTLEN, &Rplistidx);
+            }
+            /* clear (soft) pinklist on block update, outside init */
+            if (!Ininit && np->opreq == OP_GET_BLOCK) {
+               purge_pinklist();
+            }
+         }
+      }  /* end switch (np->status) */
+      /* release (exclusive) recent peers list lock */
+      if (rwlock_wrunlock(&Rplistlock) != 0) {
+         perrno_fatal("Rplistlock UNLOCK FAILURE");
+         return;
+      }
+      /* cleanup/deallocate resources */
+      node_cleanup(np);
+      free(np);
+   }  /* end if (np != NULL) */
+   free(lnp);
+}  /* end mcmd__cleanup() */
 
-   /* get blockfile trailer data */
-   if (read_trailer(&bt, blockfile) != VEOK) {
-      return perrno(FnMSG("read_trailer(%s) FAILURE"), blockfile);
+static int mcmd__mirrortx(NODE *mp)
+{
+   NODE *np;
+   word32 plist[RPLISTLEN];
+   int result, i;
+
+   /* acquire (exclusive) recent peers list lock */
+   if (rwlock_rdlock(&Rplistlock) != 0) {
+      perrno_fatal("Rplistlock LOCK FAILURE");
+      return VERROR;
    }
-   /* build archive path and name -- clear path */
-   bc_fqan(fname, bt.bnum, bt.bhash);
-   path_join(fpath, Bcdir_opt, fname);
-   remove(fpath);
-   /* archive file to specified path */
-   if (rename(blockfile, fpath) != 0) {
-      return perrno(FnMSG("rename(%s, %s) FAILURE"), fname, fpath);
+   /* copy recent peers in it's current state */
+   memcpy(plist, Rplist, sizeof(Rplist));
+   /* release (exclusive) recent peers list lock */
+   if (rwlock_rdunlock(&Rplistlock) != 0) {
+      perrno_fatal("Rplistlock UNLOCK FAILURE");
+      return VERROR;
    }
 
+   /* mirror transaction to recent peers */
+   for (i = 0; i < RPLISTLEN && plist[i]; i++) {
+      /* malloc space for a new node */
+      np = malloc(sizeof(*np));
+      if (np == NULL) {
+         perrno("malloc FAILURE");
+         return VERROR;
+      }
+      /* initialize node request and load transaction data */
+      node_init(np, INVALID_SOCKET, plist[i], Dstport_opt, OP_TX, NULL);
+      np->fp = tmpfile();
+      if (np->fp == NULL) {
+         perrno("tmpfile() FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+      result = fwrite(mp->pkt.buffer, sizeof(TXW) - HASHLEN, 1, np->fp);
+      if (result != 1) {
+         perrno("fwrite() FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+      rewind(np->fp);
+      /* send NODE to server handler */
+      result = server_work_create(MCMDIO, np);
+      if (result != VEOK) {
+         perrno("server work FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+   }
+
+   /* done */
    return VEOK;
-}  /* end archive_block() */
+}  /* end mcmd__mirrortx() */
 
 /**
- * Distributed PoW validation. Typically Multi-Threaded.
+ * Proof of Work validation. Typically Multi-Threaded.
  * @param arg Pointer to NODE
  * @private for internal use only
  */
-ThreadProc dist__pow_val(void *arg)
+static ThreadProc mcmd__pow_val(void *arg)
 {
    NODE *np = arg;
 
    Mutex lock = MUTEX_INITIALIZER;
    BTRAILER bt;
-   int ecode;
+   int result;
    char bnumstr[17];
-
-#undef FnMSG
-#define FnMSG(x) "dist__pow_val(): " x
 
    /* set name of thread - visible in htop */
    thread_setname(thread_self(), "PoW-validation");
 
-   /* acquire lock before loop condition */
-   if (mutex_lock(&lock) != 0) goto FAIL;
-
+   /* acquire (exclusive) validation lock */
+   result = mutex_lock(&lock);
+   if (result != 0) {
+      perrno_fatal("PoW-validation LOCK FAILURE");
+      Unthread;
+   }
+   /* read and validate all available data */
    while (Running && np->status == VEOK) {
-      if (fread(&bt, sizeof(bt), 1, np->fp) != 1) {
+      /* read-in data and check for EOF */
+      result = fread(&bt, sizeof(bt), 1, np->fp);
+      if (result != 1) {
          if (feof(np->fp)) break;
+         /* file error ocurred... */
          np->status = VERROR;
          break;
       }
-      /* release lock and validate pow */
-      mutex_unlock(&lock);
-      if (cmp64(bt.bnum, &Trustblock_opt) > 0) {
-         ecode = validate_pow(&bt);
-      } else ecode = VEOK;
-      /* (re)acquire lock before loop condition */
-      if (mutex_lock(&lock) != 0) goto FAIL;
-      if (ecode) {
-         bnum2hex(bt.bnum, bnumstr);
-         perrno(FnMSG("0x%s INVALID"), bnumstr);
-         np->status = ecode;
+      /* skip to trusted block numbers */
+      if (cmp64(bt.bnum, &Trustblock_opt) <= 0) continue;
+      /* (re)release (exclusive) validation lock */
+      result = mutex_unlock(&lock);
+      if (result != 0) {
+         perrno_fatal("PoW-validation (re)UNLOCK FAILURE");
+         Unthread;
       }
+      /* validate PoW */
+      result = validate_pow(&bt);
+      if (result != VEOK) {
+         np->status = result;
+         bnum2hex(bt.bnum, bnumstr);
+         perrno("PoW-validation 0x%s FAILURE", bnumstr);
+         Unthread;
+      }
+      /* (re)acquire (exclusive) validation lock */
+      result = mutex_unlock(&lock);
+      if (result != 0) {
+         perrno_fatal("PoW-validation (re)UNLOCK FAILURE");
+         Unthread;
+      }
+   }  /* end while (Running && np->status == VEOK) */
+   /* release (exclusive) validation lock */
+   result = mutex_unlock(&lock);
+   if (result != 0) {
+      perrno_fatal("PoW-validation UNLOCK FAILURE");
    }
 
-   /* release lock -- exit */
-   mutex_unlock(&lock);
+   /* done */
    Unthread;
+}  /* end mcmd__pow_val() */
 
-FAIL:
-   np->status = VERROR;
-   Unthread;
-}  /* end dist__pow_val() */
-
-static void mcmd__cleanup_node(LinkedNode *lnp)
-{
-   /* perform cleanup of NODE resources -- deallocate memory */
-   if (lnp->data) {
-      node_cleanup(lnp->data);
-      free(lnp->data);
-   }
-   free(lnp);
-}  /* end mcmd__cleanup_node() */
-
-int mcmd__create_request(word32 ip, word16 opreq, void *bnum)
+int mcmd__request(word32 ip, word16 opreq, void *bnum, int syncwait)
 {
    NODE *np;
-   int ecode;
+   int result;
    char ipstr[16];
    char bnumstr[17];
 
-#undef FnMSG
-#define FnMSG(x) "mcmd__create_request(%s, %s, 0x%s): " x, \
-      ntoa(&ip, ipstr), op2str(opreq), bnum ? bnum2hex(bnum, bnumstr) : "0"
-   pdebug(FnMSG("requesting..."));
+   /* log request */
+   ntoa(&ip, ipstr);
+   bnum2hex(bnum, bnumstr);
+   pdebug("request %s(%s) from %s...", op2str(opreq), bnumstr, ipstr);
 
+   /* malloc space for a new node */
    np = malloc(sizeof(*np));
-   if (np == NULL) goto_perrno(FAIL, FnMSG("malloc() FAILURE"));
-   /* initialize node requests and send to Server handler */
+   if (np == NULL) {
+      perrno("%s malloc FAILURE", ipstr);
+      return VERROR;
+   }
+   /* initialize node request and send to Server handler */
    node_init(np, INVALID_SOCKET, ip, Dstport_opt, opreq, bnum);
-   on_ecode_goto_perrno( server_work_create(&NodeServer, np),
-      FAIL, FnMSG("server_work_create() FAILURE"));
-
-   /* store Syncwait task on certain tasks */
-   switch (opreq) {
-      case OP_GET_BLOCK:  /* fallthrough */
-      case OP_GET_TFILE:  /* fallthrough */
-      case OP_TF: Syncwait = np; break;
+   result = server_work_create(MCMDIO, np);
+   if (result != VEOK) {
+      perrno("%s server work FAILURE", ipstr);
+      free(np);
+      return VERROR;
+   }
+   /* set Syncwait if requested */
+   if (syncwait) {
+      if (Syncwait) perr("Syncwait was reset!");
+      Syncwait = np;
    }
 
    return VEOK;
+}  /* end mcmd__request() */
 
-/* error handling */
-FAIL: return VERROR;
-}  /* end mcmd__create_request() */
-
-/**
- * @brief 
- * @param np 
- * @return 
-int mcmd__restore(void)
+int mcmd__scan(word32 *plist, word32 plistlen)
 {
-   restore saved blockchain data: Tfile, and (compressed) Ledger
-   - possibly from a blockchain state file? *.bs ...
-   reset protocol state based on latest Tfile data
-}
- */
+   void *ptr;
+   word32 i;
 
-/**
- * @brief https://app.code2flow.com/zMh76o
- * @param np 
- * @return 
- */
-int mcmd__resync(NODE *np)
+   if (plist == NULL) return VERROR;
+
+   /* request OP_GET_IPL on peerlist members */
+   for (i = 0; i < plistlen; i++) {
+      /* ignore zero and pinklisted peers */
+      if (plist[i] == 0 || pinklisted(plist[i])) continue;
+      /* ensure available space in Splist */
+      if (Splistidx >= Splistlen) {
+         ptr = realloc(Splist, sizeof(word32) * (Splistlen + 32));
+         if (ptr == NULL) {
+            perrno_fatal("scan list increase FAILURE");
+            return VERROR;
+         }
+         /* update Scanned peer list */
+         Splist = ptr;
+         memset(&Splist[Splistlen], 0, sizeof(word32) * 32);
+         Splistlen = Splistlen + 32;
+      }
+      /* add peer to scan list if not already */
+      if (search32(plist[i], Splist, Splistlen)) continue;
+      Splist[Splistidx++] = plist[i];
+      /* request peerlist for network scan and peer compatibility */
+      if (mcmd__request(plist[i], OP_GET_IPL, NULL, 0) != VEOK) continue;
+      /* increment the number of peers being queried */
+      Scanning++;
+   }  /* end for () */
+
+   return VEOK;
+}  /* end mcmd__scan() */
+
+int mcmd__scaninit(void)
 {
-   static word8 eon[8] = { 0, 1 };
-   static word8 one[8] = { 1 };
+   word32 plist[RPLISTLEN];
+   word32 plistidx;
+   int result;
 
-   BTRAILER bt, ibt, tbt;
-   long long seek;
-   FILE *tfp;
-   word8 lpngblock[8];
-   word8 syncblock[8];
-   char bnumstr[17];
-   char fname[FILENAME_MAX];
-   char fpath[FILENAME_MAX];
-
-#undef FnMSG
-#define FnMSG(x) "mcmd__resync(%s): " x, np->id
-
-   if (Ininit) plog("Updating blockchain...");
-
-   /* ensure backups of chain before continuing */
-   if (!fexists("tfile.bak") && fcopy("tfile.dat", "tfile.bak") != 0) {
-      goto_perrno(FATAL, FnMSG("Tfile backup FAILURE"));
+   /* init */
+   Ininit = 1;
+   plistidx = 0;
+   memset(plist, 0, sizeof(plist));
+   /* read recent peers from disk into "start" peers list */
+   result = read_ipl(Recentip_opt, plist, RPLISTLEN, &plistidx);
+   if (result == 0) pwarn("No scan peers. Network may not be mapped.");
+   if (result < 0) {
+      perrno("ip list read FAILURE");
+      return VERROR;
    }
-
-   /* obtain final block trailer from update */
-   if (fseek64(np->fp, -(sizeof(bt)), SEEK_END) != 0) goto FAIL;
-   if (fread(&bt, sizeof(bt), 1, np->fp) != 1) goto FAIL_FP;
-   /* derive resync block number (last-previous neogenesis) */
-   if (sub64(bt.bnum, eon, lpngblock)) {
-      memset(lpngblock, 0, sizeof(lpngblock));
-   } else lpngblock[0] = 0;
-   /* obtain initial block trailer from update */
-   if (fseek64(np->fp, 0LL, SEEK_SET) != 0) goto FAIL;
-   if (fread(&bt, sizeof(bt), 1, np->fp) != 1) goto FAIL_FP;
-   memcpy(&ibt, &bt, sizeof(bt));  /* save for later */
-   /* open Tfile for binary read */
-   tfp = fopen("tfile.dat", "rb");
-   if (tfp == NULL) return VERROR;
-   /* derive and seek to update block number */
-   seek = 0;
-   put64(&seek, bt.bnum);
-   seek *= sizeof(bt);
-   if (fseek64(tfp, seek, SEEK_SET) != 0) goto FAIL_TFP;
-   /* obtain block trailer from Tfile */
-   if (fread(&tbt, sizeof(tbt), 1, tfp) != 1) goto FAIL_TFP;
-   /* find split block, if any */
-   while (memcmp(&bt, &tbt, sizeof(tbt)) == 0) {
-      /* update splitblock */
-      put64(syncblock, bt.bnum);
-      /* on Tfile EOF, we have our splitblock */
-      if (fread(&tbt, sizeof(tbt), 1, tfp) != 1) {
-         if (feof(tfp)) break;
-         goto FAIL_TFP;
-      }
-      /* fail on update fp error */
-      if (fread(&bt, sizeof(bt), 1, np->fp) != 1) goto FAIL_TFP;
-   }
-   fclose(tfp);
-
-   /* reduce erroneous synchronization -- update Tfile */
-   if (cmp64(syncblock, lpngblock) < 0) {
-      put64(syncblock, lpngblock);
-      /* trim Tfile to the sync block number */
-      if (trim_tfile("tfile.dat", syncblock, NULL) != VEOK) goto FAIL;
-      /* update remaining chain data (append) */
-      if (append_tfile_fp(np->fp, "tfile.dat") != VEOK) goto FAIL;
-   }
-
-   /* finalize (re)synchronization starting block */
-   if (cmp64(syncblock, Cblocknum) < 0) syncblock[0] = 0;
-   else add64(Cblocknum, one, syncblock);
-   if (cmp64(syncblock, lpngblock) < 0) put64(syncblock, lpngblock);
-
-   rewind(np->fp);
-   /* running check -- try syncing to archived blocks */
-   while (Running) {
-      /* OP_FOUND might not contain sync block, use Tfile */
-      if (cmp64(ibt.bnum, syncblock) > 0) {
-         if (read_tfile(&bt, syncblock, 1, "tfile.dat") != 1) break;
-      } else {
-         /* skip to sync block (when reading from np->fp) */
-         if (fread(&bt, sizeof(bt), 1, np->fp) != 1) break;
-         if (cmp64(bt.bnum, syncblock) < 0) continue;
-      }
-      /* get name of archive block */
-      bc_fqan(fname, bt.bnum, bt.bhash);
-      path_join(fpath, Bcdir_opt, fname);
-      if (!fexists(fpath)) break;
-      pfine(FnMSG("recovering 0x%s..."), bnum2hex(bt.bnum, bnumstr));
-      /* update chain with valid block file */
-      if (update_block(fpath) != VEOK) {
-         perrno(FnMSG("update_block(%s)"), fpath);
-         break;
-      }
-      /* maintain next sync block */
-      add64(syncblock, one, syncblock);
-   } /* resync'd as much as possible */
-
-   /* get next block number */
-   return mcmd__create_request(np->ip, OP_GET_BLOCK, syncblock);
-
-/* error handling */
-FAIL_TFP:
-   if (feof(tfp)) set_errno(EMCM_EOF);
-   fclose(tfp);
-FAIL_FP:
-   if (feof(np->fp)) set_errno(EMCM_EOF);
-   goto FAIL;
-FATAL: Running = 0;
-FAIL: return (np->status = VERROR);
-}  /* end mcmd__resync() */
+   /* trigger initial network scan on peer list */
+   return mcmd__scan(plist, RPLISTLEN);
+}  /* end mcmd__scaninit() */
 
 /**
  * @brief 
  * @param np 
  * @return 
  */
-static int mcmd__send_found(NODE *np)
+int mcmd__sendfound(NODE *np)
 {
    static word32 plist[RPLISTLEN];
-   static word32 plistidx;
 
-   int inprogress = plist[0];
-   int ecode;
+   BTRAILER bt[54];
+   word32 bnum[2];
+   int inprogress;
+   int result, count;
+   char ipstr[16];
 
-#undef FnMSG
-#define FnMSG(x) "mcmd__send_found(): " x
+   /* init */
+   inprogress = *plist ? 1 : 0;
 
-   /* refresh plist on new send_found trigger, else remove last */
+   /* refresh plist on new send_found trigger, else remove NODE ip */
    if (np == NULL) {
-      on_ecode_goto_perrno( rwlock_rdlock(&RplistLock),
-         FATAL, FnMSG("RplistLock LOCK FAILURE"));
+      /* acquire (exclusive) recent peers list lock */
+      if (rwlock_rdlock(&Rplistlock) != 0) {
+         perrno_fatal("Rplistlock LOCK FAILURE");
+         return VERROR;
+      }
+      /* copy recent peers in it's current state */
       memcpy(plist, Rplist, sizeof(Rplist));
-      plistidx = Rplistidx;
-      on_ecode_goto_perrno( rwlock_rdunlock(&RplistLock),
-         FATAL, FnMSG("RplistLock UNLOCK FAILURE"));
-      pfine(FnMSG("broadcasting OP_FOUND to recent peers, %u"), plistidx);
+      /* release (exclusive) recent peers list lock */
+      if (rwlock_rdunlock(&Rplistlock) != 0) {
+         perrno_fatal("Rplistlock UNLOCK FAILURE");
+         return VERROR;
+      }
+      pdebug("OP_FOUND broadcast started...");
       /* bail if already in progress */
       if (inprogress) return VEOK;
-   } else remove32(np->ip, plist, RPLISTLEN, &plistidx);
+   } else remove32(np->ip, plist, RPLISTLEN, NULL);
 
    /* broadcast to next peer (if any) */
-   if (plist[0]) return mcmd__create_request(plist[0], OP_FOUND, NULL);
-   return pfine(FnMSG("OP_FOUND broadcast complete"));
+   if (*plist) {
+      ntoa(plist, ipstr);
+      pdebug("broadcasting OP_FOUND to %s...", ipstr);
+      /* malloc space for a new node */
+      np = malloc(sizeof(*np));
+      if (np == NULL) {
+         perrno("malloc FAILURE");
+         return VERROR;
+      }
+      /* initialize node request and load tfile data */
+      node_init(np, INVALID_SOCKET, *plist, Dstport_opt, OP_FOUND, NULL);
+      if (sub64(Cblocknum, (word32[2]) { (54 - 1), 0 }, bnum)) {
+         memset(bnum, 0, 8);
+         count = (int) get32(Cblocknum) + 1;
+      } else count = 54;
+      result = read_tfile(bt, bnum, count, "tfile.dat");
+      if (result != count) {
+         perrno("read tfile FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+      np->fp = tmpfile();
+      if (np->fp == NULL) {
+         perrno("tmpfile() FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+      result = fwrite(bt, sizeof(*bt), 54, np->fp);
+      if (result != 54) {
+         perrno("fwrite() FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+      rewind(np->fp);
+      /* send NODE to server handler */
+      result = server_work_create(MCMDIO, np);
+      if (result != VEOK) {
+         perrno("server work FAILURE");
+         node_cleanup(np);
+         return VERROR;
+      }
+      return VEOK;
+   }
 
-FATAL:
-   Running = 0;
-   return VERROR;
-}  /* end mcmd__send_found() */
+   pdebug("OP_FOUND broadcast finished");
+   return VEOK;
+}  /* end mcmd__sendfound() */
 
-/**
- * Same chain NODE synchronization.
- * @param np 
- * @return 
-*/
-int mcmd__syncup(NODE *np)
+int mcmd__syncnext(NODE *np)
 {
-   static QUORUM quorum, scan;
-   static word32 one[2] = { 1 };
-   static int first_scan = 1;
-   static int network_found;
-   static int requests;
+   static word32 one[2] = { 1, 0 };
 
-   BTRAILER tbt, bt;
-   Thread *thrdp;
-   word32 *plist, plistlen, ip, u;
    word32 bnum[2];
-   word8 weight[32];
-   int count, i;
-   int partial;
-   int ecode;
+   char ipstr[16];
+
+   /* check provided NODE pointer */
+   if (np) {
+      /* check NODE result */
+      if (np->status == VEOK) {
+         /* check sync for more chain */
+         if (cmp64(Cblocknum, np->pkt.cblock) < 0) {
+            /* request next block */
+            add64(Cblocknum, one, bnum);
+            return mcmd__request(np->ip, OP_GET_BLOCK, bnum, 1);
+         }
+         /* synchronized, broadcast and purge outside of init */
+         pdebug("synchronized with %s", np->id);
+         if (!Ininit) {
+            mcmd__sendfound(NULL);
+            purge_pinklist();
+         }
+      }  /* end if (np->status == VEOK) */
+      if (!Ininit) return np->status;
+      /* check sync against quorum during init */
+      if (cmp64(Cblocknum, Qbnum) >= 0) {
+         /* log initial sync completion -- clear Ininit */
+         plog("Veronica says, \"You're done!\"");
+         /* trigger block found broadcast */
+         mcmd__sendfound(NULL);
+         /* clear Quorum and Scanned lists */
+         if (Splist) {
+            Splistidx = Splistlen = 0;
+            free(Splist);
+         }
+         if (Qplist) {
+            Qplistidx = Qplistlen = 0;
+            free(Qplist);
+         }
+         /* clear (soft) pinklist on syncup */
+         purge_pinklist();
+         /* done */
+         Ininit = 0;
+         return VEOK;
+      }
+      pdebug("quorum sync incomplete, drop %s...", np->id);
+      /* drop node ip from Scanned and Quorum lists */
+      if (Splist) remove32(np->ip, Splist, Splistlen, &Splistidx);
+      if (Qplist) remove32(np->ip, Qplist, Qplistlen, &Qplistidx);
+      /* (soft) pinklist during init */
+      pinklist(np->ip);
+   }  /* end if (np) */
+
+   /* pull next node from quorum */
+   if (Qplistidx) {
+      /* shuffle Quorum peer list */
+      /* shuffle32(Qplist, Qplistlen); */
+      /* build OP_TF bnum parameter for synchronization */
+      bnum[0] = get32(Qbnum);
+      bnum[1] = (bnum[0] < 1000) ? bnum[0] + 1 : 1000;
+      bnum[0] -= (bnum[0] < 1000) ? bnum[0] : (1000 - 1);
+      /* request OP_TF from next quorum member (consumed) */
+      plog("Synchronizing with %s...", ntoa(Qplist, ipstr));
+      return mcmd__request(Qplist[0], OP_TF, bnum, 1);
+   }
+   /* if no node in quorum, trigger network (re)scan */
+   if (Splistidx) return mcmd__scan(Splist, Splistlen);
+
+   /* restart network scan initialization */
+   return mcmd__scaninit();
+}  /* end mcmd__syncnext() */
+
+int mcmd_check_block(NODE *np)
+{
+   BTRAILER bt;
+   int result;
+   const char *filename;
+
+   /* check NODE parmater... */
+   if (np) {
+      /* ensure NODE operation was successful */
+      if (np->status != VEOK) {
+         pdebug("block download FAILURE");
+         return mcmd__syncnext(np);
+      }
+      /* ensure received block number is as requested */
+      result = read_bnum_fp(bt.bnum, np->fp);
+      if (result != 0) {
+         perrno_fatal("read block number FAILURE");
+         return result;
+      }
+      if (cmp64(np->io, bt.bnum)) {
+         np->status = VEBAD;
+         pdebug("block number mismatch");
+         return mcmd__syncnext(np);
+      }
+      /* validate block file data before saving */
+      np->status = validate_block_fp(np->fp, "tfile.dat");
+      if (np->status != VEOK) {
+         perrno("block validation FAILURE");
+         return mcmd__syncnext(np);
+      }
+      /* save block data to file */
+      filename = "block.dat";
+      result = fsave(np->fp, filename);
+      if (result != 0) {
+         perrno_fatal("file save FAILURE");
+         return result;
+      }
+      /* close temporary file */
+      fclose(np->fp);
+      np->fp = NULL;
+   } else {
+      /* generate and validate a pseudoblock for update */
+      filename = "pseudo.dat";
+      result = generate_pseudo(filename, "tfile.dat");
+      if (result != VEOK) {
+         perrno_fatal("pseudo generation FAILURE");
+         return result;
+      }
+      result = validate_pseudo(filename, "tfile.dat");
+      if (result != VEOK) {
+         perrno_fatal("pseudo validation FAILURE");
+         return result;
+      }
+   }  /* end if (np)... else... */
+
+   /* acquire (exclusive) update lock for update operation */
+   if (rwlock_wrlock(&UpdateLock) != 0) {
+      perrno_fatal("UpdateLock LOCK FAILURE");
+      return VERROR;
+   }
+   /* perform the block update */
+   result = block_update(filename);
+   if (result != VEOK) {
+      perrno_fatal("blockchain update FAILURE");
+      if (rwlock_wrunlock(&UpdateLock) != 0) {
+         perrno_fatal("inner UpdateLock UNLOCK FAILURE");
+      }
+      return result;
+   }
+   /* release (exclusive) update lock */
+   if (rwlock_wrunlock(&UpdateLock) != 0) {
+      perrno_fatal("UpdateLock UNLOCK FAILURE");
+      return VERROR;
+   }
+
+   /* print block trailer information */
+   if (read_trailer(&bt, filename) == VEOK) {
+      ptrailer(&bt);
+   }
+
+   /* archive blockchain file and return final result */
+   result = archive_block(filename, Bcdir_opt);
+   if (result != VEOK) {
+      perrno_fatal("blockchain archive FAILURE");
+      return result;
+   }
+
+   /* VEOK, sync next */
+   return mcmd__syncnext(np);
+}  /* end mcmd_check_block() */
+
+/* simple proxy function for OP_FOUND broadcast checking */
+int mcmd_check_broadcast(NODE *np)
+{
+   return mcmd__sendfound(np);
+}
+
+int mcmd_check_peers(NODE *np)
+{
+   void *ptr;
+   word32 *plist, plistlen, i;
+   int result;
    char hexstr[65];
    char bnumstr[17];
 
-#undef FnMSG
-#define FnMSG(x) "mcmd__syncup(%s, %"P16u"): " x, np->id, np->opcode
+   /* log resulting node data */
+   pdebug("%s returned %s 0x%s 0x%s", np->id, ve2str(np->status),
+      bnum2hex(np->pkt.cblock, bnumstr), weight2hex(np->pkt.weight, hexstr));
+
+   /* decrement scanning */
+   Scanning--;
+   /* check success of request */
+   if (np->status == VEOK) {
+      /* compare NODE weight against Quorum */
+      result = cmp256(Qweight, np->pkt.weight);
+      if (result < 0) {
+         /* set quorum to higher advertised chain */
+         if (Qplist) memset(Qplist, 0, sizeof(word32) * Qplistlen);
+         memcpy(Qbhash, np->pkt.cblockhash, 32);
+         memcpy(Qweight, np->pkt.weight, 32);
+         put64(Qbnum, np->pkt.cblock);
+         Qplistidx = 0;
+      }
+      /* compare block hash on same or higher advertised chain */
+      if (result <= 0 && memcmp(Qbhash, np->pkt.cblockhash, HASHLEN) == 0) {
+         /* ensure available space in Qplist */
+         if (Qplistidx >= Qplistlen) {
+            ptr = realloc(Qplist, sizeof(word32) * (Qplistlen + 32));
+            if (ptr == NULL) {
+               perrno_fatal("quorum list increase FAILURE");
+               return VERROR;
+            }
+            /* update Quorum peer list */
+            Qplist = ptr;
+            memset(&Qplist[Qplistlen], 0, sizeof(word32) * 32);
+            Qplistlen = Qplistlen + 32;
+         }
+         /* add peer to Quorum list if not already */
+         Qplist[Qplistidx++] = np->ip;
+      }  /* end for () */
+      /* process provided peer list */
+      plist = (word32 *) PKTBUFF(&np->pkt);
+      plistlen = (word32) get16(np->pkt.len) / sizeof(word32);
+      /* limit list length to size of packet (just in case) */
+      if (plistlen > PKTBUFFLEN) {
+         plistlen = (word32) PKTBUFFLEN / sizeof(word32);
+      }
+      /* perform scan on additional peers */
+      mcmd__scan(plist, plistlen);
+   }  /* end if (np->status == VEOK) */
+
+   /* wait for all "scanning" requests */
+   pdebug("waiting for %d requests...", Scanning);
+   if (Scanning) return VEOK;
+
+   /* check quorum requirements */
+   if (Qplistidx == 0) {
+      plog("No higher chain available");
+      return VEOK;
+   } else if (Qplistidx < (word32) Quorum_opt) {
+      bnum2hex(Qbnum, bnumstr);
+      weight2hex(Qweight, hexstr);
+      pdebug("Quorum chain data 0x%s / 0x%s", bnumstr, hexstr);
+      plog("Insufficient Quorum: %u / %d", Qplistidx, Quorum_opt);
+      /* remove quorum peers from scanned peers list */
+      for (i = 0; i < Qplistidx; i++) {
+         remove32(Qplist[i], Splist, Splistlen, &Splistidx);
+      }
+      /* clear quorum peers list */
+      memset(Qplist, 0, sizeof(word32) * Qplistlen);
+      Qplistidx = 0;
+      /* perform rescan on scan list peers */
+      plog("(re)Scanning network...");
+      return mcmd__scan(Splist, Splistlen);
+   }
+
+   /* done, begin sync with quorum */
+   return mcmd__syncnext(NULL);
+}  /* end mcmd_check_peers() */
+
+int mcmd_check_proof(NODE *np)
+{
+   Thread *thrdp;
+   BTRAILER bt, cmpbt;
+   word8 weight[32], cmpweight[32];
+   word8 bnum[8], cmpbnum[8];
+   int partial, core_count, i;
+   int result, code;
+   char hexstr[65], bnumstr[17];
 
    /* init */
-   ecode = VERROR;
-   plistlen = 0;
-   plist = NULL;
+   partial = 0;
+   memset(weight, 0, 32);
+   if (np->opcode == OP_SEND_FILE) {
+      code = np->opreq;
+   } else code = np->opcode;
 
-   /* ORDER OF OPERATIONS:
-    * - is np NULL? syncup initialization trigger
-    * - is OP_GET_IPL? process OP_GET_IPL request (any status)
-    * - is status VEOK? check blockchain synchronization stage
-    * - is (any) opreq? DROP peer during init
-    */
+   /* determine appropriate action... */
+   switch (code) {
+      case OP_FOUND: {
+         pdebug("%s prepare proof...", op2str(code));
+         /* perform prepare proof...
+          * - is advertised weight sufficient?
+          * - prepare proof in temporary file pointer */
 
-   if (np == NULL) {
-      /* initialize network scan */
-      plog("Scanning network...");
-      plistlen = RPLISTLEN;
-      plist = Rplist;
-      goto SCAN_PEERS;
-   } else if (np->opreq == OP_GET_IPL) {
-      /*******************************/
-      /* PEERLIST REQUEST PROCESSING */
-      requests--;
-      /* check success of connection */
-      if (np->status == VEOK) {
-         if (quorum_update(&quorum, np)) network_found = 1;
-         /* process IP List on first scan */
-         if (first_scan) {
-            plist = (word32 *) PKTBUFF(&np->pkt);
-            plistlen = (word32) get16(np->pkt.len) / sizeof(word32);
-            /* limit list length to size of packet (just in case) */
-            if (plistlen > PKTBUFFLEN) {
-               plistlen = (word32) PKTBUFFLEN / sizeof(word32);
-            }
-         }
-      }  /* end if (np->status == VEOK) */
-      /* log found Node */
-      bnum2hex(np->pkt.cblock, bnumstr);
-      weight2hex(np->pkt.weight, hexstr);
-      pfine(FnMSG("%s 0x%s 0x%s -- %d remaining"),
-         np->id, bnumstr, hexstr, requests);
-SCAN_PEERS:
-      /* "recent" peers list requires read lock */
-      if (plist == Rplist) {
-         on_ecode_goto_perrno( rwlock_rdlock(&RplistLock),
-            FATAL, FnMSG("RplistLock LOCK FAILURE"));
-      }
-      /* request OP_GET_IPL on peerlist members */
-      for (u = 0; u < plistlen && plist[u]; u++) {
-         ip = plist[u];
-         if (quorum_addpeer(&scan, ip)) {
-            if (mcmd__create_request(ip, OP_GET_IPL, NULL) == VEOK) {
-               requests++;
-            }
-         }  /* end if (quorum_addpeer... */
-      }  /* end for (u = 0; u < plistlen... */
-      /* "recent" peers list requires read unlock */
-      if (plist == Rplist) {
-         on_ecode_goto_perrno( rwlock_rdunlock(&RplistLock),
-            FATAL, FnMSG("RplistLock UNLOCK FAILURE"));
-      }   /* wait for OP_GET_IPL requests to finish */
-      /* wait for all async requests */
-      if (requests) return VEOK;
-      /* report highchain */
-      bnum2hex(quorum.bnum, bnumstr);
-      weight2hex(quorum.weight, hexstr);
-      plog("Quorum members: %d / %d", quorum.idx, Quorum_opt);
-      plog("Quorum chain: 0x%s / 0x%s", bnumstr, hexstr);
-      /* check quorum requirements */
-      if (quorum.idx == 0) {
-         plog("No higher chain available");
-         if (first_scan && !network_found) {
-            pwarn("NETWORK NOT FOUND!");
-            plog("Please check network configuration...");
-         }
-      } else if (quorum.idx < Quorum_opt) {
-         /* remove quorum peers from scan list and clear quorum list */
-         for (u = 0; u < quorum.idx; u++) {
-            quorum_drop(&scan, quorum.list[u]);
-         }
-         quorum_cleanup(&quorum);
-         plog("(re)Scanning network...");
-         /* perform rescan on scan list peers */
-         for (first_scan = 0, u = 0; u < scan.idx; u++) {
-            ip = scan.list[u];
-            if (mcmd__create_request(ip, OP_GET_IPL, NULL) == VEOK) {
-               requests++;
-            }
-         }
-      } else {
-         /* build OP_TF bnum parameter */
-         bnum[0] = get32(quorum.bnum);
-         bnum[1] = (bnum[0] < 1000) ? bnum[0] + 1 : 1000;
-         bnum[0] -= (bnum[0] < 1000) ? bnum[0] : (1000 - 1);
-         /* request OP_TF from quorum members */
-         plog("Synchronizing with %s...", ntoa(quorum.list, bnumstr));
-         return mcmd__create_request(quorum.list[0], OP_TF, bnum);
-      }
-   } else if (np->status == VEOK) {
-      /*************************************/
-      /* TFILE/PROOF VALIDATION PROCESSING */
-      memset(weight, 0, 32);
-      if (np->opcode == OP_FOUND) {
-         if (Ininit) return pdebug(FnMSG("Ignoring OP_FOUND during init"));
-         pdebug(FnMSG("checking OP_FOUND broadcast..."));
          /* check advertised weight */
          if (cmp256(np->pkt.weight, Weight) <= 0) {
+            np->status = VERROR;
             weight2hex(np->pkt.weight, hexstr);
-            pfine(FnMSG("insufficient weight, 0x%s"), hexstr);
-            goto FAIL;
+            pdebug("insufficient weight, 0x%s", hexstr);
+            return mcmd__syncnext(np);
          }
-         /* move packet data to tmpfile() */
+         /* move tfile data to tmpfile() */
          np->fp = tmpfile();
-         if (np->fp == NULL) goto_perrno(FAIL, FnMSG("tmpfile() FAILURE"));
-         if (fwrite(np->pkt.buffer, sizeof(BTRAILER), 54, np->fp) != 54) {
-            goto_perrno(FAIL, FnMSG("fwrite(tmpfile) FAILURE"));
+         if (np->fp == NULL) {
+            np->status = VERROR;
+            perrno("temporary file creation FAILURE");
+            return mcmd__syncnext(np);
          }
-         /* jump to next section */
-         goto TF;
-      }  /* end if (np->opcode == OP_FOUND) */
-      if (np->opreq == OP_TF) {
-         pdebug(FnMSG("checking OP_TF response..."));
-TF:      /* perform partial chain analysis checks
+         result = fwrite(np->pkt.buffer, sizeof(BTRAILER), 54, np->fp);
+         if (result != 54) {
+            np->status = VERROR;
+            perrno_fatal("temporary file write FAILURE");
+            return result;
+         }
+      }  /* fallthrough -- end case OP_FOUND */
+      case OP_TF: {
+         pdebug("%s proof analysis...", op2str(code));
+         /* perform proof analysis...
           * - is there a gap between our chain and the proof?
           * - is there a chain split preceeding the proof?
           * - is resync required to synchronize to the proof? */
+
+         /* read initial trailer in proof */
          rewind(np->fp);
-         if (fread(&bt, sizeof(bt), 1, np->fp) != 1) {
-            if (feof(np->fp)) set_errno(EMCM_EOF);
-            goto_perrno(FATAL, FnMSG("fread(bt) FAILURE"));
-         } else if (read_tfile(&tbt, bt.bnum, 1, "tfile.dat") != 1) {
-            /* cannot accept out of range "proof" outside of Ininit */
-            if (!Ininit) {
-               pfine(FnMSG("Ignoring proof out of range"));
-               goto FAIL;
-            }
-            /* request the bigger picture (OP_GET_TFILE)... */
-            pfine(FnMSG("Chain gap preceeding proof, request Tfile..."));
-            return mcmd__create_request(np->ip, OP_GET_TFILE, NULL);
-         } else if (memcmp(&tbt, &bt, sizeof(bt)) != 0) {
-            /* cannot accept out of range "proof split" outside of Ininit */
-            if (!Ininit) {
-               pfine(FnMSG("Ignoring proof split out of range"));
-               goto FAIL;
-            }
-            /* request the bigger picture (OP_GET_TFILE)... */
-            pfine(FnMSG("Chain split preceeding proof, request Tfile..."));
-            return mcmd__create_request(np->ip, OP_GET_TFILE, NULL);
-         } else if (weigh_tfile("tfile.dat", bt.bnum, weight) != VEOK) {
-            goto_perrno(FATAL, FnMSG("weigh_tfile(bt.bnum) FAILURE"));
+         result = fread(&bt, sizeof(bt), 1, np->fp);
+         if (result != 1) {
+            if (feof(np->fp)) {
+               set_errno(EMCM_EOF);
+            }  /* file error */
+            np->status = VERROR;
+            perrno("read trailer proof FAILURE");
+            return mcmd__syncnext(np);
          }
+         /* read our trailer file at the same block number */
+         result = read_tfile(&cmpbt, bt.bnum, 1, "tfile.dat");
+         if (result != 1) {
+            np->status = VERROR;
+            pdebug("chain gap preceeding proof...");
+            /* fail on out-of-range "proof" during init */
+            if (!Ininit) {
+               pdebug("cannot accept chain gap out-of-range");
+               return mcmd__syncnext(np);
+            }
+            /* request a bigger picture (OP_GET_TFILE)... */
+            return mcmd__request(np->ip, OP_GET_TFILE, NULL, 1);
+         }
+         /* compare our trailer file with initial proof trailer */
+         if (memcmp(&cmpbt, &bt, sizeof(bt)) != 0) {
+            np->status = VERROR;
+            pdebug("chain split preceeding proof...");
+            /* fail on out-of-range "proof split" during init */
+            if (!Ininit) {
+               pdebug("cannot accept chain split out-of-range");
+               return mcmd__syncnext(np);
+            }
+            /* request the bigger picture (OP_GET_TFILE)... */
+            return mcmd__request(np->ip, OP_GET_TFILE, NULL, 1);
+         }
+         /* pre-calculate weight up-to proof */
+         result = weigh_tfile("tfile.dat", bt.bnum, weight);
+         if (result != VEOK) {
+            perrno_fatal("proof weight calculation FAILURE");
+            return result;
+         }
+         /* flag tfile proof type as "partial" */
          partial = 1;
-         /* jump to next section */
-         goto TFILE;
-      }  /* end if (np->opreq == OP_TF) */
-      if (np->opreq == OP_GET_TFILE) {
-         partial = 0;
-TFILE:   /* validate partial Tfile in file pointer */
-         pdebug(FnMSG("validating Tfile data..."));
-         on_ecode_goto_perrno(
-            validate_tfile_fp(np->fp, bnum, weight, partial),
-            DROP, FnMSG("(partial) Tfile validation FAILURE"));
-         /* check Tfile bnum/weight against Quorum (or self) */
-         if (cmp64(bnum, quorum.bnum) < 0) {
-            pdebug(FnMSG("Tfile 0x%s"), bnum2hex(bnum, bnumstr));
-            pdebug(FnMSG("Quorum 0x%s"), bnum2hex(quorum.bnum, bnumstr));
-            goto_perr(DROP, FnMSG("tfile bnum less than advertised"));
-         } else if (cmp256(weight, quorum.weight) < 0) {
-            pdebug(FnMSG("Tfile 0x%s"), weight2hex(weight, hexstr));
-            pdebug(FnMSG("Quorum 0x%s"), weight2hex(quorum.weight, hexstr));
-            goto_perr(DROP, FnMSG("tfile weight less than advertised"));
+      }  /* fallthrough -- end case OP_TF */
+      case OP_GET_TFILE: {
+         pdebug("%s proof validation...", op2str(code));
+         /* perform proof validation...
+          * - validate proof as a tfile (partial or otherwise)
+          * - is there a gap between our chain and the proof?
+          * - is there a chain split preceeding the proof?
+          * - is resync required to synchronize to the proof? */
+
+         np->status = validate_tfile_fp(np->fp, bnum, weight, partial);
+         if (np->status != VEOK) {
+            perrno("proof validation FAILURE");
+            return mcmd__syncnext(np);
          }
-         if (Ininit) plog("Validating PoW (can take some time)...");
+         /* check proof bnum against Quorum (or self) */
+         put64(cmpbnum, Qplistidx ? Qbnum : Cblocknum);
+         if (cmp64(bnum, cmpbnum) < 0) {
+            np->status = VEBAD;
+            pdebug("proof bnum less than advertised");
+            pdebug("- proof 0x%s", bnum2hex(bnum, bnumstr));
+            pdebug("- quorum 0x%s", bnum2hex(cmpbnum, bnumstr));
+            return mcmd__syncnext(np);
+         }
+         /* check proof weight against Quorum (or self) */
+         memcpy(cmpweight, Qplistidx ? Qweight : Weight, 32);
+         if (cmp256(weight, cmpweight) < 0) {
+            np->status = VEBAD;
+            pdebug("proof weight less than advertised");
+            pdebug("- proof 0x%s", weight2hex(weight, hexstr));
+            pdebug("- quorum 0x%s", weight2hex(cmpweight, hexstr));
+            return mcmd__syncnext(np);
+         }
+         /* estimate time of validation for OP_GET_TFILE */
+         core_count = cpu_cores();
+         if (code == OP_GET_TFILE) {
+            long long eta = 0;
+            put64(&eta, bnum);
+            eta = ((eta >> 8) / core_count) / 60;
+            if (eta <= 1) plog("Validating PoW (may take a minute)...");
+            else plog("Validating PoW (may take %lld minutes)...", eta);
+         }
          /* rewind file pointer and create threads for PoW validation */
-         thrdp = malloc(cpu_cores() * sizeof(*thrdp));
-         if (thrdp == NULL) perrno(FnMSG("malloc(threads) FAILURE"));
-         for (rewind(np->fp), count = cpu_cores(), i = 0; i < count; i++) {
-            if (thread_create(&thrdp[i], dist__pow_val, np) != 0) {
-               perrno(FnMSG("thread_create() FAILURE"));
+         thrdp = malloc(core_count * sizeof(*thrdp));
+         if (thrdp == NULL) perrno("malloc(threads) FAILURE");
+         for (rewind(np->fp), i = 0; i < core_count; i++) {
+            if (thread_create(&thrdp[i], mcmd__pow_val, np) != 0) {
+               perrno("thread_create() FAILURE");
                pwarn("PoW validation may be slower than usual");
-               count = i;
+               core_count = i;
                break;
             }
          }
          /* if no threads were created, provide fallback method */
-         if (count == 0) {
-            pwarn("Single thread Trailer PoW validation (SLOW)");
-            dist__pow_val(np);
+         if (core_count == 0) {
+            pwarn("using (SLOW) fallback PoW validation");
+            mcmd__pow_val(np);
          }
          /* wait for threads to finish */
-         for (i = 0; i < count; i++) {
+         for (i = 0; i < core_count; i++) {
             if (thread_join(thrdp[i]) != 0) {
-               perrno(FnMSG("thread_join(%d) FAILURE"), i);
+               perrno("thread_join(%d) FAILURE", i);
             }
          }
          /* cleanup thread malloc */
          if (thrdp) free(thrdp);
-         /* check PoW is VEOK and RESYNC */
-         if (np->status == VEOK) {
-            if (mcmd__resync(np) != VEOK) goto DROP;
-         } else goto_perr(DROP, FnMSG("dist__pow_val() FAILURE"));
-      }
-      /****************************/
-      /* BLOCK REQUEST PROCESSING */
-      if (np->opreq == OP_GET_BLOCK) {
-         bnum2hex(np->io, hexstr);
-         /* ensure received block number is as requested */
-         pfine(FnMSG("validating 0x%s..."), hexstr);
-         if (fseek64(np->fp, -(sizeof(bt)), SEEK_END) != 0) {
-            goto_perrno(DROP, FnMSG("fseek() FAILURE"));
-         } else if (fread(&bt, sizeof(bt), 1, np->fp) != 1) {
-            if (feof(np->fp)) set_errno(EMCM_EOF);
-            goto_perrno(DROP, FnMSG("fread() FAILURE"));
-         } else if (cmp64(np->io, bt.bnum)) {
-            goto_perr(DROP, FnMSG("Block number mismatch"));
+         if (!Running) return VERROR;
+         /* check result of PoW validation */
+         if (np->status != VEOK) {
+            perr("PoW validation FAILURE");
+            return mcmd__syncnext(np);
          }
-         /* perform validation of block data */
-         on_ecode_goto_perrno( validate_block_fp(np->fp, "tfile.dat"),
-            DROP, FnMSG("validate_block() FAILURE"));
-         /* save block data to file */
-         on_ecode_goto_perrno( fsave(np->fp, "block.dat"),
-            FATAL, FnMSG("fsave(tf) FAILURE"));
-         /* close temporary file */
-         fclose(np->fp);
-         np->fp = NULL;
-         /* update validated blockchain file */
-         pfine(FnMSG("processing 0x%s..."), hexstr);
-         on_ecode_goto_perrno( update_block("block.dat"),
-            DROP, FnMSG("update_block(block.dat) FAILURE"));
-         /* archive blockchain file */
-         on_ecode_goto_perrno( archive_block("block.dat"),
-            FATAL, FnMSG("archive_block() FAILURE"));
-         /* trigger send_found update */
-         if (!Ininit) mcmd__send_found(NULL);
-         /* print block information */
-         ptrailer(&bt);
-         /* get next block number */
-         add64(Cblocknum, one, bnum);
-         return mcmd__create_request(np->ip, OP_GET_BLOCK, bnum);
-      }  /* end if (np->opreq == OP_GET_BLOCK) */
-   } else if (np->opreq) {
-DROP: np->status = ecode;
-      if (Ininit) {
-         if (cmp64(Cblocknum, quorum.bnum) >= 0) {
-            plog("\n\nVeronica says, \"You're done!\"\n");
-            /* trigger OP_FOUND broadcast -- cleanup */
-            mcmd__send_found(NULL);
-            quorum_cleanup(&quorum);
-            quorum_cleanup(&scan);
-            Ininit = 0;
-         } else {
-            plog("Dropping %s...", np->id);
-            remove32(np->ip, quorum.list, quorum.len, &(quorum.idx));
-            remove32(np->ip, scan.list, scan.len, &(scan.idx));
+
+         /* PROOF IS VALID */
+
+         /* ensure chain is synchronized to NODE's chain data */
+         pdebug("synchronizing available blockchain...");
+         np->status = block_syncup_fp(np->fp, bnum);
+         if (np->status != VEOK) {
+            perrno("blockchain syncup FAILURE");
+            return mcmd__syncnext(np);
          }
-      }
-   }
 
-   /* hmmm... */
-   return VERROR;
+         /* request next block (download) */
+         return mcmd__request(np->ip, OP_GET_BLOCK, bnum, 1);
+      }  /* end case OP_GET_TFILE */
+   }  /* end switch (code) */
 
-FATAL:
-   Running = 0;
-FAIL:
+   /* unknown operation */
+   np->status = VERROR;
    return VERROR;
-}  /* end mcmd__syncup() */
+}  /* end mcmd_check_proof() */
 
 /**
  * @brief Validate and process incoming transactions
@@ -662,160 +885,186 @@ FAIL:
  * @param np Pointer to NODE containing incoming transaction
  * @return (int) value representing the operation result
  */
-int mcmd__transaction(NODE *np)
+int mcmd_check_tx(NODE *np)
 {
    static word32 one[2] = { 1 };
 
    TXW txw;
-   FILE *fp;
-   char *txfile;
    word32 bnum[2];
 
-#undef FnMSG
-#define FnMSG(x) "mcmd__transaction(%s): " x, np->id
-
-   /* ignore transactions during initialization */
-   if (Ininit) return pdebug(FnMSG("Ignoring OP_TX during init"));
-
    /* check status of receive */
-   if (np && np->status == VEOK) {
-      txfile = NULL;
+   if (np->status == VEOK) {
+      /* generate transaction ID *//*
+      sha256(np->pkt.buffer, sizeof(txw) - HASHLEN, txw.tx_id);*/
+      /* check/add recent transactions by ID *//*
+      if (hashset_contains(&RecentTxs, &txw.tx_id)) {
+         return (np->status = VERROR);
+      } else if (hashset_add(&RecentTxs, &(txw.tx_id), HASHLEN) != 0) {
+         perrno("hashset_add(recent) FAILURE");
+         return (np->status = VERROR);
+      }*/
       /* copy transaction to local buffer */
-      memcpy(&txw, np->pkt.buffer, sizeof(txw));
+      memcpy(&txw, np->pkt.buffer, sizeof(txw) - HASHLEN);
       /* validate transaction */
       np->status = txw_val(&txw, Myfee);
-      /* VEBAD or VEBAD2; discard (always) invalid transactions */
       if (np->status == VEOK) {
-         pfine(FnMSG("is valid -> send to txclean.dat"));
-         txfile = "txclean.dat";
+         pdebug("transaction is valid, store...");
+         /* mirror transaction to network */
+         return mcmd__mirrortx(np);
       } else if (np->status == VERROR) {
-         pfine(FnMSG("is invalid..."));
+         pdebug("transaction validation error, check chain...");
          /* transaction is invalid, discard unless behind one block */
-         add64(Cblocknum, one, bnum);
-         if (cmp64(np->pkt.cblock, bnum) == 0) {
-            /* build OP_TF bnum parameter */
+         if (cmp64(np->pkt.cblock, Cblocknum) > 0) {
+            /* hold transaction for update */
+            pdebug("chain is behind, request proof...");
+            /* build OP_TF bnum parameter (immitate OP_FOUND) */
+            add64(Cblocknum, one, bnum);
             bnum[1] = (bnum[0] < 54) ? bnum[0] + 1 : 54;
             bnum[0] -= (bnum[0] < 54) ? bnum[0] : (54 - 1);
-            /* request OP_FOUND-like request with OP_TF */
-            pfine(FnMSG("triggered OP_TF proof request..."));
-            mcmd__create_request(np->ip, OP_TF, bnum);
-            /* hold transaction for update */
-            pfine(FnMSG("holding transaction..."));
-            txfile = "txhold.dat";
-         }
-      } else pfine(FnMSG("is invalid!"));
-      /* store transaction in appropriate file, or discard */
-      if (txfile) {
-         fp = fopen(txfile, "ab");
-         if (fp == NULL) return perrno(FnMSG("fopen(%s) FAILURE"), txfile);
-         sha256(&txw, sizeof(txw) - HASHLEN, txw.tx_id);
-         if (fwrite(&txw, sizeof(txw), 1, fp) != 1) {
-            perrno(FnMSG("fwrite(%s) FAILURE"), txfile);
-         }
-         fclose(fp);
-      }
-   }  /* end if (np && np->status == VEOK) */
+            /* request OP_TF (immitate OP_FOUND) */
+            return mcmd__request(np->ip, OP_TF, bnum, 0);
+         } else pdebug("no chain updates, discard...");
+      } else perrno("transaction is BAD, pinklist...");
+   }  /* end if (np->status == VEOK) */
 
    return np->status;
-}  /* end mcmd__transaction() */
+}  /* end mcmd_check_tx() */
 
-static void mcmd__worker_process(LinkedNode *lnp)
+int mcmd_worker_sync(LinkedNode *lnp)
 {
-   NODE *np;
-
-#undef FnMSG
-#define FnMSG(x)  "mcmd__worker_process(%x): " x, thread_selfid()
-
-   /* dereference and process NODE data */
-   np = (NODE *) lnp->data;
-   switch (np->opreq) {
-      /* process "request" operations */
-      case OP_FOUND: mcmd__send_found(np); break;
-      case OP_GET_BLOCK: mcmd__syncup(np); break;
-      case OP_GET_IPL: mcmd__syncup(np); break;
-      case OP_GET_TFILE: mcmd__syncup(np); break;
-      case OP_TF: mcmd__syncup(np); break;
-      default: switch (np->opcode) {
-         case OP_TX: mcmd__transaction(np); break;
-         case OP_FOUND: mcmd__syncup(np); break;
-         /* process "receive" (incoming) operations */
-         default: {
-            pdebug(FnMSG("Unhandled opcode= %s (%u)"),
-               op2str(np->opcode), np->opcode);
-            break;
-         }
-      }
-   }
-   /* check naughty peers -- pinklist */
-   if (np->status == VEBAD2 || np->status == VEBAD) {
-      if (np->status == VEBAD2) epinklist(np->ip);
-      pinklist(np->ip);
-   }
-   /* cleanup resources */
-   mcmd__cleanup_node(lnp);
-}  /* end mcmd__worker_process() */
-
-static void mcmd__worker_sync(LinkedNode *lnp)
-{
-   static Mutex syncupLock = MUTEX_INITIALIZER;
-   static WorkList syncupIO = { 0 };
+   static Mutex syncLock = MUTEX_INITIALIZER;
+   static Mutex syncIOLock = MUTEX_INITIALIZER;
+   static LinkedList syncIO = { 0 };
 
    LinkedNode *next_lnp;
-   int ecode;
+   NODE *np;
+   time_t now;
+   int result;
 
-#undef FnMSG
-#define FnMSG(x)  "mcmd__worker_sync(%x): " x, thread_selfid()
+   /* acquire (exclusive) syncIO lock */
+   result = mutex_lock(&syncIOLock);
+   if (result != 0) {
+      perrno_fatal("syncIO LOCK FAILURE");
+      return VERROR;
+   }
 
-   /* place syncup work in syncupIO list */
-   lock_on_ecode_goto_perrno( syncupIO.lock, FATAL, {
-      on_ecode_goto_perrno( link_node_append(lnp, &(syncupIO.list)),
-         SYNCUPIO_LOCKED, FnMSG("link_node_append() FAILURE"));
-      /* try acquire syncupLock */
-      trylock_on_ecode_goto_perrno( syncupLock, SYNCUPIO_LOCKED, {
-         thread_setname(thread_self(), "mcmd-sync");
-         /* check next syncupIO */
-         for (lnp = syncupIO.list.next; Running && lnp; lnp = next_lnp) {
-            next_lnp = lnp->next;
-            /* skip sync tasks while waiting for Syncwait */
-            if (Syncwait && Syncwait != lnp->data) continue;
-            /* reset Syncwait */
-            Syncwait = NULL;
-            /* remove syncupIO node -- release lock */
-            on_ecode_goto_perrno(
-               link_node_remove(lnp, &(syncupIO.list)),
-               FATAL, FnMSG("LIST FAILURE"));
-            on_ecode_goto_perrno(
-               mutex_unlock(&(syncupIO.lock)),
-               FATAL, FnMSG("UNLOCK FAILURE"))
-            /* process data -- cleanup occurs in function */
-            mcmd__worker_process(lnp);
-            /* (re)acquire SyncupIO Lock */
-            on_ecode_goto_perrno(
-               mutex_lock(&(syncupIO.lock)),
-               FATAL, FnMSG("LOCK FAILURE"));
-            /* restart list processing */
-            next_lnp = syncupIO.list.next;
-         }  /* while (Running && ... */
-         thread_setname(thread_self(), "mcmd-async");
-      });  /* end trylock_on_ecode... */
-   });  /* end lock_on_ecode...*/
+   /* append any work to syncIO */
+   if (lnp && lnp->data) {
+      result = link_node_append(lnp, &syncIO);
+      if (result != 0) {
+         perrno_fatal("syncIO append FAILURE");
+         if (mutex_unlock(&syncIOLock) != 0) {
+            perrno_fatal("inner syncIO UNLOCK FAILURE");
+         }
+         return VERROR;
+      }
+   }
 
-SYNCUPIO_LOCKED:
-   /* try release locked mutex */
-   on_ecode_goto_perrno(
-      mutex_unlock(&(syncupIO.lock)), FATAL, FnMSG("UNLOCK FAILURE"));
+   /* TRY acquire (exclusive) sync lock */
+   result = mutex_trylock(&syncLock);
+   if (result != 0) {
+      if (errno != EBUSY) {
+         perrno_fatal("sync TRYLOCK FAILURE");
+      }
+      /* release (exclusive) syncIO lock */
+      if (mutex_unlock(&syncIOLock) != 0) {
+         perrno_fatal("syncIO UNLOCK FAILURE");
+      }
+      return VERROR;
+   }
 
-   return;
+   /* THREAD IS NOW PROCESSING SYNCHRONOUS TASKS */
+   thread_setname(thread_self(), "mcmd-sync");
 
-FATAL:
-   Running = 0;
-}  /* end mcmd__worker_sync() */
+   /* walk syncIO list for processing */
+   for (lnp = syncIO.next; lnp && Running; lnp = next_lnp) {
+      /* store next node in list and check Syncwait */
+      next_lnp = lnp->next;
+      if (Syncwait && Syncwait != lnp->data) continue;
+      /* remove syncIO node from list */
+      result = link_node_remove(lnp, &syncIO);
+      if (result != 0) {
+         perrno_fatal("syncIO LIST FAILURE");
+         break;
+      }
+      /* (re)release (exclusive) syncIO lock */
+      result = mutex_unlock(&syncIOLock);
+      if (result != 0) {
+         perrno_fatal("syncIO (re)UNLOCK FAILURE");
+         break;
+      }
+      /* nullify Syncwait and process NODE */
+      Syncwait = NULL;
+      np = (NODE *) lnp->data;
+      /* determine method of synchronous processing */
+      switch (np->opreq) {
+         case OP_GET_BLOCK: mcmd_check_block(np); break;
+         case OP_GET_IPL: mcmd_check_peers(np); break;
+         case OP_GET_TFILE: mcmd_check_proof(np); break;
+         case OP_TF: mcmd_check_proof(np); break;
+         /* case OP_NULL: */
+         default: {
+            /* NOTE: some incoming requests are ignored during init */
+            if (np->opcode == OP_FOUND) {
+               if (!Ininit) mcmd_check_proof(np);
+               else pdebug("ignore OP_FOUND broadcast during init");
+            } else if (np->opreq == OP_NULL) {
+               pdebug("unhandled opcode %s...", op2str(np->opcode));
+            } else perr("unhandled opreq %s...", op2str(np->opreq));
+         }
+      }  /* end switch (np->opreq) */
+      /* cleanup node resources */
+      mcmd__cleanup(lnp);
+      /* (re)acquire (exclusive) SyncIO Lock */
+      result = mutex_lock(&syncIOLock);
+      if (result != 0) {
+         perrno_fatal("syncIO (re)LOCK FAILURE");
+         break;
+      }
+   }  /* end for (lnp... */
 
-/**
- * @private
- */
-static ThreadProc mcmd__worker(void *arg)
+   /* periodic synchronous tasks, after sync... */
+   if (!Ininit && !Syncwait) {
+      time(&now);
+      /* check pseudoblock trigger time */
+      if (Running && Ptime && difftime(Ptime, now) <= 0) {
+         /* trigger pseudoblock update */
+         result = mcmd_check_block(NULL);
+         if (result == VEOK && Cblocknum[0] == 0xff) {
+            /* if a pseudoblock occurs on 0x..ff, we cannot generate
+            * an appropriate WOTS+ neogenesis block; RESYNC(init)... */
+            save_ipl(Recentip_opt, Rplist, RPLISTLEN);
+            mcmd__scaninit();  /* restarts initial sync */
+         } else perrno_fatal("pseudoblock trigger FAILURE");
+      }
+      /* for additional checks do: */
+      /* ... if (Running &&... */
+   }
+
+   /* release (exclusive) sync lock */
+   result = mutex_unlock(&syncLock);
+   if (result != 0) {
+      perrno_fatal("sync UNLOCK FAILURE");
+      return VERROR;
+   }
+
+   /* release (exclusive) syncIO lock */
+   result = mutex_unlock(&syncIOLock);
+   if (result != 0) {
+      perrno_fatal("syncIO UNLOCK FAILURE");
+      return VERROR;
+   }
+
+   /* THREAD IS NO LONGER PROCESSING SYNCHRONOUS TASKS */
+   thread_setname(thread_self(), "mcmd-async");
+
+   /* done */
+   return VEOK;
+}  /* end mcmd_worker_sync() */
+
+ThreadProc mcmd_worker(void *arg)
 {
+   static time_t Stime;
    WorkList *wlp = (WorkList *) arg;
    Condition *alarmp = &(wlp->alarm);
    LinkedList *listp = &(wlp->list);
@@ -823,194 +1072,232 @@ static ThreadProc mcmd__worker(void *arg)
 
    LinkedNode *lnp;
    NODE *np;
-   int ecode;
+   time_t now;
+   int result;
 
-#undef FnMSG
-#define FnMSG(x)  "mcmd__worker(%x): " x, thread_selfid()
    thread_setname(thread_self(), "mcmd-async");
-   pdebug(FnMSG("created..."));
+   pdebug("daemon worker(thrd.%x) startup...", thread_self());
 
-   /* acquire syncIO Lock */
-   on_ecode_goto_perrno(
-      mutex_lock(lockp), FATAL, FnMSG("(init)LOCK FAILURE"));
+   /* acquire (exclusive) lock */
+   result = mutex_lock(lockp);
+   if (result != 0) {
+      perrno_fatal("LOCK FAILURE");
+      Unthread;
+   }
 
-   /* main thread loop */
+   /* daemon worker thread loop */
    while (Running) {
       /* check/pull next work */
-      while ((lnp = listp->next)) {
-         /* remove work node -- release worklock */
-         on_ecode_goto_perrno(
-            link_node_remove(lnp, listp), FATAL, FnMSG("LIST FAILURE"));
-         on_ecode_goto_perrno(
-            mutex_unlock(lockp), FATAL, FnMSG("UNLOCK FAILURE"));
-         /* determine if work requires synchronous processing */
+      while (Running && (lnp = listp->next)) {
+         /* remove NODE from list */
+         result = link_node_remove(lnp, listp);
+         if (result != 0) {
+            perrno_fatal("LIST FAILURE");
+            if (mutex_unlock(lockp) != 0) {
+               perrno_fatal("(re)UNLOCK LIST FAILURE");
+            }
+            Unthread;
+         }
+         /* (re)release (exclusive) lock */
+         result = mutex_unlock(lockp);
+         if (result != 0) {
+            perrno_fatal("(re)UNLOCK FAILURE");
+            Unthread;
+         }
+         /* determine (a)synchronous workflow */
          np = (NODE *) lnp->data;
          switch (np->opreq) {
-            /* transfer work to sync processing for following opreq */
-            case OP_FOUND:  /* fallthrough -- requires sync */
-            case OP_GET_BLOCK:  /* fallthrough -- requires sync */
-            case OP_GET_IPL:  /* fallthrough -- requires sync */
-            case OP_GET_TFILE:  /* fallthrough -- requires sync */
-            case OP_TF: mcmd__worker_sync(lnp); break;
+            case OP_TX: break;  /* no further processing for TX mirror */
+            case OP_FOUND: mcmd_check_broadcast(np); break;
             default: {
-               /* OP_FOUND broadcasts also require sync processing */
-               /* ... otherwise, process "incoming" asynchronously */
-               if (np->opcode == OP_FOUND) {
-                  mcmd__worker_sync(lnp);
-               } else mcmd__worker_process(lnp);
+               /* is request an incoming request... */
+               if (np->opreq == OP_NULL) {
+                  if (np->opcode == OP_TX) {
+                     if (!Ininit) mcmd_check_tx(np);
+                     else pdebug("ignore OP_TX during init");
+                     break;
+                  }
+               }  /* ... incoming OP_FOUND will fall through for sync */
+               time(&Stime);
+               /* remaining request operations require sync */
+               mcmd_worker_sync(lnp);
+               lnp = NULL;
             }
-         }  /* end switch (op->req) */
-         /* (re)acquire worklock */
-         on_ecode_goto_perrno(
-            mutex_lock(lockp), FATAL, FnMSG("(re)LOCK FAILURE"));
-         /* check SHUTDOWN for jump */
-         if (!Running) goto SHUTDOWN;
+         }  /* end switch (np->opreq) */
+         /* cleanup remaining data */
+         if (lnp) mcmd__cleanup(lnp);
+         /* (re)acquire (exclusive) lock */
+         result = mutex_lock(lockp);
+         if (result != 0) {
+            perrno_fatal("(re)LOCK FAILURE");
+            Unthread;
+         }
       }  /* end while ((lnp = listp->next)) */
-
-      /* perform additional checks */
-
-      /* wait for work, sleepy time capped at 1 second intervals... */
-      if (condition_timedwait(alarmp, lockp, 1000)) {
-         /* ... wakeup (spurious?), check errno ... */
-         if (errno != CONDITION_TIMEOUT) {
-            perrno(FnMSG("CONDITION FAILURE"));
-            goto FATAL;
+      /* periodic checks after initial sync... */
+      if (Running) {
+         time(&now);
+         /* check pseudoblock trigger time */
+         if (difftime(Stime, now) < 0) {
+            time(&Stime);
+            /* periodicly check sync processing */
+            mcmd_worker_sync(NULL);
          }
       }
+      /* wait for work, sleepy time (1 second timeout)... */
+      result = condition_timedwait(alarmp, lockp, 1000);
+      if (result != 0 && errno != CONDITION_TIMEOUT) {
+         perrno_fatal("CONDITION FAILURE");
+         if (mutex_unlock(lockp) != 0) {
+            perrno_fatal("UNLOCK CONDITION FAILURE");
+         }
+         Unthread;
+      }
    }  /* end while (Running) */
+   pdebug("daemon worker(thrd.%x) shutdown...", thread_self());
 
-SHUTDOWN:
-   pdebug(FnMSG("recv'd shutdown signal"));
-
-   /* release worklock */
-   on_ecode_goto_perrno(
-      mutex_unlock(lockp), FATAL, FnMSG("(exit) UNLOCK FAILURE"));
+   /* release (exclusive) lock */
+   result = mutex_unlock(lockp);
+   if (result != 0) {
+      perrno_fatal("UNLOCK FAILURE");
+   }
 
    Unthread;
-
-FATAL:
-   pdebug(FnMSG("FATAL ERROR, TERMINATING..."));
-   /* kill on fatal error */
-   Running = 0;
-   Unthread;
-}  /* end mcmd__worker() */
-
-/* transfer a NODE out of AsyncWork into a WorkList */
-static int mcmd_asyncwork_transfer(AsyncWork *wp)
-{
-   LinkedNode *lnp;
-   NODE *np;
-   int ecode;
-
-#undef FnMSG
-#define FnMSG(x) "mcmd_asyncwork_transfer(): " x
-
-   if (wp->data == NULL) return VERROR;
-   np = (NODE *) wp->data;
-   /* add NODE pointer to an empty LinkedNode */
-   lnp = link_node_create(0);
-   if (lnp) lnp->data = np;
-   else return perrno(FnMSG("link_node_create() FAILURE"));
-   /* add reference to LinkedNode and append to SyncIO (guarded) */
-   lock_on_ecode_goto_perrno( CompleteIO.lock, FAIL, {
-      on_ecode_goto_perrno( link_node_append(lnp, &(CompleteIO.list)),
-         FAIL_LOCKED, FnMSG("link_node_append() FAILURE"));
-      condition_signal(&(CompleteIO.alarm));
-   });
-
-   /* remove NODE reference and return VEOK */
-   wp->data = NULL;
-   return VEOK;
-
-FAIL_LOCKED: mutex_unlock(&(CompleteIO.lock));
-FAIL: free(lnp);
-   return VERROR;
-}  /* end mcmd_asyncwork_transfer() */
-
-/* update AsyncWork with available NODE data */
-static void mcmd_asyncwork_update(AsyncWork *wp)
-{
-   NODE *np;
-
-   if (wp->data == NULL) return;
-   np = (NODE *) wp->data;
-   /* defer work involving Disk IO */
-   wp->defer = np->fp ? 1 : 0;
-   /* update AsyncWork state */
-   wp->sio = np->iowait;
-   wp->sd = np->sd;
-   wp->to = np->to;
-}  /* end mcmd_asyncwork_update() */
-
-/* deallocate and dereference NODE data from completed AsyncWork */
-static int mcmd_iodone(AsyncWork *wp)
-{
-   /* perform NODE specific cleanup and update AsyncWork */
-   if (wp->data) node_cleanup(wp->data);
-   mcmd_asyncwork_update(wp);
-   return VEOK;
-}  /* end mcmd_iodone() */
+}  /* end mcmd_worker() */
 
 /* initialize AsyncWork with NODE data for the MCM Server Daemon */
-static int mcmd_ioinit(AsyncWork *wp)
+static int mcmdio_accept(AsyncWork *wp)
 {
-   NODE *np;
    word32 ip;
    char ipstr[16];
 
-#undef FnMSG
-#define FnMSG(x) "mcmd_ioinit(%d, %s)" x, wp->sd, ntoa(&ip, ipstr)
+   /* ensure valid work/socket or log error */
+   if (wp == NULL || wp->sd == INVALID_SOCKET) {
+      perr("mcmdio_accept() was called with invalid work!");
+      return VERROR;
+   }
 
    /* get socket ip and perform initialization checks */
    ip = get_sock_ip(wp->sd);
-   if (pinklisted(ip)) return perr(FnMSG("pinklisted"));
-
-   /* create NODE for io handling and set socket non-blocking */
+   if (pinklisted(ip)) {
+      pdebug("drop connection from %s: pinklisted", ntoa(&ip, ipstr));
+      return VERROR;
+   }
+   /* create space for NODE in work pointer */
    wp->data = malloc(sizeof(NODE));
-   if (wp->data == NULL) return perrno(FnMSG("malloc(NODE) FAILURE"));
-   if (sock_set_nonblock(wp->sd)) return perr(FnMSG("non-block FAILURE"));
-   /* initialize NODE for receiving */
-   np = (NODE *) wp->data;
-   node_init(np, wp->sd, ip, 0, OP_NULL, NULL);
-   /* update timeout */
-   wp->to = np->to;
+   if (wp->data == NULL) {
+      perrno("node creation FAILURE");
+      return VERROR;
+   }
+   /* set socket non-blocking */
+   if (sock_set_nonblock(wp->sd)) {
+      set_sockerrno(sock_errno);
+      perrno("set non-blocking FAILURE");
+      return VERROR;
+   }
+   /* initialize NODE for receiving -- update work timeout */
+   node_init((NODE *) wp->data, wp->sd, ip, 0, OP_NULL, NULL);
+   wp->to = ((NODE *) wp->data)->to;
 
+   /* success */
    return VEOK;
-}  /* end mcmd_ioinit() */
+}  /* end mcmdio_accept() */
 
-/* process AsyncWork for the MCM Server Daemon */
-static int mcmd_ioproc(AsyncWork *wp)
+/* transfer completed AsyncWork to CompleteIO for processing */
+static int mcmdio_finish(AsyncWork *wp)
 {
-   NODE *np = (NODE *) wp->data;
+   LinkedNode *lnp;
+   NODE *np;
+   int result;
 
-#undef FnMSG
-#define FnMSG(x) "mcmd_ioproc(%d, %s): " x, wp->sd, np ? np->id : "(null)"
-
-   /* check for NODE reference is valid */
-   if (np == NULL) return perr(FnMSG("invalid NODE reference"));
-
-   /* execute asynchronous communication protocols if NOT DONE */
-   if (np->iowait != IO_DONE) {
-      if (np->opreq) node_request_operation(np);
-      else node_receive_operation(np);
+   /* ensure valid work/data or log error */
+   if (wp == NULL || wp->data == NULL) {
+      perr("mcmdio_finish() was called with invalid work!");
+      return VERROR;
    }
 
-   /* update AsyncWork state */
-   wp->sio = np->iowait;
-   wp->sd = np->sd;
-   wp->to = np->to;
-   /* defer disk IO work */
-   wp->defer = np->fp ? 1 : 0;
+   /* log communication result */
+   np = (NODE *) wp->data;
+   if (np->opreq) {
+      pdebug("%s request(%s) finished on %s...",
+         np->id, op2str(np->opreq), op2str(np->opcode));
+   } else pdebug("%s receive(%s) finished...", np->id, op2str(np->opcode));
 
-   /* transfer completed work, or return NODE status */
-   if (np->iowait == IO_DONE) {
-      return mcmd_asyncwork_transfer(wp);
-   } else return np->status;
-}  /* end mcmd_ioproc() */
+   /* create an empty LinkedNode -- acquire CompleteIO lock */
+   lnp = link_node_create(0);
+   if (lnp == NULL) {
+      perrno("link node creation FAILURE");
+      return VERROR;
+   }
+   /* acquire (exclusive) CompleteIO lock */
+   result = mutex_lock(&(CompleteIO.lock));
+   if (result != 0) {
+      perrno_fatal("CompleteIO LOCK FAILURE");
+      return VERROR;
+   }
+   /* add LinkedNode to CompleteIO list */
+   result = link_node_append(lnp, &(CompleteIO.list));
+   if (result != 0) {
+      perrno("link node append FAILURE");
+      if (mutex_unlock(&(CompleteIO.lock))) {
+         perrno_fatal("inner CompleteIO UNLOCK FAILURE");
+      }
+      free(lnp);
+      return VERROR;
+   }
+   /* move work data to LinkedNode */
+   lnp->data = wp->data;
+   wp->data = NULL;
+   /* flag additional work signal */
+   condition_signal(&(CompleteIO.alarm));
+   /* release (exclusive) CompleteIO lock */
+   result = mutex_unlock(&(CompleteIO.lock));
+   if (result != 0) {
+      perrno_fatal("CompleteIO UNLOCK FAILURE");
+      return VERROR;
+   }
+
+   /* success */
+   return VEOK;
+}  /* end mcmdio_finish() */
+
+/* process AsyncWork for the MCM Server Daemon */
+static int mcmdio_io(AsyncWork *wp)
+{
+   NODE *np;
+   int ecode;
+   char error[64];
+
+   /* ensure valid work/data or log error */
+   if (wp == NULL || wp->data == NULL) {
+      perr("mcmdio_io() was called with invalid work!");
+      return VERROR;
+   }
+
+   /* init and check communication status */
+   np = (NODE *) wp->data;
+   if (np->iowait != IO_DONE) {
+      /* execute communication protocols */
+      if (np->opreq) node_request_operation(np);
+      else node_receive_operation(np);
+      /* debug log resulting error descriptions */
+      if (np->status != VEOK && np->status != VEWAITING) {
+         ecode = errno;
+         strerror_mcm(ecode, error, sizeof(error));
+         pdebug("%s: (%d) %s", np->id, ecode, error);
+      }
+   }
+   /* update work */
+   wp->to = np->to;
+   wp->sd = np->sd;
+   wp->sio = np->iowait;
+   /* defer disk IO when incomplete */
+   wp->defer = np->fp ? 1 : 0;
+   return np->status;
+}  /* end mcmdio_io() */
 
 void signal_handler(int sig)
 {
-   plog("");
+   printf("\n");
    switch (sig) {
 		case SIGABRT: plog("Caught SIGABRT"); break;
 		case SIGFPE:  plog("Caught SIGFPE"); break;
@@ -1028,19 +1315,37 @@ void signal_handler(int sig)
       plog("Server (violently) terminated");
       exit(1);
    }
-}
+}  /* end signal_handler() */
 
-void redirect_signals(void)
+void global_data_dump(void)
 {
-   signal(SIGABRT, signal_handler);
-	signal(SIGFPE,  signal_handler);
-	signal(SIGILL,  signal_handler);
-	signal(SIGINT,  signal_handler);
-	signal(SIGSEGV, signal_handler);
-	signal(SIGTERM, signal_handler);
-}
+   char hex[65];
 
-int check_directory(const char *dir) {
+   /*
+   pdebug("GLOBAL COUNTERS DATA DUMP...");
+   pdebug("Nbalance = %u", Nbalance);
+   pdebug("Nhashes = %u", Nhashes);
+   pdebug("Niplist = %u", Niplist);
+   pdebug("Nnacks = %u", Nnacks);
+   pdebug("Nrecvs = %u", Nrecvs);
+   pdebug("Nrecverrs = %u", Nrecverrs);
+   pdebug("Nrecvsbad = %u", Nrecvsbad);
+   pdebug("Nsends = %u", Nsends);
+   pdebug("Nsenderrs = %u", Nsenderrs);
+   */
+
+   pdebug("");
+   pdebug("CHAIN STATE DATA DUMP...");
+   pdebug("Cbits = 0x%x", Cbits);
+   pdebug("Cblocknum = 0x%s", bnum2hex(Cblocknum, hex));
+   pdebug("Cblockhash = 0x%s", hash2hex(Cblockhash, 32, hex));
+   pdebug("Prevhash = 0x%s", hash2hex(Prevhash, 32, hex));
+   pdebug("Weight = 0x%s", weight2hex(Weight, hex));
+   pdebug("");
+
+}  /* end global_data_dump() */
+
+int check_permissions(const char *dir) {
    char permchk[FILENAME_MAX];
 
    /* build permission check file path */
@@ -1048,8 +1353,8 @@ int check_directory(const char *dir) {
       dir ? dir : "", dir ? PATH_SEPARATOR : "");
    /* touch the file and remove it, checking for failures */
    if (ftouch(permchk) || remove(permchk)) {
-      return perrno("%s%spermission FAILURE",
-         dir ? dir : "", dir ? PATH_SEPARATOR " " : "");
+      perrno("%s FAILURE", permchk);
+      return VERROR;
    }
 
    return VEOK;
@@ -1058,83 +1363,23 @@ int check_directory(const char *dir) {
 int veronica(void)
 {
    char haiku[256], buff[16];
-   print("\n%s\n\n", trigg_expand(trigg_generate(buff), haiku));
+   printf("\n%s\n\n", trigg_expand(trigg_generate(buff), haiku));
    return VEOK;
 }
 
-int init(void)
-{
-   /* word8 highblock[8]; */
-   word8 genbnum[8] = { 0 };
-   word8 genbhash[4] = { 0x00, 0x17, 0x0c, 0x67 };
-   char fname[FILENAME_MAX], fpath[FILENAME_MAX];
-   int nochaindata;
-
-#undef FnMSG
-#define FnMSG(x) "init()" x
-
-   /* read stored peers from disk */
-   read_ipl(Epinkip_opt, Epinklist, EPINKLEN, &Epinkidx);
-   read_ipl(Localip_opt, Lplist, LPLISTLEN, &Lplistidx);
-   if (read_ipl(Recentip_opt, Rplist, RPLISTLEN, &Rplistidx) < 1) {
-      /* if no recent peers, try (downloading) start peers */
-      remove(Startip_opt);
-      // http_get(Starthttp_opt, Startip_opt, 3);
-      if (read_ipl(Startip_opt, Rplist, RPLISTLEN, &Rplistidx) < 1) {
-         cwd(fpath, sizeof(fpath));
-         path_join(fname, fpath, Startip_opt);
-         pwarn("No start peers. Consider refreshing %s", fname);
-         /* if no start peers, try core peers */
-         if (read_ipl(Coreip_opt, Rplist, RPLISTLEN, &Rplistidx) < 1) {
-            pwarn("Failed to load core peers. Check installation.");
-         }
-      }
-   }
-
-   /* initialize genesis block filename */
-   bc_fqan(fname, genbnum, genbhash);
-   path_join(fpath, Bcdir_opt, fname);
-
-   /* derive Ledger filename */
-   snprintf(fname, FILENAME_MAX, "%s.0", Lefname_opt);
-
-   /* determine appropriate chain data exists */
-   nochaindata = !fexists("tfile.dat");
-   nochaindata |= !fexists(fpath);
-   nochaindata |= !fexists(fname);
-
-   /* (try) restore core chain files if any do not exist */
-   if (nochaindata) {
-      pdebug("Core chain files missing, attempting restoration...");
-      if (!fexists("genblock.bc")) {
-         return perr("Genesis block missing, cannot restore files!");
-      } else if (fcopy("genblock.bc", fpath) != VEOK) {
-         return perr("Failed to restore %s from Genesis block", fpath);
-      }
-      remove("tfile.dat");
-      if (append_tfile(fpath, "tfile.dat") != VEOK) {
-         return perr("Failed to restore Tfile from Genesis block");
-      } else if (le_extract("genblock.bc") != VEOK) {
-         return perr("Failed to restore Ledger from Genesis block");
-      } else pdebug("Restoration of core chain files successful!");
-   }
-
-   return VEOK;
-}  /* end init() */
-
 int usage(void)
 {
-   print(
-      "\nUSAGE: mcmd [OPTIONS]... [DIRECTORY]"
+   printf(
+      "\nUSAGE: mcmd [OPTIONS]... [--] [DIRECTORY]"
 
       "\n\nDIRECTORY:"
       "\n   Defaults to \"d/\""
 
       "\n\nOPTIONS:"
       "\n   --                         Forces the end of OPTIONS arguments"
+      "\n   -a, --server-addr=<ipv4>   Set server IPv4 address to <ipv4>"
       "\n   -d, --daemon-threads=<num> Set daemon thread count to <num>"
       "\n   --dir-bc=<dir>             Set block archive directory to <dir>"
-      "\n   --dir-sp=<dir>             Set chain split directory to <dir>"
       "\n   -h, --help                 Print this usage information"
       "\n   --no-pinklist              Disable the pinklist of evil peers"
       "\n   --no-pushblock             Disable block push capability"
@@ -1144,26 +1389,18 @@ int usage(void)
       "\n   -s, --server-threads=<num> Set server thread count to <num>"
       "\n   --version                  Print the current software version"
 
-      "\n\nOPTIONS (logging):"
-      "\n   Logging levels (0-5) represent the logging level of detail."
-      "\n   A log level includes the logs of all levels below it."
-      "\n      5 = debug logs"
-      "\n      4 = fine logs"
-      "\n      3 = general logs"
-      "\n      2 = warnings"
-      "\n      1 = errors"
-      "\n      0 = none"
-      "\n   -ll, --log-level=<num>     Set screen log level to <num>"
-      "\n   -o, --output-file=<file>   Set output log file to <file>"
-      "\n   -ol, --output-level=<num>  Set output log level to <num>"
+      "\n\nOPTIONS (trace logging):"
+      "\n   -tf, --trace-functions     Trace functions in trace logs"
+      "\n   -tl, --trace-level=<ll>    Set trace log level to <ll>"
+      "\n      Trace levels (0-5) represent the level of detail in logs."
+      "\n      Each trace level includes the logs of all lower levels."
+      "\n      0: Alert, 1: Errno, 2: Error, 3: Warning, 4: Info, 5: Debug"
+      "\n   -tt, --trace-timestamp     Trace timestamp in trace logs"
 
       "\n\nOPTIONS (peerlist):"
-      "\n   -cp, --core-plist=<file>   Set core fallback list to <file>"
       "\n   -ep, --epink-plist=<file>  Set epoch pinklist to <file>"
       "\n   -lp, --local-plist=<file>  Set local peer list to <file>"
       "\n   -rp, --recent-plist=<file> Set recent peer list to <file>"
-      "\n   -sp, --start-plist=<file>  Set start peer list to <file>"
-      "\n   -sw, --start-web=<http>    Download start peers from <http>"
 
       "\n\nOPTIONS (advanced):"
       "\n   -A, --API"
@@ -1193,76 +1430,128 @@ int usage(void)
 
 int main (int argc, char *argv[])
 {
-   static int j, eoa, ecode;
-   static int one = 1;
+   static const size_t enable_sz = sizeof(int);
+   static const int enable = 1;
+
+   static Thread *thrdp;
+   static int j, eoa;
    static int int_opt;                    /* integer for cli options */
    static unsigned uint_opt;              /* unsigned for cli options */
    static char *char_opt, *char_opt2;     /* char for cli options */
    static char *proc_name, *working_dir;
+   static char hostname[64], addrname[64];
+   static char fpath[FILENAME_MAX];
 
-   Server *nsp = &NodeServer;             /* Node Server pointer */
-   Thread *thrdp = NULL;
-   int daemon_threads = 2;
-   int server_threads = 1;
+   int result;
+   int mcmd_threads;
+   int server_threads;
+   unsigned long server_addr;
+   word16 server_port;
 
-   redirect_signals();
+#ifndef _WIN32
+   /* initialize signals -- POSIX */
+   struct sigaction handle, ignore;
+   handle.sa_handler = signal_handler;
+   ignore.sa_handler = SIG_IGN;
+   sigemptyset(&(handle.sa_mask));
+   sigemptyset(&(ignore.sa_mask));
+   handle.sa_flags = 0;
+   ignore.sa_flags = 0;
+
+   sigaction(SIGABRT, &handle, NULL);
+   sigaction(SIGFPE, &handle, NULL);
+   sigaction(SIGILL, &handle, NULL);
+   sigaction(SIGINT, &handle, NULL);
+   sigaction(SIGSEGV, &handle, NULL);
+   sigaction(SIGTERM, &handle, NULL);
+
+   sigaction(SIGPIPE, &ignore, NULL);
+
+/* end POSIX signal handling */
+#endif
+
    /* use multiple sources of entropy for improved prng */
    srand((unsigned int) time(NULL));
    srand16((word32) time(NULL), (word32) rand(), (word32) getpid());
    srand16fast((word32) time(NULL) ^ rand() ^ getpid());
-   /* init process defaults */
-   set_print_level(PLEVEL_LOG);
-   Noprivate_opt = 1;
-   Cbits |= C_PUSH;
+   /* init process utils */
+   ptrace_level(PTRACE_INFO);
+   atexit(global_data_dump);
    sock_startup();
+   /* init defaults */
+   mcmd_threads = 2;
+   server_threads = 1;
+   server_addr = INADDR_ANY;
+   server_port = PORT1;
+   Dstport_opt = PORT1;
+   Noprivate_opt = 1;
+   Quorum_opt = 4;
+   Cbits |= C_PUSH;
+   Myfee[0] = MFEE;
+   Mfee[0] = MFEE;
+   Running = 1;
 
    /* derive process name, check for duplicates */
-   proc_name = strrchr(argv[0], '/');
-   if (proc_name == NULL) proc_name = strrchr(argv[0], '\\');
-   if (proc_name) proc_name++; else proc_name = argv[0];
-   if (proc_dups(proc_name)) return perr("Process is already running!");
+   proc_name = strrchr(argv[0], PATH_SEPARATOR[0]);
+   proc_name = proc_name ? proc_name + 1 : argv[0];
+   if (proc_dups(proc_name)) {
+      perr("Daemon is already running!");
+      return VERROR;
+   }
 
    /* parse command line arguments */
-   for (j = 1, eoa = 0, ecode = VEOK; Running && j < argc; j++) {
+   for (j = 1, eoa = 0; Running && j < argc; j++) {
       if (argv[j][0] == '-') {
          /***********/
          /* OPTIONS */
          if (eoa || argument(argv[j], NULL, "--")) {
             /* flag to skip remaining options with leading '-' */
-            if (eoa++ == 0) plog("... end of arguments");
+            if (eoa++ == 0) {
+               plog("... end of arguments");
+            }
+         }
+         else if (argument(argv[j], "-a", "--server-addr")) {
+            char_opt = argvalue(&j, argc, argv);
+            if (char_opt == NULL) {
+               perr("Missing server IPv4 address");
+               return VERROR;
+            }
+            server_addr = aton(char_opt);
+            plog("... server address = %s (%lu)", char_opt, server_addr);
          }
          else if (argument(argv[j], "-d", "--daemon-threads")) {
             /* obtain daemon thread count */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing thread count");
+            if (char_opt == NULL) {
+               perr("Missing daemon thread count");
+               return VERROR;
+            }
             int_opt = atoi(char_opt);
-            if (int_opt < 1) goto_perr(USAGE, "Invalid thread count");
-            if (int_opt > cpu_cores())
-               pwarn("Thread count exceeds logical CPU cores...");
+            if (int_opt < 1) {
+               perr("Invalid daemon thread count");
+               return VERROR;
+            }
+            if (int_opt > cpu_cores()) {
+               pwarn("daemon threads exceeds logical CPU cores");
+            }
             plog("... daemon thread count = %s", char_opt);
             /* set daemon thread count */
-            daemon_threads = int_opt;
+            mcmd_threads = int_opt;
          }
          else if (argument(argv[j], NULL, "--dir-bc")) {
             /* obtain blockchain archive directory */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing bc directory");
+            if (char_opt == NULL) {
+               perr("Missing bc directory");
+               return VERROR;
+            }
             plog("... blockchain archive directory = %s", char_opt);
             /* set blockchain archive directory */
             Bcdir_opt = char_opt;
          }
-         else if (argument(argv[j], NULL, "--dir-sp")) {
-            /* obtain blockchain split directory */
-            char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing sp directory");
-            plog("... blockchain split directory = %s", char_opt);
-            /* set blockchain split directory */
-            Spdir_opt = char_opt;
-         }
          else if (argument(argv[j], "-h", "--help")) {
-            /* print usage information and exit */
-USAGE:      usage();
-            goto EXIT;
+            /* exit with usage information */
+            return usage();
          }
          else if (argument(argv[j], NULL, "--no-pinklist")) {
             plog("... pinklist disabled");
@@ -1278,13 +1567,18 @@ USAGE:      usage();
          else if (argument(argv[j], "-p", "--port")) {
             /* obtain/check port number as integer */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing port number");
+            if (char_opt == NULL) {
+               perr("Missing port number");
+               return VERROR;
+            }
             int_opt = atoi(char_opt);
-            if (int_opt < 1 || int_opt > 65535)
-               goto_perr(USAGE, "Invalid port number");
+            if (int_opt < 1 || int_opt > 65535) {
+               perr("Invalid port number");
+               return VERROR;
+            }
             plog("... port = %s (%d)", char_opt, int_opt);
             /* set port number for receive and destination ports */
-            Port_opt = Dstport_opt = (word16) int_opt;
+            server_port = Dstport_opt = (word16) int_opt;
          }
          else if (argument(argv[j], NULL, "--private-peers")) {
             plog("... private peers enabled");
@@ -1294,9 +1588,15 @@ USAGE:      usage();
          else if (argument(argv[j], "-q", "--quorum")) {
             /* obtain/check quorum number as integer */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing quorum size");
+            if (char_opt == NULL) {
+               perr("Missing quorum size");
+               return VERROR;
+            }
             uint_opt = strtoul(char_opt, NULL, 0);
-            if (uint_opt < 1) goto_perr(USAGE, "Invalid quorum size");
+            if (uint_opt < 1) {
+               perr("Invalid quorum size");
+               return VERROR;
+            }
             plog("... quorum = %s (%u)", char_opt, uint_opt);
             /* set quorum number */
             Quorum_opt = uint_opt;
@@ -1304,101 +1604,87 @@ USAGE:      usage();
          else if (argument(argv[j], "-s", "--server-threads")) {
             /* obtain server thread count */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing thread count");
+            if (char_opt == NULL) {
+               perr("Missing thread count");
+               return VERROR;
+            }
             int_opt = atoi(char_opt);
-            if (int_opt < 1) goto_perr(USAGE, "Invalid thread count");
-            if (int_opt > cpu_cores())
-               pwarn("Thread count exceeds logical CPU cores...");
+            if (int_opt < 1) {
+               perr("Invalid thread count");
+               return VERROR;
+            }
+            if (int_opt > cpu_cores()) {
+               pwarn("server threads exceeds logical CPU cores");
+            }
             plog("... server thread count = %s", char_opt);
             /* set server thread count */
             server_threads = int_opt;
          }
          else if (argument(argv[j], NULL, "--Veronica")) {
-            veronica();
-            goto EXIT;
+            return veronica();
          }
          else if (argument(argv[j], NULL, "--version")) {
-            /* print GIT_VERSION information */
-            print(GIT_VERSION);
-            goto EXIT;
+            /* print (only) GIT_VERSION information */
+            printf(GIT_VERSION "\n");
+            return VEOK;
          }
          /*********************/
-         /* LOG LEVEL OPTIONS */
-         else if (argument(argv[j], "-ll", "--log-level")) {
-            /* obtain/check log level as integer */
-            char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing log level");
-            int_opt = atoi(char_opt);
-            if (int_opt < 0) goto_perr(USAGE, "Invalid log level");
-            plog("... log level = %s (%d)", char_opt, int_opt);
-            /* set (printed) log level */
-            set_print_level(int_opt);
+         /* TRACE LOG OPTIONS */
+         else if (argument(argv[j], "-tf", "--trace-functions")) {
+            plog("... trace functions");
+            ptrace_functions(1);
          }
-         else if (argument(argv[j], "-o", "--output-file")) {
-            /* obtain output log filename, use LOGNAME if not specified */
+         else if (argument(argv[j], "-tl", "--trace-level")) {
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) char_opt = LOGNAME;
-            plog("... output log file = %s", char_opt);
-            /* set LOGGING capability bit and open output log file */
-            Cbits |= C_LOGGING;
-            set_output_file(char_opt, "a");
-         }
-         else if (argument(argv[j], "-ol", "--output-level")) {
-            /* obtain/check (output) log level as integer */
-            char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing output level");
+            if (char_opt == NULL) {
+               perr("Missing trace level");
+               return VERROR;
+            }
             int_opt = atoi(char_opt);
-            if (int_opt < 0) goto_perr(USAGE, "Invalid output level");
-            plog("... output level = %s (%d)", char_opt, int_opt);
-            /* set (output) log level */
-            set_output_level(int_opt);
+            if (int_opt < PTRACE_ALERT || int_opt > PTRACE_DEBUG) {
+               perr("Invalid trace level");
+               return VERROR;
+            }
+            plog("... trace level = %s (%d)", char_opt, int_opt);
+            ptrace_level(int_opt);
+         }
+         else if (argument(argv[j], "-tf", "--trace-timestamp")) {
+            plog("... trace timestamps");
+            ptrace_timestamp(1);
          }
          /********************/
          /* PEERLIST OPTIONS */
-         else if (argument(argv[j], "-cp", "--core-plist")) {
-            /* obtain peerlist filename */
-            Coreip_opt = argvalue(&j, argc, argv);
-            if (Coreip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            plog("... core peerlist = %s", Coreip_opt);
-         }
          else if (argument(argv[j], "-ep", "--epink-plist")) {
             /* obtain peerlist filename */
             Epinkip_opt = argvalue(&j, argc, argv);
-            if (Epinkip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
+            if (Epinkip_opt == NULL) perr_exit("Missing peerlist");
             plog("... epoch pinklist = %s", Epinkip_opt);
          }
          else if (argument(argv[j], "-lp", "--local-plist")) {
             /* obtain peerlist filename */
-            Localip_opt = argvalue(&j, argc, argv);
-            if (Localip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            plog("... local peerlist = %s", Localip_opt);
+            char_opt = argvalue(&j, argc, argv);
+            if (char_opt == NULL) {
+               perr("Missing local peerlist filename");
+               return VERROR;
+            }
+            /* read-in peers from filename and log results */
+            int_opt = read_ipl(char_opt, Lplist, LPLISTLEN, &Lplistidx);
+            plog("... local peerlist = %s (%d peers)", char_opt, int_opt);
          }
          else if (argument(argv[j], "-rp", "--recent-plist")) {
             /* obtain peerlist filename */
             Recentip_opt = argvalue(&j, argc, argv);
-            if (Recentip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
+            if (Recentip_opt == NULL) perr_exit("Missing peerlist");
             plog("... recent peerlist = %s", Recentip_opt);
-         }
-         else if (argument(argv[j], "-sp", "--start-plist")) {
-            /* obtain peerlist filename */
-            Startip_opt = argvalue(&j, argc, argv);
-            if (Startip_opt == NULL) goto_perr(USAGE, "Missing peerlist");
-            plog("... start peerlist = %s", Startip_opt);
-         }
-         else if (argument(argv[j], "-sw", "--start-weblist")) {
-            /* obtain peerlist address */
-            Starthttp_opt = argvalue(&j, argc, argv);
-            if (Starthttp_opt == NULL) goto_perr(USAGE, "Missing address");
-            plog("... start weblist = %s", Starthttp_opt);
          }
          /********************/
          /* ADVANCED OPTIONS */
          else if (argument(argv[j], "-mf", "--mining-fee")) {
             /* obtain/check mining fee as integer */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing fee value");
+            if (char_opt == NULL) perr_exit("Missing fee value");
             int_opt = atoi(char_opt);
-            if (int_opt < MFEE) goto_perr(USAGE, "Invalid fee value");
+            if (int_opt < MFEE) perr_exit("Invalid fee value");
             plog("... mining fee (Myfee) = %s (%d)", char_opt, int_opt);
             /* set Myfee, and MFEE capability bit if non-standard */
             Myfee[0] = int_opt;
@@ -1407,10 +1693,10 @@ USAGE:      usage();
          else if (argument(argv[j], NULL, "--Sanctuary")) {
             /* obtain/check Sanctuary/Lastday as unsigned long */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing protocol data");
+            if (char_opt == NULL) perr_exit("Missing protocol data");
             char_opt2 = strchr(char_opt, ',');
             if (char_opt2) *(char_opt2++) = '\0';  /* create separation */
-            else goto_perr(USAGE, "Malformed protocol data");
+            else perr_exit("Malformed protocol data");
             Sanctuary_opt = strtoul(char_opt, NULL, 0);
             Lastday_opt = (strtoul(char_opt2, NULL, 0) + 255) & 0xffffff00;
             plog("... Sanctuary %s (%lu), %s (%lu)",
@@ -1420,9 +1706,14 @@ USAGE:      usage();
          else if (argument(argv[j], "-V", "--Virtual")) {
             /* obtain/check virtual mode as integer */
             char_opt = argvalue(&j, argc, argv);
-            if (*char_opt == '2') { Dstport_opt = PORT1; Port_opt = PORT2; }
-            else { char_opt = "1"; Dstport_opt = PORT2; Port_opt = PORT1; }
-            plog("... virtual mode = %c", *char_opt);
+            if (char_opt == NULL) int_opt = 1;
+            else int_opt = atoi(char_opt);
+            if (int_opt < 1 || int_opt > 2) {
+               perr_exit("Invalid Virtual mode");
+            }
+            Dstport_opt = int_opt == 2 ? PORT1 : PORT2;
+            server_port = int_opt == 2 ? PORT2 : PORT1;
+            plog("... virtual mode = %d", int_opt);
          }
          /*********************/
          /* DEVELOPER OPTIONS */
@@ -1431,14 +1722,14 @@ USAGE:      usage();
              * Skips PoW validation up to specified block (inclusive). */
             /* obtain trust block as unsigned long */
             char_opt = argvalue(&j, argc, argv);
-            if (char_opt == NULL) goto_perr(USAGE, "Missing block number");
+            if (char_opt == NULL) perr_exit("Missing trust block number");
             Trustblock_opt = strtoul(char_opt, NULL, 0);
             plog("... trust block = %s (%lu)", char_opt,
                (unsigned long) Trustblock_opt);
          }
          /******************/
          /* UNKNOWN OPTION */
-         else goto_perr(USAGE, "Unknown argument, %s", argv[j]);
+         else perr_exit("Unknown argument, %s", argv[j]);
       } else if (argv[j][0]) {
          /* additional non-option arguments */
          if (working_dir == NULL) {
@@ -1447,79 +1738,106 @@ USAGE:      usage();
          }
       }  /* end if arguments... */
    }  /* end for j */
-
-   /* print splashscreen -- 2 seconds */
-   psplash(EXEC_NAME, GIT_VERSION, 1);
-   millisleep(2000);
-   /* Running check */
-   if (!Running) goto EXIT;
-
-   /* print host info -- 1 second */
-   phostinfo();
-   millisleep(1000);
-   /* Running check */
-   if (!Running) goto EXIT;
+   printf("\n");
 
    /* change working directory -- check location */
    if (working_dir == NULL) working_dir = "d";
    if (cd(working_dir) != 0) {
       perrno("Cannot change DIRECTORY to \"%s\"", working_dir);
       plog("Working directory unavailable. Check installation.");
-      goto EXIT;
+      exit(0);
    } else if (fexists(proc_name)) {
       perr("Found executing binary '%s' in working directory", proc_name);
       plog("Cowardly refusing to work in specified directory");
-      goto EXIT;
+      exit(0);
    }
 
-   /* check directory structure and permissions */
-   if (check_directory(NULL) != VEOK) goto EXIT;
-   if (check_directory(Bcdir_opt) != VEOK) goto EXIT;
+   /* check permissions of directory structure */
+   if (check_permissions(NULL) != VEOK) exit(0);
+   if (check_permissions(Bcdir_opt) != VEOK) exit(0);
 
-   /* intialize peers, chain files -- start server */
-   on_ecode_goto_perrno( init(), EXIT, "Process initialization FAILURE");
+   /* print copyright and version information */
+   plog("%s %s, built " __DATE__ " " __TIME__, EXEC_NAME, GIT_VERSION);
+   plog("Copyright (c) 2018-2023 Adequate Systems, LLC.  All Rights Reserved.");
+   plog("See the License Agreement at the links below:");
+   plog("   https://mochimo.org/license.pdf (PDF version)");
+   plog("   https://mochimo.org/license (TEXT version)");
+   printf("\n");
+   /* get local machine name and IP address */
+   gethostname(hostname, sizeof(hostname));
+   gethostip(addrname, sizeof(addrname));
+   /* print host info -- 1 second */
+   plog("Local Machine Info");
+   plog("  Machine name: %s", *hostname ? hostname : "unknown");
+   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
+   printf("\n");
 
-   /* start Mochimo Node server */
-   on_ecode_goto_perrno(
-      server_init(nsp, AF_INET, SOCK_STREAM, 0),
-      EXIT, "server_init(node, AF_INET) FAILURE");
-   on_ecode_goto_perrno(
-      server_setsockopt(nsp, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)),
-      EXIT, "server_setsockopt(node, SOL_SOCKET, SO_REUSEADDR) FAILURE");
-   on_ecode_goto_perrno(
-      server_setioprocess(nsp, mcmd_iodone, mcmd_ioinit, mcmd_ioproc),
-      EXIT, "server_setioprocess(node) FAILURE");
-   on_ecode_goto_perrno(
-      server_start(nsp, INADDR_ANY, Port_opt, server_threads),
-      EXIT, "server_start(node) FAILURE");
-
-   plog("Node Server started on 0.0.0.0:%u...", Port_opt);
-
-   /* start Mochimo daemon threads */
-   thrdp = calloc(daemon_threads, sizeof(Thread));
-   for (j = 0; j < daemon_threads; j++) {
-      on_ecode_goto_perrno(
-         thread_create(&thrdp[j], mcmd__worker, &CompleteIO),
-         SHUTDOWN, "Failed to start mcmd__worker() thread");
+   /* initialize genesis block filename */
+   path_join(fpath, Bcdir_opt, "b0000000000000000.00170c67.bc");
+   /* (try) restore core chain files if any do not exist */
+   if (!fexists("tfile.dat") || !fexists(fpath)) {
+      pdebug("Core chain files missing, attempting restoration...");
+      if (!fexists("genblock.bc")) {
+         perr_exit("Genesis block missing, cannot restore files!");
+      } else if (fcopy("genblock.bc", fpath) != VEOK) {
+         perr_exit("Failed to restore Genesis block");
+      }
+      remove("tfile.dat");
+      if (append_tfile(fpath, "tfile.dat") != VEOK) {
+         perr_exit("Failed to restore Tfile from Genesis block");
+      } else if (le_extract("genblock.bc") != VEOK) {
+         perr_exit("Failed to restore Ledger from Genesis block");
+      } else pdebug("Restoration of core chain files successful!");
    }
 
-   /* trigger network scan */
-   mcmd__syncup(NULL);
+   /* init Mochimo network communication server */
+   result = server_init(MCMDIO, "mcmdio", AF_INET, SOCK_STREAM, 0);
+   if (result != VEOK) perrno_exit("server initialization FAILURE");
+   /* set additional server work event handlers */
+   MCMDIO->on_accept = mcmdio_accept;
+   MCMDIO->on_finish = mcmdio_finish;
+   MCMDIO->on_io = mcmdio_io;
+   /* set server socket address for REUSE */
+   /** @todo Disable SO_REUSEADDR outside of development builds. */
+   setsockopt(MCMDIO->lsd, SOL_SOCKET, SO_REUSEADDR, &enable, enable_sz);
+   /* start network node server */
+   result = server_start(MCMDIO, server_addr, server_port, server_threads);
+   if (result != VEOK) perrno_exit("server start FAILURE");
 
-   /* BLOCK and wait for daemon threads to exit */
-   for (j = 0; j < daemon_threads; j++) thread_join(thrdp[j]);
+   /* trigger daemon initialization/synchronization */
+   if (mcmd__scaninit() != VEOK) perr_exit("daemon initialization FAILURE");
 
-SHUTDOWN:
-   /* shutdown server/s */
-   server_shutdown(nsp);
-   /* save dynamic peer lists */
-   save_ipl(Recentip_opt, Rplist, RPLISTLEN);
-   save_ipl(Epinkip_opt, Epinklist, EPINKLEN);
+   /* start Mochimo daemon threads for processing */
+   thrdp = calloc(mcmd_threads, sizeof(Thread));
+   if (thrdp == NULL) perrno_exit("daemon threads FAILURE");
+   /* start daemon worker threads for processing */
+   for (j = 0; j < mcmd_threads; j++) {
+      result = thread_create(&thrdp[j], mcmd_worker, &CompleteIO);
+      if (result != 0) {
+         perrno_fatal("daemon worker thread#%d FAILURE", j);
+         mcmd_threads = j + 1;
+         break;
+      }
+   }
 
-EXIT:
-   /* shutdown active sockets */
+   /* BLOCK and wait for daemon worker threads to exit */
+   while (mcmd_threads > 0) thread_join(thrdp[--mcmd_threads]);
+   /* cleanup daemon threads pointer */
+   free(thrdp);
+
+   /* clear quorum pools */
+   if (Splistidx) free(Splist);
+   if (Qplistidx) free(Qplist);
+   /* shutdown io server */
+   server_shutdown(MCMDIO);
+   /* save recnt peers */
+   if (Rplist[0]) save_ipl(Recentip_opt, Rplist, RPLISTLEN);
+   /* cleanup sockets */
    sock_cleanup();
-   plog("");
 
-   return ecode;
+   /* ignore unused compiler warnings for... */
+   (void)Localip_opt;
+
+   /* done */
+   return VEOK;
 }  /* end main() */
