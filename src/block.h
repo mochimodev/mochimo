@@ -14,8 +14,8 @@
 #include "types.h"
 
 /* global variables */
-extern char *Maddr_opt;
-extern char *Bcdir_opt;
+extern const char *Maddr_opt;
+extern const char *Bcdir_opt;
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
@@ -30,13 +30,15 @@ int neogenw_val_fp(FILE *fp, const char *tfname);
 int neogenw_val(const char *fname, const char *tfname);
 
 /* block.c */
-int neogen(char *fname, char *lfname, char *tfname);
-int pseudo_val_fp(FILE *fp, BTRAILER *prev_btp);
-int pseudo_val(char *pfname, char *tfname);
-int pseudo(char *fname, char *tfname);
-int update_block(char *fname);
-int validate_block_fp(FILE *fp, char *tfname);
-int validate_block(char *bcfname, char *tfname);
+int archive_block(const char *filename, const char *dirname);
+int block_syncup_fp(FILE *fp, void *next_syncblock);
+int block_update(const char *fname);
+int generate_neogen(const char *fname, const char *lfname, const char *tfname);
+int validate_pseudo_fp(FILE *fp, BTRAILER *prev_btp);
+int validate_pseudo(const char *pfname, const char *tfname);
+int generate_pseudo(const char *fname, const char *tfname);
+int validate_block_fp(FILE *fp, const char *tfname);
+int validate_block(const char *bcfname, const char *tfname);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus

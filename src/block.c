@@ -25,9 +25,212 @@
 #include <string.h>
 
 /** Blockchain archive directory (configurable option) */
-char *Bcdir_opt = "bc";
+const char *Bcdir_opt = "bc";
 /** Mining address filename (configurable option) */
-char *Maddr_opt = "maddr.dat";
+const char *Maddr_opt = "maddr.dat";
+
+/**
+ * Archive a blockchain file, to a specified directory,
+ * using available trailer data in the file.
+ * Archive filename format: "<archive/>b<bnum>.<bhash-truncated>.bc"
+ * @param filename Blockchain filename
+ * @param dirname Archive directory name
+ * @return 0 on success, or non-zero on error. Check errno for details.
+ */
+int archive_block(const char *filename, const char *dirname)
+{
+   BTRAILER bt;
+   char fpath[FILENAME_MAX];
+   char fname[32];
+   int ecode;
+
+   /* get blockfile trailer data */
+   ecode = read_trailer(&bt, filename);
+   if (ecode != VEOK) return ecode;
+   /* build archive path and name -- clear path */
+   bc_fqan(fname, bt.bnum, bt.bhash);
+   if (dirname) path_join(fpath, dirname, fname);
+   else strncpy(fpath, fname, 32);
+   remove(fpath);
+   /* archive file to specified path */
+   return rename(filename, fpath);
+}  /* end archive_block() */
+
+/**
+ * Synchronize blockchain to the chain data provided in a FILE pointer.
+ * @param fp FILE pointer containing valid chain data
+ * @param nextblock Pointer to place next block number in sync
+ * @return (int) value representing the success of the operation
+ * @return 0 on success, next_syncblock contains the next block to sync.
+ */
+int block_syncup_fp(FILE *fp, void *nextblock)
+{
+   static word8 eon[8] = { 0, 1 };
+   static word8 one[8] = { 1 };
+
+   BTRAILER bt, ibt, tbt;
+   long long seek;
+   FILE *tfp;
+   word8 lpngblock[8];
+   word8 syncblock[8];
+   char fname[FILENAME_MAX];
+   char fpath[FILENAME_MAX];
+   int result;
+
+   /* obtain final block trailer from chain data */
+   if (fseek64(fp, -(sizeof(bt)), SEEK_END) != 0) goto FAIL;
+   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_FP;
+   /* derive last-previous neogenesis block number */
+   if (sub64(bt.bnum, eon, lpngblock)) {
+      memset(lpngblock, 0, sizeof(lpngblock));
+   } else lpngblock[0] = 0;
+   /* obtain initial block trailer from update */
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) goto FAIL;
+   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_FP;
+   memcpy(&ibt, &bt, sizeof(bt));  /* save for later */
+   /* open Tfile for binary read */
+   tfp = fopen("tfile.dat", "rb");
+   if (tfp == NULL) return VERROR;
+   /* derive and seek to update block number */
+   seek = 0;
+   put64(&seek, bt.bnum);
+   seek *= sizeof(bt);
+   if (fseek64(tfp, seek, SEEK_SET) != 0) goto FAIL_TFP;
+   /* obtain block trailer from Tfile */
+   if (fread(&tbt, sizeof(tbt), 1, tfp) != 1) goto FAIL_TFP;
+   /* find split block, if any */
+   while (memcmp(&bt, &tbt, sizeof(tbt)) == 0) {
+      /* update splitblock */
+      put64(syncblock, bt.bnum);
+      /* on Tfile EOF, we have our splitblock */
+      if (fread(&tbt, sizeof(tbt), 1, tfp) != 1) {
+         if (feof(tfp)) break;
+         goto FAIL_TFP;
+      }
+      /* fail on update fp error */
+      if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_TFP;
+   }
+   fclose(tfp);
+
+   /* ensure backup of chain if necessary */
+   if (cmp64(syncblock, Cblocknum) < 0) {
+      if (fcopy("tfile.dat", "tfile.bak") != 0) goto FAIL;
+   }
+
+   /* reduce erroneous synchronization -- update Tfile */
+   if (cmp64(syncblock, lpngblock) < 0) {
+      /* trim Tfile to last-previous neogenesis block number */
+      put64(syncblock, lpngblock);
+      if (trim_tfile("tfile.dat", syncblock, NULL) != VEOK) goto FAIL;
+      /* update remaining chain data (append) */
+      if (append_tfile_fp(fp, "tfile.dat") != VEOK) goto FAIL;
+   }
+
+   /* finalize (re)synchronization starting block */
+   if (cmp64(syncblock, Cblocknum) < 0) syncblock[0] = 0;
+   else add64(Cblocknum, one, syncblock);
+   if (cmp64(syncblock, lpngblock) < 0) put64(syncblock, lpngblock);
+
+   if (nextblock) put64(nextblock, syncblock);
+
+   /* running check -- try syncing to archived blocks */
+   rewind(fp);
+   for (;;) {
+      /* chain data might not contain syncblock... */
+      if (cmp64(ibt.bnum, syncblock) > 0) {
+         /* ... use Tfile data where chain data is not available */
+         if (read_tfile(&bt, syncblock, 1, "tfile.dat") != 1) break;
+      } else {
+         /* .. use syncblock where chain data is available */
+         if (fread(&bt, sizeof(bt), 1, fp) != 1) break;
+         if (cmp64(bt.bnum, syncblock) < 0) continue;
+      }
+      /* get name of archive block */
+      bc_fqan(fname, bt.bnum, bt.bhash);
+      path_join(fpath, Bcdir_opt, fname);
+      if (!fexists(fpath)) break;
+      /* update chain with valid block file */
+      result = block_update(fpath);
+      if (result != VEOK) return result;
+      /* maintain next sync block */
+      add64(syncblock, one, syncblock);
+      if (nextblock) put64(nextblock, syncblock);
+   }  /* end for (;;) */
+
+   /* done */
+   return VEOK;
+
+/* error handling */
+FAIL_TFP:
+   if (feof(tfp)) set_errno(EMCM_EOF);
+   fclose(tfp);
+FAIL_FP:
+   if (feof(fp)) set_errno(EMCM_EOF);
+FAIL: return VERROR;
+}  /* end block_syncup_fp() */
+
+/**
+ * Update blockchain with the provided block file.
+ * @param fname Filename of block to update
+ * @return 0 on succes, or non-zero on error. Check errno for details.
+ */
+int block_update(const char *fname)
+{
+   static word8 one[8] = { 1, 0 };
+
+   BTRAILER bt;
+   word8 weight[32];
+   word8 bnum[8];
+   int ecode;
+
+   /* read block trailer */
+   if (read_trailer(&bt, fname) != VEOK) return VERROR;
+
+   /* perform appropriate update actions, depending on data type */
+   if (bt.bnum[0] == 0) {
+      /* extract ledger from neo-genesis block */
+      ecode = le_extract(fname);
+      if (ecode) return ecode;
+      /* read block number of Tfile */
+      if (read_bnum(bnum, fname) != VEOK) return VERROR;
+      /* trim tfile to neo-genesis block */
+      if (cmp64(bt.bnum, bnum) <= 0) {
+         memset(weight, 0, sizeof(weight));
+         /* trim tfile for append trailer -- reset weight */
+         if (sub64(bt.bnum, one, bnum)) goto FAIL_UNDERFLOW;
+         if (trim_tfile("tfile.dat", bnum, weight) != VEOK) return VERROR;
+         memcpy(Weight, weight, sizeof(weight));
+      }
+   } else if (get32(bt.tcount) > 0) {
+      /* update ledger with transaction data */
+      ecode = le_update(fname);
+      if (ecode) return ecode;
+   }
+
+   /* append trailer to Tfile */
+   if (append_tfile(fname, "tfile.dat") != VEOK) return VERROR;
+
+   /* update protocol state */
+   put64(Cblocknum, bt.bnum);
+   memcpy(Cblockhash, bt.bhash, HASHLEN);
+   memcpy(Prevhash, bt.phash, HASHLEN);
+   add_weight(Weight, bt.difficulty[0], bt.bnum);
+
+   /* perform neogenesis block update -- as necessary */
+   if (Cblocknum[0] == 0xff) {
+      /* generate neogenesis file */
+      if (generate_neogen("neogen.dat", NULL, "tfile.dat") != VEOK) {
+         return VERROR;
+      }
+      /* append trailer to Tfile -- NOT YET */
+      /* if (append_tfile(fname, "tfile.dat") != VEOK) return VERROR; */
+   }
+
+   return VEOK;
+
+/* error handling */
+FAIL_UNDERFLOW: set_errno(EMCM_MATH64_UNDERFLOW); return VERROR;
+}  /* end block_update() */
 
 /**
  * Generate a neo-genesis block. Requires an opened Ledger.
@@ -40,7 +243,7 @@ char *Maddr_opt = "maddr.dat";
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int neogen(char *fname, char *lfname, char *tfname)
+int generate_neogen(const char *fname, const char *lfname, const char *tfname)
 {
    static word8 one[8] = { 1, 0 };
 
@@ -123,7 +326,7 @@ FAIL_IO:
    if (fp) fclose(fp);
    remove(fname);
    return VERROR;
-}  /* end neogen() */
+}  /* end generate_neogen() */
 
 /**
  * Validate an open pseudo-block.
@@ -134,7 +337,7 @@ FAIL_IO:
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int pseudo_val_fp(FILE *fp, BTRAILER *prev_btp)
+int validate_pseudo_fp(FILE *fp, BTRAILER *prev_btp)
 {
    static word8 one[8] = { 1, 0 };
 
@@ -194,7 +397,7 @@ BAD_DIFF: set_errno(EMCM_DIFF); return VEBAD;
 BAD_TIME0: set_errno(EMCM_TIME0); return VEBAD;
 BAD_STIME: set_errno(EMCM_STIME); return VEBAD;
 BAD_MFEE: set_errno(EMCM_MFEE); return VEBAD;
-}  /* end pseudo_val_fp() */
+}  /* end validate_pseudo_fp() */
 
 /**
  * Validate a pseudo-block.
@@ -205,7 +408,7 @@ BAD_MFEE: set_errno(EMCM_MFEE); return VEBAD;
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int pseudo_val(char *pfname, char *tfname)
+int validate_pseudo(const char *pfname, const char *tfname)
 {
    BTRAILER prev_bt;
    FILE *fp;
@@ -217,11 +420,11 @@ int pseudo_val(char *pfname, char *tfname)
    /* open pseudo-block file for validation */
    fp = fopen(pfname, "rb");
    if (fp == NULL) return VERROR;
-   ecode = pseudo_val_fp(fp, &prev_bt);
+   ecode = validate_pseudo_fp(fp, &prev_bt);
    fclose(fp);
 
    return ecode;
-}  /* end pseudo_val() */
+}  /* end validate_pseudo() */
 
 /**
  * Generate a pseudo-block. Uses the last trailer in the Tfile as state.
@@ -231,7 +434,7 @@ int pseudo_val(char *pfname, char *tfname)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int pseudo(char *fname, char *tfname)
+int generate_pseudo(const char *fname, const char *tfname)
 {
    static const word32 hdrlen = 4;
    static word8 one[8] = { 1, 0 };
@@ -277,63 +480,7 @@ FAIL_IO:
    fclose(fp);
    remove(fname);
    return VERROR;
-}  /* end pseudo() */
-
-int update_block(char *fname)
-{
-   static word8 one[8] = { 1, 0 };
-
-   BTRAILER bt;
-   word8 weight[32];
-   word8 bnum[8];
-   int ecode;
-
-   /* read block trailer */
-   if (read_trailer(&bt, fname) != VEOK) return VERROR;
-
-   /* perform appropriate update actions, depending on data type */
-   if (bt.bnum[0] == 0) {
-      /* extract ledger from neo-genesis block */
-      ecode = le_extract(fname);
-      if (ecode) return ecode;
-      /* read block number of Tfile */
-      if (read_bnum(bnum, fname) != VEOK) return VERROR;
-      /* trim tfile to neo-genesis block */
-      if (cmp64(bt.bnum, bnum) <= 0) {
-         memset(weight, 0, sizeof(weight));
-         /* trim tfile for append trailer -- reset weight */
-         if (sub64(bt.bnum, one, bnum)) goto FAIL_UNDERFLOW;
-         if (trim_tfile("tfile.dat", bnum, weight) != VEOK) return VERROR;
-         memcpy(Weight, weight, sizeof(weight));
-      }
-   } else if (get32(bt.tcount) > 0) {
-      /* update ledger with transaction data */
-      ecode = le_update(fname);
-      if (ecode) return ecode;
-   }
-
-   /* append trailer to Tfile */
-   if (append_tfile(fname, "tfile.dat") != VEOK) return VERROR;
-
-   /* update protocol state */
-   put64(Cblocknum, bt.bnum);
-   memcpy(Cblockhash, bt.bhash, HASHLEN);
-   memcpy(Prevhash, bt.phash, HASHLEN);
-   add_weight(Weight, bt.difficulty[0], bt.bnum);
-
-   /* perform neogenesis block update -- as necessary */
-   if (Cblocknum[0] == 0xff) {
-      /* generate neogenesis file */
-      if (neogen("neogen.dat", NULL, "tfile.dat") != VEOK) return VERROR;
-      /* append trailer to Tfile -- NOT YET */
-      /* if (append_tfile(fname, "tfile.dat") != VEOK) return VERROR; */
-   }
-
-   return VEOK;
-
-/* error handling */
-FAIL_UNDERFLOW: set_errno(EMCM_MATH64_UNDERFLOW); return VERROR;
-}
+}  /* end generate_pseudo() */
 
 /**
  * Validate any open blockchain file. With the exception of the Genesis
@@ -351,7 +498,7 @@ FAIL_UNDERFLOW: set_errno(EMCM_MATH64_UNDERFLOW); return VERROR;
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int validate_block_fp(FILE *fp, char *tfname)
+int validate_block_fp(FILE *fp, const char *tfname)
 {
    BTRAILER prev_bt;
    word32 hdrlen;
@@ -368,7 +515,7 @@ int validate_block_fp(FILE *fp, char *tfname)
 
    /* determine appropriate validation routine */
    switch (hdrlen) {
-      case 4: return pseudo_val_fp(fp, &prev_bt);
+      case 4: return validate_pseudo_fp(fp, &prev_bt);
    /* case 12: return neogen_val_fp(fp, tfname);
       case 76: return block_val_fp(fp, &prev_bt);  */
       case 2220: return blockw_val_fp(fp, &prev_bt);
@@ -392,7 +539,7 @@ int validate_block_fp(FILE *fp, char *tfname)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int validate_block(char *bcfname, char *tfname)
+int validate_block(const char *bcfname, const char *tfname)
 {
    word32 hdrlen;
 
@@ -400,7 +547,7 @@ int validate_block(char *bcfname, char *tfname)
    if (read_hdrlen(&hdrlen, bcfname) != VEOK) return VERROR;
    /* determine appropriate validation routine */
    switch (hdrlen) {
-      case 4: return pseudo_val(bcfname, tfname);
+      case 4: return validate_pseudo(bcfname, tfname);
    /* case 12: return neogen_val(bcfname, tfname);
       case 76: return block_val(bcfname, tfname);  */
       case 2220: return blockw_val(bcfname, tfname);
