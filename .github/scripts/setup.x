@@ -82,7 +82,7 @@ User=$MOCHIMO_USER
 Group=$MOCHIMO_USER
 WorkingDirectory=$MOCHIMO_DIR/bin/
 ExecStartPre=/bin/sh -c 'until ping -c1 1.1.1.1; do sleep 1; done;'
-ExecStart=$MOCHIMO_DIR/bin/mcmd -ll 5 -ol 3 -o output.log
+ExecStart=$MOCHIMO_DIR/bin/mcmd --trace-functions -tl 5
 [Install]
 WantedBy=multi-user.target
 EOF
