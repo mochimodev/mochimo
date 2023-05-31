@@ -122,7 +122,7 @@ void search_and_compare(LENTRY_W *lep, size_t count)
          1, "tags should compare equal, regardless if valid tag or not");
 
       lef = le_findw(lep[i].addr);
-      if (lef == NULL) perrno(errno, "le_findw()");
+      if (lef == NULL) perrno("le_findw()");
       ASSERT_NE_MSG(lef, NULL, "selected ledger entry not found");
       ASSERT_CMP_MSG(lef->addr, lec.addr, sizeof(lec), "entry mismatch");
       if (WOTS_HAS_TAG(&lep[i])) {
@@ -199,7 +199,7 @@ int main()
 
    /* begin extract and find test */
    ecode = le_extract("neogen.dat");
-   if (ecode) perrno(errno, "le_extract() FAILURE");
+   if (ecode) perrno("le_extract() FAILURE");
    ASSERT_EQ_MSG(ecode, VEOK, "le_extract() failed");
 
    /* check sort of extracted ledger */
@@ -278,18 +278,10 @@ int main()
       ASSERT_EQ_MSG(le_append("ledger.update", NULL), VEOK, "le_append() failed");
       free(lewp);
    }
-   /* ledger.dat.7 should exist */
-   ASSERT_EQ_MSG(fexists("ledger.dat.7"), 1, "ledger depth 7 should exist");
-
-   lewp = random_ledgerw(count);
-   ASSERT_NE_MSG(lewp, NULL, "random ledgerw creation failed");
-   ASSERT_EQ_MSG(write_ledgerw("ledger.update", lewp, count), 0, "rng failed");
-   ASSERT_EQ_MSG(le_append("ledger.update", NULL), VEOK, "le_append() failed");
-   free(lewp);
 
    /* ledger.dat.7 should no longer exist */
    ASSERT_EQ_MSG(fexists("ledger.dat.7"), 0,
-      "ledger depth 7 should no longer exist");
+      "ledger depth 7 should not exist due to auto compression");
 
    /* check close ledger closes the ledger but does not delete file */
    le_delete(1);
@@ -300,7 +292,8 @@ int main()
 
    /* reinstate ledger (rebuilds tag index) */
    remove("tagidx.dat.0");
-   ASSERT_EQ(le_append("ledger.dat.0", NULL), 0);
+   rename("ledger.dat.0", "ledger.dat");
+   ASSERT_EQ(le_append("ledger.dat", NULL), 0);
    ASSERT_EQ_MSG(fexists("ledger.dat.0"), 1, "ledger depth 0 should exist");
    ASSERT_EQ_MSG(fexists("tagidx.dat.0"), 1, "tagidx depth 0 should exist");
 

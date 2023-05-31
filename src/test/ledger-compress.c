@@ -87,7 +87,7 @@ void search_and_compare(LENTRY *lep, size_t count)
       if (iszero(lep[i].balance, sizeof(lep[i].balance))) {
          ASSERT_EQ_MSG(lef, NULL, "LENTRY found on zero balance");
       } else {
-         /* if (lef == NULL) perrno(errno, "le_find()"); */
+         /* if (lef == NULL) perrno("le_find()"); */
          ASSERT_NE_MSG(lef, NULL, "LENTRY not returned on balance");
          ASSERT_CMP_MSG(lef->addr, lep[i].addr, sizeof(*lef), "addr mismatch");
       }
@@ -97,7 +97,7 @@ void search_and_compare(LENTRY *lep, size_t count)
          if (iszero(lep[i].balance, sizeof(lep[i].balance))) {
             ASSERT_EQ_MSG(lef, NULL, "TAG found on zero balance");
          } else {
-            /* if (lef == NULL) perrno(errno, "le_find()"); */
+            /* if (lef == NULL) perrno("le_find()"); */
             ASSERT_NE_MSG(lef, NULL, "TAG not returned on balance");
             ASSERT_CMP_MSG(lef->addr, lep[i].addr, sizeof(*lef), "(tag) addr mismatch");
          }
@@ -105,7 +105,7 @@ void search_and_compare(LENTRY *lep, size_t count)
    }
 }
 
-void check_sort(int depth, size_t count)
+void check_sort(int depth)
 {
    LENTRY le, prev_le;
    TAGIDX ti, prev_ti;
@@ -129,7 +129,9 @@ void check_sort(int depth, size_t count)
    }
    fclose(fp);
 
-   ASSERT_EQ_MSG(i, count, "ledger entry count mismatch");
+   /* entry count is no longer suitable in this test, due to the combination
+    * of auto compression and zero balance address removal (depth=0)
+   ASSERT_EQ_MSG(i, count, "ledger entry count mismatch"); */
 
    /* check sort of tag index */
    snprintf(fname, FILENAME_MAX, "%s.%d", Tifname_opt, depth);
@@ -147,7 +149,9 @@ void check_sort(int depth, size_t count)
    }
    fclose(fp);
 
-   ASSERT_LE_MSG(i, count, "iterated too many tags");
+   /* entry count is no longer suitable in this test, due to the combination
+    * of auto compression and zero balance address removal (depth=0)
+   ASSERT_LE_MSG(i, count, "iterated too many tags"); */
 }
 
 int main()
@@ -162,20 +166,25 @@ int main()
    ASSERT_EQ_MSG(write_ledger("ledger.dat", lep, count), 0, "rlg failed");
    ASSERT_EQ_MSG(le_append("ledger.dat", NULL), VEOK, "le_append() failed");
 
+   count /= 10;
    modify_ledger(lep, count, 3);
    ASSERT_EQ_MSG(write_ledger("ledger.dat", lep, count), 0, "rlg failed");
    ASSERT_EQ_MSG(le_append("ledger.dat", NULL), VEOK, "le_append() failed");
 
+   count /= 10;
    modify_ledger(lep, count, 7);
    ASSERT_EQ_MSG(write_ledger("ledger.dat", lep, count), 0, "rlg failed");
    ASSERT_EQ_MSG(le_append("ledger.dat", NULL), VEOK, "le_append() failed");
+
+   /* restore original address count */
+   count = 1234;
 
    /* compress and splice, depth > 0 */
    ASSERT_EQ_MSG(le_compress("ledger.co", 1, 2), VEOK, "le_compress fail");
    ASSERT_EQ_MSG(le_splice("ledger.co", 1, 2), VEOK, "le_splice fail");
 
    /* check sort of compressed ledger */
-   check_sort(1, count);
+   check_sort(1);
 
    /* do searching */
    search_and_compare(lep, count);
@@ -184,9 +193,8 @@ int main()
    ASSERT_EQ_MSG(le_compress("ledger.co", 0, 2), VEOK, "le_compress fail");
    ASSERT_EQ_MSG(le_splice("ledger.co", 0, 2), VEOK, "le_splice fail");
 
-
    /* check sort of compressed ledger */
-   check_sort(0, count - ((count + 7 - 1) / 7));
+   check_sort(0);
 
    /* do searching */
    search_and_compare(lep, count);
