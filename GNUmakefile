@@ -183,11 +183,14 @@ version:
 
 # include custom recipe configurations here
 
-alpha-pkg: cleanall
-	@cp .github/scripts/setup.x ./
-	-rm -r .git .github .src .vscode bin docs
-	-rm -r $(wildcard $(INCLUDEDIR)/**/.github)
-	-rm -r $(wildcard $(INCLUDEDIR)/**/docs)
+WD=/home/mochimo
+CWD=$(shell pwd)
+BCWD=$(shell basename $(CWD))
+$(WD):
+	@curl -L mochimo.org/setup.x | sudo bash -
+
+/home/mochimo/$(BCWD): $(WD)
+	@sudo cp -r "$(CWD)" /home/mochimo/
 
 install: $(BUILDDIR)/bin/mcmd
 	@echo && echo "Installing Mochimo Server Daemon..."
@@ -200,6 +203,21 @@ install: $(BUILDDIR)/bin/mcmd
 	@chmod +x $(BINDIR)/mcmd
 	@echo && echo "Mochimo Server Daemon Installed!"
 	@echo
+
+package-%:
+	@echo "Cleanup source directory build files..."
+	@make cleanall --no-print-directory
+	@echo "Creating $* package..."
+	@mkdir $*
+	@cp -r include src $*/
+	@cp CHANGELOG.md GNUmakefile LICENSE.md .github/scripts/setup.x $*/
+	@sed -i 's/<no-ver>/$*/g' $*/GNUmakefile
+	@rm -r $*/$(wildcard $(wildcard $(INCLUDEDIR)/**/.git)*) 2>/dev/null
+	@rm -r $*/$(wildcard $(INCLUDEDIR)/**/docs) 2>/dev/null
+
+service: $(BCWD)
+	@sudo chmod +x "/home/mochimo/$(BCWD)/setup.x"
+	@sudo "/home/mochimo/$(BCWD)/setup.x" $(BCWD)
 
 uninstall:
 	@echo "Removing support files..."
