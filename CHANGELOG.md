@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ***
 
+## [2.4.3] - June 1st, 2023
+
+Service setup updates and improvements to miner for RTX4090 and future performance advancement of GPU architectures.
+
+### Changed
+- mochimo.service now waits for network to be available before starting
+- setup script no longer install erroneous amounts of git software (installs `git` instead of `git-all`)
+- moved a reasonable amount of CPU work to the GPU to improve performance of powerful GPUs on low tier hardware (specifically the RTX4090, but will also apply to future generations of GPU)
+
 ## [2.4.2] - July 12th, 2022
 
 Implementation of the Adequate Systems Build-C repository for CI/CD processes and build utilities. Repository restructure in preparation for version 3.0 improvements. Some non-critical bug fixes related to the handling of transactions between block updates. Improvements to Peach POW Algorithm on all Cuda capable devices.
@@ -221,7 +230,8 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/v2.4.2...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/v2.4.3...HEAD
+[2.4.3]: https://github.com/adequatesystems/build-c/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/adequatesystems/build-c/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/adequatesystems/build-c/compare/v2.4...v2.4.1
 [2.4.0]: https://github.com/adequatesystems/build-c/compare/v2.3...v2.4
