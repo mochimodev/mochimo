@@ -3,19 +3,17 @@
 <img width="75%" src=".github/media/logo-banner.png" />
 </a>
 
+[![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=&color=%230059ff)](https://github.com/mochimodev/mochimo/releases)
+![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest?logo=github&logoColor=lightgrey&labelColor=2d3339&color=%230059ff)<br>
+[![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml)
+[![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml)
+[![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml)
+
 *You must read and agree to the [LICENSE](https://mochimo.org/license.pdf)
 prior to running the code.*
 
 **This repository is home to the Mochimo Cryptocurrency Engine code (main-net).**<br/>
 It includes a fully functional cryptocurrency network node and a text-based developer's wallet. The full node, and developer's wallet, will compile without issue on most 64-bit Linux-based machines with the GNU Makefile provided under the "src" directory. However, please note that the developer's wallet is provided for development use only. It is recommended to use [Mojo](https://github.com/mochimodev/mojo-java-wallet/releases) as your main wallet software.
-
-|     | `master` | `dev` |
-| --: | :------: | :---: |
-| Version: | [![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=&color=%230059ff)![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/master?&label=-&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/releases) | [![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=&color=%230059ff)![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest/dev?&label=-&labelColor=2d3339&color=%230059ff)](https://github.com/mochimodev/mochimo/tree/dev) |
-| Unit Tests: | [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml) | [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg?branch=dev)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml) |
-| Software Builds: | [![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml) | [![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg?branch=dev)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml) |
-| Static Analysis: | [![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml) | [![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg?branch=dev)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml) |
-| Test Coverage: | [![CodeCov code coverage](https://codecov.io/gh/mochimodev/mochimo/graph/badge.svg)](https://codecov.io/gh/mochimodev/mochimo) | [![codecov](https://codecov.io/gh/mochimodev/mochimo/branch/dev/graph/badge.svg)](https://codecov.io/gh/mochimodev/mochimo/branch/dev) |
 
 </div>
 
