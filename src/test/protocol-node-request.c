@@ -6,16 +6,16 @@
 
 int main()
 {
-   SNODE node = { 0 };
+   NODE node = { 0 };
+   word32 ip;
    char **cpp;
 
    sock_startup();
-   set_print_level(PLEVEL_LOG);
 
-   for (cpp = Corephosts; aton(*cpp); cpp++) {
+   for (cpp = Corephosts; (ip = aton(*cpp)); cpp++) {
       for (
-         prep_request(&node, aton(*cpp), PORT1, OP_GET_IPL, NULL);
-         node_request(&node) == VEWAITING;
+         node_init(&node, INVALID_SOCKET, ip, PORT1, OP_GET_IPL, NULL);
+         node_request_operation(&node) == VEWAITING;
          millisleep(1)
       );
       node_cleanup(&node);

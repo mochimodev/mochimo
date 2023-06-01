@@ -10,10 +10,7 @@
 
 #include "_assert.h"
 #include "extint.h"
-#include "extprint.h"
 #include "exttime.h"
-
-#include "util.h"
 #include "peach.h"
 
 #define MINDIFF     18
@@ -51,7 +48,6 @@ int main()
    word8 diff, digest[SHA256LEN];
    char *m;
 
-   set_print_level(PLEVEL_DEBUG);
    count = peach_init_cuda(D, GPUMAX);
 
    m = "";
@@ -87,5 +83,5 @@ int main()
    /* check difficulty met requirement */
    ASSERT_GE_MSG(diff, MINDIFF, "should meet minimum diff requirement");
    /* output final performance on success */
-   print("Peach CUDA mining performance: ~%.2lf %sH/s\n", hps, m);
+   printf("Peach CUDA mining performance: ~%.2lf %sH/s\n", hps, m);
 }
