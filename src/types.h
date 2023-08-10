@@ -147,6 +147,12 @@
 #define C_LOGGING       16
 
 /**
+ * Capability bit for nodes using variable PDU protocol.
+ * NOTE: implied for protocol version 5 onwards
+*/
+#define C_VPDU          32
+
+/**
  * "Null" operation code. Not actively used by the node, but can indicate a
  * lack of socket initialization during packet transmission.
 */
@@ -331,13 +337,19 @@ typedef struct {
    word8 weight[32];       /* sum of block difficulties (or TX ip map) */
    word8 len[2];  /* length of data in transaction buffer for I/O op's */
    /* start transaction buffer */
-   word8 src_addr[TXADDRLEN];
-   word8 dst_addr[TXADDRLEN];
-   word8 chg_addr[TXADDRLEN];
-   word8 send_total[TXAMOUNT];
-   word8 change_total[TXAMOUNT];
-   word8 tx_fee[TXAMOUNT];
-   word8 tx_sig[TXSIGLEN];
+   union {
+      word8 buffer[WORD16_MAX];
+      struct {
+         /* legacy access */
+         word8 src_addr[TXADDRLEN];
+         word8 dst_addr[TXADDRLEN];
+         word8 chg_addr[TXADDRLEN];
+         word8 send_total[TXAMOUNT];
+         word8 change_total[TXAMOUNT];
+         word8 tx_fee[TXAMOUNT];
+         word8 tx_sig[TXSIGLEN];
+      };
+   };
    /* end transaction buffer */
    word8 crc16[2];
    word8 trailer[2];  /* 0xcd, 0xab */

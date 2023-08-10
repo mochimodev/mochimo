@@ -35,6 +35,12 @@
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
 #define can_fork_tx() (Nonline <= (MAXNODES - 5))
 
+/** Identify variable PDU capability bit in network protocol */
+#define isVPDU(tx) ( (tx)->version[0] >= 5 || (tx)->version[1] & C_VPDU )
+
+#define TXHDRLEN 124
+#define TXTLRLEN 4
+
 NODE Nodes[MAXNODES];   /* data structure for connected NODE's */
 NODE *Hi_node = Nodes;  /* points one beyond last logged in NODE */
 word32 Nrecvs;          /* number of receive errors */
@@ -117,32 +123,55 @@ int child_status(NODE *np, pid_t pid, int status)
  * Receive next packet from NODE *np.
  * SOCKET np->sd is already set non-blocking.
  * Returns: VEOK (0) = good, else error code. */
-int recv_tx(NODE *np, double timeout)
+int recv_tx(NODE *np, double to)
 {
-   int ecode;
-   word16 hash;
+   int ecode, stage, len;
    TX *tx;
 
    /* init recv_tx() */
    tx = &(np->tx);
 
-   /* recv tx packet */
-   ecode = Running ? sock_recv(np->sd, tx, TXBUFFLEN, 0, timeout) : VERROR;
-   if (ecode != VEOK) {
-      if (ecode == VETIMEOUT) {
-         pdebug("recv_tx(%s): connection timed out", np->id);
-         Ntimeouts++;
-      } else {
-         pdebug("recv_tx(%s): aborting", np->id);
-         Nrecverrs++;
+   /* iterate the stages of recv */
+   for (stage = 0; stage < 3; stage++) {
+      /* running check */
+      if (!Running) {
+         pdebug("recv_tx(%s): local shutdown", np->id);
+         return VERROR;
       }
-      return ecode;
-   }
+      /* recv tx packet in stages */
+      switch (stage) {
+         case 0: /* recv() header */
+            ecode = sock_recv(np->sd, tx->version, TXHDRLEN, 0, to);
+            break;
+         case 1: /* recv() buffer (size depends on VPDU) */
+            if (np->c_vpdu) {
+               len = (int) get16(tx->len);
+               ecode = sock_recv(np->sd, tx, len, 0, to);
+            } else ecode = sock_recv(np->sd, tx->buffer, TRANLEN, 0, to);
+            break;
+         case 2: /* recv() trailer */
+            ecode = sock_recv(np->sd, tx->crc16, TXTLRLEN, 0, to);
+            break;
+         default: /* internal error */
+            ecode = VERROR;
+      }
+      /* check for errors after each recv */
+      if (ecode != VEOK) {
+         if (ecode == VETIMEOUT) {
+            pdebug("recv_tx(%s): connection timed out", np->id);
+            Ntimeouts++;
+         } else {
+            pdebug("recv_tx(%s): aborting", np->id);
+            Nsenderrs++;
+         }
+         return ecode;
+      }
+   }  /* end for(stage... */
+
    /* compute crc16 checksum and verify packet integrity */
-   hash = crc16(tx, TXCRC_INLEN);
-   if (get16(tx->crc16) != hash) {
+   if (get16(tx->crc16) != crc16(tx, TXCRC_INLEN)) {
       pdebug("recv_tx(%s): *** CRC16 mismatch, 0x%" P16X " != 0x%" P16X,
-         np->id, get16(tx->crc16), hash);
+         np->id, get16(tx->crc16), crc16(tx, TXCRC_INLEN));
       Nrecverrs++;
       return VEBAD;
    }
@@ -169,6 +198,9 @@ int recv_tx(NODE *np, double timeout)
          return VEBAD;
       }
    }
+
+   /* flag node c_vpdu if necessary */
+   np->c_vpdu = isVPDU(tx);
 
    /* packet recv'd */
    Nrecvs++;
@@ -256,16 +288,17 @@ int recv_file(NODE *np, char *fname)
  * Send next packet to NODE *np.
  * Set advertised fields and compute CRC16.
  * Returns VEOK on success, else VERROR. */
-int send_tx(NODE *np, double timeout)
+int send_tx(NODE *np, double to)
 {
-   int ecode;
+   int ecode, stage, len;
    TX *tx;
 
    /* init send_tx() */
    tx = &(np->tx);
 
    /* fill tx packet with relevant information... */
-   put16(tx->version, PVERSION | (Cbits << 8));
+   tx->version[0] = PVERSION;
+   tx->version[1] = Cbits | C_VPDU;
    put16(tx->network, TXNETWORK);
    put16(tx->trailer, TXEOT);
    put16(tx->id1, np->id1);
@@ -278,21 +311,73 @@ int send_tx(NODE *np, double timeout)
       memcpy(tx->weight, Weight, HASHLEN);
    }
 
-   /* compute packet crc16 checksum */
-   put16(tx->crc16, crc16(tx, TXCRC_INLEN));
+   /* store (actual) packet buffer length for CRC hash */
+   len = (int) get16(np->tx.len);
 
-   /* send tx packet */
-   ecode = Running ? sock_send(np->sd, tx, TXBUFFLEN, 0, timeout) : VERROR;
-   if (ecode != VEOK) {
-      if (ecode == VETIMEOUT) {
-         pdebug("send_tx(%s): connection timed out", np->id);
-         Ntimeouts++;
-      } else {
-         pdebug("send_tx(%s): aborting", np->id);
-         Nsenderrs++;
+   /************************************/
+   /* PROTOCOL VERSION 4 COMPATIBILITY */
+
+   /* check for VPDU capability */
+   if (!np->c_vpdu) {
+      /* protocol version 4 uses a fixed length PDU */
+      if (len < TRANLEN) {
+         len = TRANLEN;
       }
-      return ecode;
+      /* opcode specific checks */
+      switch (get16(np->tx.opcode)) {
+         /* for initial compatibility, set len param to fixed length PDU */
+         case OP_HELLO:
+            put16(np->tx.len, TRANLEN);
+            break;
+         /* some opcodes MUST BE ZERO, else be excluded from peerlists */
+         case OP_TX: /* fallthrough */
+         case OP_FOUND: /* fallthrough */
+         case OP_GET_IPL: /* fallthrough */
+         case OP_GET_TFILE:
+            put16(np->tx.len, 0);
+            break;
+      }
    }
+
+   /* END PROTOCOL VERSION 4 COMPATIBILITY */
+   /****************************************/
+
+   /* compute packet crc16 checksum */
+   put16(tx->crc16, crc16(tx, TXHDRLEN + len));
+
+   /* iterate the stages of send */
+   for (stage = 1; stage < 3; stage++) {
+      /* running check */
+      if (!Running) {
+         pdebug("send_tx(%s): local shutdown", np->id);
+         return VERROR;
+      }
+      /* send tx packet in stages */
+      switch (stage) {
+         case 1: /* send() header+buffer (buffer size depends on VPDU) */
+            if (np->c_vpdu) {
+               len = TXHDRLEN + (int) get16(tx->len);
+            } else len = TXHDRLEN + TRANLEN;
+            ecode = sock_send(np->sd, tx, len, 0, to);
+            break;
+         case 2: /* send() trailer */
+            ecode = sock_send(np->sd, tx->crc16, TXTLRLEN, 0, to);
+            break;
+         default: /* internal error */
+            ecode = VERROR;
+      }
+      /* check for errors after each send */
+      if (ecode != VEOK) {
+         if (ecode == VETIMEOUT) {
+            pdebug("send_tx(%s): connection timed out", np->id);
+            Ntimeouts++;
+         } else {
+            pdebug("send_tx(%s): aborting", np->id);
+            Nsenderrs++;
+         }
+         return ecode;
+      }
+   }  /* end for(stage... */
 
    /* packet sent */
    Nsends++;
