@@ -260,7 +260,7 @@ int recv_file(NODE *np, char *fname)
          break;
       }
       len = get16(tx->len);
-      if (len > TRANLEN) {
+      if (!np->c_vpdu && len > TRANLEN) {
          pdebug("recv_file(%s, %s): *** oversized TX", np->id, fname);
          break;
       }
@@ -268,8 +268,8 @@ int recv_file(NODE *np, char *fname)
          pdebug("recv_file(%s, %s): *** I/O error", np->id, fname);
          break;
       }
-      /* check EOF */
-      if (len < TRANLEN) {
+      /* check EOF - depends on VPDU */
+      if ((np->c_vpdu && len < sizeof(tx->buffer)) || len < TRANLEN) {
          fclose(fp);
          psticky("");
          pdebug("recv_file(%s, %s): EOF", np->id, fname);
@@ -399,14 +399,15 @@ int send_op(NODE *np, int opcode)
 int send_file(NODE *np, char *fname)
 {
    char name[128];
+   size_t count;
    int ecode;
    word16 len;
    FILE *fp;
    TX *tx;
 
    /* init send_file() */
-   len = TRANLEN;
    tx = &(np->tx);
+   len = np->c_vpdu ? sizeof(tx->buffer) : TRANLEN;
    if (fname == NULL) {
       sprintf(name, "%.64s/b%.16s.bc", Bcdir, bnum2hex(tx->blocknum));
       fname = name;
@@ -424,8 +425,8 @@ int send_file(NODE *np, char *fname)
    }
    /* read and send packets */
    do {
-      len = fread(TRANBUFF(tx), 1, TRANLEN, fp);
-      put16(tx->len, len);
+      count = fread(TRANBUFF(tx), 1, len, fp);
+      put16(tx->len, (word16) count);
       ecode = send_op(np, OP_SEND_FILE);
       /* Make upload bandwidth dynamic. */
       if (Nonline > 1) millisleep(Nonline - 1);
@@ -470,6 +471,7 @@ int send_balance(NODE *np)
      put64(np->tx.change_total, One); /* indicate address was found */
      memcpy(np->tx.src_addr, le.addr, TXADDRLEN); /* return found address */
    }
+   put16(np->tx.len, TRANLEN);
    send_op(np, OP_SEND_BAL);
 
    Nbalance++;
@@ -540,6 +542,7 @@ int send_identify(NODE *np)
    /* copy recent peer list to TX */
    sprintf((char *) TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
            Sanctuary, Lastday, Myfee[0]);
+   put16(np->tx.len, (word16) strlen((char *) TRANBUFF(&np->tx)));
    return send_op(np, OP_IDENTIFY);
 }
 
@@ -573,6 +576,7 @@ int send_resolve(NODE *np)
       put64(np->tx.send_total, One);
       ecode = VEOK;
    }
+   put16(np->tx.len, TRANLEN);
    send_op(np, OP_RESOLVE);
    return ecode;
 }  /* end send_resolve() */
@@ -637,6 +641,7 @@ bad:
       if(*ipp == 0) continue;
       if(callserver(&node, *ipp) != VEOK) continue;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      put16(node.tx.len, TRANLEN);
       send_op(&node, OP_FOUND);
       sock_close(node.sd);
    }

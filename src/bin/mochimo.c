@@ -678,8 +678,13 @@ int server(void)
             }
          }  /* end if OP_FOUND child */
          else if(opcode == OP_GET_BLOCK || opcode == OP_GET_TFILE) {
-            if(get16(np->tx.len) == 0 && status == 0) {
-               addrecent(np->ip);
+            if (status == 0) {
+               /* NODEs should use appropriate capability bit */
+               if (np->c_vpdu && ~(np->tx.version[1] & C_WALLET)) {
+                  addrecent(np->ip);
+               } else if(get16(np->tx.len) == 0) {
+                  addrecent(np->ip);
+               }
             }
          }
       }  /* end for check Node[] zombies */
