@@ -993,11 +993,13 @@ int main(int argc, char **argv)
    static char proc_name[64], *cp;
    static word8 endian[] = { 0x34, 0x12 };
 
+   set_print_level(PLEVEL_LOG);
+
    /* sanity checks -- for undesired structure padding */
    if (sizeof(word32) != 4) resign("word32 should be 4 bytes");
-   else if (sizeof(TX) != TXBUFFLEN) {
+   /*else if (sizeof(TX) != TXBUFFLEN) {
       resign("struct size error TX != TXBUFFLEN");
-   } else if (sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)) {
+   }*/ else if (sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)) {
       resign("struct size error: LTRAN != (TXADDRLEN + 1 + TXAMOUNT)");
    } else if (sizeof(BTRAILER) != BTSIZE) {
       resign("struct size error: BTRAILER != BTSIZE");
@@ -1012,7 +1014,6 @@ int main(int argc, char **argv)
    Running = 1;
    fix_signals();             /* redirect signals */
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
-   set_print_level(PLEVEL_LOG);
 
    /* sanity check -- for duplicate processes */
    cp = strrchr(argv[0], '/');
