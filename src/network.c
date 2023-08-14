@@ -320,9 +320,7 @@ int send_tx(NODE *np, double to)
    /* check for VPDU capability */
    if (!np->c_vpdu) {
       /* protocol version 4 uses a fixed length PDU */
-      if (len < TRANLEN) {
-         len = TRANLEN;
-      }
+      len = TRANLEN;
       /* opcode specific checks */
       switch (get16(np->tx.opcode)) {
          /* for initial compatibility, set len param to fixed length PDU */
@@ -659,9 +657,7 @@ int callserver(NODE *np, word32 ip)
    /* init callserver() */
    id1 = id2 = 0;
    ntoa(&ip, ipaddr);
-   np->sd = INVALID_SOCKET;
-   np->ip = np->id1 = np->id2 = 0;
-   memset(&(np->tx), 0, sizeof(TX));   /* clear structure */
+   memset(np, 0, sizeof(NODE));   /* clear structure */
    snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    /* begin connection */
    np->ip = ip;
