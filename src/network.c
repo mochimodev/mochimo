@@ -889,10 +889,10 @@ int gettx(NODE *np, SOCKET sd)
 
    /* how can I help you? */
    status = recv_tx(np, INIT_TIMEOUT);
-   opcode = get16(tx->opcode);  /* execute() will check opcode */
-   pdebug("gettx(%s): got opcode = %d  status = %d", np->id, opcode, status);
    if (status == VEBAD) goto bad2;
    if (status != VEOK) return VERROR;  /* bad packet -- timeout? */
+   opcode = get16(tx->opcode);  /* execute() will check opcode */
+   pdebug("gettx(%s): got opcode = %d  status = %d", np->id, opcode, status);
    if (!valid_op(opcode)) goto bad1;  /* she was a bad girl */
 
    /* check simple responses */
