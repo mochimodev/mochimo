@@ -144,10 +144,8 @@ int recv_tx(NODE *np, double to)
             ecode = sock_recv(np->sd, tx->version, TXHDRLEN, 0, to);
             break;
          case 1: /* recv() buffer (size depends on VPDU) */
-            if (np->c_vpdu) {
-               len = (int) get16(tx->len);
-               ecode = sock_recv(np->sd, tx, len, 0, to);
-            } else ecode = sock_recv(np->sd, tx->buffer, TRANLEN, 0, to);
+            len = np->c_vpdu ? (int) get16(tx->len) : TRANLEN;
+            ecode = sock_recv(np->sd, tx->buffer, len, 0, to);
             break;
          case 2: /* recv() trailer */
             ecode = sock_recv(np->sd, tx->crc16, TXTLRLEN, 0, to);
@@ -169,9 +167,9 @@ int recv_tx(NODE *np, double to)
    }  /* end for(stage... */
 
    /* compute crc16 checksum and verify packet integrity */
-   if (get16(tx->crc16) != crc16(tx, TXCRC_INLEN)) {
+   if (get16(tx->crc16) != crc16(tx, TXHDRLEN + len)) {
       pdebug("recv_tx(%s): *** CRC16 mismatch, 0x%" P16X " != 0x%" P16X,
-         np->id, get16(tx->crc16), crc16(tx, TXCRC_INLEN));
+         np->id, get16(tx->crc16), crc16(tx, TXHDRLEN + len));
       Nrecverrs++;
       return VEBAD;
    }
@@ -353,10 +351,7 @@ int send_tx(NODE *np, double to)
       /* send tx packet in stages */
       switch (stage) {
          case 1: /* send() header+buffer (buffer size depends on VPDU) */
-            if (np->c_vpdu) {
-               len = TXHDRLEN + (int) get16(tx->len);
-            } else len = TXHDRLEN + TRANLEN;
-            ecode = sock_send(np->sd, tx, len, 0, to);
+            ecode = sock_send(np->sd, tx, TXHDRLEN + len, 0, to);
             break;
          case 2: /* send() trailer */
             ecode = sock_send(np->sd, tx->crc16, TXTLRLEN, 0, to);
