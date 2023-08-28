@@ -119,6 +119,18 @@ word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx)
    return ip;
 }
 
+int loadpeers(word32 *dstipl, int dstlen, word32 *srcipl, int srclen)
+{
+   int i;
+
+   for (i = 0; i < dstlen && i < srclen; i++) {
+      if (srcipl[i] == 0) break;
+      dstipl[i] = srcipl[i];
+   }
+
+   return i;
+}
+
 void print_ipl(word32 *list, word32 len)
 {
    unsigned int j;

@@ -577,11 +577,11 @@ int send_resolve(NODE *np)
 /* Creates child to send OP_FOUND to all recent peers */
 int send_found(void)
 {
-   word32 *ipp;
+   word32 plist[RPLISTLEN + TPLISTLEN];
    NODE node;
    BTRAILER bt;
    char fname[128];
-   int ecode;
+   int ecode, len, i;
    TX tx;
 
    if (Found_pid) {
@@ -620,24 +620,23 @@ bad:
    pdebug("send_found(0x%s)", bnum2hex(Cblocknum));
 
    loadproof(&tx);  /* get proof from tfile.dat */
-   /* Send found message to recent peers */
-   shuffle32(Rplist, RPLISTLEN);
-   for(ipp = Rplist; ipp < &Rplist[RPLISTLEN] && Running; ipp++) {
-      if(*ipp == 0) continue;
-      if(callserver(&node, *ipp) != VEOK) continue;
-      memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
-      send_op(&node, OP_FOUND);
-      sock_close(node.sd);
-   }
-   /* Send found message to trusted peers */
-   for(ipp = Tplist; ipp < &Tplist[TPLISTLEN] && Running; ipp++) {
-      if(*ipp == 0) continue;
-      if(callserver(&node, *ipp) != VEOK) continue;
+
+   /* build peerlist with Rplist (shuffled) and Tplist */
+   memset(plist, 0, sizeof(plist));
+   shufflenz(Rplist, sizeof(*Rplist), RPLISTLEN);
+   len = loadpeers(plist, RPLISTLEN + TPLISTLEN, Rplist, RPLISTLEN);
+   len += loadpeers(&plist[len], RPLISTLEN + TPLISTLEN - len, Tplist, TPLISTLEN);
+
+   /* Send found message to peerlist */
+   for(i = 0; i < len && Running; i++) {
+      if(plist[i] == 0) break;
+      if(callserver(&node, plist[i]) != VEOK) continue;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
       put16(node.tx.len, TRANLEN);
       send_op(&node, OP_FOUND);
       sock_close(node.sd);
    }
+
    exit(0);
 }  /* end send_found() */
 

@@ -39,6 +39,7 @@ word32 include32(word32 val, word32 *list, unsigned len, word32 *idx);
 void shuffle32(word32 *list, word32 len);
 int isprivate(word32 ip);
 word32 addpeer(word32 ip, word32 *list, word32 len, word32 *idx);
+int loadpeers(word32 *dstipl, int dstlen, word32 *srcipl, int srclen);
 void print_ipl(word32 *list, word32 len);
 int save_ipl(char *fname, word32 *list, word32 len);
 int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx);
