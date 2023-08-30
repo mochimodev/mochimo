@@ -35,9 +35,6 @@
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
 #define can_fork_tx() (Nonline <= (MAXNODES - 5))
 
-/** Identify variable PDU capability bit in network protocol */
-#define isVPDU(tx) ( (tx)->version[0] >= 5 || (tx)->version[1] & C_VPDU )
-
 #define TXHDRLEN 124
 #define TXTLRLEN 4
 
@@ -123,7 +120,7 @@ int child_status(NODE *np, pid_t pid, int status)
  * Receive next packet from NODE *np.
  * SOCKET np->sd is already set non-blocking.
  * Returns: VEOK (0) = good, else error code. */
-int recv_tx(NODE *np, double to)
+int recv_tx(NODE *np, double timeout)
 {
    int ecode, stage, len;
    TX *tx;
@@ -141,14 +138,14 @@ int recv_tx(NODE *np, double to)
       /* recv tx packet in stages */
       switch (stage) {
          case 0: /* recv() header */
-            ecode = sock_recv(np->sd, tx->version, TXHDRLEN, 0, to);
+            ecode = sock_recv(np->sd, tx->version, TXHDRLEN, 0, timeout);
             break;
          case 1: /* recv() buffer (size depends on VPDU) */
             len = np->c_vpdu ? (int) get16(tx->len) : TRANLEN;
-            ecode = sock_recv(np->sd, tx->buffer, len, 0, to);
+            ecode = sock_recv(np->sd, tx->buffer, len, 0, timeout);
             break;
          case 2: /* recv() trailer */
-            ecode = sock_recv(np->sd, tx->crc16, TXTLRLEN, 0, to);
+            ecode = sock_recv(np->sd, tx->crc16, TXTLRLEN, 0, timeout);
             break;
          default: /* internal error */
             ecode = VERROR;
@@ -197,8 +194,8 @@ int recv_tx(NODE *np, double to)
       }
    }
 
-   /* flag node c_vpdu if necessary */
-   np->c_vpdu = isVPDU(tx);
+   /* flag node c_vpdu in PVERSION 5 OR if flagged compatible */
+   np->c_vpdu = tx->version[0] >= 5 || (tx->version[1] & C_VPDU);
 
    /* packet recv'd */
    Nrecvs++;
@@ -286,7 +283,7 @@ int recv_file(NODE *np, char *fname)
  * Send next packet to NODE *np.
  * Set advertised fields and compute CRC16.
  * Returns VEOK on success, else VERROR. */
-int send_tx(NODE *np, double to)
+int send_tx(NODE *np, double timeout)
 {
    int ecode, stage, len;
    TX *tx;
@@ -351,10 +348,10 @@ int send_tx(NODE *np, double to)
       /* send tx packet in stages */
       switch (stage) {
          case 1: /* send() header+buffer (buffer size depends on VPDU) */
-            ecode = sock_send(np->sd, tx, TXHDRLEN + len, 0, to);
+            ecode = sock_send(np->sd, tx, TXHDRLEN + len, 0, timeout);
             break;
          case 2: /* send() trailer */
-            ecode = sock_send(np->sd, tx->crc16, TXTLRLEN, 0, to);
+            ecode = sock_send(np->sd, tx->crc16, TXTLRLEN, 0, timeout);
             break;
          default: /* internal error */
             ecode = VERROR;
