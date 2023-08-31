@@ -584,7 +584,7 @@ int send_found(void)
    NODE node;
    BTRAILER bt;
    char fname[128];
-   int ecode, len, i;
+   int ecode, count, len, i;
    TX tx;
 
    if (Found_pid) {
@@ -622,7 +622,7 @@ bad:
 
    pdebug("send_found(0x%s)", bnum2hex(Cblocknum));
 
-   loadproof(&tx);  /* get proof from tfile.dat */
+   count = loadproof(&tx);  /* get proof from tfile.dat */
 
    /* build peerlist with Rplist (shuffled) and Tplist */
    memset(plist, 0, sizeof(plist));
@@ -635,7 +635,7 @@ bad:
       if(plist[i] == 0) break;
       if(callserver(&node, plist[i]) != VEOK) continue;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
-      put16(node.tx.len, TRANLEN);
+      put16(node.tx.len, (word16) count * sizeof(BTRAILER));
       send_op(&node, OP_FOUND);
       sock_close(node.sd);
    }
