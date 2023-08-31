@@ -415,19 +415,24 @@ int send_file(NODE *np, char *fname)
    }
    /* read and send packets */
    do {
+      /* read file data and break on error */
       count = fread(tx->buffer, 1, len, fp);
+      if (count != len && ferror(fp)) {
+         perr("send_file(%s, %s): *** I/O error", np->id, fname);
+         ecode = VERROR;
+         break;
+      }
+      /* send file data and break on EOF */
       put16(tx->len, (word16) count);
       ecode = send_op(np, OP_SEND_FILE);
+      if (count != len) {
+         pdebug("send_file(%s, %s): EOF", np->id, fname);
+         break;
+      }
       /* Make upload bandwidth dynamic. */
       if (Nonline > 1) millisleep(Nonline - 1);
-   } while (ecode == VEOK && count == len);
-   /* check for errors */
-   if (count < len) {
-      if (ferror(fp)) {
-         ecode = VERROR;
-         perr("send_file(%s, %s): *** I/O error", np->id, fname);
-      } else pdebug("send_file(%s, %s): EOF", np->id, fname);
-   }
+   } while (ecode == VEOK);
+   /* cleanup */
    fclose(fp);
    return ecode;
 }  /* end send_file() */
