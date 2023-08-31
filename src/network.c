@@ -264,7 +264,8 @@ int recv_file(NODE *np, char *fname)
          break;
       }
       /* check EOF - depends on VPDU */
-      if ((np->c_vpdu && len < sizeof(tx->buffer)) || len < TRANLEN) {
+      if ((np->c_vpdu && len < sizeof(tx->buffer)) ||
+            (!np->c_vpdu && len < TRANLEN)) {
          fclose(fp);
          psticky("");
          pdebug("recv_file(%s, %s): EOF", np->id, fname);
