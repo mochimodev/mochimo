@@ -263,7 +263,7 @@ int b_val(char *fname)
    word8 bhash[HASHLEN];   /* computed block hash */
    word8 tx_id[HASHLEN];   /* hash of transaction and signature */
    word8 prev_tx_id[HASHLEN]; /* to check sort */
-   word8 addr[TXADDRLEN];     /* for mtx scan 4 */
+   word8 addr[TXWOTSLEN];     /* for mtx scan 4 */
    word8 pk2[WOTSSIGBYTES];   /* for WOTS */
    word8 msg[32];             /* for WOTS */
    word32 rnd2[8];            /* for WOTS */
@@ -398,10 +398,10 @@ int b_val(char *fname)
          mError(FAIL_TX, "b_val(): failed on fread(TX): TX#%" P32u, j);
       } else if (cmp64(tx.tx_fee, Mfee) < 0) {
          mEdrop(FAIL_TX, "b_val(): bad tx_fee: TX#%" P32u, j);
-      } else if (memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0) {
+      } else if (memcmp(tx.src_addr, tx.chg_addr, TXWOTSLEN) == 0) {
          mEdrop(FAIL_TX, "b_val(): (src == chg): TX#%" P32u, j);
       } else if (!TX_IS_MTX(&tx)) {
-         if (memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0) {
+         if (memcmp(tx.src_addr, tx.dst_addr, TXWOTSLEN) == 0) {
             mEdrop(FAIL_TX, "b_val(): (src == dst): TX#%" P32u, j);
          }
       }
@@ -410,7 +410,7 @@ int b_val(char *fname)
       sha256_update(&bctx, &tx, sizeof(TXQENTRY));
       sha256_update(&mctx, &tx, sizeof(TXQENTRY));
       /* tx_id is hash of tx.src_addr */
-      sha256(tx.src_addr, TXADDRLEN, tx_id);
+      sha256(tx.src_addr, TXWOTSLEN, tx_id);
       if (memcmp(tx_id, tx.tx_id, HASHLEN) != 0) {
          mEdrop(FAIL_TX, "b_val(): bad tx_id: TX#%" P32u, j);
       }
@@ -442,7 +442,7 @@ int b_val(char *fname)
       }
 
       /* look up source address in ledger */
-      if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == 0) {
+      if (le_find(tx.src_addr, &src_le, NULL, TXWOTSLEN) == 0) {
          pdebug("b_val(): error address %s...", addr2str(tx.src_addr));
          mEdrop(FAIL_TX, "b_val(): src_addr not in ledger: TX#%" P32u, j);
       }
@@ -507,7 +507,7 @@ int b_val(char *fname)
             == *((word32 *) (ADDR_TAG_PTR(qp2->dst_addr) + 4))
             && *((word32 *) (ADDR_TAG_PTR(qp1->src_addr) + 8))
             == *((word32 *) (ADDR_TAG_PTR(qp2->dst_addr) + 8)))
-                   memcpy(qp2->dst_addr, qp1->chg_addr, TXADDRLEN);
+                   memcpy(qp2->dst_addr, qp1->chg_addr, TXWOTSLEN);
       }  /* end for qp2 */
    }  /* end for qp1 */
 
@@ -525,18 +525,18 @@ int b_val(char *fname)
        * but only non-mtx dst
        * that will have to be sorted, read again, and applied by bup...
        */
-      fwrite(qp1->src_addr,  1, TXADDRLEN, ltfp);
+      fwrite(qp1->src_addr,  1, TXWOTSLEN, ltfp);
       fwrite("-",            1,         1, ltfp);  /* debit src addr */
       fwrite(total,          1,         8, ltfp);
       /* add to or create non-multi dst address */
       if(!TX_IS_MTX(qp1) && !iszero(qp1->send_total, 8)) {
-         fwrite(qp1->dst_addr,   1, TXADDRLEN, ltfp);
+         fwrite(qp1->dst_addr,   1, TXWOTSLEN, ltfp);
          fwrite("A",             1,         1, ltfp);
          fwrite(qp1->send_total, 1,         8, ltfp);
       }
       /* add to or create change address */
       if(!iszero(qp1->change_total, 8)) {
-         fwrite(qp1->chg_addr,     1, TXADDRLEN, ltfp);
+         fwrite(qp1->chg_addr,     1, TXWOTSLEN, ltfp);
          fwrite("A",               1,         1, ltfp);
          fwrite(qp1->change_total, 1,         8, ltfp);
       }
@@ -560,7 +560,7 @@ int b_val(char *fname)
          memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
          /* If dst[j] tag not found, write money back to chg addr. */
          if(tag_find(addr, addr, NULL, TXTAGLEN) != VEOK) {
-            count =  fwrite(mtx->chg_addr, TXADDRLEN, 1, ltfp);
+            count =  fwrite(mtx->chg_addr, TXWOTSLEN, 1, ltfp);
             count += fwrite("A", 1, 1, ltfp);
             count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
             if (count == 3) continue;  /* next dst[j] */
@@ -578,12 +578,12 @@ int b_val(char *fname)
                          continue;
             if(memcmp(ADDR_TAG_PTR(qp2->src_addr), ADDR_TAG_PTR(addr),
                       TXTAGLEN) == 0) {
-                         memcpy(addr, qp2->chg_addr, TXADDRLEN);
+                         memcpy(addr, qp2->chg_addr, TXWOTSLEN);
                          break;
             }
          }  /* end for qp2 scan 5 */
          /* write out the dst transaction */
-         count =  fwrite(addr, TXADDRLEN, 1, ltfp);
+         count =  fwrite(addr, TXWOTSLEN, 1, ltfp);
          count += fwrite("A", 1, 1, ltfp);
          count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
          if (count != 3) mError(FAIL_TX, "b_val(): bad I/O scan 4");
@@ -600,10 +600,10 @@ int b_val(char *fname)
    /* Make ledger tran to add to or create mining address.
     * '...Money from nothing...'
     */
-   count =  fwrite(bh.maddr, 1, TXADDRLEN, ltfp);
+   count =  fwrite(bh.maddr, 1, TXWOTSLEN, ltfp);
    count += fwrite("A",      1,         1, ltfp);
    count += fwrite(mfees,    1,         8, ltfp);
-   if (count != (TXADDRLEN+1+8) || ferror(ltfp)) {
+   if (count != (TXWOTSLEN+1+8) || ferror(ltfp)) {
       mError(FAIL_TX, "b_val(): ltfp IO error");
    } else {
       pdebug("b_val(): wrote reward (%08x%08x) to %s...",

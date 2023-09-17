@@ -233,7 +233,7 @@ int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
             mErrno(FAIL_IO, FnMSG("memcmp(SET)"));
          } else fclose(fp);
          /* copy address/balance to available pointers */
-         if (foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
+         if (foundaddr != NULL) memcpy(foundaddr, le.addr, TXWOTSLEN);
          if (balance != NULL) memcpy(balance, le.balance, TXAMOUNT);
       }  /* end if (foundaddr... || balance... */
       /* success -- tag found */
@@ -276,7 +276,7 @@ int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
          /* If there is a dst_tag, and its full address is not
           * already in ledger.dat, tx is not valid.
           */
-         if (le_find(dst_addr, &le, NULL, TXADDRLEN) == FALSE) {
+         if (le_find(dst_addr, &le, NULL, TXWOTSLEN) == FALSE) {
             pdebug("DST_ADDR Tagged, but Tag is not in ledger!");
             return VERROR;
          }

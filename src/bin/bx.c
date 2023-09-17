@@ -36,7 +36,7 @@ typedef int pid_t;
 word32 Bnum;
 FILE *Bfp;
 word32 Hdrlen;
-word8 Maddr[TXADDRLEN];
+word8 Maddr[TXWOTSLEN];
 word8 Sigint;
 word32 Txidx;
 long Foffset;

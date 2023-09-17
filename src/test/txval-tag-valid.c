@@ -15,20 +15,20 @@ int main()
    TXQENTRY txqe;
    word8 zero[8] = { 0 };
    word8 trigger[8] = { 0 };
-   word8 src_wots[TXADDRLEN], dst_wots[TXADDRLEN], chg_wots[TXADDRLEN];
-   word8 src_tag[TXADDRLEN], dst_tag[TXADDRLEN], chg_tag[TXADDRLEN];
+   word8 src_wots[TXWOTSLEN], dst_wots[TXWOTSLEN], chg_wots[TXWOTSLEN];
+   word8 src_tag[TXWOTSLEN], dst_tag[TXWOTSLEN], chg_tag[TXWOTSLEN];
 
    put32(trigger, RTRIGGER31);
 
    set_print_level(0);
 
    /* init _wots, _tag, le and txqe */
-   memset(src_wots, 0, TXADDRLEN);
-   memset(dst_wots, 1, TXADDRLEN);
-   memset(chg_wots, 2, TXADDRLEN);
-   memset(src_tag, 3, TXADDRLEN);
-   memset(dst_tag, 4, TXADDRLEN);
-   memset(chg_tag, 5, TXADDRLEN);
+   memset(src_wots, 0, TXWOTSLEN);
+   memset(dst_wots, 1, TXWOTSLEN);
+   memset(chg_wots, 2, TXWOTSLEN);
+   memset(src_tag, 3, TXWOTSLEN);
+   memset(dst_tag, 4, TXWOTSLEN);
+   memset(chg_tag, 5, TXWOTSLEN);
    memset(ADDR_TAG_PTR(src_wots), 0x42, TXTAGLEN);
    memset(ADDR_TAG_PTR(dst_wots), 0x42, TXTAGLEN);
    memset(ADDR_TAG_PTR(chg_wots), 0x42, TXTAGLEN);
@@ -38,9 +38,9 @@ int main()
    strcpy((char *) ADDR_TAG_PTR(src_tag), "123");
    strcpy((char *) ADDR_TAG_PTR(dst_tag), "456");
    strcpy((char *) ADDR_TAG_PTR(chg_tag), "789");
-   memcpy(le[0].addr, dst_tag, TXADDRLEN);
-   memcpy(le[1].addr, chg_tag, TXADDRLEN);
-   memcpy(txqe.chg_addr, chg_tag, TXADDRLEN);
+   memcpy(le[0].addr, dst_tag, TXWOTSLEN);
+   memcpy(le[1].addr, chg_tag, TXWOTSLEN);
+   memcpy(txqe.chg_addr, chg_tag, TXWOTSLEN);
 
    /* test conditions without ledger */
    ASSERT_EQ_MSG(tag_valid(src_wots, chg_wots, dst_wots, NULL), 0,

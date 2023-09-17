@@ -71,11 +71,11 @@ const char *get_filename_ext(const char *filename)
 void db_export_address(word8 *addr_full, word8 *addr_hash, MYSQL *conn)
 {
     // Create 32 byte hash of full address
-    void* addr_full_raw = malloc(sizeof(byte) * TXADDRLEN);
+    void* addr_full_raw = malloc(sizeof(byte) * TXWOTSLEN);
     word8 addr_tag[TXTAGLEN];
     memcpy(addr_hash, addr_full, HASHLEN);
-    memcpy(addr_full_raw, addr_full, TXADDRLEN);
-    memcpy(addr_tag, addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
+    memcpy(addr_full_raw, addr_full, TXWOTSLEN);
+    memcpy(addr_tag, addr_full + TXWOTSLEN - TXTAGLEN, TXTAGLEN);
 
     // Call `address_insert` stored procedure
     MYSQL_STMT *stmt;
@@ -83,7 +83,7 @@ void db_export_address(word8 *addr_full, word8 *addr_hash, MYSQL *conn)
     my_bool is_null;
     my_bool is_null_tag;
     long unsigned int addr_hash_len = HASHLEN;
-    long unsigned int addr_full_len = TXADDRLEN;
+    long unsigned int addr_full_len = TXWOTSLEN;
     long unsigned int TXTAGLEN  = TXTAGLEN;
     int status;
 
@@ -99,7 +99,7 @@ void db_export_address(word8 *addr_full, word8 *addr_hash, MYSQL *conn)
 
     ps_params[1].buffer_type = MYSQL_TYPE_BLOB;
     ps_params[1].buffer = addr_full_raw;
-    ps_params[1].buffer_length = TXADDRLEN;
+    ps_params[1].buffer_length = TXWOTSLEN;
     ps_params[1].length = &addr_full_len;
     ps_params[1].is_null = 0;
 
@@ -132,10 +132,10 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
   db_export_address(le->addr, addr_hash, conn);
 
 // Scrape Tag from Address
-  void * le_addr_full = malloc(sizeof(byte) * TXADDRLEN);
+  void * le_addr_full = malloc(sizeof(byte) * TXWOTSLEN);
   word8 le_addr_tag[TXTAGLEN];
-  memcpy(le_addr_full, le->addr, TXADDRLEN);
-  memcpy(le_addr_tag, le_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
+  memcpy(le_addr_full, le->addr, TXWOTSLEN);
+  memcpy(le_addr_tag, le_addr_full + TXWOTSLEN - TXTAGLEN, TXTAGLEN);
   free(le_addr_full);
 
   MYSQL_STMT *stmt;
@@ -144,7 +144,7 @@ void db_export_ledger_entry(LENTRY *le, word32 block_db_id, word32 block_num, MY
   my_bool is_null = 0;
 
   long unsigned int hash_len = HASHLEN;
-  long unsigned int addr_full_len = TXADDRLEN;
+  long unsigned int addr_full_len = TXWOTSLEN;
   long unsigned int addr_hash_len = HASHLEN;
   long unsigned int TXTAGLEN = TXTAGLEN;
   long unsigned int type_code = 9; /* Ledger Entry */
@@ -246,21 +246,21 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
   db_export_address(txq->chg_addr, chg_addr_hash, conn);
 
 // Scrape Tags from Addresses
-  void* src_addr_full = malloc(sizeof(byte) * TXADDRLEN);
-  void* dst_addr_full = malloc(sizeof(byte) * TXADDRLEN);
-  void* chg_addr_full = malloc(sizeof(byte) * TXADDRLEN);
+  void* src_addr_full = malloc(sizeof(byte) * TXWOTSLEN);
+  void* dst_addr_full = malloc(sizeof(byte) * TXWOTSLEN);
+  void* chg_addr_full = malloc(sizeof(byte) * TXWOTSLEN);
 
   word8 src_addr_tag[TXTAGLEN];
   word8 dst_addr_tag[TXTAGLEN];
   word8 chg_addr_tag[TXTAGLEN];
 
-  memcpy(src_addr_full, txq->src_addr, TXADDRLEN);
-  memcpy(dst_addr_full, txq->dst_addr, TXADDRLEN);
-  memcpy(chg_addr_full, txq->chg_addr, TXADDRLEN);
+  memcpy(src_addr_full, txq->src_addr, TXWOTSLEN);
+  memcpy(dst_addr_full, txq->dst_addr, TXWOTSLEN);
+  memcpy(chg_addr_full, txq->chg_addr, TXWOTSLEN);
 
-  memcpy(src_addr_tag, src_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
-  memcpy(dst_addr_tag, dst_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
-  memcpy(chg_addr_tag, chg_addr_full + TXADDRLEN - TXTAGLEN, TXTAGLEN);
+  memcpy(src_addr_tag, src_addr_full + TXWOTSLEN - TXTAGLEN, TXTAGLEN);
+  memcpy(dst_addr_tag, dst_addr_full + TXWOTSLEN - TXTAGLEN, TXTAGLEN);
+  memcpy(chg_addr_tag, chg_addr_full + TXWOTSLEN - TXTAGLEN, TXTAGLEN);
 
   free(src_addr_full);
   free(dst_addr_full);
@@ -271,7 +271,7 @@ void db_export_transaction_entry(TXQENTRY *txq, word32 block_db_id, word32 block
   my_bool is_null_tag;
   long unsigned int hash_len = HASHLEN;
   long unsigned int signature_len = TXSIGLEN;
-  long unsigned int addr_full_len = TXADDRLEN;
+  long unsigned int addr_full_len = TXWOTSLEN;
   long unsigned int addr_hash_len = HASHLEN;
   long unsigned int TXTAGLEN  = TXTAGLEN;
 

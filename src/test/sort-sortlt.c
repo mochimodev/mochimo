@@ -66,7 +66,7 @@ int main()
 
    /* check sorted-ness */
    for (i = 0; i < LISTLEN - 1; i++) {
-      compare = memcmp(&LTS[i].addr, &LTS[i + 1].addr, TXADDRLEN);
+      compare = memcmp(&LTS[i].addr, &LTS[i + 1].addr, TXWOTSLEN);
       compare = compare ? compare :
          memcmp(&LTS[i].trancode, &LTS[i + 1].trancode, 1);
       ASSERT_LT_MSG(compare, 1, "preceding list items should compare < 1");

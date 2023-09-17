@@ -39,7 +39,7 @@ int mtx_val(MTX *mtx, word32 *fee)
 {
    int j, message;
    word8 total[8], mfees[8], *bp, *limit;
-   static word8 addr[TXADDRLEN];
+   static word8 addr[TXWOTSLEN];
 
    limit = &mtx->zeros[0];
 
@@ -104,12 +104,12 @@ int tx_val(TX *tx)
    MTX *mtx;
    static TX txs;
 
-   if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
+   if(memcmp(tx->src_addr, tx->chg_addr, TXWOTSLEN) == 0) {
       pdebug("tx_val(): src == chg");  /* also mtx */
       return 2;
    }
 
-   if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0) {
+   if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXWOTSLEN) == 0) {
       pdebug("tx_val(): src == dst");
       return 2;
    }
@@ -144,7 +144,7 @@ int tx_val(TX *tx)
    }
 
    /* look up source address in ledger */
-   if(le_find(tx->src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
+   if(le_find(tx->src_addr, &src_le, NULL, TXWOTSLEN) == FALSE) {
       pdebug("tx_val(): src_addr not in ledger");
       return 1;
    }
@@ -182,7 +182,7 @@ int txcheck(word8 *src_addr)
    if(fp != NULL) {
       for(;;) {
          if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
-         if(memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+         if(memcmp(tx.src_addr, src_addr, TXWOTSLEN) == 0) {
             fclose(fp);
             return VERROR;  /* found */
          }
@@ -194,7 +194,7 @@ int txcheck(word8 *src_addr)
    if(fp != NULL) {
       for(;;) {
          if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
-         if(memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+         if(memcmp(tx.src_addr, src_addr, TXWOTSLEN) == 0) {
             fclose(fp);
             return VERROR;  /* found */
          }
@@ -387,7 +387,7 @@ int process_tx(NODE *np)
    if(evilness) return evilness;
 
    /* Compute tx_id[] (hash of tx->src_addr) to append to txq1.dat. */
-   sha256(tx->src_addr, TXADDRLEN, tx_id);
+   sha256(tx->src_addr, TXWOTSLEN, tx_id);
 
    fp = fopen("txq1.dat", "ab");
    if(!fp) {
@@ -397,7 +397,7 @@ int process_tx(NODE *np)
 
    /* Now write transaction to txq1.dat followed by tx_id */
    ecode = 0;
-   /* 3 addresses (TXADDRLEN*3) + 3 amounts (8*3) + signature (TXSIGLEN) */
+   /* 3 addresses (TXWOTSLEN*3) + 3 amounts (8*3) + signature (TXSIGLEN) */
    count = fwrite(TRANBUFF(tx), 1, TRANLEN, fp);
    if(count != TRANLEN) ecode = 1;
    /* then append source tx_id */

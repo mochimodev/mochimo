@@ -999,8 +999,8 @@ int main(int argc, char **argv)
    if (sizeof(word32) != 4) resign("word32 should be 4 bytes");
    /*else if (sizeof(TX) != TXBUFFLEN) {
       resign("struct size error TX != TXBUFFLEN");
-   }*/ else if (sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)) {
-      resign("struct size error: LTRAN != (TXADDRLEN + 1 + TXAMOUNT)");
+   }*/ else if (sizeof(LTRAN) != (TXWOTSLEN + 1 + TXAMOUNT)) {
+      resign("struct size error: LTRAN != (TXWOTSLEN + 1 + TXAMOUNT)");
    } else if (sizeof(BTRAILER) != BTSIZE) {
       resign("struct size error: BTRAILER != BTSIZE");
    } else if (sizeof(MTX) != sizeof(TXQENTRY)) {

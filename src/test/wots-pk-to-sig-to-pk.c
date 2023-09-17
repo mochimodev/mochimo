@@ -4,7 +4,7 @@
 #include "wots.h"
 #include <time.h>
 
-#define TXADDRLEN 2208
+#define TXWOTSLEN 2208
 #define ITERATIONS 100
 
 /* Copy outlen random bytes to out. 64-byte seed is incremented. */
@@ -50,7 +50,7 @@ int main()
    for (i = 0; i < ITERATIONS; i++) {
       /* create address */
       rndbytes(secret, 32, seed);
-      rndbytes(pub_key, TXADDRLEN, seed);
+      rndbytes(pub_key, TXWOTSLEN, seed);
       /* addr is modified by wots_pkgen() */
       memcpy(addr, &pub_key[WOTSSIGBYTES + 32], 32);
       /* generate a good addr */

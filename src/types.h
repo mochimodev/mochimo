@@ -83,12 +83,13 @@
 #define TXEOT     0xabcd   /**< End-of-transmission id for packets */
 #define TXNETWORK 1337     /**< Network TX protocol version */
 #define TXSIGLEN  2144     /**< Standard transaction signature length */
-#define TXADDRLEN 2208     /**< Standard transaction address length */
+#define TXADDRLEN 96       /**< Hashed transaction address length */
+#define TXWOTSLEN 2208     /**< WOTS+ transaction address length */
 #define TXTAGLEN  12
 #define TXAMOUNT  8        /**< Standard transaction amount length */
 
 #define TRANBUFF(tx) ( (tx)->src_addr )  /**< Transaction buffer accessor */
-#define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
+#define TRANLEN      ( (TXWOTSLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
 #define TXBUFF(tx)   ( (word8 *) tx )    /**< Transaction packet accessor */
 #define TXBUFFLEN    ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN + 2 + 2 )
 #define TXSIG_INLEN  (TRANLEN - TXSIGLEN)
@@ -341,9 +342,9 @@ typedef struct {
       word8 buffer[WORD16_MAX];
       struct {
          /* legacy access */
-         word8 src_addr[TXADDRLEN];
-         word8 dst_addr[TXADDRLEN];
-         word8 chg_addr[TXADDRLEN];
+         word8 src_addr[TXWOTSLEN];
+         word8 dst_addr[TXWOTSLEN];
+         word8 chg_addr[TXWOTSLEN];
          word8 send_total[TXAMOUNT];
          word8 change_total[TXAMOUNT];
          word8 tx_fee[TXAMOUNT];
@@ -358,9 +359,9 @@ typedef struct {
 /* Structure for clean TX queue */
 typedef struct {
    /* start transaction buffer (These fields are order dependent) */
-   word8 src_addr[TXADDRLEN];     /*  2208 */
-   word8 dst_addr[TXADDRLEN];
-   word8 chg_addr[TXADDRLEN];
+   word8 src_addr[TXWOTSLEN];     /*  2208 */
+   word8 dst_addr[TXWOTSLEN];
+   word8 chg_addr[TXWOTSLEN];
    word8 send_total[TXAMOUNT];    /* 8 */
    word8 change_total[TXAMOUNT];
    word8 tx_fee[TXAMOUNT];
@@ -372,7 +373,7 @@ typedef struct {
 /* The block header */
 typedef struct {
    word8 hdrlen[4];         /* header length to tran array */
-   word8 maddr[TXADDRLEN];  /* mining address */
+   word8 maddr[TXWOTSLEN];  /* mining address */
    word8 mreward[8];
    /*
     * variable length data here...
@@ -400,13 +401,13 @@ typedef struct {
 
 /* ledger entry in ledger.dat */
 typedef struct {
-   word8 addr[TXADDRLEN];    /* 2208 */
+   word8 addr[TXWOTSLEN];    /* 2208 */
    word8 balance[TXAMOUNT];  /* 8 */
 } LENTRY;
 
 /* ledger transaction ltran.tmp, el.al. */
 typedef struct {
-   word8 addr[TXADDRLEN];    /* 2208 */
+   word8 addr[TXWOTSLEN];    /* 2208 */
    word8 trancode[1];        /* '-' = debit, 'A' = credit (sorts last!) */
    word8 amount[TXAMOUNT];   /* 8 */
 } LTRAN;
@@ -419,13 +420,13 @@ typedef struct {
 /* Structure for multi-tx is padded to same size as TXQENTRY. */
 typedef struct {
    /* start transaction buffer (These fields are order dependent) */
-   word8 src_addr[TXADDRLEN];     /*  2208 */
+   word8 src_addr[TXWOTSLEN];     /*  2208 */
 
    /* dst[] plus zeros[] is same size as TX dst_addr[]. */
    MDST dst[MDST_NUM_DST];
    word8 zeros[MDST_NUM_DZEROS];  /* padding - reserved - must follow dst[] */
 
-   word8 chg_addr[TXADDRLEN];
+   word8 chg_addr[TXWOTSLEN];
    word8 send_total[TXAMOUNT];    /* 8 */
    word8 change_total[TXAMOUNT];
    word8 tx_fee[TXAMOUNT];

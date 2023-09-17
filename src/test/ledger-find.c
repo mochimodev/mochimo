@@ -14,10 +14,10 @@ int main()
    FILE *fp;
    LENTRY le;
    long position;
-   word8 addr[TXADDRLEN];
+   word8 addr[TXWOTSLEN];
 
    set_print_level(0);
-   memset(addr, 1, TXADDRLEN);
+   memset(addr, 1, TXWOTSLEN);
 
    /* write dummy ledger entry/s to test ledger */
    ASSERT_NE((fp = fopen(LEDGER, "wb")), NULL);
@@ -25,25 +25,25 @@ int main()
    fclose(fp);
 
    /* check ledger function called before le_open() */
-   ASSERT_EQ_MSG(le_find(ledgerdata[2].addr, &le, NULL, TXADDRLEN), FALSE,
+   ASSERT_EQ_MSG(le_find(ledgerdata[2].addr, &le, NULL, TXWOTSLEN), FALSE,
       "le_find didn't fail before le_open() was called");
    le_open(LEDGER, "rb");
 
    /* search for address that doesn't exist { 1, 1, 1, ... } */
-   ASSERT_EQ_MSG(le_find(addr, &le, NULL, TXADDRLEN), FALSE,
+   ASSERT_EQ_MSG(le_find(addr, &le, NULL, TXWOTSLEN), FALSE,
       "le_find didn't fail on address that doesn't exist");
 
-   ASSERT_EQ_MSG(le_find(ledgerdata[1].addr, &le, &position, TXADDRLEN), TRUE,
+   ASSERT_EQ_MSG(le_find(ledgerdata[1].addr, &le, &position, TXWOTSLEN), TRUE,
       "le_find failed to find ledgerdata[1]");
    ASSERT_EQ_MSG(position, 1, "le_find didn't return position 1");
    ASSERT_CMP_MSG(&ledgerdata[1], &le, sizeof(le),
       "le_find returned incorrect ledger entry");
-   ASSERT_EQ_MSG(le_find(ledgerdata[3].addr, &le, &position, TXADDRLEN), TRUE,
+   ASSERT_EQ_MSG(le_find(ledgerdata[3].addr, &le, &position, TXWOTSLEN), TRUE,
       "le_find failed to find ledgerdata[3]");
    ASSERT_EQ_MSG(position, 3, "le_find didn't return position 3");
    ASSERT_CMP_MSG(&ledgerdata[3], &le, sizeof(le),
       "le_find returned incorrect ledger entry");
-   ASSERT_EQ_MSG(le_find(ledgerdata[5].addr, &le, &position, TXADDRLEN), TRUE,
+   ASSERT_EQ_MSG(le_find(ledgerdata[5].addr, &le, &position, TXWOTSLEN), TRUE,
       "le_find failed to find ledgerdata[5]");
    ASSERT_EQ_MSG(position, 5, "le_find didn't return position 5");
    ASSERT_CMP_MSG(&ledgerdata[5], &le, sizeof(le),

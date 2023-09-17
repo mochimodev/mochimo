@@ -38,7 +38,7 @@ static int compare_lt(const void *va, const void *vb)
    word32 *a = (word32 *) va;
    word32 *b = (word32 *) vb;
 
-   return memcmp(Ltrans[*a].addr, Ltrans[*b].addr, TXADDRLEN + 1);
+   return memcmp(Ltrans[*a].addr, Ltrans[*b].addr, TXWOTSLEN + 1);
 }
 
 /**

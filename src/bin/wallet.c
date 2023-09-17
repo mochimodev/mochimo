@@ -64,7 +64,7 @@ unsigned sleep(unsigned seconds);
 
 #define TXNETWORK 0x0539
 #define TXEOT     0xabcd
-#define TXADDRLEN 2208
+#define TXWOTSLEN 2208
 #define TXAMOUNT  8
 #define TXSIGLEN  2144  /* WOTS */
 #define HASHLEN 32
@@ -72,9 +72,9 @@ unsigned sleep(unsigned seconds);
 #define RNDSEEDLEN 64
 #define TXBUFF(tx)   ((word8 *) tx)
 #define TXBUFFLEN    ((2*5) + (8*2) + 32 + 32 + 32 + 2 \
-                        + (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN + (2+2) )
+                        + (TXWOTSLEN*3) + (TXAMOUNT*3) + TXSIGLEN + (2+2) )
 #define TRANBUFF(tx) ((tx)->src_addr)
-#define TRANLEN      ( (TXADDRLEN*3) + (TXAMOUNT*3) + TXSIGLEN )
+#define TRANLEN      ( (TXWOTSLEN*3) + (TXAMOUNT*3) + TXSIGLEN )
 #define TXSIG_INLEN (TRANLEN - TXSIGLEN)
 
 #define CRC_BUFF(tx) TXBUFF(tx)
@@ -87,7 +87,7 @@ unsigned sleep(unsigned seconds);
    (((word8 *) (addr))[2196] != 0x42 && ((word8 *) (addr))[2196] != 0x00)
 
 #include "crypto/hash/cpu/sha256.h"      /* also defines word32 */
-#include "crypto/wots/wots.h"   /* TXADDRLEN */
+#include "crypto/wots/wots.h"   /* TXWOTSLEN */
 
 
 /* Wallet header */
@@ -106,7 +106,7 @@ typedef struct {
    word8 flags[1];
    word8 balance[8];
    word8 name[25];
-   word8 addr[TXADDRLEN];
+   word8 addr[TXWOTSLEN];
    word8 secret[32];
 } WENTRY;
 
@@ -138,9 +138,9 @@ typedef struct {
    word8 weight[32];       /* sum of block difficulties */
    word8 len[2];  /* length of data in transaction buffer for I/O op's */
    /* start transaction buffer */
-   word8 src_addr[TXADDRLEN];
-   word8 dst_addr[TXADDRLEN];
-   word8 chg_addr[TXADDRLEN];
+   word8 src_addr[TXWOTSLEN];
+   word8 dst_addr[TXWOTSLEN];
+   word8 chg_addr[TXWOTSLEN];
    word8 send_total[TXAMOUNT];
    word8 change_total[TXAMOUNT];
    word8 tx_fee[TXAMOUNT];
@@ -767,7 +767,7 @@ void rndbytes(word8 *out, word32 outlen, word8 *seed)
 
 /* Make up a random address that can be signed...
  * Outputs:
- *          addr[TXADDRLEN] takes the address (2208 bytes)
+ *          addr[TXWOTSLEN] takes the address (2208 bytes)
  *          secret[32]      needed for wots_sign()
  */
 void create_addr(word8 *addr, word8 *secret, word8 *seed)
@@ -776,7 +776,7 @@ void create_addr(word8 *addr, word8 *secret, word8 *seed)
 
    rndbytes(secret, 32, seed);  /* needed later to use wots_sign() */
 
-   rndbytes(addr, TXADDRLEN, seed);
+   rndbytes(addr, TXWOTSLEN, seed);
    /* rnd2 is modified by wots_pkgen() */
    memcpy(rnd2, &addr[TXSIGLEN + 32], 32);
    /* generate a good addr */
@@ -1112,7 +1112,7 @@ unsigned find_dup(word8 *addr, WENTRY *outentry)
    for(idx = 0, ip = Windex; idx < Nindex; idx++, ip++) {
       if(read_wentry(&entry, idx) != VEOK) fatal("bad disk read");
       if((tag && memcmp(tag, ADDR_TAG_PTR(entry.addr), TXTAGLEN) == 0)
-         || memcmp(addr, entry.addr, TXADDRLEN - TXTAGLEN) == 0) {
+         || memcmp(addr, entry.addr, TXWOTSLEN - TXTAGLEN) == 0) {
             memcpy(outentry, &entry, sizeof(WENTRY));
             return idx + 1;
       }
@@ -1181,7 +1181,7 @@ int ext_addr(unsigned idx)
       if(*buff != 'y' && *buff != 'Y')
          memcpy(ADDR_TAG_PTR(entry->addr), Default_tag, TXTAGLEN);
    }
-   if(fwrite(entry->addr, 1, TXADDRLEN, fp) != TXADDRLEN) goto out;
+   if(fwrite(entry->addr, 1, TXWOTSLEN, fp) != TXWOTSLEN) goto out;
    printf("Write balance (y/n)? ");
    tgets(buff, 80);
    if(*buff == 'y' || *buff == 'Y') {
@@ -1233,7 +1233,7 @@ int get_tag(word8 *addr, word8 found[1])
    TX tx;
 
    memset(&tx, 0, sizeof(TX));
-   memcpy(tx.dst_addr, addr, TXADDRLEN);
+   memcpy(tx.dst_addr, addr, TXWOTSLEN);
    ecode = get_tx(&tx, 0, Peeraddr, OP_RESOLVE);
    if(ecode != VEOK || get16(tx.opcode) != OP_RESOLVE) {
       found[0] = 0;
@@ -1250,7 +1250,7 @@ int get_tag(word8 *addr, word8 found[1])
 	   }
    }
 
-   memcpy(addr, tx.dst_addr, TXADDRLEN);
+   memcpy(addr, tx.dst_addr, TXWOTSLEN);
    found[0] = tx.send_total[0];  /* 1 if found, else 0 */
    return VEOK;
 }  /* end get_tag() */
@@ -1317,7 +1317,7 @@ int add_tag_addr(void)
    word32 lastkey;
    char buff[80];
    WENTRY *entry, entst;
-   word8 addr[TXADDRLEN];
+   word8 addr[TXWOTSLEN];
    word8 found;
    unsigned idx;
 
@@ -1351,7 +1351,7 @@ int add_tag_addr(void)
    }
    if((idx = find_tag(addr, entry)) != 0) {
       /* tag already in wallet so just update address: */
-      memcpy(entry->addr, addr, TXADDRLEN);
+      memcpy(entry->addr, addr, TXWOTSLEN);
       if(write_wentry(entry, idx-1) != VEOK) {
          printf("*** Disk write error.\n");
          return VERROR;
@@ -1367,7 +1367,7 @@ int add_tag_addr(void)
    fp = fopen2(Wfname, "ab", 1);  /* open file or fatal() */
    memset(entry, 0, sizeof(WENTRY));
    strncpy((char *) entry->name, buff, 16);
-   memcpy(entry->addr, addr, TXADDRLEN);
+   memcpy(entry->addr, addr, TXWOTSLEN);
    lastkey = get32(Whdr.lastkey);  /* salt */
    lastkey++;
    put32(Whdr.lastkey, lastkey);   /* save updated salt */
@@ -1647,7 +1647,7 @@ int check_bal(unsigned idx)
    ecode = read_wentry(&entry, idx-1);
    if(ecode != VEOK) goto out;
    memset(&tx, 0, sizeof(TX));
-   memcpy(tx.src_addr, entry.addr, TXADDRLEN);
+   memcpy(tx.src_addr, entry.addr, TXWOTSLEN);
    tx.send_total[0] = 1;
    ecode = get_tx(&tx, 0, Peeraddr, OP_BALANCE);
    if(ecode != VEOK) goto out;
@@ -1683,7 +1683,7 @@ int spend_addr(void)
    word8 message[32], rnd2[32];
    word8 val[8];
    word8 found;
-   word8 olddst[TXADDRLEN];
+   word8 olddst[TXWOTSLEN];
 
    memset(&tx, 0, sizeof(TX));
    memset(&sentry, 0, sizeof(WENTRY));
@@ -1715,7 +1715,7 @@ out:
       return ecode;
    }  /* end if error */
 
-   memcpy(tx.src_addr, sentry.addr, TXADDRLEN);
+   memcpy(tx.src_addr, sentry.addr, TXWOTSLEN);
 getdst:
    printf("Foreign addresses:\n");
    memcpy(ADDR_TAG_PTR(dentry.addr), Default_tag, TXTAGLEN);
@@ -1729,7 +1729,7 @@ getdst:
    ecode = read_wentry(&dentry, didx-1);
    if(ecode != VEOK) goto ioerror;
    /* if dst has tag, get the full address from network */
-   memcpy(olddst, dentry.addr, TXADDRLEN);
+   memcpy(olddst, dentry.addr, TXWOTSLEN);
    if(ADDR_HAS_TAG(dentry.addr)) {
       printf("Checking network...\n");
       get_tag(dentry.addr, &found);
@@ -1737,7 +1737,7 @@ getdst:
          printf("\nTag not found.\n");
          goto out2;
       }
-      if(memcmp(dentry.addr, olddst, TXADDRLEN) != 0)
+      if(memcmp(dentry.addr, olddst, TXWOTSLEN) != 0)
          printf("Address updated.\n");
    }
 getamt:
@@ -1750,7 +1750,7 @@ getamt:
 skipdst:
    printf("Send amount: %s\n", itoa64(val, NULL, 9, 1));
    put64(tx.send_total, val);
-   memcpy(tx.dst_addr, dentry.addr, TXADDRLEN);
+   memcpy(tx.dst_addr, dentry.addr, TXWOTSLEN);
    add64(dentry.balance, tx.send_total, dentry.balance);
 
 getchg:
@@ -1776,7 +1776,7 @@ getchg:
    if(cidx == sidx || cidx == didx) goto getchg;
    ecode = read_wentry(&centry, cidx-1);
    if(ecode != VEOK) goto ioerror;
-   memcpy(tx.chg_addr, centry.addr, TXADDRLEN);
+   memcpy(tx.chg_addr, centry.addr, TXWOTSLEN);
    /* Calculate change and check source funds. */
    add64(Mfee, tx.send_total, total);
    printf("Checking source balance...\n");
@@ -1793,7 +1793,7 @@ nofunds:
    if(sub64(sentry.balance, total, change) != 0) goto nofunds;
    put64(tx.change_total, change);
    add64(centry.balance, change, centry.balance);
-   memcpy(tx.chg_addr, centry.addr, TXADDRLEN);
+   memcpy(tx.chg_addr, centry.addr, TXWOTSLEN);
    put64(tx.tx_fee, Mfee);
 
    if(ADDR_HAS_TAG(tx.chg_addr))
@@ -1812,15 +1812,15 @@ nofunds:
       }
    }
 
-   if(memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN - TXTAGLEN) == 0) {
+   if(memcmp(tx.src_addr, tx.dst_addr, TXWOTSLEN - TXTAGLEN) == 0) {
       printf("\nFrom and to address are the same.\n");
       goto out2;
    }
-   if(memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN - TXTAGLEN) == 0) {
+   if(memcmp(tx.src_addr, tx.chg_addr, TXWOTSLEN - TXTAGLEN) == 0) {
       printf("\nFrom and change address are the same.\n");
       goto out2;
    }
-   if(memcmp(tx.dst_addr, tx.chg_addr, TXADDRLEN - TXTAGLEN) == 0) {
+   if(memcmp(tx.dst_addr, tx.chg_addr, TXWOTSLEN - TXTAGLEN) == 0) {
       printf("\nDestination and change address are the same.\n");
       goto out2;
    }
@@ -1892,7 +1892,7 @@ int import_addr(void)
    }
    memset(entry->secret, 0, 32);
    put64(entry->balance, Zeros);
-   if(fread(entry->addr, 1, TXADDRLEN, fp) != TXADDRLEN) {
+   if(fread(entry->addr, 1, TXWOTSLEN, fp) != TXWOTSLEN) {
       printf("Cannot read address\n");
       goto out;
    }
@@ -1922,7 +1922,7 @@ getname:
    if(badidx(idx)) goto out;
    if(read_wentry(&newentry, idx-1) != VEOK) goto out;
    memcpy(newentry.name, entry->name, 25);
-   memcpy(newentry.addr, entry->addr, TXADDRLEN);
+   memcpy(newentry.addr, entry->addr, TXWOTSLEN);
    memcpy(newentry.secret, entry->secret, 32);
    put64(newentry.balance, entry->balance);
    ecode = VEOK;

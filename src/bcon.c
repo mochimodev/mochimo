@@ -219,7 +219,7 @@ int b_con(char *fname)
    word32 mreward[2];      /* mining reward */
    word32 bnum[2];         /* new block num */
    word32 *idx, ntx, num;
-   word8 maddr[TXADDRLEN]; /* to read mining address for block */
+   word8 maddr[TXWOTSLEN]; /* to read mining address for block */
    word8 prev_tx_id[HASHLEN];  /* to check for duplicate transactions */
    int cond, ecode;
 
@@ -230,7 +230,7 @@ int b_con(char *fname)
    pdebug("b_con(): constructing candidate-block...");
 
    /* get mining address and build sorted Txidx[]... */
-   if (read_data(maddr, TXADDRLEN, "maddr.dat") != TXADDRLEN) {
+   if (read_data(maddr, TXWOTSLEN, "maddr.dat") != TXWOTSLEN) {
       mError(FAIL, "b_con(): failed to read_data(maddr)");
    } else if (sorttx("txclean.dat") != VEOK) {
       mError(FAIL, "b_con(): bad sorttx(txclean.dat)");
@@ -254,7 +254,7 @@ int b_con(char *fname)
 
    /* prepare new block header... */
    put32(bh.hdrlen, sizeof(bh));
-   memcpy(bh.maddr, maddr, TXADDRLEN);
+   memcpy(bh.maddr, maddr, TXWOTSLEN);
    put64(bh.mreward, mreward);
    /* ... and trailer */
    memset(&bt, 0, sizeof(bt));

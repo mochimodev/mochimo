@@ -420,7 +420,7 @@ int main(int argc, char *argv[])
    static int /* num_cpu_threads, */ terr, count, n, j, ecode, stopped;
    static time_t now, gettime, starttime, statstime, worktime, timeout;
    static word32 stats[3], hostip, shares, bnum;
-   static word8 maddr[TXADDRLEN];
+   static word8 maddr[TXWOTSLEN];
    static char mfile[FILENAME_MAX];
    char stickystats[BUFSIZ], ipstr[24];
    char *sp, *vp, *m;
@@ -525,9 +525,9 @@ USAGE:   return usage(ecode);
       plog("%s mining enabled...", Solo ? "Solo" : "Pool");
       /* read mining address -- if avaialable */
       if (*mfile) {
-         count = read_data(maddr, TXADDRLEN, mfile);
+         count = read_data(maddr, TXWOTSLEN, mfile);
          if (count < 0) return perrno(errno, "I/O failure, %s", mfile);
-         if (count != TXADDRLEN) return perr("Invalid size, %s", mfile);
+         if (count != TXWOTSLEN) return perr("Invalid size, %s", mfile);
          plog("Mining Address= %s...", addr2str(maddr));
       }
       /* initialize random seed based on multiple entropy */
@@ -637,7 +637,7 @@ USAGE:   return usage(ecode);
                cblock.size = tharg_cblock.block.size;
                /* rehash mroot with own maddr */
                btp = MEMBLOCKBTp(&cblock);
-               memcpy(MEMBLOCKMADDRp(&cblock), maddr, TXADDRLEN);
+               memcpy(MEMBLOCKMADDRp(&cblock), maddr, TXWOTSLEN);
                sha256(cblock.data, cblock.size - 100, btp->mroot);
                /* check new block and count */
                if (cmp64(btp->bnum, MEMBLOCKBNUMp(&pblock))) {
