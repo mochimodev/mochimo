@@ -25,6 +25,22 @@
 #include "extprint.h"
 #include <errno.h>
 
+/* 64-bit cross-platform file operation definitions */
+#ifdef _WIN32
+   /* Windows' long 32-bit datatype is always insufficient */
+   #define fseek64(st, off, og)  _fseeki64(st, off, og)
+   #define ftell64(st)           _ftelli64(st)
+
+#else
+   /* _FILE_OFFSET_BITS == 64, is defined in ledger.h */
+   #define fseek64(st, off, og)  fseeko(st, (off_t) off, og)
+   #define ftell64(st)           ftello(st)
+
+#endif
+
+/* stringize not yet implemented custom error codes for internal logs */
+#define set_errno(ECODE) pdebug("INTERNAL ERROR CODE: " #ECODE)
+
 #define BAIL(m)   do { message = m; goto bail; } while(0)
 
 /**

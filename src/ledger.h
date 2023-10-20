@@ -10,7 +10,16 @@
 #define MOCHIMO_LEDGER_H
 
 
+#define _FILE_OFFSET_BITS  64 /* for 64-bit off_t stdio */
 #include "types.h"
+
+#ifndef LEBUFSZ
+   /**
+    * Amount of buffer space to allocate for large ledger operations.
+    * Data exceeding this amount will be split into chunks.
+   */
+   #define LEBUFSZ ( 1 << 26 ) /* 64M */
+#endif
 
 /**
  * Legacy ledger entry struct
@@ -29,6 +38,7 @@ extern word32 Lastday;
 extern "C" {
 #endif
 
+void hash_wots_addr(void *hash, const void *wots);
 int le_open(char *ledger, char *fopenmode);
 void le_close(void);
 int le_find(word8 *addr, LENTRY *le, long *position, word16 len);

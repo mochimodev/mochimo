@@ -20,6 +20,7 @@
 
 /* external support */
 #include <string.h>
+#include "sha256.h"
 #include "extprint.h"
 #include "extmath.h"
 #include "extlib.h"
@@ -29,6 +30,207 @@ static FILE *Lefp;
 static unsigned long Nledger;
 word32 Sanctuary;
 word32 Lastday;
+
+/**
+ * Hashed-based address comparison function. Includes tag in comparison.
+ * @param a Pointer to data to compare
+ * @param b Pointer to data to compare against
+ * @return (int) value representing comparison result
+ * @retval 0 @a a is equal to @a b
+ * @retval <0 @a a is less than @a b
+ * @retval >0 @a a is greater than @a b
+*/
+static int addr_compare(const void *a, const void *b)
+{
+   return memcmp(a, b, TXADDRLEN);
+}
+
+/**
+ * WOTS+ address comparison function. Includes tag in comparison.
+ * @param a Pointer to data to compare
+ * @param b Pointer to data to compare against
+ * @return (int) value representing comparison result
+ * @retval 0 @a a is equal to @a b
+ * @retval <0 @a a is less than @a b
+ * @retval >0 @a a is greater than @a b
+*/
+static int addr_compare_wots(const void *a, const void *b)
+{
+   return memcmp(a, b, TXWOTSLEN);
+}
+
+/**
+ * Convert a WOTS+ address to a Hashed-based address. Copies tag data.
+ * @param hash Pointer to destination hash-based address
+ * @param wots Pointer to source WOTS+ address
+*/
+void hash_wots_addr(void *hash, const void *wots)
+{
+   sha256(wots, TXSIGLEN, hash);
+   memcpy(
+      (unsigned char *) hash + (TXADDRLEN - TXTAGLEN),
+      (unsigned char *) wots + (TXWOTSLEN - TXTAGLEN),
+      TXTAGLEN
+   );
+}
+
+/**
+ * NOTE: imported from extended-c v2.0.0-alpha.2 extlib.c
+ * Sort a file containing @a size length elements. If file data fits into
+ * the memory buffer, @a bufsz, data is simply sorted in-memory with quick
+ * sort. Otherwise, an external merge sort algorithm is applied.
+ * @param filename Name of file to sort
+ * @param size Size of each element in file
+ * @param bufsz Size of the buffer of each run used for in-memory sorting
+ * @param comp Comparison function to use when sorting elements
+ * @returns 0 on success, or non-zero on error. Check errno for details.
+ * @exception errno=EINVAL A function parameter is invalid
+*/
+static int filesort(const char *filename, size_t size, size_t blocksz,
+   int (*comp)(const void *, const void *))
+{
+   void *a, *b, *buffer;
+   FILE *afp, *bfp, *ofp;
+   long long aidx, bidx;
+   long long filelen, block;
+   long long start, mid, end;
+   size_t filecount, count, in;
+   int cond;
+   char fname[FILENAME_MAX];
+
+   /* sanity checks */
+   if (filename == NULL || comp == NULL) goto FAIL_INVAL;
+   if (size == 0 || blocksz == 0) goto FAIL_INVAL;
+
+   /* PHASE 1: pre-sort blocks of data */
+
+   /* get count for blocksz (adjust) */
+   count = blocksz / size;
+   blocksz = count * size;
+   /* create buffer, open input/output files */
+   ofp = fopen(filename, "rb+");
+   buffer = malloc(blocksz);
+   /* check failures */
+   if (ofp == NULL || buffer == NULL) goto FAIL1;
+
+   /* get filelen */
+   if (fseek64(ofp, 0LL, SEEK_END) != 0) goto FAIL1;
+   if ((filelen = ftell64(ofp)) == EOF) goto FAIL1;
+   filecount = (size_t) (filelen / size);
+
+   for (rewind(ofp); filecount > 0; filecount -= in) {
+      /* read input file in chunks for presort */
+      if (filecount < count) count = filecount;
+      in = fread(buffer, size, count, ofp);
+      if (in < count && ferror(ofp)) goto FAIL1;
+      if (fseek(ofp, -(in * size), SEEK_CUR) != 0) goto FAIL1;
+      /* check data was read */
+      if (in > 0) {
+         /* perform sort on buffer data, write to output */
+         if (in > 1) qsort(buffer, in, size, comp);
+         if (fwrite(buffer, size, in, ofp) != in) goto FAIL1;
+      }
+   }
+   /* cleanup */
+   fclose(ofp);
+   free(buffer);
+
+   /* PHASE 2: merge sort blocks together until nothing left to sort */
+
+   /* obtain file size */
+   filelen = EOF;
+   ofp = fopen(filename, "rb");
+   if (ofp == NULL) return (-1);
+   if (fseek64(ofp, 0LL, SEEK_END) == 0) filelen = ftell64(ofp);
+   fclose(ofp);
+   /* check filesize */
+   if (filelen == EOF) return (-1);
+
+   /* create comparison buffers */
+   a = malloc(size);
+   b = malloc(size);
+   if (a == NULL || b == NULL) goto FAIL2;
+
+   snprintf(fname, FILENAME_MAX, "%s.sort", filename);
+
+   /* iterate until (sorted) block size is greater than total filesize */
+   for (block = (long long) blocksz; block < filelen; block <<= 1) {
+      /* open files for merge sorting */
+      afp = fopen(filename, "rb");
+      bfp = fopen(filename, "rb");
+      ofp = fopen(fname, "wb");
+      if (afp == NULL || bfp == NULL || ofp == NULL) goto FAIL2_IO;
+      /* iterate over every "block pair", shifting end to start */
+      for (start = 0; start < filelen; start = end) {
+         /* set index parameters */
+         mid = start + block;
+         end = mid + block;
+         if (mid > filelen) mid = end = filelen;
+         else if (end > filelen) end = filelen;
+         aidx = start;
+         bidx = mid;
+
+         /* pre-read first values into buffers */
+         if (fseek64(afp, aidx, SEEK_SET) != 0) goto FAIL2_IO;
+         if (fread(a, size, 1, afp) != 1) goto FAIL2_IO;
+         if (bidx < end) {
+            if (fseek64(bfp, bidx, SEEK_SET) != 0) goto FAIL2_IO;
+            if (fread(b, size, 1, bfp) != 1) goto FAIL2_IO;
+         }
+         /* walk the block pair until data is (merge) sorted */
+         while (aidx < mid || bidx < end) {
+            if (aidx >= mid) cond = 1;
+            else if (bidx >= end) cond = -1;
+            else cond = comp(a, b);
+            /* determine comparison result */
+            if (cond <= 0) {
+               /* write a to output and read another (if available) */
+               if (fwrite(a, size, 1, ofp) != 1) goto FAIL2_IO;
+               aidx += size;
+               if (aidx < mid) {
+                  if (fread(a, size, 1, afp) != 1) goto FAIL2_IO;
+               }
+            } else {
+               /* write b to output and read another (if available) */
+               if (fwrite(b, size, 1, ofp) != 1) goto FAIL2_IO;
+               bidx += size;
+               if (bidx < end) {
+                  if (fread(b, size, 1, bfp) != 1) goto FAIL2_IO;
+               }
+            }
+         }
+      }
+      /* close files and move result back to filename */
+      fclose(ofp);
+      fclose(bfp);
+      fclose(afp);
+      if (remove(filename) != 0) goto FAIL2;
+      if (rename(fname, filename) != 0) goto FAIL2;
+   }
+   /* free buffers */
+   free(b);
+   free(a);
+
+   /* sort success */
+   return 0;
+
+/* error handling */
+FAIL_INVAL:
+   set_errno(EINVAL);
+   return (-1);
+FAIL2_IO:
+   if (ofp) fclose(ofp);
+   if (bfp) fclose(bfp);
+   if (afp) fclose(afp);
+FAIL2:
+   if (b) free(b);
+   if (a) free(a);
+   return (-1);
+FAIL1:
+   if (buffer) free(buffer);
+   if (ofp) fclose(ofp);
+   return (-1);
+}  /* end filesort() */
 
 /* Open ledger "ledger.dat" */
 int le_open(char *ledger, char *fopenmode)
