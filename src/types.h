@@ -83,7 +83,7 @@
 #define TXEOT     0xabcd   /**< End-of-transmission id for packets */
 #define TXNETWORK 1337     /**< Network TX protocol version */
 #define TXSIGLEN  2144     /**< Standard transaction signature length */
-#define TXADDRLEN 96       /**< Hashed transaction address length */
+#define TXADDRLEN 44       /**< Hashed transaction address length */
 #define TXWOTSLEN 2208     /**< WOTS+ transaction address length */
 #define TXTAGLEN  12
 #define TXAMOUNT  8        /**< Standard transaction amount length */
@@ -399,15 +399,20 @@ typedef struct {
 #define BTSIZE (32+8+8+4+4+4+32+32+4+32)
 
 
-/* ledger entry in ledger.dat */
+/**
+ * Hash-based ledger entry struct
+*/
 typedef struct {
-   word8 addr[TXWOTSLEN];    /* 2208 */
-   word8 balance[TXAMOUNT];  /* 8 */
+   word8 addr[HASHLEN];       /* ledger entry address */
+   word8 tag[TXTAGLEN];       /* ledger entry tag */
+   word8 balance[TXAMOUNT];   /* ledger entry balance */
+   word8 zcf_dst[TXTAGLEN];   /* ZCF destination lock */
+   word8 zcf_ttl[8];          /* ZCF expiration (time-to-live) */
 } LENTRY;
 
 /* ledger transaction ltran.tmp, el.al. */
 typedef struct {
-   word8 addr[TXWOTSLEN];    /* 2208 */
+   word8 addr[TXADDRLEN];    /* 44 */
    word8 trancode[1];        /* '-' = debit, 'A' = credit (sorts last!) */
    word8 amount[TXAMOUNT];   /* 8 */
 } LTRAN;
