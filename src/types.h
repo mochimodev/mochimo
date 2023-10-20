@@ -369,6 +369,16 @@ typedef struct {
    word8 tx_id[HASHLEN];          /* 32 */
 } TXQENTRY;
 
+/**
+ * Hashed-based neo-genesis block header struct
+*/
+typedef struct {
+   word8 hdrlen[4];  /**< Header length to ledger entry array */
+   word8 lbytes[8];  /**< Number of bytes containing the ledger */
+   /*
+    * array of LENTRY's representing lbytes number of bytes, here...
+    */
+} NGHEADER;
 
 /* The block header */
 typedef struct {
