@@ -29,6 +29,19 @@
 #include "extprint.h"
 #include "extmath.h"
 
+static int fwrite_hashed(void *wots, const char *code, void *bal, FILE *fp)
+{
+   LTRAN lt;
+
+   /* build ledger transaction */
+   hash_wots_addr(lt.addr, wots);
+   memcpy(lt.trancode, code, 1);
+   memcpy(lt.amount, bal, 8);
+
+   /* queue and return result of single write operation */
+   return fwrite(&lt, sizeof(lt), 1, fp);
+}
+
 /**
  * Validate a pseudo-block against current node state. Uses node state
  * (Cblocknum, Cblockhash, Difficulty, Time0).
@@ -525,20 +538,14 @@ int b_val(char *fname)
        * but only non-mtx dst
        * that will have to be sorted, read again, and applied by bup...
        */
-      fwrite(qp1->src_addr,  1, TXWOTSLEN, ltfp);
-      fwrite("-",            1,         1, ltfp);  /* debit src addr */
-      fwrite(total,          1,         8, ltfp);
+      fwrite_hashed(qp1->src_addr, "-", total, ltfp);  /* debit src addr */
       /* add to or create non-multi dst address */
       if(!TX_IS_MTX(qp1) && !iszero(qp1->send_total, 8)) {
-         fwrite(qp1->dst_addr,   1, TXWOTSLEN, ltfp);
-         fwrite("A",             1,         1, ltfp);
-         fwrite(qp1->send_total, 1,         8, ltfp);
+         fwrite_hashed(qp1->dst_addr, "A", qp1->send_total, ltfp);
       }
       /* add to or create change address */
       if(!iszero(qp1->change_total, 8)) {
-         fwrite(qp1->chg_addr,     1, TXWOTSLEN, ltfp);
-         fwrite("A",               1,         1, ltfp);
-         fwrite(qp1->change_total, 1,         8, ltfp);
+         fwrite_hashed(qp1->chg_addr, "A", qp1->change_total, ltfp);
       }
    }  /* end for j -- scan 3 */
    if(j != tcount) {
@@ -560,10 +567,8 @@ int b_val(char *fname)
          memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
          /* If dst[j] tag not found, write money back to chg addr. */
          if(tag_find(addr, addr, NULL, TXTAGLEN) != VEOK) {
-            count =  fwrite(mtx->chg_addr, TXWOTSLEN, 1, ltfp);
-            count += fwrite("A", 1, 1, ltfp);
-            count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
-            if (count == 3) continue;  /* next dst[j] */
+            count = fwrite_hashed(mtx->chg_addr, "A", mtx->dst[j].amount, ltfp);
+            if (count == 1) continue;  /* next dst[j] */
             mError(FAIL_TX, "b_val(): bad I/O dst-->chg write");
          }
          /* Start another big-O n-squared, nested loop here... scan 5 */
@@ -583,10 +588,8 @@ int b_val(char *fname)
             }
          }  /* end for qp2 scan 5 */
          /* write out the dst transaction */
-         count =  fwrite(addr, TXWOTSLEN, 1, ltfp);
-         count += fwrite("A", 1, 1, ltfp);
-         count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
-         if (count != 3) mError(FAIL_TX, "b_val(): bad I/O scan 4");
+         count = fwrite_hashed(addr, "A", mtx->dst[j].amount, ltfp);
+         if (count != 1) mError(FAIL_TX, "b_val(): bad I/O scan 4");
       }  /* end for j */
    }  /* end for qp1 */
    /* end mtx scan 4 */
@@ -600,10 +603,8 @@ int b_val(char *fname)
    /* Make ledger tran to add to or create mining address.
     * '...Money from nothing...'
     */
-   count =  fwrite(bh.maddr, 1, TXWOTSLEN, ltfp);
-   count += fwrite("A",      1,         1, ltfp);
-   count += fwrite(mfees,    1,         8, ltfp);
-   if (count != (TXWOTSLEN+1+8) || ferror(ltfp)) {
+   count = fwrite_hashed(bh.maddr, "A", mfees, ltfp);
+   if (count != 1 || ferror(ltfp)) {
       mError(FAIL_TX, "b_val(): ltfp IO error");
    } else {
       pdebug("b_val(): wrote reward (%08x%08x) to %s...",
