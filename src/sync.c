@@ -397,7 +397,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    show("checkneo");  /* check neo-genesis hash against Cblockhash */
    if(!iszero(bnum, 8)) {  /* Cblockhash was set by reset_chain() */
-      result = ng_val(fname, bnum);
+      result = ng_val(fname, "tfile.dat", bnum);
       if(result != 0) {
          plog("init(): Bad NG block! ecode: %d", result);
          remove(fname);
