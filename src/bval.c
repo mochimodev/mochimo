@@ -17,6 +17,7 @@
 #include "util.h"
 #include "tx.h"
 #include "trigg.h"
+#include "tfile.h"
 #include "tag.h"
 #include "peach.h"
 #include "ledger.h"

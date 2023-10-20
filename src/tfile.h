@@ -21,12 +21,18 @@
 extern "C" {
 #endif
 
+int get_tfile_rewards(const char *fname, void *rewards, void *bnum);
+int read_tfile(void *buffer, void *bnum, int count, const char *tfname);
+int read_trailer(BTRAILER *btp, const char *fname);
+
 int readtf(void *buff, word32 bnum, word32 count);
 int past_weight(word8 *weight, word32 lownum);
 int loadproof(TX *tx);
 int checkproof(TX *tx, word32 *splitblock);
 int tf_val(char *fname, void *bnum, void *weight, int weight_only);
 int trim_tfile(void *highbnum);
+
+int validate_trailer(BTRAILER *btp, BTRAILER *pbtp);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

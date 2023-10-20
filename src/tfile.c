@@ -68,6 +68,113 @@ ThreadProc thread_pow_val(void *arg)
    Unthread;
 }
 
+/**
+ * Get the sum of block rewards represented by a Tfile.
+ * @param fname Filename of Tfile to count rewards from
+ * @param rewards Pointer to place sum of block rewards
+ * @param bnum Pointer to block number of last reward or NULL for no limit
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int get_tfile_rewards(const char *fname, void *rewards, void *bnum)
+{
+   /* premine value = 4757066000000000 */
+   static word32 premine[2] = { 0xbd1a6400, 0x0010e686 };
+
+   BTRAILER bt;
+   FILE *fp;
+   word32 reward[2];
+
+   /* sanity check */
+   if (fname == NULL || rewards == NULL) goto FAIL_INVAL;
+
+   /* initialize rewards with premine */
+   put64(rewards, premine);
+
+   /* open Tfile for reading */
+   fp = fopen(fname, "rb");
+   if (fp == NULL) return VERROR;
+
+   /* read trailer data and calculate rewards */
+   while (!feof(fp)) {
+      if (fread(&bt, sizeof(bt), 1, fp) != 1 && ferror(fp)) goto FAIL_IO;
+      /* check block reward limit */
+      if (bnum && cmp64(bt.bnum, bnum) > 0) break;
+      /* no block reward if no transactions */
+      if (get32(bt.tcount)) {
+         get_mreward(reward, (word32 *) bt.bnum);
+         if (add64(rewards, reward, rewards)) goto FAIL_IO_OVERFLOW;
+      }
+   }
+
+   /* close Tfile */
+   fclose(fp);
+
+   /* success */
+   return VEOK;
+
+/* error handling */
+FAIL_INVAL: set_errno(EINVAL); return VERROR;
+FAIL_IO_OVERFLOW: set_errno(EMCM_MREWARDS_OVERFLOW);
+FAIL_IO: fclose(fp); return VERROR;
+}  /* end get_tfile_rewards() */
+
+/**
+ * Read Tfile data into a buffer.
+ * @param buffer Pointer to buffer to read Tfile data into
+ * @param bnum Start block number to read from Tfile
+ * @param count Number of trailers to read from Tfile
+ * @return (int) number of records read from Tfile, which may be less
+ * than count if an error ocurrs. Check errno for details.
+*/
+int read_tfile(void *buffer, void *bnum, int count, const char *tfname)
+{
+   long long offset;
+   FILE *fp;
+
+   fp = fopen(tfname, "rb");
+   if (fp == NULL) return VERROR;
+   put64(&offset, bnum);
+   offset *= sizeof(BTRAILER);
+   if (fseek64(fp, offset, SEEK_SET) != 0) {
+      fclose(fp);
+      return 0;
+   }
+   /* perform read into buffer */
+   count = fread(buffer, sizeof(BTRAILER), (size_t) count, fp);
+   fclose(fp);
+   return count;
+}  /* end read_tfile() */
+
+/**
+ * Read the Block Trailer of a blockchain file.
+ * May also be used on the Tfile to get the last trailer entry.
+ * @param btp Pointer to place Block Trailer data
+ * @param fname Filename of blockchain file to read
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int read_trailer(BTRAILER *btp, const char *fname)
+{
+   FILE *fp;
+
+   /* read Block Trailer data */
+   if ((fp = fopen(fname, "rb")) == NULL) return VERROR;
+   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END)) goto FAIL_IO;
+   if (fread(btp, sizeof(BTRAILER), 1, fp) != 1) goto FAIL_IO;
+   fclose(fp);
+
+   /* success */
+   return VEOK;
+
+/* error handling */
+FAIL_IO:
+   fclose(fp);
+   return VERROR;
+}  /* end read_trailer() */
+
 /* Return number of records read from tfile.dat. */
 int readtf(void *buff, word32 bnum, word32 count)
 {
@@ -498,6 +605,98 @@ int trim_tfile(void *highbnum)
    perr("tfile(): flag = %d  bnum = 0x%s", flag, bnum2hex(bnum));
    return VERROR;  /* non-zero -- fail */
 }  /* end trim_tfile() */
+
+/**
+ * Validate a Block Trailer against a previous (excludes PoW).
+ * @param btp Pointer to Block Trailer to validate
+ * @param pbtp Pointer to previous Block Trailer to validate against
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int validate_trailer(BTRAILER *btp, BTRAILER *pbtp)
+{
+   static word32 one[2] = { 1, 0 };
+   static word32 mfee[2] = { MFEE, 0 };
+   static word32 tottrigger[2] = { V23TRIGGER, 0 };
+   static word8 GenesisHash[32] = {
+      0x00, 0x17, 0x0c, 0x67, 0x11, 0xb9, 0xdc, 0x3c,
+      0xa7, 0x46, 0xc4, 0x6c, 0xc2, 0x81, 0xbc, 0x69,
+      0xe3, 0x03, 0xdf, 0xad, 0x2f, 0x33, 0x3b, 0xa3,
+      0x97, 0xba, 0x06, 0x1e, 0xcc, 0xef, 0xde, 0x03
+   };
+
+   time_t start;
+   word32 next_block[2], stime;
+
+   /* init */
+   time(&start);
+
+   /* if previous Block Trailer NULL, perform genesis checks */
+   if (pbtp == NULL) {
+      /* check block trailer data is empty (exc. block hash) */
+      if (!iszero(btp, sizeof(BTRAILER) - 32)) goto BAD_NZGEN;
+      if (memcmp(btp->bhash, GenesisHash, 32) != 0) goto BAD_GENHASH;
+
+      /* genesis ok */
+      return VEOK;
+   }
+
+   /* check Mfee */
+   if (btp->bnum[0] && get32(btp->tcount)) {
+      if (cmp64(btp->mfee, mfee) < 0) goto BAD_MFEE;
+   } else if(!iszero(btp->mfee, 8)) goto BAD_MFEE;
+
+   /* store solve time for multiple checks */
+   stime = get32(btp->stime);
+
+   /* check diff and block times */
+   if (btp->bnum[0]) {
+      /* check difficulty (non-NG blocks) */
+      if (get32(btp->difficulty) != set_difficulty(pbtp)) goto BAD_DIFF;
+      /* check early solve time (non-NG blocks) */
+      if (stime <= get32(pbtp->stime)) {
+         /* discern failure type */
+         if (stime == get32(pbtp->stime)) goto BAD_STIME;
+         /* allow stime anomaly ONLY for the Epochalypse, Y2K38 */
+         if ((word32) (stime - get32(pbtp->stime)) > BRIDGE) goto BAD_STIME;
+         /* reduce "start" time to 32-bit for future solve time check */
+         start &= (time_t) WORD32_C(0xffffffff);
+      }
+      /* check future solve time */
+      if (stime > start && (stime - start) > BCONFREQ) goto BAD_STIME;
+   } else {
+      /* check difficulty matches previous (NG blocks) */
+      if (get32(btp->difficulty) != get32(pbtp->difficulty)) goto BAD_DIFF;
+      /* check solve time matches previous (NG blocks) */
+      if (stime != get32(pbtp->stime)) goto BAD_STIME;
+   }
+   /* check for times of trouble...
+    * I can't figure out the "why" of this bnum complexity...
+    * so it remains, in a modified but functionally exact state... */
+   if (cmp64(btp->bnum, tottrigger) > 0 /* && btp->bnum[0] != 0xfe && */
+      /* btp->bnum[0] != 0xff && btp->bnum[0] != 0 */) {
+      if (btp->bnum[0] > 0 && btp->bnum[0] < 0xfe) {
+         if ((word32) (stime - get32(btp->time0)) > BRIDGE) goto BAD_STIME;
+      }
+   }
+   /* check block number increment */
+   add64(pbtp->bnum, one, next_block);
+   if (cmp64(btp->bnum, next_block) != 0) goto BAD_BNUM;
+   /* check previous hash */
+   if (memcmp(pbtp->bhash, btp->phash, HASHLEN) != 0) goto BAD_PHASH;
+
+   /* trailer is valid */
+   return VEOK;
+
+BAD_NZGEN: set_errno(EMCM_NZGEN); return VERROR;
+BAD_GENHASH: set_errno(EMCM_GENHASH); return VERROR;
+BAD_MFEE: set_errno(EMCM_MFEE); return VERROR;
+BAD_DIFF: set_errno(EMCM_DIFF); return VERROR;
+BAD_STIME: set_errno(EMCM_STIME); return VERROR;
+BAD_BNUM: set_errno(EMCM_BNUM); return VERROR;
+BAD_PHASH: set_errno(EMCM_PHASH); return VERROR;
+}  /* end validate_trailer() */
 
 /* end include guard */
 #endif
