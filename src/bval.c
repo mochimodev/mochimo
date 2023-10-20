@@ -135,107 +135,116 @@ FAIL:
    return ecode;
 }  /* end p_val() */
 
-#define NGBUFFLEN (16*1024)
-#define NGERROR(e) { ecode = e; goto err; }
-
 /**
- * Validate a neogenesis block file.
- * Check NG block:
- * 1. check hash is good and == Cblockhash
- * 2. not too much in amounts
- * 3. block hash is in tfile.dat
- *
- * Return 0 if NG is good, else error code.
- * (reset_chain() has already been called to set Cblockhash.)
- */
-int ng_val(char *fname, word8 *bnum)
+ * Validate a WOTS+ neo-genesis block.
+ * Checks ledger entries are in ascending sort.
+ * Checks block hash matches calculated hash.
+ * Checks block size matches neo-genesis format.
+ * Checks block trailer matches Tfile entry.
+ * Checks sum of amounts do not exceed "expected" rewards.
+ * NOTE: Tfile should have been verified before neo-genesis validation.
+ * @param fname Filename of neo-genesis file to validate
+ * @param tfname Filename of Tfile to validate against
+ * @param bnum Pointer to expected block number, or NULL to ignore
+ * @return (int) value representing operation result
+ * @retval VEBAD on block format violation; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int ng_val(const char *fname, const char *tfname, void *bnum)
 {
-   static word32 premine[2]
-      = { 0xbd1a6400, 0x0010e686 };  /* 4757066000000000 */
-   static word32 tlen[2] = { sizeof(BTRAILER), 0 };
-
-   word32 reward[2], bnum2[2];
-   word8 sum[8], sum2[8], temp[8];
-   LENTRY le;
-   BTRAILER bt;
-   long toffset;
-   word8 chash[HASHLEN];
-   word8 bhash[HASHLEN];
-   word8 buff[NGBUFFLEN];
-   FILE *fp;
-   unsigned long len;
-   unsigned count, n;
+   LENTRY_W le, prev_le;
    SHA256_CTX cctx;
-   int ecode = 2;
+   BTRAILER bt, tft;
+   size_t remain, count;
+   word32 hdrlen, first;
+   word8 chash[HASHLEN];
+   word8 amounts[8];
+   word8 rewards[8];
+   FILE *fp;
 
+   /* open file for validation */
    fp = fopen(fname, "rb");
-   if(fp == NULL) return 1;
-   if(fseek(fp, 0, SEEK_END)) {
-err:
-      fclose(fp);
-      return ecode;
-   }
-   /* Read hash value in NG trailer */
-   len = ftell(fp);
-   if(len < (sizeof(BTRAILER) + sizeof(LENTRY))) NGERROR(3);
-   if(fseek(fp, -(HASHLEN), SEEK_END)) NGERROR(4);
-   if(fread(bhash, 1, HASHLEN, fp) != HASHLEN) NGERROR(5);
-   /* Compute NG block hash */
-   if(fseek(fp, 0, SEEK_SET)) NGERROR(6);
+   if (fp == NULL) return VERROR;
+
+   /* read header length */
+   if (fread(&hdrlen, sizeof(hdrlen), 1, fp) != 1) goto FAIL_ERR;
+
+   /* check data from headerlen */
+   remain = hdrlen;
+   if (remain < (sizeof(hdrlen) + sizeof(le))) goto BAD_HDRLEN;
+   if ((remain % sizeof(le)) != sizeof(hdrlen)) goto BAD_HDRLEN;
+
+   /* init and begin computed hash */
    sha256_init(&cctx);
-   len -= HASHLEN;
-   n = NGBUFFLEN;
-   for( ; len; len -= count) {
-      if(len < NGBUFFLEN) n = len;
-      count = fread(buff, 1, n, fp);
-      if(count < 1) break;
-      sha256_update(&cctx, buff, count);
-   }
-   if(len) NGERROR(7);
-   sha256_final(&cctx, chash);
-   /* Check computed hash, chash, against hash from trailer, bhash. */
-   if(memcmp(chash, bhash, HASHLEN) != 0) NGERROR(8);
-   /* and the hash set by reset_chain(). */
-   if(memcmp(chash, Cblockhash, HASHLEN) != 0) NGERROR(9);
+   sha256_update(&cctx, &hdrlen, sizeof(hdrlen));
 
-   /* Compute total reward + premine into sum. */
-   put64(bnum2, bnum);
-   if(!iszero(bnum, 8)) {
-      for(memset(sum, 0, 8); ;) {
-         if(((word8 *) bnum2)[0]) {
-            get_mreward(reward, bnum2);
-            add64(sum, reward, sum);
-         }
-         if(sub64(bnum2, One, bnum2)) break;
+   /* init amounts before summing */
+   memset(amounts, 0, 8);
+
+   /* read remaining block data */
+   for (first = 1, remain -= sizeof(hdrlen); remain; remain -= sizeof(le)) {
+      /* perform read into ledger entry -- check read count */
+      if ((count = fread(&le, sizeof(le), 1, fp)) != 1) goto FAIL_IO;
+      /* check ledger sort -- skip on first read */
+      if (first) first = 0;
+      else if (memcmp(le.addr, prev_le.addr, sizeof(le.addr)) <= 0) {
+         goto BAD_SORT;
       }
-   }
-   add64(premine, sum, sum);
-   pdebug("premine: %lu  0x%lx\n", *((unsigned long *) premine), *((long *) premine));
-   pdebug("sum:  %lu  0x%lx\n", *((unsigned long *) sum), *((long *) sum));
-   /* Check sum of amounts in NG ledger. */
-   fseek(fp, 4, SEEK_SET);
-   for(memset(sum2, 0, 8); ; ) {
-      if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY)) break;
-      /* add64(sum2, le.balance, sum2);
-      if(cmp64(sum2, sum) > 0) NGERROR(10); */
-   }
-   pdebug("sum2: %lu  0x%lx\n", *((long *) sum2), *((long *) sum2));
-   fclose(fp);
+      /* update amounts sum, ensure no overflow */
+      if (add64(amounts, le.balance, amounts)) goto BAD_OVERFLOW;
+      /* update data from neogenesis */
+      memcpy(&prev_le, &le, sizeof(le));
+      sha256_update(&cctx, &le, sizeof(le));
+   }  /* end for() */
 
-   /* Now check bnum's hash in trailer in tfile.dat */
-   fp = fopen("tfile.dat", "rb");
-   if(fp == NULL) return 11;
-   put64(temp, bnum);
-   mult64(temp, tlen, temp);
-   if (sizeof(toffset) == 8) put64(&toffset, temp);
-   else put32(&toffset, get32(temp));
-   if(fseek(fp, toffset, SEEK_SET)) NGERROR(12);
-   if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER))
-      NGERROR(13);
-   if(memcmp(bt.bhash, Cblockhash, HASHLEN) != 0) NGERROR(14);
-   fclose(fp);
+   /* read block trailer and check block number (where supplied) */
+   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_IO;
+   else if (bnum && cmp64(bt.bnum, bnum) != 0) goto BAD_BNUM;
 
-   return 0;  /* success */
+   /* add trailer data -(HASHLEN) to computed hash -- finalize */
+   sha256_update(&cctx, &bt, sizeof(bt) - HASHLEN);
+   sha256_final(&cctx, chash);
+
+   /* check block hash */
+   if (memcmp(chash, bt.bhash, HASHLEN) != 0) goto BAD_BHASH;
+
+   /* compare Neogenesis block trailer to Tfile trailer */
+   if (read_tfile(&tft, bt.bnum, 1, tfname) != 1) {
+      /* .. or the previous trailer where Tfile does not contain it */
+      if (read_trailer(&tft, tfname) != VEOK) goto FAIL_ERR;
+      if (validate_trailer(&bt, &tft) != VEOK) goto FAIL_ERR;
+   } else if (memcmp(&bt, &tft, sizeof(bt)) != 0) goto BAD_TRAILER;
+
+   /* check accurate sum of Tfile rewards against ledger amounts */
+   /* NOTE: get_tfile_rewards() cannot caluclate balance < MFEE supply loss,
+    * so we only check the Neogenesis amounts do not exceed expected */
+   if (get_tfile_rewards(tfname, rewards, bt.bnum) != VEOK) goto FAIL_ERR;
+
+   /* check calculated rewards against ledger amounts */
+   if (cmp64(amounts, rewards) > 0) goto BAD_AMOUNTS;
+
+   /* neogenesis is valid */
+   fclose(fp);
+   return VEOK;
+
+/* error handling */
+FAIL_IO:
+   if (feof(fp)) {
+      /* set_errno(EMCM_EOF); */
+      pdebug("ng_val(): EOF");
+   }
+FAIL_ERR: fclose(fp); return VERROR;
+FAIL_BAD: fclose(fp); return VEBAD;
+
+/* block format violation handling */
+BAD_AMOUNTS: set_errno(EMCM_LE_AMOUNTS_SUM); goto FAIL_BAD;
+BAD_BHASH: set_errno(EMCM_BHASH); goto FAIL_BAD;
+BAD_BNUM: set_errno(EMCM_BNUM); goto FAIL_BAD;
+BAD_HDRLEN: set_errno(EMCM_HDRLEN); goto FAIL_BAD;
+BAD_TRAILER: set_errno(EMCM_TRAILER); goto FAIL_BAD;
+BAD_OVERFLOW: set_errno(EMCM_LE_AMOUNTS_OVERFLOW); goto FAIL_BAD;
+BAD_SORT: set_errno(EMCM_LE_SORT); goto FAIL_BAD;
 }  /* end ng_val() */
 
 /**

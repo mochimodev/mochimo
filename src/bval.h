@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 int p_val(char *fname);
-int ng_val(char *fname, word8 *bnum);
+int ng_val(const char *fname, const char *tfname, void *bnum);
 int b_val(char *fname);
 
 #ifdef __cplusplus
