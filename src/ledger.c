@@ -593,17 +593,17 @@ int le_update(void)
    clock_t ticks;
    word32 nout;            /* temp file output counter */
    word8 hold;             /* hold ledger entry for next loop */
-   word8 taddr[TXWOTSLEN];    /* for transaction address hold */
-   word8 le_prev[TXWOTSLEN];  /* for ledger sequence check */
-   word8 lt_prev[TXWOTSLEN];  /* for tran delta sequence check */
+   word8 taddr[TXADDRLEN];    /* for transaction address hold */
+   word8 le_prev[TXADDRLEN];  /* for ledger sequence check */
+   word8 lt_prev[TXADDRLEN];  /* for tran delta sequence check */
    int cond, ecode;
 
    /* init */
    ticks = clock();
    nout = 0;         /* output record counter */
    hold = 0;         /* hold ledger flag */
-   memset(le_prev, 0, TXWOTSLEN);
-   memset(lt_prev, 0, TXWOTSLEN);
+   memset(le_prev, 0, TXADDRLEN);
+   memset(lt_prev, 0, TXADDRLEN);
 
    /* ensure ledger reference is closed for update */
    le_close();
@@ -644,12 +644,12 @@ int le_update(void)
             if (ferror(lefp)) {
                mErrno(FAIL_IO, "le_update(): fread(oldle)");
             } else continue;
-         } else if (memcmp(oldle.addr, le_prev, TXWOTSLEN) < 0) {
+         } else if (memcmp(oldle.addr, le_prev, TXADDRLEN) < 0) {
             mError(FAIL_IO, "le_update(): bad ledger.dat sort");
-         } else memcpy(le_prev, oldle.addr, TXWOTSLEN);
+         } else memcpy(le_prev, oldle.addr, TXADDRLEN);
       }
       /* compare ledger address to latest transaction address */
-      cond = memcmp(oldle.addr, lt.addr, TXWOTSLEN);
+      cond = memcmp(oldle.addr, lt.addr, TXADDRLEN);
       if (cond == 0 && feof(ltfp) == 0 && feof(lefp) == 0) {
          /* If ledger and transaction addr match,
           * and both files not at end...
@@ -676,14 +676,14 @@ int le_update(void)
          /* CREATE NEW ADDR
           * Copy address from transaction to new ledger entry.
           */
-         memcpy(&newle.addr, lt.addr, TXWOTSLEN);
+         memcpy(&newle.addr, lt.addr, TXADDRLEN);
          memset(newle.balance, 0, 8);  /* but zero balance for apply_tran */
          /* Hold old ledger entry to insert before this addition. */
          hold = 1;
       }
 
       /* save ledger transaction address */
-      memcpy(taddr, lt.addr, TXWOTSLEN);
+      memcpy(taddr, lt.addr, TXADDRLEN);
 
       do {
          pdebug("le_update(): Applying '%c' to %s...",
@@ -709,17 +709,17 @@ int le_update(void)
             break;
          }
          /* Sequence check on lt.addr */
-         if (memcmp(lt.addr, lt_prev, TXWOTSLEN) < 0) {
+         if (memcmp(lt.addr, lt_prev, TXADDRLEN) < 0) {
             mError(FAIL_IO, "le_update(): bad ltran.dat sort");
          }
-         memcpy(lt_prev, lt.addr, TXWOTSLEN);
+         memcpy(lt_prev, lt.addr, TXADDRLEN);
 
          /* Check for multiple transactions on a single address:
          * '-' must come before 'A'
          * (Transaction file did not run out and its addr matches
          *  the previous transaction...)
          */
-      } while (memcmp(lt.addr, taddr, TXWOTSLEN) == 0);
+      } while (memcmp(lt.addr, taddr, TXADDRLEN) == 0);
 
       /* Only balances > Mfee are written to updated ledger. */
       if (cmp64(newle.balance, Mfee) > 0) {
