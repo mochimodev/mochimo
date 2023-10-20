@@ -41,8 +41,8 @@ extern "C" {
 void hash_wots_addr(void *hash, const void *wots);
 int le_open(char *ledger, char *fopenmode);
 void le_close(void);
-int le_find(word8 *addr, LENTRY *le, long *position, word16 len);
-int le_extract(char *fname, char *lfile);
+int le_extract(const char *neogen_file, const char *ledger_file);
+int le_find(word8 *addr, LENTRY *le, word16 len);
 int le_renew(void);
 int le_txclean(void);
 int le_update(void);

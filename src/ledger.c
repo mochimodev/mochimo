@@ -263,27 +263,52 @@ void le_close(void)
    Nledger = 0;
 }
 
-/* Binary search ledger.dat (Lefp) for addr.
- * input: addr
- * outputs: *le, *position, and return code.
- * Returns 1 if found, 0 if not found.
- * If found, le is filled in with ledger entry.
- * If position is non-NULL put the index of found LENTRY struct there,
- * else the index of where to insert addr in ledger.dat.
- */
-int le_find(word8 *addr, LENTRY *le, long *position, word16 len)
+/**
+ * Binary search for ledger address. If found, le is filled with the found
+ * ledger entry data. Hash-based addresses are derived from supplied WOTS+
+ * addresses where an appropriate length parameter is provided.
+ * @param addr Address data to search for
+ * @param le Pointer to place found ledger entry
+ * @param len Length of address data to search
+ * @return (int) value representing found result
+ * @retval 0 on not found; check errno for details
+ * @retval 1 on found; check le pointer for ledger data
+*/
+int le_find(word8 *addr, LENTRY *le, word16 len)
 {
    long cond, mid, hi, low;
-   size_t addrlen;
+   word8 addr2[TXADDRLEN];
 
    if(Lefp == NULL) {
       perr("le_find(): use le_open() first!");
       return 0;
    }
 
+   /* derive hash-based address from incompatible address lengths */
+   switch (len) {
+      /* support for TXSIGLEN or old balance request with ZEROED Tag */
+      case TXSIGLEN: /* fallthrough */
+      case (TXWOTSLEN - TXTAGLEN):
+         /* derive hash-based address from WOTS+ address (partial) */
+         sha256(addr, TXSIGLEN, addr2);
+         len = TXADDRLEN - TXTAGLEN;
+         break;
+      /* support for full WOTS+ address hash (inc. tag) */
+      case TXWOTSLEN:
+         hash_wots_addr(addr2, addr);
+         len = TXADDRLEN;
+         break;
+      /* otherwise, assume hash-based address from input */
+      default:
+         memcpy(addr2, addr, (size_t) len);
+         /* search length protection */
+         if (len > TXADDRLEN) {
+            len = TXADDRLEN;
+         }
+   }
+
    low = 0;
    hi = Nledger - 1;
-   addrlen = len < 2 ? TXWOTSLEN : len;
 
    while(low <= hi) {
       mid = (hi + low) / 2;
@@ -291,87 +316,110 @@ int le_find(word8 *addr, LENTRY *le, long *position, word16 len)
          { perr("le_find(): fseek");  break; }
       if(fread(le, 1, sizeof(LENTRY), Lefp) != sizeof(LENTRY))
          { perrno(errno, "le_find(): fread");  break; }
-      cond = memcmp(addr, le->addr, addrlen);
-      if(cond == 0) {
-         if(position) *position = mid;
-         return 1;  /* found target addr */
-      }
+      cond = memcmp(addr2, le->addr, (size_t) len);
+      if(cond == 0) return 1;  /* found target addr */
       if(cond < 0) hi = mid - 1; else low = mid + 1;
    }  /* end while */
-   /* Not found.
-    * To add target addr, move ledger[position] up and insert target
-    * at ledger[position].
-    */
-   if(position) *position = low;
+
    return 0;  /* not found */
 }  /* end le_find() */
 
-/* Extract the ledger from a neo-genesis block and
- * put it in ledger file lfile (ledger.dat)
- * Return VEOK on success, else VERROR.
- */
-int le_extract(char *fname, char *lfile)
+/**
+ * Extract a hashed-based ledger from a neo-genesis block. Checks sort.
+ * Compatible with both WOTS+ and Hashed-based neo-genesis blocks.
+ * @param ngfname Filename of the neo-genesis block
+ * @return (int) value representing extraction result
+ * @retval VEBAD on invalid; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int le_extract(const char *neogen_file, const char *ledger_file)
 {
-   word32 hdrlen;    /* to read-in block header length */
-   FILE *fp, *lfp;
-   LENTRY le;        /* buffer to read ledger entry */
-   word8 prevaddr[TXWOTSLEN];  /* to check block addr sort */
-   word8 first;
+   LENTRY le;              /* buffer for Hashed ledger entries */
+   LENTRY_W lew;           /* buffer for WOTS+ ledger entries */
+   NGHEADER ngh;           /* buffer for neo-genesis header */
+   FILE *fp, *lfp;         /* FILE pointers */
+   long long remain;
+   word32 hdrlen;          /* buffer for block header length */
+   word8 paddr[TXWOTSLEN]; /* ledger address sort check */
+   int first;
 
-   pdebug("le_extract() ledger from %s to %s", fname, lfile);
+   /* open files */
+   fp = fopen(neogen_file, "rb");
+   lfp = fopen(ledger_file, "wb");
+   if (fp == NULL || lfp == NULL) goto FAIL_IO;
 
-   /* open the neo-genesis block and read in file header length */
-   fp = fopen(fname, "rb");
-   if(!fp) return VERROR;;
-   if(fread(&hdrlen, 1, 4, fp) != 4) goto ioerror;
+   /* read neo-genesis header and hdrlen value -- check ledger type */
+   if (fread(&ngh, sizeof(ngh), 1, fp) != 1) goto FAIL_IO;
+   hdrlen = get32(ngh.hdrlen);
 
-   lfp = fopen(lfile, "wb");
-   if(!lfp) {
-      perr("le_extract(): Cannot open %s", lfile);
-      goto ioerror;
-   }
+   /* check header length for hash-based ledger type */
+   if (hdrlen == sizeof(ngh)) {
+      /* seek to start of Hashed ledger */
+      if (fseek(fp, (long) hdrlen, SEEK_SET)) goto FAIL_IO;
+      /* check ledger size and alignment */
+      put64(&remain, ngh.lbytes);
+      if (remain == 0 || remain % sizeof(le)) goto FAIL_HDRLEN;
 
-   /* Make sure that NG header contains at least
-    * one ledger entry.
-    */
-   if(hdrlen < (sizeof(LENTRY) + 4)) {
-      perr("le_extract(): Not a neo-genesis block: %s", fname);
-      goto error2;
-   }
+      /* read the ledger from fp, copy it to lfp */
+      for (first = 1; remain > 0LL; remain -= sizeof(le), first = 0) {
+         if (fread(&le, sizeof(le), 1, fp) != 1) goto FAIL_IO;
+         /* check ledger sort */
+         if (!first && addr_compare(le.addr, paddr) <= 0) goto FAIL_SORT;
+         memcpy(paddr, le.addr, sizeof(le.addr));
+         /* write hashed ledger entries to ledger file */
+         if (fwrite(&le, sizeof(le), 1, lfp) != 1) goto FAIL_IO;
+      }  /* end for() */
 
-   /*
-    * Read the ledger from fp and copy it to lfp,
-    * creating a new ledger.dat file.
-    * NOTE: block trailer must be less than sizeof(LENTRY)
-    */
-   if(fseek(fp, 4, SEEK_SET)) goto error2;
-   for(hdrlen -= 4, first = 1; ; first = 0) {
-      if(fread(&le, 1, sizeof(LENTRY), fp) != sizeof(LENTRY))
-         break;
-      hdrlen -= sizeof(LENTRY);
-      /* check ledger sort in NG block */
-      if(!first && memcmp(le.addr, prevaddr, TXWOTSLEN) <= 0) {
-         perr("le_extract(): bad ledger sort in neo-genesis block");
-         goto error2;
-      }
-      memcpy(prevaddr, le.addr, TXWOTSLEN);
-      if(fwrite(&le, 1, sizeof(LENTRY), lfp) != sizeof(LENTRY))
-         goto error2;
-   }
-   if(hdrlen) {
-      perr("le_extract(): bad neo-genesis block length");
-      goto error2;
-   }
-   fclose(fp);
-   fclose(lfp);
-   return VEOK;
-ioerror:
+      /* close files */
+      fclose(lfp);
       fclose(fp);
-      remove(lfile);  /* remove bad ledger */
-      return perr("le_extract() failed!");
-error2:
+
+      /* ledger extracted */
+      return VEOK;
+   }
+
+   /* assume LEGACY ledger type */
+
+   /* seek to start of WOTS+ ledger */
+   if (fseek(fp, (long) sizeof(hdrlen), SEEK_SET)) goto FAIL_IO;
+   /* check ledger size and alignment */
+   remain = (long long) hdrlen - sizeof(hdrlen);
+   if (remain == 0 || remain % sizeof(lew)) goto FAIL_HDRLEN;
+
+   /* convert the WOTS+ ledger from fp to hashed, and copy it to lfp */
+   for (first = 1; remain > 0LL; remain -= sizeof(lew), first = 0) {
+      if (fread(&lew, sizeof(lew), 1, fp) != 1) goto FAIL_IO;
+      /* check ledger sort */
+      if (!first && addr_compare_wots(lew.addr, paddr) <= 0) goto FAIL_SORT;
+      memcpy(paddr, lew.addr, sizeof(lew.addr));
+      /* convert WOTS+ to Hashed address */
+      hash_wots_addr(le.addr, lew.addr);
+      put64(le.balance, lew.balance);
+      /* zero fill new ledger entry zcf parameters */
+      memset(le.zcf_dst, 0, sizeof(le.zcf_dst));
+      memset(le.zcf_ttl, 0, sizeof(le.zcf_ttl));
+      /* write hashed ledger entries to ledger file */
+      if (fwrite(&le, sizeof(le), 1, lfp) != 1) goto FAIL_IO;
+   }  /* end for() */
+
+   /* close files */
    fclose(lfp);
-   goto ioerror;
+   fclose(fp);
+
+   /* ledger output requires a sort pass, due to WOTS+ conversion */
+   /* return filesort(ledger_file, sizeof(le), LEBUFSZ, addr_compare); */
+   if (filesort(ledger_file, sizeof(le), LEBUFSZ, addr_compare)) goto FAIL_IO;
+   return VEOK;
+
+/* error handling */
+FAIL_SORT: set_errno(EMCM_LE_SORT); goto FAIL;
+FAIL_HDRLEN: set_errno(EMCM_HDRLEN); goto FAIL;
+FAIL_IO: perrno(errno, "le_extract() IO FAILURE");
+FAIL:
+   if (lfp) fclose(lfp);
+   if (fp) fclose(fp);
+   return VERROR;
 }  /* end le_extract() */
 
 /* Returns 0 on success, else error code. */
