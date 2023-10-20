@@ -12,6 +12,14 @@
 
 #include "types.h"
 
+/**
+ * Legacy ledger entry struct
+*/
+typedef struct {
+   word8 addr[TXWOTSLEN];    /* 2208 */
+   word8 balance[TXAMOUNT];  /* 8 */
+} LENTRY_W;
+
 /* global variables */
 extern word32 Sanctuary;
 extern word32 Lastday;
