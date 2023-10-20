@@ -462,7 +462,7 @@ int send_balance(NODE *np)
      len = TXWOTSLEN - 12;
    }
    /* look up source address in ledger */
-   if(le_find(np->tx.src_addr, &le, NULL, len) == TRUE) {
+   if(le_find(np->tx.src_addr, &le, len) == TRUE) {
      put64(np->tx.send_total, le.balance);
      put64(np->tx.change_total, One); /* indicate address was found */
      memcpy(np->tx.src_addr, le.addr, TXWOTSLEN); /* return found address */

@@ -511,7 +511,7 @@ int le_txclean(void)
    /* read TX from txclean.dat and process */
    for(; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
       /* check src in ledger, balances and amounts are good */
-      if (le_find(tx.src_addr, &src_le, NULL, TXWOTSLEN) == FALSE) {
+      if (le_find(tx.src_addr, &src_le, TXWOTSLEN) == FALSE) {
          pdebug("le_txclean(): le_find, drop %s...", addr2str(tx.tx_id));
          continue;
       } else if (cmp64(tx.tx_fee, Myfee) < 0) {

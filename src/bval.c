@@ -442,7 +442,7 @@ int b_val(char *fname)
       }
 
       /* look up source address in ledger */
-      if (le_find(tx.src_addr, &src_le, NULL, TXWOTSLEN) == 0) {
+      if (le_find(tx.src_addr, &src_le, TXWOTSLEN) == 0) {
          pdebug("b_val(): error address %s...", addr2str(tx.src_addr));
          mEdrop(FAIL_TX, "b_val(): src_addr not in ledger: TX#%" P32u, j);
       }

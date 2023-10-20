@@ -144,7 +144,7 @@ int tx_val(TX *tx)
    }
 
    /* look up source address in ledger */
-   if(le_find(tx->src_addr, &src_le, NULL, TXWOTSLEN) == FALSE) {
+   if(le_find(tx->src_addr, &src_le, TXWOTSLEN) == FALSE) {
       pdebug("tx_val(): src_addr not in ledger");
       return 1;
    }
