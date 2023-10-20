@@ -231,9 +231,10 @@ FAIL:
 int b_update(char *fname, int mode)
 {
    BTRAILER bt;
-   word32 bnum;
    int ecode;
+   word8 bnum[8];
    char bcfname[FILENAME_MAX], *solvestr;
+   char *ngfname;
 
    /* init */
    solvestr = NULL;
@@ -248,6 +249,23 @@ int b_update(char *fname, int mode)
 
    /* check for pseudo-block */
    if (gethdrlen(fname) == 4) mode = 2;
+   if (gethdrlen(fname) > sizeof(BHEADER)) mode = 3;
+
+   /* TEMPORARY COMPATIBILITY FOR NEOGENESIS BLOCK UPDATE PROCESS */
+   if (mode == 3) {
+      /* neo-genesis block update */
+      if (add64(Cblocknum, One, bnum)) {
+         return perr("b_update(): neogen blocknum overflow");
+      }
+      ecode = ng_val(fname, "tfile.dat", bnum);
+      if (ecode != VEOK) {
+         perr("b_update(): ecode = %d", ecode);
+         return perr("b_update(): failed to validate neo-genesis block");
+      }
+      ngfname = fname;
+      goto TEMP_NEOGEN_UPDATE;
+   }
+   /* END TEMPORARY COMPATIBILITY */
 
    /* separate validation process for pseudo-block */
    if (mode != 2) {
@@ -350,21 +368,24 @@ int b_update(char *fname, int mode)
        * Determine input block b...ff.bc file with Cblocknum.
        * Update Cblockhash, Cblocknum, Prevhash, Eon and tfile.dat
        */
+      ngfname = "ngblock.dat";
       snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(Cblocknum));
-      if (neogen(bcfname, "ngblock.dat") != VEOK) {
+      if (neogen(bcfname, ngfname) != VEOK) {
          restart("b_update(): failed to neogen()");
-      } else if (add64(Cblocknum, One, Cblocknum)) {
+      } else goto TEMP_ABORT_AUTO_NEOGEN_UPDATE;
+TEMP_NEOGEN_UPDATE:
+      if (add64(Cblocknum, One, Cblocknum)) {
          restart("b_update(): neogenesis blocknum overflow");
-      } else if (readtrailer(&bt, "ngblock.dat") != VEOK) {
+      } else if (readtrailer(&bt, ngfname) != VEOK) {
          restart("b_update(): failed to readtrailer(ngblock.dat)");
       }
       memcpy(Prevhash, Cblockhash, HASHLEN);
       memcpy(Cblockhash, bt.bhash, HASHLEN);
       Eon++;
       /* add neogenesis block trailer to tfile and accept block */
-      if (append_tfile("ngblock.dat", "tfile.dat") != VEOK) {
+      if (append_tfile(ngfname, "tfile.dat") != VEOK) {
          restart("b_update(): failed to append_tfile(ngblock.dat)");
-      } else if (accept_block("ngblock.dat", Cblocknum) != VEOK){
+      } else if (accept_block(ngfname, Cblocknum) != VEOK){
          restart("b_update(): failed to accept_block(ngblock.dat)");
       }
       /* check CAROUSEL() */
@@ -383,11 +404,11 @@ int b_update(char *fname, int mode)
       }
       /* print block update */
       if(!Bgflag) {
-         bnum = get32(bt.bnum);
-         plog("Neogenesis: 0x%" P32x " #%s...", bnum, addr2str(bt.bhash));
+         plog("Neogenesis: 0x%" P32x " #%s...", get32(bt.bnum), addr2str(bt.bhash));
       }
    }
 
+TEMP_ABORT_AUTO_NEOGEN_UPDATE:
    /* update pinklists */
    if ((Cblocknum[0] & EPOCHMASK) == 0) purge_epoch();
    mergepinklists();

@@ -280,7 +280,8 @@ int catchup(word32 plist[], word32 count)
          } else if (tid[i] == 0) {
             do {  /* determine next required block - skip neogenesis */
                add64(bnum, One, bnum);
-               if (bnum[0] == 0) add64(bnum, One, bnum);
+               /* TEMPORARY ADJUSTMENTS TO NOT SKIP NEOGEN DOWNLOAD
+               if (bnum[0] == 0) add64(bnum, One, bnum); */
                sprintf(fname, "b%" P32x ".tmp", get32(bnum));
                sprintf(fname2, "b%" P32x ".dat", get32(bnum));
                if (cmp64(bnum, bclear) > 0) {

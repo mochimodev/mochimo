@@ -995,19 +995,11 @@ int main(int argc, char **argv)
 
    set_print_level(PLEVEL_LOG);
 
-   /* sanity checks -- for undesired structure padding */
+   /* sanity checks -- for undesired struct padding or endianess */
    if (sizeof(word32) != 4) resign("word32 should be 4 bytes");
-   /*else if (sizeof(TX) != TXBUFFLEN) {
-      resign("struct size error TX != TXBUFFLEN");
-   }*/ else if (sizeof(LTRAN) != (TXWOTSLEN + 1 + TXAMOUNT)) {
-      resign("struct size error: LTRAN != (TXWOTSLEN + 1 + TXAMOUNT)");
-   } else if (sizeof(BTRAILER) != BTSIZE) {
-      resign("struct size error: BTRAILER != BTSIZE");
-   } else if (sizeof(MTX) != sizeof(TXQENTRY)) {
-      resign("struct size error: MTX != TXQENTRY");
-   } else if (get16(endian) != 0x1234) {
-      resign("little-endian machine required for this build.");
-   }
+   if (sizeof(BTRAILER) != BTSIZE) resign("BTRAILER != BTSIZE");
+   if (sizeof(MTX) != sizeof(TXQENTRY)) resign("MTX != TXQENTRY");
+   if (get16(endian) != 0x1234) resign("little-endian machine required");
 
    /* pre-init */
    Ininit = 1;
