@@ -60,6 +60,33 @@
 
 /* ----------------- DO NOT CHANGE BELOW THIS LINE --------------------- */
 
+/* DEPRECATION MACRO, marks functions DECPRECATED for certain compilers */
+#if defined(__GNUC__) || defined(__clang__)
+   #define DEPRECATED __attribute__((deprecated))
+#elif defined(_MSC_VER)
+   #define DEPRECATED __declspec(deprecated)
+#else
+   #define DEPRECATED
+#endif
+
+/* set default "preferred path separator" per OS */
+#ifndef PREFERRED_PATH_SEPARATOR
+   #ifdef _WIN32
+      #define PREFERRED_PATH_SEPARATOR  "\\"
+   #else
+      #define PREFERRED_PATH_SEPARATOR  "/"
+   #endif
+#endif
+
+/**
+ * Path separator to use when concatenating file paths.
+ * Path separator is defined by "PREFERRED_PATH_SEPARATOR", or an
+ * OS specific separator ("\\" or "/") resulting in the following:
+ * - Windows\\path\\to
+ * - UNIX/path/to
+*/
+#define PATH_SEPARATOR  PREFERRED_PATH_SEPARATOR
+
 /* boolean return codes */
 #ifndef TRUE
 	#define TRUE   1   /**< Boolean value for TRUE (#ifndef) */
@@ -71,11 +98,12 @@
 #define HASHLEN   32  /**< Digest length of core hashes - SHA256LEN */
 
 /* status return codes */
-#define VEOK      0        /**< Status return code - No error */
-#define VERROR    1        /**< Status return code - General error */
-#define VEBAD     2        /**< Status return code - client was bad */
-#define VEBAD2    3        /**< Status return code - client was naughty */
-#define VETIMEOUT (-1)     /**< Status return code - socket timeout */
+#define VEWAITING ( -2 )   /**< Socket waiting status */
+#define VETIMEOUT ( -1 )   /**< Socket timeout status */
+#define VEOK         0     /**< OK/Success status */
+#define VERROR       1     /**< General error status */
+#define VEBAD        2     /**< Client was bad status */
+#define VEBAD2       3     /**< Client was naughty status */
 
 /* network/transmission definitions */
 #define PORT1     2095     /**< Default TCP listening port for network */
