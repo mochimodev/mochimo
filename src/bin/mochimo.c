@@ -33,6 +33,7 @@
 #include <stdarg.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <dirent.h>  /* UNIX directory utils */
 #include <errno.h>
 #include <ctype.h>
 
@@ -59,6 +60,51 @@
 #include "global.h"     /* System wide globals  */
 #include "bup.h"
 #include "bcon.h"
+
+int check_directory(char *dirname)
+{
+   char fname[FILENAME_MAX];
+
+   mkdir_p(dirname);
+   snprintf(fname, FILENAME_MAX, "%s/chkfile", dirname);
+   if (ftouch(fname) == VEOK) return remove(fname);
+   return perrno(errno, "Permission failure, %s", dirname);
+}
+
+int clear_directory(char *dname)
+{
+   DIR *dp;
+   struct dirent *ep;
+   char fname[FILENAME_MAX];
+
+   dp = opendir(dname);
+   if (dp == NULL) return perrno(errno, "failed to open dir %s...", dname);
+   while ((ep = readdir(dp))) {
+      snprintf(fname, FILENAME_MAX, "%s/%s", dname, ep->d_name);
+      remove(fname); /* ignores non-empty directories */
+   }
+   closedir(dp);
+
+   /* success */
+   return VEOK;
+}
+
+/**
+ * Get string from terminal input without newline char.
+ * @param buff Pointer to char array to place input
+ * @param len Maximum length of char array @a buff
+ * @returns Pointer to @a buff
+*/
+char *tgets(char *buff, int len)
+{
+   char *cp;
+
+   if (fgets(buff, len, stdin) == NULL) *buff = '\0';
+   cp = strchr(buff, '\n');
+   if (cp) *cp = '\0';
+
+   return buff;
+}
 
 int veronica(void)
 {
