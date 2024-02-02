@@ -16,9 +16,15 @@
 
 #define GPUMAX 64
 
-/* ensure GIT_VERSION exists */
+/* define EXEC_NAME and GIT_VERSION (if not defined) */
+
+#ifndef EXEC_NAME
+   #define EXEC_NAME "Mochimo Server" /* " Daemon" */
+
+#endif
+
 #ifndef GIT_VERSION
-   #define GIT_VERSION "no-git-version"
+   #define GIT_VERSION "v(no-git)"
 
 #endif
 
@@ -1242,20 +1248,25 @@ int main(int argc, char **argv)
    }  /* end for j */
 EOA:  /* end of arguments */
 
-   /* print header & disclaimer */
-   plog("Mochimo Server " GIT_VERSION " on " __DATE__ " " __TIME__);
-   plog("Mochimo Mainnet Live Since June 25, 2018 15:43:45 GMT");
-   plog("Mochimo Codebase v2 Released October 27, 2018");
-   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
-   plog("See the PDF/TEXT versions of the license agreement:");
-   plog("   https://mochimo.org/license.pdf");
-   plog("   https://mochimo.org/license");
-   plog("");
+   /* print (and log) copyright and version information */
+   plog("%s %s, built " __DATE__ " " __TIME__, EXEC_NAME, GIT_VERSION);
+   plog("Copyright (c) 2018-2023 Adequate Systems, LLC.  All Rights Reserved.");
+   plog("See the License Agreement at the links below:");
+   plog("   https://mochimo.org/license.pdf (PDF version)");
+   plog("   https://mochimo.org/license (TEXT version)");
+   printf("\n");
+   /* get local machine name and IP address */
+   gethostname(hostname, sizeof(hostname));
+   gethostip(addrname, sizeof(addrname));
+   /* print (and log) host information */
+   plog("Network Host Information...");
+   plog("  Machine name: %s", *hostname ? hostname : "unknown");
+   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
+   printf("\n");
+   sleep(3);
 
    /* perform init and start server */
    if (Running) {
-      sleep(3);  /* for effect */
-      phostinfo();  /* for info */
       if (Running && init() == VEOK) {
          server();
          /* shutdown sockets */
