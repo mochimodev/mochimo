@@ -68,6 +68,121 @@ ThreadProc thread_pow_val(void *arg)
    Unthread;
 }
 
+/* Accumulate weight based on difficulty */
+void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
+{
+   static word32 trigger[2] = { WTRIGGER31, 0 };
+   word8 add256[32] = { 0 };
+
+   /* trigger block shifts weight increment from linear to exponential */
+   if(bnum && cmp64(bnum, trigger) < 0) add256[0] = difficulty;
+   else add256[difficulty / 8] = 1 << (difficulty % 8);  /* 2 ** difficulty */
+   multi_add(weight, add256, weight, 32);
+}  /* end add_weight() */
+
+int append_tfile(char *fname, char *tfile)
+{
+   BTRAILER bt;
+   FILE *fp;
+   size_t count;
+
+   if(readtrailer(&bt, fname) != VEOK) {
+      perr("Cannot append_tfile()");
+      return VERROR;
+   }
+   fp = fopen(tfile, "ab");
+   if (fp == NULL) {
+      perrno(errno, "append_tfile() failed on fopen() for %s", tfile);
+      return VERROR;
+   } else {
+      count = fwrite(&bt, 1, sizeof(BTRAILER), fp);
+      fclose(fp);
+   }
+   if(count != sizeof(BTRAILER)) {
+      perr("append_tfile() failed on fwrite(): wrote %zu/%zu bytes to %s",
+         count, sizeof(BTRAILER), tfile);
+      return VERROR;
+   }
+   return VEOK;
+}
+
+/* Compute mining reward and copy to reward
+ * It is a function of block number:
+ *
+ * Starting Reward: 0x12A05F200
+ * Premine: 20800000037927936
+ * Mining Distribution: 71778872624714400  (blocks 1-2097152) less NG blocks.
+ * NOTE: Calculated for RTRIGGER31 = 16383
+ *
+ */
+void get_mreward(word32 *reward, word32 *bnum)
+{
+   word8 bnum2[8];
+   static word32 delta[2] = { 0xDAC0, 0 };      /* reward delta 56000 */
+   static word32 base1[2] = { 0x2A05F200, 1 };  /* base 5000000000 */
+   static word32 base2[2] = { 0x60b43c80, 1 };  /* base 5917392000 */
+   static word32 base3[2] = { 0xdbe74670, 0x0d };  /* base 59523942000 */
+   static word32 t1[2] =  { RTRIGGER31, 0 };    /* new reward trigger block */
+   static word32 t2[2] =  { 373761, 0 };        /* mid block */
+   static word32 t3[2] =  { 2097152, 0 };       /* final reward block */
+   static word32 delta2[2] = { 150000, 0 };     /* increment */
+   static word32 delta3[2] = { 28488, 0 };      /* decrement */
+
+   if(cmp64(bnum, t1) < 0) {
+      /* bnum < 17185 */
+      if(sub64(bnum, One, bnum2)) {
+         /* underflow, no reward */
+         reward[0] = reward[1] = 0;
+      } else {
+         mult64(delta, bnum2, reward);
+         add64(reward, base1, reward);
+      }
+   } else if(cmp64(bnum, t2) < 0) {
+      /* first 4 years (excl. bnum[0... 17184]) */
+      sub64(bnum, t1, bnum2);
+      mult64(delta2, bnum2, reward);
+      add64(reward, base2, reward);
+   } else if(cmp64(bnum, t3) <= 0) {
+      /* last 18 years */
+      sub64(bnum, t2, bnum2);
+      mult64(delta3, bnum2, reward);
+      if(sub64(base3, reward, reward)) {
+         /* underflow, no reward */
+         reward[0] = reward[1] = 0;
+      }
+   } else reward[0] = reward[1] = 0;
+}  /* end get_mreward() */
+
+/* Seek to end of fname and read block trailer.
+ * Return VEOK on success, else error code.
+ */
+int readtrailer(BTRAILER *trailer, char *fname)
+{
+   FILE *fp;
+   size_t count;
+   int seekerr;
+
+   fp = fopen(fname, "rb");
+   if (fp == NULL) {
+      perrno(errno, "readtrailer() failed on fopen() for %s", fname);
+      return VERROR;
+   } else {
+      seekerr = fseek(fp, -(sizeof(BTRAILER)), SEEK_END);
+      if (seekerr == 0) count = fread(trailer, 1, sizeof(BTRAILER), fp);
+      fclose(fp);
+   }
+   if(seekerr) {
+      perr("readtrailer() failed on fseek() for %s: ecode=%d", fname, seekerr);
+      return VERROR;
+   }
+   if(count != sizeof(BTRAILER)) {
+      perr("readtrailer() failed on fread() for %s: read %zu/%zu bytes",
+         fname, count, sizeof(BTRAILER));
+      return VERROR;
+   }
+   return VEOK;
+}
+
 /* Return number of records read from tfile.dat. */
 int readtf(void *buff, word32 bnum, word32 count)
 {
@@ -84,6 +199,43 @@ int readtf(void *buff, word32 bnum, word32 count)
    fclose(fp);
    return count;
 }  /* end readtf() */
+
+/* seconds is 32-bit signed, stime and bnum are from block trailer.
+ * NOTE: hash is set to 0 for old algorithm.
+ * If used and integrating into an old chain,
+ * change DTRIGGER31 to a non-NG block number on which to
+ * trigger new algorithm.
+ */
+word32 set_difficulty(BTRAILER *btp)
+{
+   word32 hash;
+   word32 stime = get32(btp->stime);
+   word32 difficulty = get32(btp->difficulty);
+   int seconds = stime - get32(btp->time0);
+   int highsolve = 284;
+   int lowsolve = 143;
+
+   /* Change DTRIGGER31 to a non-NG block number trigger for new algorithm. */
+   static word32 trigger_block[2] = { DTRIGGER31, 0 };
+   static word32 fix_trigger[2] = { FIXTRIGGER, 0 };
+   if(seconds < 0) return difficulty;
+   if(cmp64(btp->bnum, trigger_block) < 0){
+      hash = 0;
+      highsolve = 506;
+      lowsolve = 253;
+   }
+   else
+      hash = (stime >> 6) ^ stime;
+   if(cmp64(btp->bnum, fix_trigger) > 0) hash = 0;
+   if(seconds > highsolve) {
+      if(difficulty > 0) difficulty--;
+      if(difficulty > 0 && (hash & 1)) difficulty--;
+   } else if(seconds < lowsolve) {
+      if((hash & 3) == 0  && difficulty < 255)
+         difficulty++;
+   }
+   return difficulty;
+}
 
 /* Compute our weight at lownum and return in weight[]
  * Return VEOK on success, else VERROR.

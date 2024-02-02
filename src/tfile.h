@@ -21,7 +21,12 @@
 extern "C" {
 #endif
 
+void add_weight(word8 *weight, word8 difficulty, word8 *bnum);
+int append_tfile(char *fname, char *tfile);
+void get_mreward(word32 *reward, word32 *bnum);
+int readtrailer(BTRAILER *trailer, char *fname);
 int readtf(void *buff, word32 bnum, word32 count);
+word32 set_difficulty(BTRAILER *btp);
 int past_weight(word8 *weight, word32 lownum);
 int loadproof(TX *tx);
 int checkproof(TX *tx, word32 *splitblock);
