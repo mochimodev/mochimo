@@ -29,6 +29,68 @@
 #include "extmath.h"
 #include "extlib.h"
 
+#define restart(msg) { palert(msg); kill_services_exit(1); }
+
+int accept_block(char *ublock, word8 *newnum)
+{
+   char buff[256];
+   char cmd[288];
+   char bnum[18];
+
+   bnum2hex(newnum, bnum);
+   sprintf(buff, "b%s.bc", bnum);
+   sprintf(cmd, "%s/b%s.bc", Bcdir, bnum);
+   if(fexists(buff) || fexists(cmd)) {
+      perr("failed: %s already exists!", buff);
+      return VERROR;
+   }
+   if(rename(ublock, buff) != 0) {
+      perrno("failed on rename() %s to %s", ublock, buff);
+      return VERROR;
+   }
+   sprintf(cmd, "mv %s %s", buff, Bcdir);
+   if (system(cmd)) return VERROR;
+   sprintf(buff, "%s/b%s.bc", Bcdir, bnum);
+   if(!fexists(buff)) {
+      perr("failed on system(%s): %s missing", cmd, buff);
+      return VERROR;
+   }
+   return VEOK;
+}  /* end accept_block() */
+
+void print_bup(BTRAILER *bt, char *solvestr)
+{
+   word32 bnum, btxs, btime, bdiff;
+   char haiku[256], *haiku1, *haiku2, *haiku3;
+   char hash[10];
+
+   /* prepare block stats */
+   bnum = get32(bt->bnum);
+   btxs = get32(bt->tcount);
+   btime = get32(bt->stime) - get32(bt->time0);
+   bdiff = get32(bt->difficulty);
+   /* print haiku if non-pseudo block */
+   if (!Insyncup && btxs) {
+      /* expand and split haiku into lines for printing */
+      trigg_expand(bt->nonce, haiku);
+      haiku1 = strtok(haiku, "\n");
+      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+      printf("\n/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
+      /* print block update and details */
+      plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
+         btime, bdiff, btxs);
+   }
+   /* print block identification */
+   plog("%s-block: 0x%" P32x " #%s...",
+      solvestr, bnum, hash2hex(bt->bhash, 4, hash));
+   /* print miner data if enabled */
+   if (!Ininit && !Insyncup && !Nominer) {
+      read_data(&Hps, sizeof(Hps), "hps.dat");
+      printf("Solved: %" P32u "  Hps: %" P32u "\n", Nsolved, Hps);
+   }
+}  /* end print_bup() */
+
 /**
  * Remove bad TX's from a txclean file based on a blockchain file.
  * Uses "ledger.dat" as (input) ledger file, "txq.tmp" as temporary (output)
