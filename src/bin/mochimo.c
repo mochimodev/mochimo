@@ -944,6 +944,59 @@ int server(void)
    return 0;
 } /* end server() */
 
+/**
+ * Segmentation fault handler.
+ * @note compile with "-g -rdynamic" for readable backtrace
+ * @note Not compatible with Windows at this stage
+*/
+void segfault(int sig)
+{
+#ifndef _WIN32
+   void *array[10];
+   size_t size;
+
+   /* get void*'s for all entries on the stack */
+   size = backtrace(array, 10);
+#else
+   fprintf(stderr, "*no backtrace on this system*\n");
+#endif
+
+   /* print out all the frames to stderr */
+   fprintf(stderr, "Error: signal %d:\n", sig);
+
+#ifndef _WIN32
+   backtrace_symbols_fd(array, size, STDERR_FILENO);
+#endif
+
+   exit(1);
+}
+
+/*
+ * Signal handlers
+ *
+ * Enter monitor on ctrl-C
+ */
+void ctrlc(int sig)
+{
+   print("\n");
+   pdebug("Got signal %i", sig);
+   signal(SIGINT, ctrlc);
+   if (Ininit) Running = 0;
+   else Monitor = 1;
+}
+
+/*
+ * Clear run flag, Running on SIGTERM
+ */
+void sigterm(int sig)
+{
+   print("\n");
+   pdebug("Got signal %i", sig);
+   signal(SIGTERM, sigterm);
+   sock_cleanup();
+   Running = 0;
+}
+
 int usage(void)
 {
    printf("\n"
@@ -1005,9 +1058,16 @@ int main(int argc, char **argv)
    /* pre-init */
    Ininit = 1;
    Running = 1;
-   fix_signals();             /* redirect signals */
+   /* Ignore all signals. */
+   for(j = 0; j <= 23; j++) {
+      signal(j, SIG_IGN);
+   }
+   signal(SIGINT, ctrlc);     /* then install ctrl-C handler */
+   signal(SIGTERM, sigterm);  /* ...and software termination */
+   signal(SIGSEGV, segfault); /* segmentation fault handler */
+#ifndef _WIN32
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
-   set_print_level(PLEVEL_LOG);
+#endif
 
    /* sanity check -- for duplicate processes */
    cp = strrchr(argv[0], '/');
