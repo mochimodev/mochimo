@@ -10,6 +10,7 @@
 #define MOCHIMO_GLOBAL_H
 
 
+/* external support */
 #include "types.h"
 
 extern int Nonline;         /* number of pid's in Nodes[]                */
@@ -77,6 +78,19 @@ extern pid_t Mqpid;              /* mirror() */
 extern int Mqcount;              /* count of mq.dat records */
 
 extern word8 One[8];             /* for 64-bit maths */
+
+/* C/C++ compatible function prototypes */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void kill_services_exit(int ecode);
+int read_global(void);
+int write_global(void);
+
+#ifdef __cplusplus
+}  /* end extern "C" */
+#endif
 
 /* end include guard */
 #endif
