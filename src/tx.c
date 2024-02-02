@@ -29,6 +29,42 @@
 #include <errno.h>
 #include "crc16.h"
 
+#ifndef _WIN32
+
+   /* Get exclusive lock on lockfile.
+   * Returns: -1 if lock not made within 'seconds' or open() failed
+   *          else a descriptor to be used with unlock()
+   */
+   int lock(char *lockfile, int seconds)
+   {
+      time_t timeout;
+      int fd, status;
+
+      timeout = time(NULL) + seconds;
+      fd = open(lockfile, O_NONBLOCK | O_RDONLY);
+      if(fd == -1) return -1;
+      for(;;) {
+         status = flock(fd, LOCK_EX | LOCK_NB);
+         if(status == 0) return fd;
+         if(time(NULL) >= timeout) {
+            close(fd);
+            return -1;
+         }
+      }
+   }
+
+   /* Unlock a decriptor returned from lock() */
+   int unlock(int fd)
+   {
+      int status;
+
+      status =  flock(fd, LOCK_UN);
+      close(fd);
+      return status;
+   }
+
+#endif
+
 /* Validates a multi-dst transaction MTX.
  * (Does all tag checking as well.)
  * tx->src_addr is already checked in ledger.dat and totals tally.
