@@ -308,8 +308,16 @@ int b_update(char *fname, int mode)
       return VERROR;
    }
 
-   /* check for pseudo-block */
-   if (gethdrlen(fname) == 4) mode = 2;
+   /* check "their" blocks (mode == 0) for pseudo-block */
+   if (mode == 0) {
+      fp = fopen(fname, "rb");
+      if (fp == NULL) return VERROR;
+      ecode = fread(&len, 4, 1, fp);
+      if (feof(fp)) set_errno(EMCM_EOF);
+      fclose(fp);
+      if (ecode != 1) return VERROR;
+      if (len == 4) mode = 2;
+   }
 
    /* separate validation process for pseudo-block */
    if (mode != 2) {
