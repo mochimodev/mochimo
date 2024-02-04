@@ -13,9 +13,10 @@
 #include "bcon.h"
 
 /* internal support */
-#include "util.h"
+#include "tfile.h"
 #include "sort.h"
 #include "global.h"
+#include "error.h"
 
 /* external support */
 #include <string.h>
@@ -42,13 +43,17 @@ int pseudo(char *output)
    /* init */
    ticks = clock();
 
-   pdebug("pseudo(): generating pseudo-block at %s...", output);
+   pdebug("generating pseudo-block at %s...", output);
 
    /* open pseudo-block file and write hdrlen */
    fp = fopen("pblock.dat", "wb");
-   if (fp == NULL) mErrno(FAIL, "pseudo(): failed to fopen(%s)", output);
+   if (fp == NULL) {
+      perrno("failed to fopen(%s)", output);
+      goto FAIL;
+   }
    if (fwrite(&pseudo_hdrlen, 4, 1, fp) != 1) {
-      mError(FAIL_IO, "pseudo(): failed to fwrite(pseudo_hdrlen)");
+      perr("failed to fwrite(pseudo_hdrlen)");
+      goto FAIL_IO;
    }
 
    /* fill block trailer with appropriate pseudo-data */
@@ -67,10 +72,11 @@ int pseudo(char *output)
 
    /* write block trailer to pseudo-block file */
    if (fwrite(&bt, sizeof(bt), 1, fp) != 1) {
-      mError(FAIL_IO, "pseudo(): failed to fwrite(bt)");
+      perr("failed to fwrite(bt)");
+      goto FAIL_IO;
    }
 
-   pdebug("pseudo(): completed in %gs", diffclocktime(clock(), ticks));
+   pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
    ecode = VEOK;
@@ -109,45 +115,58 @@ int neogen(char *input, char *output)
    /* init */
    ticks = clock();
 
-   pdebug("neogen(): generating neogenesis-block...");
+   pdebug("generating neogenesis-block...");
 
    /* read and check trailer from 0x..ff block */
    if (readtrailer(&bt, input) != VEOK) {
-      mError(FAIL, "neogen(): failed to read_trailer()");
+      perr("failed to read_trailer()");
+      goto FAIL;
    } else if (bt.bnum[0] != 0xff) {
-      mError(FAIL, "neogen(): bad modulus on bt.bnum");
+      perr("bad modulus on bt.bnum");
+      goto FAIL;
    }
 
    /* calculate neogensis block number */
    add64(bt.bnum, One, neobnum);
    if (neobnum[0] != 0) {
-      mError(FAIL, "neogen(): bad modulus on Cblocknum");
+      perr("bad modulus on Cblocknum");
+      goto FAIL;
    }
 
    /* open ledger read-only */
    lfp = fopen("ledger.dat", "rb");
-   if (lfp == NULL) mErrno(FAIL, "neogen(): failed to fopen(ledger.dat)");
+   if (lfp == NULL) {
+      perrno("failed to fopen(ledger.dat)");
+      goto FAIL;
+   }
    /* fseek() to compute ledger length and check */
    if (fseek(lfp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "neogen(): failed to fseek(END)");
+      perrno("failed to fseek(END)");
+      goto FAIL_IO;
    }
    llen = ftell(lfp);
-   if (llen == EOF) mErrno(FAIL_IO, "neogen(): failed to ftell(lfp)");
+   if (llen == EOF) {
+      perrno("failed to ftell(lfp)");
+      goto FAIL_IO;
+   }
    if (llen == 0 || (llen % sizeof(LENTRY)) != 0) {
-      mError(FAIL_IO, "neogen(): invalid ledger length: %ld", llen);
+      perr("invalid ledger length: %ld", llen);
+      goto FAIL_IO;
    }
 
    /* open neogenesis output file for writing */
    nfp = fopen(output, "wb");
    if(nfp == NULL) {
-      mErrno(FAIL_IO, "neogen(): failed to fopen(%s)", output);
+      perrno("failed to fopen(%s)", output);
+      goto FAIL_IO;
    }
 
    /* Add length of ledger.dat to length of header length field. */
    hdrlen = (word32) llen + 4;
    /* Begin the Neo-Genesis block by writing the header length to it. */
    if (fwrite(&hdrlen, 4, 1, nfp) != 1) {
-      mError(FAIL_IO2, "neogen(): failed to fwrite(hdrlen)");
+      perr("failed to fwrite(hdrlen)");
+      goto FAIL_IO2;
    }
 
    sha256_init(&bctx);  /* begin entire block hash */
@@ -157,18 +176,24 @@ int neogen(char *input, char *output)
     * header whilst hashing it into bctx.
     */
    if (fseek(lfp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO2, "neogen(): failed to fseek(lfp, SET)");
+      perrno("failed to fseek(lfp, SET)");
+      goto FAIL_IO2;
    }
    for (total = 0; (count = fread(buff, 1, BUFSIZ, lfp)); total += count) {
       sha256_update(&bctx, buff, count);
       if (fwrite(buff, count, 1, nfp) != 1) {
-         mError(FAIL_IO2, "neogen(): failed to fwrite(buff)");
+         perr("failed to fwrite(buff)");
+         goto FAIL_IO2;
       }
    }
    /* check that everything got copied, and no file errors */
-   if (ferror(lfp)) mErrno(FAIL_IO2, "neogen(): ferror(lfp)");
+   if (ferror(lfp)) {
+      perrno("ferror(lfp)");
+      goto FAIL_IO2;
+   }
    if (total != (size_t) llen) {
-      mError(FAIL_IO2, "neogen(): failed to copy all data");
+      perr("failed to copy all data");
+      goto FAIL_IO2;
    }
 
    /* Fix-up block trailer and write to neogenesis-block */
@@ -181,10 +206,14 @@ int neogen(char *input, char *output)
    sha256_update(&bctx, &nbt, sizeof(nbt) - HASHLEN);
    sha256_final(&bctx, nbt.bhash);
    if (fwrite(&nbt, sizeof(BTRAILER), 1, nfp) != 1) {
-      mError(FAIL_IO2, "neogen(): failed to fwrite(nbt)");
-   } else if (ferror(nfp)) mErrno(FAIL_IO2, "neogen(): ferror(nfp)");
+      perr("failed to fwrite(nbt)");
+      goto FAIL_IO2;
+   } else if (ferror(nfp)) {
+      perrno("ferror(nfp)");
+      goto FAIL_IO2;
+   }
 
-   pdebug("neogen(): completed in %gs", diffclocktime(clock(), ticks));
+   pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
    ecode = VEOK;
@@ -227,25 +256,29 @@ int b_con(char *fname)
    fp = fpout = NULL;
    ticks = clock();
 
-   pdebug("b_con(): constructing candidate-block...");
+   pdebug("constructing candidate-block...");
 
    /* get mining address and build sorted Txidx[]... */
    if (read_data(maddr, TXADDRLEN, "maddr.dat") != TXADDRLEN) {
-      mError(FAIL, "b_con(): failed to read_data(maddr)");
+      perr("failed to read_data(maddr)");
+      goto FAIL;
    } else if (sorttx("txclean.dat") != VEOK) {
-      mError(FAIL, "b_con(): bad sorttx(txclean.dat)");
+      perr("bad sorttx(txclean.dat)");
+      goto FAIL;
    }
 
    /* re-open the clean TX queue (txclean.dat) to read */
    fp = fopen("txclean.dat", "rb");
    if (fp == NULL) {
-      mErrno(FAIL, "b_con(): failed to fopen(txclean.dat)");
+      perrno("failed to fopen(txclean.dat)");
+      goto FAIL;
    }
 
    /* create cblock.tmp */
    fpout = fopen("cblock.tmp", "wb");
    if (fpout == NULL) {
-      mErrno(FAIL, "b_con(): failed to fopen(cblock.tmp)");
+      perrno("failed to fopen(cblock.tmp)");
+      goto FAIL;
    }
 
    /* compute new block number, mining reward */
@@ -272,7 +305,8 @@ int b_con(char *fname)
 
    /* write header to disk */
    if (fwrite(&bh, sizeof(bh), 1, fpout) != 1) {
-      mError(FAIL, "b_con(): failed to fwrite(bh)");
+      perr("failed to fwrite(bh)");
+      goto FAIL;
    }
 
    ntx = 0;
@@ -283,23 +317,27 @@ int b_con(char *fname)
          cond = memcmp(&Tx_ids[*idx * HASHLEN], prev_tx_id, HASHLEN);
          if (cond <= 0) {
             if (cond == 0) continue;  /* ignore duplicate transaction */
-            mError(FAIL, "b_con(): txclean sort error: TX#%" P32u, num);
+            perr("txclean sort error: TX#%" P32u, num);
+            goto FAIL;
          }
       }
       /* remember tx_id for next iteration */
       memcpy(prev_tx_id, &Tx_ids[*idx * HASHLEN], HASHLEN);
       /* seek to and read TXQENTRY */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-         mErrno(FAIL, "b_con(): bad fseek(TX): TX#%" P32u, num);
+         perrno("bad fseek(TX): TX#%" P32u, num);
+         goto FAIL;
       } else if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
-         mError(FAIL, "b_con(): bad fread(TX): TX#%" P32u, num);
+         perr("bad fread(TX): TX#%" P32u, num);
+         goto FAIL;
       }
       /* add transaction to block hash and merkel array */
       sha256_update(&bctx, &tx, sizeof(TXQENTRY));
       sha256_update(&mctx, &tx, sizeof(TXQENTRY));
       /* write transaction to block */
       if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
-         mError(FAIL, "b_con(): bad fwrite(TX): TX#%" P32u, num);
+         perr("bad fwrite(TX): TX#%" P32u, num);
+         goto FAIL;
       }
       /* increment actual transactions for block */
       ntx++;
@@ -310,7 +348,10 @@ int b_con(char *fname)
 
    /* Put tran count in trailer */
    if (ntx) put32(bt.tcount, ntx);
-   else mError(FAIL, "b_con(): no good transactions");
+   else {
+      perr("no good transactions");
+      goto FAIL;
+   }
 
    /* finalize merkel array - (phash+bnum+mfee+tcount+time0+difficulty)*/
    if (NEWYEAR(bt.bnum)) sha256_update(&mctx, &bt, (HASHLEN+8+8+4+4+4));
@@ -325,7 +366,8 @@ int b_con(char *fname)
 
    /* write trailer to disk */
    if (fwrite(&bt, sizeof(BTRAILER), 1, fpout) != 1) {
-      mError(FAIL, "b_con(): failed to fwrite(bt)");
+      perr("failed to fwrite(bt)");
+      goto FAIL;
    }
    /* finished with output */
    fclose(fpout);
@@ -334,19 +376,20 @@ int b_con(char *fname)
    /* move temporary output (*.tmp) to working output (*.dat) */
    remove(fname);
    if (rename("cblock.tmp", fname)) {
-      mErrno(FAIL, "b_con(): rename cblock.tmp to %s", fname);
+      perrno("rename cblock.tmp to %s", fname);
+      goto FAIL;
    } else if (!Nominer) {
       /* save bctx to disk for miner */
       remove("bctx.tmp");
       remove("bctx.dat");
       if (write_data(&bctx, sizeof(bctx), "bctx.tmp") != sizeof(bctx)) {
-         perr("b_con(): failed to write_data(bctx)");
+         perr("failed to write_data(bctx)");
       } else if (rename("bctx.tmp", "bctx.dat") != 0) {
-         perr("b_con(): rename bctx");
+         perr("rename bctx");
       }
    }
 
-   pdebug("b_con(): completed in %gs", diffclocktime(clock(), ticks));
+   pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
    ecode = VEOK;
