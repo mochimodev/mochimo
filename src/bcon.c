@@ -37,7 +37,6 @@ int pseudo(char *output)
    SHA256_CTX ctx;
    BTRAILER bt;
    clock_t ticks;
-   int ecode;
    FILE *fp;
 
    /* init */
@@ -46,14 +45,14 @@ int pseudo(char *output)
    pdebug("generating pseudo-block at %s...", output);
 
    /* open pseudo-block file and write hdrlen */
-   fp = fopen("pblock.dat", "wb");
+   fp = fopen(output, "wb");
    if (fp == NULL) {
       perrno("failed to fopen(%s)", output);
-      goto FAIL;
+      return VERROR;
    }
    if (fwrite(&pseudo_hdrlen, 4, 1, fp) != 1) {
       perr("failed to fwrite(pseudo_hdrlen)");
-      goto FAIL_IO;
+      goto CLEANUP;
    }
 
    /* fill block trailer with appropriate pseudo-data */
@@ -73,23 +72,22 @@ int pseudo(char *output)
    /* write block trailer to pseudo-block file */
    if (fwrite(&bt, sizeof(bt), 1, fp) != 1) {
       perr("failed to fwrite(bt)");
-      goto FAIL_IO;
+      goto CLEANUP;
    }
+
+   /* cleanup */
+   fclose(fp);
 
    pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
-   ecode = VEOK;
+   return VEOK;
 
    /* cleanup / error handling */
-FAIL_IO:
+CLEANUP:
    fclose(fp);
-FAIL:
-
-   /* remove pblock on failure */
-   if (ecode) remove("pblock.dat");
-
-   return ecode;
+   remove(output);
+   return VERROR;
 }  /* end pseudo() */
 
 /**
@@ -110,7 +108,6 @@ int neogen(char *input, char *output)
    word32 hdrlen;       /* header length for neo block */
    word8 neobnum[8];
    word8 buff[BUFSIZ];
-   int ecode;
 
    /* init */
    ticks = clock();
@@ -120,45 +117,45 @@ int neogen(char *input, char *output)
    /* read and check trailer from 0x..ff block */
    if (readtrailer(&bt, input) != VEOK) {
       perr("failed to read_trailer()");
-      goto FAIL;
+      return VERROR;
    } else if (bt.bnum[0] != 0xff) {
       perr("bad modulus on bt.bnum");
-      goto FAIL;
+      return VERROR;
    }
 
    /* calculate neogensis block number */
    add64(bt.bnum, One, neobnum);
    if (neobnum[0] != 0) {
       perr("bad modulus on Cblocknum");
-      goto FAIL;
+      return VERROR;
    }
 
    /* open ledger read-only */
    lfp = fopen("ledger.dat", "rb");
    if (lfp == NULL) {
       perrno("failed to fopen(ledger.dat)");
-      goto FAIL;
+      return VERROR;
    }
    /* fseek() to compute ledger length and check */
    if (fseek(lfp, 0, SEEK_END) != 0) {
       perrno("failed to fseek(END)");
-      goto FAIL_IO;
+      goto CLEANUP_LE;
    }
    llen = ftell(lfp);
    if (llen == EOF) {
       perrno("failed to ftell(lfp)");
-      goto FAIL_IO;
+      goto CLEANUP_LE;
    }
    if (llen == 0 || (llen % sizeof(LENTRY)) != 0) {
       perr("invalid ledger length: %ld", llen);
-      goto FAIL_IO;
+      goto CLEANUP_LE;
    }
 
    /* open neogenesis output file for writing */
    nfp = fopen(output, "wb");
    if(nfp == NULL) {
       perrno("failed to fopen(%s)", output);
-      goto FAIL_IO;
+      goto CLEANUP_LE;
    }
 
    /* Add length of ledger.dat to length of header length field. */
@@ -166,7 +163,7 @@ int neogen(char *input, char *output)
    /* Begin the Neo-Genesis block by writing the header length to it. */
    if (fwrite(&hdrlen, 4, 1, nfp) != 1) {
       perr("failed to fwrite(hdrlen)");
-      goto FAIL_IO2;
+      goto CLEANUP_NEO;
    }
 
    sha256_init(&bctx);  /* begin entire block hash */
@@ -177,23 +174,23 @@ int neogen(char *input, char *output)
     */
    if (fseek(lfp, 0, SEEK_SET) != 0) {
       perrno("failed to fseek(lfp, SET)");
-      goto FAIL_IO2;
+      goto CLEANUP_NEO;
    }
    for (total = 0; (count = fread(buff, 1, BUFSIZ, lfp)); total += count) {
       sha256_update(&bctx, buff, count);
       if (fwrite(buff, count, 1, nfp) != 1) {
          perr("failed to fwrite(buff)");
-         goto FAIL_IO2;
+         goto CLEANUP_NEO;
       }
    }
    /* check that everything got copied, and no file errors */
    if (ferror(lfp)) {
       perrno("ferror(lfp)");
-      goto FAIL_IO2;
+      goto CLEANUP_NEO;
    }
    if (total != (size_t) llen) {
       perr("failed to copy all data");
-      goto FAIL_IO2;
+      goto CLEANUP_NEO;
    }
 
    /* Fix-up block trailer and write to neogenesis-block */
@@ -207,28 +204,28 @@ int neogen(char *input, char *output)
    sha256_final(&bctx, nbt.bhash);
    if (fwrite(&nbt, sizeof(BTRAILER), 1, nfp) != 1) {
       perr("failed to fwrite(nbt)");
-      goto FAIL_IO2;
+      goto CLEANUP_NEO;
    } else if (ferror(nfp)) {
       perrno("ferror(nfp)");
-      goto FAIL_IO2;
+      goto CLEANUP_NEO;
    }
+
+   /* cleanup */
+   fclose(nfp);
+   fclose(lfp);
 
    pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
-   ecode = VEOK;
+   return VEOK;
 
    /* cleanup / error handling */
-FAIL_IO2:
+CLEANUP_NEO:
    fclose(nfp);
-FAIL_IO:
+   remove(output);
+CLEANUP_LE:
    fclose(lfp);
-FAIL:
-
-   /* remove output file on failure */
-   if (ecode) remove(output);
-
-   return ecode;
+   return VERROR;
 }  /* end neogen() */
 
 /**
@@ -250,10 +247,9 @@ int b_con(char *fname)
    word32 *idx, ntx, num;
    word8 maddr[TXADDRLEN]; /* to read mining address for block */
    word8 prev_tx_id[HASHLEN];  /* to check for duplicate transactions */
-   int cond, ecode;
+   int cond;
 
    /* init */
-   fp = fpout = NULL;
    ticks = clock();
 
    pdebug("constructing candidate-block...");
@@ -261,24 +257,24 @@ int b_con(char *fname)
    /* get mining address and build sorted Txidx[]... */
    if (read_data(maddr, TXADDRLEN, "maddr.dat") != TXADDRLEN) {
       perr("failed to read_data(maddr)");
-      goto FAIL;
+      return VERROR;
    } else if (sorttx("txclean.dat") != VEOK) {
       perr("bad sorttx(txclean.dat)");
-      goto FAIL;
+      return VERROR;
    }
 
    /* re-open the clean TX queue (txclean.dat) to read */
    fp = fopen("txclean.dat", "rb");
    if (fp == NULL) {
       perrno("failed to fopen(txclean.dat)");
-      goto FAIL;
+      goto CLEANUP;
    }
 
    /* create cblock.tmp */
    fpout = fopen("cblock.tmp", "wb");
    if (fpout == NULL) {
       perrno("failed to fopen(cblock.tmp)");
-      goto FAIL;
+      goto CLEANUP_TXC;
    }
 
    /* compute new block number, mining reward */
@@ -306,7 +302,7 @@ int b_con(char *fname)
    /* write header to disk */
    if (fwrite(&bh, sizeof(bh), 1, fpout) != 1) {
       perr("failed to fwrite(bh)");
-      goto FAIL;
+      goto CLEANUP_CBLK;
    }
 
    ntx = 0;
@@ -318,7 +314,7 @@ int b_con(char *fname)
          if (cond <= 0) {
             if (cond == 0) continue;  /* ignore duplicate transaction */
             perr("txclean sort error: TX#%" P32u, num);
-            goto FAIL;
+            goto CLEANUP_CBLK;
          }
       }
       /* remember tx_id for next iteration */
@@ -326,10 +322,10 @@ int b_con(char *fname)
       /* seek to and read TXQENTRY */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
          perrno("bad fseek(TX): TX#%" P32u, num);
-         goto FAIL;
+         goto CLEANUP_CBLK;
       } else if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
          perr("bad fread(TX): TX#%" P32u, num);
-         goto FAIL;
+         goto CLEANUP_CBLK;
       }
       /* add transaction to block hash and merkel array */
       sha256_update(&bctx, &tx, sizeof(TXQENTRY));
@@ -337,20 +333,17 @@ int b_con(char *fname)
       /* write transaction to block */
       if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
          perr("bad fwrite(TX): TX#%" P32u, num);
-         goto FAIL;
+         goto CLEANUP_CBLK;
       }
       /* increment actual transactions for block */
       ntx++;
    }  /* end for num */
-   /* finished with input */
-   fclose(fp);
-   fp = NULL;
 
    /* Put tran count in trailer */
    if (ntx) put32(bt.tcount, ntx);
    else {
       perr("no good transactions");
-      goto FAIL;
+      goto CLEANUP_CBLK;
    }
 
    /* finalize merkel array - (phash+bnum+mfee+tcount+time0+difficulty)*/
@@ -367,17 +360,18 @@ int b_con(char *fname)
    /* write trailer to disk */
    if (fwrite(&bt, sizeof(BTRAILER), 1, fpout) != 1) {
       perr("failed to fwrite(bt)");
-      goto FAIL;
+      goto CLEANUP_CBLK;
    }
-   /* finished with output */
+
+   /* cleanup */
    fclose(fpout);
-   fpout = NULL;
+   fclose(fp);
 
    /* move temporary output (*.tmp) to working output (*.dat) */
    remove(fname);
    if (rename("cblock.tmp", fname)) {
       perrno("rename cblock.tmp to %s", fname);
-      goto FAIL;
+      goto CLEANUP;
    } else if (!Nominer) {
       /* save bctx to disk for miner */
       remove("bctx.tmp");
@@ -389,18 +383,22 @@ int b_con(char *fname)
       }
    }
 
+   /* cleanup */
+   sorttx_free();
+
    pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
-   ecode = VEOK;
+   return VEOK;
 
    /* cleanup / error handling */
-FAIL:
-   if (fpout) fclose(fpout);
-   if (fp) fclose(fp);
+CLEANUP_CBLK:
+   fclose(fpout);
+CLEANUP_TXC:
+   fclose(fp);
+CLEANUP:
    sorttx_free();
-
-   return ecode;
+   return VERROR;
 }  /* end b_con() */
 
 /* end include guard */
