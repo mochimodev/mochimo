@@ -293,9 +293,10 @@ FAIL:
 int b_update(char *fname, int mode)
 {
    BTRAILER bt;
-   word32 bnum;
+   word32 bnum, len;
    int ecode;
    char bcfname[FILENAME_MAX], *solvestr;
+   FILE *fp;
 
    /* init */
    solvestr = NULL;
