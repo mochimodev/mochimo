@@ -14,19 +14,19 @@
 
 /* internal support */
 #include "wots.h"
-#include "util.h"
 #include "tx.h"
 #include "trigg.h"
+#include "tfile.h"
 #include "tag.h"
 #include "peach.h"
 #include "ledger.h"
 #include "global.h"
+#include "error.h"
 
 /* external support */
 #include <string.h>
 #include <stdlib.h>
 #include "sha256.h"
-#include "extprint.h"
 #include "extmath.h"
 
 /**
@@ -43,62 +43,86 @@ int p_val(char *fname)
    long plen;
    word32 hdrlen, bnum[2];
    word8 hash[HASHLEN];
-   int ecode;
 
    /* init */
    ticks = clock();
 
-   pdebug("p_val(): validating pseudo-block...");
+   pdebug("validating pseudo-block...");
 
    /* open the pseudo-block to validate */
    fp = fopen(fname, "rb");
-   if (fp == NULL) mErrno(FAIL, "p_val(): failed to fopen(%s)", fname);
+   if (fp == NULL) {
+      perrno("failed to fopen(%s)", fname);
+      return VERROR;
+   }
    /* read and check regular fixed size block header */
    if (fread(&hdrlen, 4, 1, fp) != 1) {
-      mError(FAIL_IO, "p_val(): failed to fread(hdrlen)");
+      perr("failed to fread(hdrlen)");
+      goto CLEANUP;
    } else if (hdrlen != 4) {
-      mEdrop(FAIL_IO, "p_val(): bad hdrlen size: %" P32u, hdrlen);
+      perr("bad hdrlen size: %" P32u, hdrlen);
+      goto CLEANUP_DROP;
    }
 
    /* fseek to check pseudo-block file length */
    if (fseek(fp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "p_val(): failed to fseek(END)");
+      perrno("failed to fseek(END)");
+      goto CLEANUP;
    }
    plen = ftell(fp);
-   if (plen == EOF) mErrno(FAIL_IO, "p_val(): failed to ftell(fp)");
+   if (plen == EOF) {
+      perrno("failed to ftell(fp)");
+      goto CLEANUP;
+   }
    if (plen != sizeof(BTRAILER) + 4) {
-      mError(FAIL_IO, "p_val(): invalid pseudo-block length: %ld", plen);
+      perr("invalid pseudo-block length: %ld", plen);
+      goto CLEANUP;
    }
 
    /* read trailer */
    if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
-      mErrno(FAIL_IO, "p_val(): failed on fseek(END-BTRAILER)");
+      perrno("failed on fseek(END-BTRAILER)");
+      goto CLEANUP;
    } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
-      mError(FAIL_IO, "p_val(): failed to fread(bt)");
+      perr("failed to fread(bt)");
+      goto CLEANUP;
    }
 
    /* check zeros */
-   if (get32(bt.tcount) != 0) mEdrop(FAIL_IO, "p_val(): bad tcount");
-   if (!iszero(bt.mroot, 32)) mEdrop(FAIL_IO, "p_val(): bad merkel array");
-   if (!iszero(bt.nonce, 32)) mEdrop(FAIL_IO, "p_val(): bad nonce");
+   if (get32(bt.tcount) != 0) {
+      perr("bad tcount");
+      goto CLEANUP_DROP;
+   } else if (!iszero(bt.mroot, 32)) {
+      perr("bad merkel array");
+      goto CLEANUP_DROP;
+   } else if (!iszero(bt.nonce, 32)) {
+      perr("bad nonce");
+      goto CLEANUP_DROP;
+   }
 
    /* check block num, hash, and difficulty */
    add64(Cblocknum, One, bnum);
    if (cmp64(bt.bnum, bnum) != 0) {
-      mEdrop(FAIL_IO, "p_val(): bad block number");
+      perr("bad block number");
+      goto CLEANUP_DROP;
    } else if (memcmp(bt.phash, Cblockhash, HASHLEN) != 0) {
-      mEdrop(FAIL_IO, "p_val(): previous block hash mismatch");
+      perr("previous block hash mismatch");
+      goto CLEANUP_DROP;
    } else if (get32(bt.difficulty) != Difficulty) {
-      mEdrop(FAIL_IO, "p_val(): bad difficulty");
+      perr("bad difficulty");
+      goto CLEANUP_DROP;
    }
 
    /* check block times */
    if (get32(bt.time0) != Time0) {
-      mEdrop(FAIL_IO, "p_val(): bad start time (time0)");
+      perr("bad start time (time0)");
+      goto CLEANUP_DROP;
    } else if (get32(bt.stime) != Time0 + BRIDGE) {
-      mEdrop(FAIL_IO, "p_val(): bad bridge time (stime)");
+      perr("bad bridge time (stime)");
+      goto CLEANUP_DROP;
    } else if (!iszero(bt.mfee, 8)) {
-      mEdrop(FAIL_IO, "p_val(): bad mining fee");
+      perr("bad mining fee");
+      goto CLEANUP_DROP;
    }
 
    /* compute and check block hash */
@@ -107,19 +131,22 @@ int p_val(char *fname)
    sha256_update(&ctx, &bt, sizeof(bt) - HASHLEN);
    sha256_final(&ctx, hash);
    if (memcmp(bt.bhash, hash, HASHLEN) != 0) {
-      mEdrop(FAIL_IO, "p_val(): bad block hash");
+      perr("bad block hash");
+      goto CLEANUP_DROP;
    }
 
-   pdebug("p_val(): completed in %gs", diffclocktime(clock(), ticks));
+   pdebug("completed in %gs", diffclocktime(ticks));
 
-   ecode = VEOK;  /* success */
+   /* success */
+   return VEOK;
 
    /* cleanup / error handling */
-FAIL_IO:
+CLEANUP_DROP:
    fclose(fp);
-FAIL:
-
-   return ecode;
+   return VEBAD2;
+CLEANUP:
+   fclose(fp);
+   return VERROR;
 }  /* end p_val() */
 
 #define NGBUFFLEN (16*1024)
@@ -275,82 +302,106 @@ int b_val(char *fname)
    word32 hdrlen, tcount;  /* header length and transaction count */
    long blocklen;
    unsigned int j;
-   int cond, count, ecode;
+   int cond, count;
+   char addrhash[10];
 
    /* init */
    ticks = clock();
    memset(mfees, 0, sizeof(mfees));
 
-   pdebug("b_val(): validating blockchain file %s...", fname);
+   pdebug("validating blockchain file %s...", fname);
 
    /* open ledger read-only */
    if (le_open("ledger.dat", "rb") != VEOK) {
-      mErrno(FAIL, "b_val(): failed to le_open(ledger.dat)");
+      perrno("failed to le_open(ledger.dat)");
+      return VERROR;
    }
    /* create ledger transaction temp file */
    ltfp = fopen("ltran.tmp", "wb");
-   if (ltfp == NULL) mErrno(FAIL, "b_val(): failed to fopen(ltran.tmp)");
+   if (ltfp == NULL) {
+      perrno("failed to fopen(ltran.tmp)");
+      return VERROR;
+   }
    /* open the block to validate */
    fp = fopen(fname, "rb");
-   if (fp == NULL) mErrno(FAIL_IN, "b_val(): failed to fopen(%s)", fname);
+   if (fp == NULL) {
+      perrno("failed to fopen(%s)", fname);
+      goto CLEANUP_LT;
+   }
    /* read and check regular fixed size block header */
    if (fread(&hdrlen, 4, 1, fp) != 1) {
-      mError(FAIL_IO, "b_val(): failed to fread(hdrlen)");
+      perr("failed to fread(hdrlen)");
+      goto CLEANUP_BLK;
    } else if (hdrlen != sizeof(BHEADER)) {
-      mEdrop(FAIL_IO, "b_val(): bad hdrlen size: %" P32u, hdrlen);
+      perr("bad hdrlen size: %" P32u, hdrlen);
+      goto CLEANUP_BLK_DROP;
    }
 
    /* compute block file length */
    if (fseek(fp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "b_val(): failed to fseek(END)");
+      perrno("failed to fseek(END)");
+      goto CLEANUP_BLK;
    }
    blocklen = ftell(fp);
-   if (blocklen == EOF) mError(FAIL_IO, "b_val(): failed on ftell(fp)");
+   if (blocklen == EOF) {
+      perr("failed on ftell(fp)");
+      goto CLEANUP_BLK;
+   }
 
    /* Read block trailer:
     * Check phash, bnum,
     * difficulty, Merkel Root, nonce, solve time, and block hash.
     */
    if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
-      mErrno(FAIL_IO, "b_val(): failed on fseek(-BTRAILER)");
+      perrno("failed on fseek(-BTRAILER)");
+      goto CLEANUP_BLK;
    } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
-      mError(FAIL_IO, "b_val(): failed on fread(bt)");
+      perr("failed on fread(bt)");
+      goto CLEANUP_BLK;
    }
    /* check block number */
    add64(Cblocknum, One, bnum);
    if (memcmp(bnum, bt.bnum, 8) != 0) {
-      pdebug("b_val(): bad block number");
-      mEcode(FAIL_IO, VEBAD);
+      pdebug("bad block number");
+      goto CLEANUP_BLK_BAD;
    }
    /* check block times */
    stemp = get32(bt.stime);
-   if (stemp <= Time0) mEdrop(FAIL_IO, "b_val(): early block time");
-   if (stemp > (time(NULL) + BCONFREQ)) {
-      mEdrop(FAIL_IO, "b_val(): time travel?");
-   }
-   if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
+   if (stemp <= Time0) {
+      perr("early block time");
+      goto CLEANUP_BLK_DROP;
+   } else if (stemp > (time(NULL) + BCONFREQ)) {
+      perr("time travel?");
+      goto CLEANUP_BLK_DROP;
+   } else if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
       if ((stemp - get32(bt.time0)) > BRIDGE) {
-         mEdrop(FAIL_IO, "b_val(): invalid TOT trigger");
+         perr("invalid TOT trigger");
+         goto CLEANUP_BLK_DROP;
       }
    } else if (cmp64(bt.mfee, Mfee) < 0) {
-      mEdrop(FAIL_IO, "b_val(): bad mining fee");
+      perr("bad mining fee");
+      goto CLEANUP_BLK_DROP;
    } else if (get32(bt.difficulty) != Difficulty) {
-      mEdrop(FAIL_IO, "b_val(): difficulty mismatch");
+      perr("difficulty mismatch");
+      goto CLEANUP_BLK_DROP;
    }
 
    /* check previous block hash */
    if (memcmp(Cblockhash, bt.phash, HASHLEN) != 0) {
-      mEdrop(FAIL_IO, "b_val(): previous block hash mismatch");
+      perr("previous block hash mismatch");
+      goto CLEANUP_BLK_DROP;
    }
    /* check transaction count */
    tcount = get32(bt.tcount);
    if (tcount == 0 || tcount > MAXBLTX) {
-      mEdrop(FAIL_IO, "b_val(): bad tcount");
+      perr("bad tcount");
+      goto CLEANUP_BLK_DROP;
    }
    /* check total block length */
    if ((hdrlen + sizeof(BTRAILER) + (tcount * sizeof(TXQENTRY)))
          != (word32) blocklen) {
-      mEdrop(FAIL_IO, "b_val(): invalid block length");
+      perr("invalid block length");
+      goto CLEANUP_BLK_DROP;
    }
 
    /* check enforced delay, collect haiku from block */
@@ -358,23 +409,34 @@ int b_val(char *fname)
       /* Boxing Day Anomaly -- Bugfix */
       if (cmp64(bt.bnum, boxingday) == 0) {
          if (memcmp(bt.bhash, boxdayhash, 32) != 0) {
-            mEdrop(FAIL_IO, "b_val(): bad boxingday anomaly bhash");
+            perr("bad boxingday anomaly bhash");
+            goto CLEANUP_BLK_DROP;
          }
-      } else if (peach_check(&bt)) mEdrop(FAIL_IO, "b_val(): bad Peach");
-   } else if (trigg_check(&bt)) mEdrop(FAIL_IO, "b_val(): bad Trigg");
+      } else if (peach_check(&bt)) {
+         perr("bad Peach");
+         goto CLEANUP_BLK_DROP;
+      }
+   } else if (trigg_check(&bt)) {
+      perr("bad Trigg");
+      goto CLEANUP_BLK_DROP;
+   }
 
    /* Read block header */
    if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO, "b_val(): failed on fseek(SET)");
+      perrno("failed on fseek(SET)");
+      goto CLEANUP_BLK;
    } else if (fread(&bh, hdrlen, 1, fp) != 1) {
-      mError(FAIL_IO, "b_val(): failed on fread(bh)");
+      perr("failed on fread(bh)");
+      goto CLEANUP_BLK;
    }
    /* check mining reward/address */
    get_mreward(mreward, bnum);
    if (memcmp(bh.mreward, mreward, 8) != 0) {
-      mEdrop(FAIL_IO, "b_val(): bad mining reward");
+      perr("bad mining reward");
+      goto CLEANUP_BLK_DROP;
    } else if (ADDR_HAS_TAG(bh.maddr)) {
-      mEdrop(FAIL_IO, "b_val(): maddr has tag");
+      perr("maddr has tag");
+      goto CLEANUP_BLK_DROP;
    }
 
    /* fp left at offset of Merkel Block Array--ready to fread() */
@@ -388,21 +450,29 @@ int b_val(char *fname)
    /* temp TX tag processing queue */
    Q2 = malloc((len = tcount * sizeof(TXQENTRY)));
    if (Q2 == NULL) {
-      mError(FAIL_IO, "b_val(): failed to malloc(%zu) Q2", len);
+      perr("failed to malloc(%zu) Q2", len);
+      goto CLEANUP_BLK;
    }
 
    /* Validate each transaction */
    for (j = 0; j < tcount; j++) {
-      if (j >= MAXBLTX) mError(FAIL_TX, "b_val(): too many transactions");
+      if (j >= MAXBLTX) {
+         perr("too many transactions");
+         goto CLEANUP_TX;
+      }
       if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
-         mError(FAIL_TX, "b_val(): failed on fread(TX): TX#%" P32u, j);
+         perr("failed on fread(TX): TX#%" P32u, j);
+         goto CLEANUP_TX;
       } else if (cmp64(tx.tx_fee, Mfee) < 0) {
-         mEdrop(FAIL_TX, "b_val(): bad tx_fee: TX#%" P32u, j);
+         perr("bad tx_fee: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       } else if (memcmp(tx.src_addr, tx.chg_addr, TXADDRLEN) == 0) {
-         mEdrop(FAIL_TX, "b_val(): (src == chg): TX#%" P32u, j);
+         perr("(src == chg): TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       } else if (!TX_IS_MTX(&tx)) {
          if (memcmp(tx.src_addr, tx.dst_addr, TXADDRLEN) == 0) {
-            mEdrop(FAIL_TX, "b_val(): (src == dst): TX#%" P32u, j);
+            perr("(src == dst): TX#%" P32u, j);
+            goto CLEANUP_TX_DROP;
          }
       }
 
@@ -412,7 +482,8 @@ int b_val(char *fname)
       /* tx_id is hash of tx.src_addr */
       sha256(tx.src_addr, TXADDRLEN, tx_id);
       if (memcmp(tx_id, tx.tx_id, HASHLEN) != 0) {
-         mEdrop(FAIL_TX, "b_val(): bad tx_id: TX#%" P32u, j);
+         perr("bad tx_id: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       }
 
       /* Check that tx_id is sorted. */
@@ -420,8 +491,12 @@ int b_val(char *fname)
          cond = memcmp(tx_id, prev_tx_id, HASHLEN);
          if (cond <= 0) {
             if (cond == 0) {
-               mEdrop(FAIL_TX, "b_val(): duplicate tx_id: TX#%" P32u, j);
-            } else mEdrop(FAIL_TX, "b_val(): unsorted tx_id: TX#%" P32u, j);
+               perr("duplicate tx_id: TX#%" P32u, j);
+               goto CLEANUP_TX_DROP;
+            } else {
+               perr("unsorted tx_id: TX#%" P32u, j);
+               goto CLEANUP_TX_DROP;
+            }
          }
       }
       /* remember this tx_id for next time */
@@ -438,13 +513,16 @@ int b_val(char *fname)
       memcpy(rnd2, &tx.src_addr[TXSIGLEN + 32], 32);  /* copy WOTS addr[] */
       wots_pk_from_sig(pk2, tx.tx_sig, msg, &tx.src_addr[TXSIGLEN], rnd2);
       if (memcmp(pk2, tx.src_addr, TXSIGLEN) != 0) {
-         mEdrop(FAIL_TX, "b_val(): WOTS signature failed: TX#%" P32u, j);
+         perr("WOTS signature failed: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       }
 
       /* look up source address in ledger */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == 0) {
-         pdebug("b_val(): error address %s...", addr2str(tx.src_addr));
-         mEdrop(FAIL_TX, "b_val(): src_addr not in ledger: TX#%" P32u, j);
+         hash2hex(tx.src_addr, 4, addrhash);
+         pdebug("error address %s...", addrhash);
+         perr("src_addr not in ledger: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       }
 
       total[0] = total[1] = 0;
@@ -452,19 +530,24 @@ int b_val(char *fname)
       cond =  add64(tx.send_total, tx.change_total, total);
       cond += add64(tx.tx_fee, total, total);
       if (cond) {
-         mEdrop(FAIL_TX, "b_val(): total overflow: TX#%" P32u, j);
+         perr("total overflow: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       } else if (cmp64(src_le.balance, total) != 0) {
-         mEdrop(FAIL_TX, "b_val(): bad transaction total: TX#%" P32u, j);
+         perr("bad transaction total: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       } else if (add64(mfees, tx.tx_fee, mfees)) {
-         mError(FAIL_TX, "b_val(): mfees overflow: TX#%" P32u, j);
+         perr("mfees overflow: TX#%" P32u, j);
+         goto CLEANUP_TX;
       }
       /* check mtx/tag_valid */
       if (!TX_IS_MTX(&tx)) {
          if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, bt.bnum)) {
-            mEdrop(FAIL_TX, "b_val(): tag not valid: TX#%" P32u, j);
+            perr("tag not valid: TX#%" P32u, j);
+            goto CLEANUP_TX_DROP;
          }
       } else if(mtx_val((MTX *) &tx, Mfee)) {
-         mEdrop(FAIL_TX, "b_val(): bad mtx_val: TX#%" P32u, j);
+         perr("bad mtx_val: TX#%" P32u, j);
+         goto CLEANUP_TX_DROP;
       }
 
       /* copy TX to tag queue */
@@ -475,14 +558,16 @@ int b_val(char *fname)
    if (NEWYEAR(bt.bnum)) sha256_update(&mctx, &bt, (HASHLEN+8+8+4+4+4));
    sha256_final(&mctx, mroot);
    if (memcmp(bt.mroot, mroot, HASHLEN) != 0) {
-      mEdrop(FAIL_TX, "b_val(): bad merkel root");
+      perr("bad merkel root");
+      goto CLEANUP_TX_DROP;
    }
 
    /* finalize block hash - Block trailer (- block hash) */
    sha256_update(&bctx, &bt, sizeof(BTRAILER) - HASHLEN);
    sha256_final(&bctx, bhash);
    if (memcmp(bt.bhash, bhash, HASHLEN) != 0) {
-      mEdrop(FAIL_TX, "b_val(): bad block hash");
+      perr("bad block hash");
+      goto CLEANUP_TX_DROP;
    }
 
    /* When spending from a tag, the address associated with said tag will
@@ -519,7 +604,10 @@ int b_val(char *fname)
       total[0] = total[1] = 0;
       cond =  add64(qp1->send_total, qp1->change_total, total);
       cond += add64(qp1->tx_fee, total, total);
-      if (cond) mError(FAIL_TX, "b_val(): scan3 total overflow");
+      if (cond) {
+         perr("scan3 total overflow");
+         goto CLEANUP_TX;
+      }
 
       /* Write ledger transactions to ltran.tmp for all src and chg,
        * but only non-mtx dst
@@ -542,7 +630,8 @@ int b_val(char *fname)
       }
    }  /* end for j -- scan 3 */
    if(j != tcount) {
-      mError(FAIL_TX, "b_val(): scan3 tcount mismatch: %" P32u, j);
+      perr("scan3 tcount mismatch: %" P32u, j);
+      goto CLEANUP_TX;
    }
 
    /* mtx tag search  Begin scan 4 ...
@@ -564,7 +653,8 @@ int b_val(char *fname)
             count += fwrite("A", 1, 1, ltfp);
             count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
             if (count == 3) continue;  /* next dst[j] */
-            mError(FAIL_TX, "b_val(): bad I/O dst-->chg write");
+            perr("bad I/O dst-->chg write");
+            goto CLEANUP_TX;
          }
          /* Start another big-O n-squared, nested loop here... scan 5 */
          for(qp2 = Q2; qp2 < qlimit; qp2++) {
@@ -586,7 +676,10 @@ int b_val(char *fname)
          count =  fwrite(addr, TXADDRLEN, 1, ltfp);
          count += fwrite("A", 1, 1, ltfp);
          count += fwrite(mtx->dst[j].amount, 8, 1, ltfp);
-         if (count != 3) mError(FAIL_TX, "b_val(): bad I/O scan 4");
+         if (count != 3) {
+            perr("bad I/O scan 4");
+            goto CLEANUP_TX;
+         }
       }  /* end for j */
    }  /* end for qp1 */
    /* end mtx scan 4 */
@@ -595,7 +688,8 @@ int b_val(char *fname)
     * address = bh.maddr
     */
    if (add64(mfees, mreward, mfees)) {
-      mError(FAIL_TX, "b_val(): mfees overflow");
+      perr("mfees overflow");
+      goto CLEANUP_TX;
    }
    /* Make ledger tran to add to or create mining address.
     * '...Money from nothing...'
@@ -604,39 +698,54 @@ int b_val(char *fname)
    count += fwrite("A",      1,         1, ltfp);
    count += fwrite(mfees,    1,         8, ltfp);
    if (count != (TXADDRLEN+1+8) || ferror(ltfp)) {
-      mError(FAIL_TX, "b_val(): ltfp IO error");
+      perr("ltfp IO error");
+      goto CLEANUP_TX;
    } else {
-      pdebug("b_val(): wrote reward (%08x%08x) to %s...",
-         mreward[1], mreward[0], addr2str(bh.maddr));
+      hash2hex(bh.maddr, 4, addrhash);
+      pdebug("wrote reward (%08x%08x) to %s...",
+         mreward[1], mreward[0], addrhash);
    }
 
    /* cleanup */
    free(Q2);
    fclose(fp);
-   fclose(ltfp);  /* revert failure mode to (FAIL) */
+   fclose(ltfp);
    /* promote ltran.tmp to *.dat file and rename blockchain file */
    remove("ltran.dat");
    if (rename("ltran.tmp", "ltran.dat") != 0) {
-      mError(FAIL, "b_val(): failed to move ltran.tmp to ltran.dat");
+      perr("failed to move ltran.tmp to ltran.dat");
+      remove("ltran.tmp");
+      return VERROR;
    }
 
-   pdebug("b_val(): %s validated", fname);
-   pdebug("b_val(): completed in %gs", diffclocktime(clock(), ticks));
+   pdebug("%s validated in %gs", fname, diffclocktime(ticks));
 
    /* success */
    return VEOK;
 
    /* failure / error handling */
-FAIL_TX:
+CLEANUP_TX_DROP:
    free(Q2);
-FAIL_IO:
+CLEANUP_BLK_DROP:
    fclose(fp);
-FAIL_IN:
    fclose(ltfp);
    remove("ltran.tmp");
-FAIL:
-
-   return ecode;
+   /* epoch pinklist */
+   return VEBAD2;
+CLEANUP_BLK_BAD:
+   fclose(fp);
+   fclose(ltfp);
+   remove("ltran.tmp");
+   /* current pinklist */
+   return VEBAD;
+CLEANUP_TX:
+   free(Q2);
+CLEANUP_BLK:
+   fclose(fp);
+CLEANUP_LT:
+   fclose(ltfp);
+   remove("ltran.tmp");
+   return VERROR;
 }  /* end b_val() */
 
 /* end include guard */
