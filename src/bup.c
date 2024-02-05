@@ -114,14 +114,13 @@ int b_txclean(char *bcfname)
    word32 diff[2];
    word32 btx, nout;       /* transaction record counters */
    clock_t ticks;
-   int cond, ecode;
+   int cond;
    char addrhash[10];
 
    void *ap, *bp;    /* comparison pointers */
 
    /* init */
    ticks = clock();
-   ecode = VEOK;
    nout = 0;
 
    /* check txclean exists AND has transactions to clean*/
@@ -133,50 +132,50 @@ int b_txclean(char *bcfname)
    /* build sorted index Txidx[] from txclean.dat */
    if (sorttx("txclean.dat") != VEOK) {
       perr("bad sorttx(txclean.dat)");
-      goto FAIL;
+      return VERROR;
    }
    /* open validated block file, read fixed length header and check */
    bfp = fopen(bcfname, "rb");
    if (bfp == NULL) {
       perrno("failed to fopen(%s)", bcfname);
-      goto FAIL_IN;
+      goto CLEANUP;
    } else if (fread(&hdrlen, 4, 1, bfp) != 1) {
       perr("failed to fread(hdrlen)");
-      goto FAIL_IO;
+      goto CLEANUP_BLK;
    } else if (hdrlen != sizeof(BHEADER)) {
       perr("bad hdrlen");
-      goto FAIL_IO;
+      goto CLEANUP_BLK;
    }
    /* seek to and read block trailer */
    if (fseek(bfp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
       perrno("failed to fseek(END-BTRAILER)");
-      goto FAIL_IO;
+      goto CLEANUP_BLK;
    } else if (fread(&bt, sizeof(BTRAILER), 1, bfp) != 1) {
       perr("failed to fread(bt)");
-      goto FAIL_IO;
+      goto CLEANUP_BLK;
    }
    /* check Cblocknum alignment with block number */
    if (sub64(bt.bnum, Cblocknum, diff) || diff[0] != 1 || diff[1] != 0) {
       perr("bt.bnum - Cblocknum != 1");
-      goto FAIL_IO;
+      goto CLEANUP_BLK;
    }
    /* re-open the clean TX queue to read */
    fp = fopen("txclean.dat", "rb");
    if (fp == NULL) {
       perrno("failed to fopen(txclean.dat)");
-      goto FAIL_IO;
+      goto CLEANUP_BLK;
    }
    /* create new clean TX queue */
    fpout = fopen("txq.tmp", "wb");
    if (fpout == NULL) {
       perrno("failed to fopen(txq.tmp)");
-      goto FAIL_OUT;
+      goto CLEANUP_TXC;
    }
 
    /***** Read Merkel Block Array from new block *****/
    if (fseek(bfp, hdrlen, SEEK_SET) != 0) {
       perrno("failed to fseek(bfp, SET)");
-      goto FAIL_IO2;
+      goto CLEANUP_TXQ;
    }
 
    /* Remove TX_ID's from clean TX queue that are in the new block.
@@ -200,13 +199,13 @@ int b_txclean(char *bcfname)
          if (cond > 0) {
             if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
                perrno("failed to fseek(fp, SET)");
-               goto FAIL_IO2;
+               goto CLEANUP_TXQ;
             } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
                perr("failed to fread(tx)");
-               goto FAIL_IO2;
+               goto CLEANUP_TXQ;
             } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
                perr("failed to fwrite(tx)");
-               goto FAIL_IO2;
+               goto CLEANUP_TXQ;
             } else {
                hash2hex(&Tx_ids[*idx * HASHLEN], 4, addrhash);
                pdebug("keep tx_id %s...", addrhash);
@@ -244,13 +243,13 @@ int b_txclean(char *bcfname)
       /* Read clean TX in sorted order using index. */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
          perrno("failed to (re)fseek(fp, SET)");
-         goto FAIL_IO2;
+         goto CLEANUP_TXQ;
       } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
          perr("failed to (re)fread(tx)");
-         goto FAIL_IO2;
+         goto CLEANUP_TXQ;
       } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
          perr("failed to (re)fwrite(tx)");
-         goto FAIL_IO2;
+         goto CLEANUP_TXQ;
       } else {
          hash2hex(txc.tx_id, 4, addrhash);
          pdebug("keep remaining tx_id %s...", addrhash);
@@ -260,41 +259,41 @@ int b_txclean(char *bcfname)
 
    if (btx > get32(bt.tcount)) {  /* should never happen! */
       perr("bad tcount in new block");
-      goto FAIL_IO2;
+      goto CLEANUP_TXQ;
    }
+
+   /* cleanup */
+   fclose(fpout);
+   fclose(fp);
+   fclose(bfp);
+   sorttx_free();
+
+   remove("txclean.dat");
+   if (nout == 0) pdebug("txclean.dat is empty");
+   else if (rename("txq.tmp", "txclean.dat") != VEOK) {
+      perr("failed to move txq to txclean");
+      remove("txq.tmp");
+      return VERROR;
+   }
+
+   /* clean TX queue is updated */
+   pdebug("wrote %u/%u entries to txclean", nout, Ntx);
+   pdebug("block level txclean done in %gs", diffclocktime(ticks));
+
+   /* success */
+   return VEOK;
 
    /* cleanup / error handling */
-FAIL_IO2:
+CLEANUP_TXQ:
    fclose(fpout);
-FAIL_OUT:
-   fclose(fp);
-FAIL_IO:
-   fclose(bfp);
-FAIL_IN:
-   free(Tx_ids);
-   free(Txidx);
-   Tx_ids = NULL;
-   Txidx = NULL;
-FAIL:
-
-   /* if no failures */
-   if (ecode == VEOK) {
-      remove("txclean.dat");
-      if (nout == 0) pdebug("txclean.dat is empty");
-      else if (rename("txq.tmp", "txclean.dat") != VEOK) {
-         perr("failed to move txq to txclean");
-         goto FAIL;
-      }
-
-      /* clean TX queue is updated */
-      pdebug("wrote %u/%u entries to txclean", nout, Ntx);
-      pdebug("block level txclean done in %gs", diffclocktime(ticks));
-   }
-
-   /* final cleanup */
    remove("txq.tmp");
-
-   return ecode;
+CLEANUP_TXC:
+   fclose(fp);
+CLEANUP_BLK:
+   fclose(bfp);
+CLEANUP:
+   sorttx_free();
+   return VERROR;
 }  /* end b_txclean() */
 
 /**
