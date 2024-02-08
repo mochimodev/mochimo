@@ -40,7 +40,7 @@
 
 /**
  * Write a file path into a buffer by joining multiple strings together
- * with the PATH_SEPARATOR.
+ * with the PATH_SEP.
  * @param buf Pointer to a buffer to write to
  * @param ... Strings to join together
 */

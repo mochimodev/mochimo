@@ -67,22 +67,22 @@
 #endif
 
 /* set default "preferred path separator" per OS */
-#ifndef PREFERRED_PATH_SEPARATOR
+#ifndef PREFERRED_PATH_SEP
    #ifdef _WIN32
-      #define PREFERRED_PATH_SEPARATOR  "\\"
+      #define PREFERRED_PATH_SEP  "\\"
    #else
-      #define PREFERRED_PATH_SEPARATOR  "/"
+      #define PREFERRED_PATH_SEP  "/"
    #endif
 #endif
 
 /**
  * Path separator to use when concatenating file paths.
- * Path separator is defined by "PREFERRED_PATH_SEPARATOR", or an
- * OS specific separator ("\\" or "/") resulting in the following:
+ * Path separator is defined as "PREFERRED_PATH_SEP", by an OS
+ * specific separator ("\\" or "/") resulting in the following:
  * - Windows\\path\\to
  * - UNIX/path/to
 */
-#define PATH_SEPARATOR  PREFERRED_PATH_SEPARATOR
+#define PATH_SEP  PREFERRED_PATH_SEP
 
 /* boolean return codes */
 #ifndef TRUE

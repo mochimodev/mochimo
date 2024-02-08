@@ -283,7 +283,7 @@ int path_count_join(char *buf, int count, ...)
       va_start(args, count);
       strncat(buf, va_arg(args, char *), FILENAME_MAX - strlen(buf));
       for (count--; count > 0; count--) {
-         strncat(buf, PATH_SEPARATOR, FILENAME_MAX - strlen(buf));
+         strncat(buf, PATH_SEP, FILENAME_MAX - strlen(buf));
          strncat(buf, va_arg(args, char *), FILENAME_MAX - strlen(buf));
       }
       va_end(args);
