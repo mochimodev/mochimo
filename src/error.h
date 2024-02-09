@@ -320,6 +320,7 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...);
 void setplogfunctions(int val);
 void setploglevel(int ll);
 void setplogtime(int val);
+char *sprintbnum(char *buffer, const char *dir, void *bnum);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

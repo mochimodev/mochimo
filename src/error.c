@@ -617,5 +617,37 @@ void setplogtime(int val)
    Logtime = val;
 }
 
+/**
+ * Convert a directory and block number into a file name/path.
+ * The block number will contain a full 64-bit hexadecimal string.
+ * @param buffer Pointer to character string to write to
+ * @param dir Pointer to character string containing directory path
+ * @param bnum Pointer to 64-bit block number
+ * @returns Pointer to @a buffer.
+*/
+char *sprintbnum(char *buffer, const char *dir, void *bnum)
+{
+   word8 *bp;
+   size_t len;
+   char path_sep;
+
+   /* determine if path separator is required */
+   path_sep = '\0';
+   len = strlen(dir ? dir : "\0");
+   if (len > 0) {
+      if (dir[len - 1] != '\\' && dir[len - 1] != '/') {
+         path_sep = PATH_SEP[0];
+      }
+   }
+
+   /* build block number file path */
+   bp = (word8 *) bnum;
+   snprintf(buffer, FILENAME_MAX,
+      "%s%cb%02x%02x%02x%02x%02x%02x%02x%02x.bc", len > 0 ? dir : "\0",
+      path_sep, bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
+
+   return buffer;
+}
+
 /* end include guard */
 #endif
