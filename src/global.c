@@ -19,6 +19,7 @@
 #include "extinet.h"
 #include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
 
 int Nonline;         /* number of pid's in Nodes[]                */
