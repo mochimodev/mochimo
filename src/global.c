@@ -103,6 +103,72 @@ void kill_services_exit(int ecode)
    exit(ecode);
 }
 
+char *show(char *state)
+{
+   if(state == NULL) state = "(null)";
+   if(Statusarg) strncpy(Statusarg, state, 8);
+   return state;
+}
+
+/* kill the block constructor */
+int stop_bcon(void)
+{
+   int status = VETIMEOUT;
+
+   if (Bcon_pid) {
+      pdebug("   Waiting for b_con() to exit");
+      kill(Bcon_pid, SIGTERM);
+      waitpid(Bcon_pid, NULL, 0);
+      Bcon_pid = 0;
+   }
+
+   return status;
+}
+
+/* kill send_found() */
+int stop_found(void)
+{
+   int status = VETIMEOUT;
+
+   if (Found_pid) {
+      pdebug("   Waiting for send_found() to exit");
+      kill(Found_pid, SIGTERM);
+      waitpid(Found_pid, &status, 0);
+      Found_pid = 0;
+   }
+
+   return status;
+}
+
+/* kill the miner child */
+int stop_miner(void)
+{
+   int status = VETIMEOUT;
+
+   if (Mpid) {
+      pdebug("   Waiting for miner to exit");
+      kill(Mpid, SIGTERM);
+      waitpid(Mpid, &status, 0);
+      /* remove miner files */
+      remove("miner.tmp");
+      remove("bctx.dat");
+      Mpid = 0;
+   }
+
+   return status;
+}
+
+/* kill mirror() children and grandchildren */
+void stop_mirror(void)
+{
+   if(Mqpid) {
+      pdebug("   Reaping mirror() zombies...");
+      kill(Mqpid, SIGTERM);
+      waitpid(Mqpid, NULL, 0);
+      Mqpid = 0;
+   }
+}  /* end stop_mirror() */
+
 /* Read in common global data */
 int read_global(void)
 {

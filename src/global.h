@@ -85,6 +85,11 @@ extern "C" {
 #endif
 
 void kill_services_exit(int ecode);
+char *show(char *state);
+int stop_bcon(void);
+int stop_found(void);
+int stop_miner(void);
+void stop_mirror(void);
 int read_global(void);
 int write_global(void);
 
