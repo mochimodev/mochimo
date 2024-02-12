@@ -265,32 +265,39 @@ char *weight2hex(void *weight, char *hex)
 }  /* end weight2hex() */
 
 /**
+ * CONSIDER USING THE path_join() MACRO;
  * Join multiple strings into a file path written to a buffer.
- * Consider using path_join() instead.
- * @param buf Pointer to a buffer to write to
- * @param count Number of strings to join
+ * @param buf Pointer to output character array, or NULL
+ * @param bufsz Size of output character array, @a buf, in bytes
+ * @param count Number of string parameters to follow
  * @param ... Strings to join together
- * @returns (int) value respresenting operation result.
- * 0 for success, or non-zero value representing the number at which count
- * was reduced before an error occurred.
+ * @returns Pointer to provided @a buf or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-int path_count_join(char *buf, int count, ...)
+char *path_join_count(char *buf, size_t bufsz, int count, ...)
 {
    va_list args;
+   char *next;
 
-   *buf = '\0';
-   if (count > 0) {
-      va_start(args, count);
-      strncat(buf, va_arg(args, char *), FILENAME_MAX - strlen(buf));
-      for (count--; count > 0; count--) {
-         strncat(buf, PATH_SEP, FILENAME_MAX - strlen(buf));
-         strncat(buf, va_arg(args, char *), FILENAME_MAX - strlen(buf));
-      }
-      va_end(args);
+   /* static buffer and usage check */
+   static char sbuf[FILENAME_MAX];
+   if (buf == NULL) {
+      bufsz = sizeof(sbuf);
+      buf = sbuf;
    }
 
-   return count;
-}  /* end path_count_join() */
+   /* join variable arguments together */
+   va_start(args, count);
+   for (*buf = '\0'; count > 0; count --) {
+      next = va_arg(args, char *);
+      if (next == NULL || *next == '\0') continue;
+      if (*buf != '\0') strncat(buf, PATH_SEP, bufsz - strlen(buf) - 1);
+      strncat(buf, next, bufsz - strlen(buf) - 1);
+   }
+   va_end(args);
+
+   return buf;
+}
 
 /**
  * Get a textual description of an error code.

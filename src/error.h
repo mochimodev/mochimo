@@ -42,10 +42,11 @@
  * Write a file path into a buffer by joining multiple strings together
  * with the PATH_SEP.
  * @param buf Pointer to a buffer to write to
+ * @param bufsz Size of buffer to write to, in bytes
  * @param ... Strings to join together
 */
-#define path_join(_buf, ...) \
-   path_count_join(_buf, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define path_join(buf, bufsz, ...) \
+   path_join_count(buf, bufsz, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
 
 /**
  * Print an alert level log.
@@ -313,7 +314,7 @@ char *metric_reduce(double *value);
 char *op2str(unsigned op);
 char *ve2str(int ve);
 char *weight2hex(void *weight, char *hex);
-int path_count_join(char *buf, int count, ...);
+char *path_join_count(char *buf, size_t bufsz, int count, ...);
 char *mcm_strerror(int errnum, char *buf, size_t bufsz);
 unsigned int plogcount(void);
 void plogx(int ll, const char *func, int line, const char *fmt, ...);
