@@ -12,6 +12,7 @@
 
 /* external support */
 #include "exterrno.h"
+#include "extint.h"
 #include "extio.h"
 #include <time.h>
 
@@ -305,15 +306,14 @@ extern "C" {
 
 int argument(char *argv, char *chk1, char *chk2);
 char *argvalue(int *idx, int argc, char *argv[]);
-int asnprintf(char *buf, size_t bufsz, const char *fmt, ...);
-char *bnum2hex(void *bnum, char *hex);
-char *bnum2hex64(void *bnum, char *hex);
+char *bnum2fname(word8 bnum[8], char fname[21]);
+char *bnum2hex(word8 bnum[8], char hex[17]);
+char *bnum2hex64(word8 bnum[8], char hex[17]);
 double diffclocktime(clock_t prev);
-char *hash2hex(void *hash, int count, char *hex);
+char *hash2hex32(word8 hash[4], char hex[9]);
 char *metric_reduce(double *value);
 char *op2str(unsigned op);
 char *ve2str(int ve);
-char *weight2hex(void *weight, char *hex);
 char *path_join_count(char *buf, size_t bufsz, int count, ...);
 char *mcm_strerror(int errnum, char *buf, size_t bufsz);
 unsigned int plogcount(void);
@@ -321,7 +321,6 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...);
 void setplogfunctions(int val);
 void setploglevel(int ll);
 void setplogtime(int val);
-char *sprintbnum(char *buffer, const char *dir, void *bnum);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

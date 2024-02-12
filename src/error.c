@@ -87,47 +87,46 @@ char *argvalue(int *idx, int argc, char *argv[])
 }  /* end argvalue() */
 
 /**
- * Append to a character string buffer. Calculates the remaining available
- * space in @a buf using @a bufsz and `strlen(buf)`, and appends at most
- * the remaining available space, less 1 (for the null terminator).
- * @param buf Pointer to character string buffer
- * @param bufsz Size of @a buf, in bytes
- * @param fmt Pointer to null-terminated string specifying how to interpret
- * the data
- * @param ... arguments specifying data to print
- * @returns Number of characters (not insluding the null terminator) which
- * would have been written to @a buf if @a bufsz was ignored.
+ * Convert a block number into a blockchain filename (w/ 64-bit hex).
+ * @param bnum Pointer to 64-bit block number
+ * @param fname Pointer to output character array, or NULL
+ * @returns Pointer to provided @a fname or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-int asnprintf(char *buf, size_t bufsz, const char *fmt, ...)
+char *bnum2fname(word8 bnum[8], char fname[21])
 {
-   va_list args;
-   size_t cur;
-   int count;
+   word8 *bp;
+   static char sbuf[21];
 
-   cur = strlen(buf);
-   va_start(args, fmt);
-   count = vsnprintf(&buf[cur], bufsz > cur ? bufsz - cur : 0, fmt, args);
-   va_end(args);
+   /* static buffer check */
+   if (fname == NULL) fname = sbuf;
 
-   return count;
+   bp = (word8 *) bnum;
+   snprintf(fname, 21, "b%02x%02x%02x%02x%02x%02x%02x%02x.bc",
+      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
+
+   return fname;
 }
 
 /**
  * Convert a 64-bit block number to a hexadecimal string.
  * Leading zeros are omitted from hexidecimal string result.
  * @param bnum Pointer to 64-bit block number
- * @param hex Pointer to character array of at least 17 bytes
- * @returns Pointer to @a hex.
+ * @param hex Pointer to output character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-char *bnum2hex(void *bnum, char *hex)
+char *bnum2hex(word8 bnum[8], char hex[17])
 {
    word32 *b32;
+   static char sbuf[17];
 
-   if (bnum) {
-      b32 = (word32 *) bnum;
-      if (b32[1]) snprintf(hex, 17, "%" P32x "%08" P32x, b32[1], b32[0]);
-      else snprintf(hex, 17, "%" P32x, b32[0]);
-   } else snprintf(hex, 17, "(null)");
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
+
+   b32 = (word32 *) bnum;
+   if (b32[1]) snprintf(hex, 17, "%" P32x "%08" P32x, b32[1], b32[0]);
+   else snprintf(hex, 17, "%" P32x, b32[0]);
 
    return hex;
 }
@@ -135,18 +134,21 @@ char *bnum2hex(void *bnum, char *hex)
 /**
  * Convert a 64-bit block number to a full 64-bit hexadecimal string.
  * @param bnum Pointer to 64-bit block number
- * @param hex Pointer to character array of at least 17 bytes
- * @returns Pointer to @a hex.
+ * @param hex Pointer to output character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-char *bnum2hex64(void *bnum, char *hex)
+char *bnum2hex64(word8 bnum[8], char hex[17])
 {
    word8 *bp;
+   static char sbuf[17];
 
-   if (bnum) {
-      bp = (word8 *) bnum;
-      snprintf(hex, 17, "%02x%02x%02x%02x%02x%02x%02x%02x",
-         bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
-   } else snprintf(hex, 17, "(null)");
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
+
+   bp = (word8 *) bnum;
+   snprintf(hex, 17, "%02x%02x%02x%02x%02x%02x%02x%02x",
+      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
 
    return hex;
 }
@@ -157,24 +159,25 @@ double diffclocktime(clock_t prev)
 }
 
 /**
- * Convert a hash to a hexadecimal string.
- * @param hash Pointer to hash
- * @param count Number of hash bytes to convert
- * @param hex Pointer to character array
- * @returns Pointer to @a hex.
+ * Convert 32 bits of a hash to a hexadecimal string.
+ * @param hash Pointer to 32-bits of any byte array
+ * @param hex Pointer to output character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-char *hash2hex(void *hash, int count, char *hex)
+char *hash2hex32(word8 hash[4], char hex[9])
 {
-   int i;
    word8 *bp;
+   static char sbuf[17];
+
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
 
    bp = (word8 *) hash;
-   for (hex[0] = '\0', i = 0; i < count; i++) {
-      snprintf(&hex[i * 2], 3, "%02x", bp[i]);
-   }
+   snprintf(hex, 9, "%02x%02x%02x%02x", bp[0], bp[1], bp[2], bp[3]);
 
    return hex;
-}  /* end hash2hex() */
+}
 
 char *metric_reduce(double *value)
 {
@@ -242,27 +245,6 @@ char *ve2str(int ve)
       default: return "(unknown)";
    }  /* end switch (ve) */
 }  /* end ve2str() */
-
-/**
- * Convert a 256-bit chain weight to a hexadecimal string.
- * Leading zeros are ommited from hexidecimal string result.
- * @param weight Pointer to 256-bit chain weight (or equivalent value)
- * @param hex Pointer to character array of at least 65 bytes
- * @returns Pointer to @a hex
-*/
-char *weight2hex(void *weight, char *hex)
-{
-   word32 *w32 = (word32 *) weight;
-   int count, p;
-
-   for (count = 0, p = 7; p >= 0; p--) {
-      if (p && w32[p] == 0) continue;
-      if (count == 0) count = snprintf(hex, 65, "%" P32x, w32[p]);
-      else count += asnprintf(hex, 65, "%08" P32x, w32[p]);
-   }
-
-   return hex;
-}  /* end weight2hex() */
 
 /**
  * CONSIDER USING THE path_join() MACRO;
@@ -622,38 +604,6 @@ void setploglevel(int ll)
 void setplogtime(int val)
 {
    Logtime = val;
-}
-
-/**
- * Convert a directory and block number into a file name/path.
- * The block number will contain a full 64-bit hexadecimal string.
- * @param buffer Pointer to character string to write to
- * @param dir Pointer to character string containing directory path
- * @param bnum Pointer to 64-bit block number
- * @returns Pointer to @a buffer.
-*/
-char *sprintbnum(char *buffer, const char *dir, void *bnum)
-{
-   word8 *bp;
-   size_t len;
-   char path_sep;
-
-   /* determine if path separator is required */
-   path_sep = '\0';
-   len = strlen(dir ? dir : "\0");
-   if (len > 0) {
-      if (dir[len - 1] != '\\' && dir[len - 1] != '/') {
-         path_sep = PATH_SEP[0];
-      }
-   }
-
-   /* build block number file path */
-   bp = (word8 *) bnum;
-   snprintf(buffer, FILENAME_MAX,
-      "%s%cb%02x%02x%02x%02x%02x%02x%02x%02x.bc", len > 0 ? dir : "\0",
-      path_sep, bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
-
-   return buffer;
 }
 
 /* end include guard */
