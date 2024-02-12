@@ -293,7 +293,8 @@ int send_op(NODE *np, int opcode)
  * Returns: VEOK (0) = good, else error code. */
 int send_file(NODE *np, char *fname)
 {
-   char name[FILENAME_MAX];
+   char dummy[FILENAME_MAX];
+   char bcfname[22];
    int ecode;
    word16 len;
    FILE *fp;
@@ -303,8 +304,8 @@ int send_file(NODE *np, char *fname)
    len = TRANLEN;
    tx = &(np->tx);
    if (fname == NULL) {
-      sprintbnum(name, Bcdir, tx->blocknum);
-      fname = name;
+      bnum2fname(tx->blocknum, bcfname);
+      fname = path_join(dummy, sizeof(dummy), Bcdir, bcfname);
    }
    pdebug("(%s, %s) sending...", np->id, fname);
 
@@ -392,8 +393,10 @@ int send_hash(NODE *np)
 {
    BTRAILER bt;
    char fname[FILENAME_MAX];
+   char bcfname[21];
 
-   sprintbnum(fname, Bcdir, np->tx.blocknum);
+   bnum2fname(np->tx.blocknum, bcfname);
+   path_join(fname, sizeof(fname), Bcdir, bcfname);
    if(readtrailer(&bt, fname) != VEOK) return VERROR;
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy hash of tx.blocknum to TX */
@@ -477,6 +480,7 @@ int send_found(void)
    NODE node;
    BTRAILER bt;
    char fname[FILENAME_MAX];
+   char bcfname[21];
    int ecode;
    TX tx;
 
@@ -500,7 +504,8 @@ int send_found(void)
       ecode = 1;
       /* Back up our Cblocknum in child only to 0x...ff block. */
       if(sub64(Cblocknum, One, Cblocknum)) goto bad;
-      sprintbnum(fname, Bcdir, Cblocknum);
+      bnum2fname(Cblocknum, bcfname);
+      path_join(fname, sizeof(fname), Bcdir, bcfname);
       ecode = 2;
       if(readtrailer(&bt, fname) != VEOK
          || cmp64(Cblocknum, bt.bnum) != 0) {

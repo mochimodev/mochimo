@@ -83,8 +83,8 @@ void print_bup(BTRAILER *bt, char *solvestr)
          btime, bdiff, btxs);
    }
    /* print block identification */
-   plog("%s-block: 0x%" P32x " #%s...",
-      solvestr, bnum, hash2hex(bt->bhash, 4, hash));
+   hash2hex32(bt->bhash, hash);
+   plog("%s-block: 0x%" P32x " #%s...", solvestr, bnum, hash);
    /* print miner data if enabled */
    if (!Ininit && !Insyncup && !Nominer) {
       read_data(&Hps, sizeof(Hps), "hps.dat");
@@ -207,7 +207,7 @@ int b_txclean(char *bcfname)
                perr("failed to fwrite(tx)");
                goto CLEANUP_TXQ;
             } else {
-               hash2hex(&Tx_ids[*idx * HASHLEN], 4, addrhash);
+               hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
                pdebug("keep tx_id %s...", addrhash);
             }
             nout++;  /* count output records to temp file -- new txclean */
@@ -215,7 +215,7 @@ int b_txclean(char *bcfname)
          /* skip dup transaction ids */
          if (cond >= 0) {
             do {  /* break on end of clean TX file or non-dup tx_id */
-               hash2hex(&Tx_ids[*idx * HASHLEN], 4, addrhash);
+               hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
                pdebug("drop tx_id %s...", addrhash);
                j++;
                ap = (void *) &Tx_ids[*(idx++) * HASHLEN];
@@ -235,7 +235,7 @@ int b_txclean(char *bcfname)
          ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
          bp = (void *) &Tx_ids[*idx * HASHLEN];
          if (memcmp(ap, bp, HASHLEN) == 0) {
-            hash2hex(&Tx_ids[*idx * HASHLEN], 4, addrhash);
+            hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
             pdebug("drop dup tx_id, drop tx_id %s...", addrhash);
             continue;
          }
@@ -251,7 +251,7 @@ int b_txclean(char *bcfname)
          perr("failed to (re)fwrite(tx)");
          goto CLEANUP_TXQ;
       } else {
-         hash2hex(txc.tx_id, 4, addrhash);
+         hash2hex32(txc.tx_id, addrhash);
          pdebug("keep remaining tx_id %s...", addrhash);
       }
       nout++;
@@ -478,7 +478,7 @@ int b_update(char *fname, int mode)
       /* print block update */
       if(!Bgflag) {
          bnum = get32(bt.bnum);
-         hash2hex(bt.bhash, 4, bhash);
+         hash2hex32(bt.bhash, bhash);
          plog("Neogenesis: 0x%" P32x " #%s...", bnum, bhash);
       }
    }

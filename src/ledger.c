@@ -274,23 +274,23 @@ int le_txclean(void)
    for(; fread(&tx, sizeof(TXQENTRY), 1, fp); tnum++) {
       /* check src in ledger, balances and amounts are good */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
-         hash2hex(tx.tx_id, 4, addrhex);
+         hash2hex32(tx.tx_id, addrhex);
          pdebug("le_find, drop %s...", addrhex);
          continue;
       } else if (cmp64(tx.tx_fee, Myfee) < 0) {
-         hash2hex(tx.tx_id, 4, addrhex);
+         hash2hex32(tx.tx_id, addrhex);
          pdebug("tx_fee, drop %s...", addrhex);
          continue;
       } else if (add64(tx.send_total, tx.change_total, total)) {
-         hash2hex(tx.tx_id, 4, addrhex);
+         hash2hex32(tx.tx_id, addrhex);
          pdebug("amounts, drop %s...", addrhex);
          continue;
       } else if (add64(tx.tx_fee, total, total)) {
-         hash2hex(tx.tx_id, 4, addrhex);
+         hash2hex32(tx.tx_id, addrhex);
          pdebug("total, drop %s...", addrhex);
          continue;
       } else if (cmp64(src_le.balance, total) != 0) {
-         hash2hex(tx.tx_id, 4, addrhex);
+         hash2hex32(tx.tx_id, addrhex);
          pdebug("balance, drop %s...", addrhex);
          continue;
       } else if (TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
@@ -307,7 +307,7 @@ int le_txclean(void)
          }
       } else if (tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr,
             NULL) != VEOK) {
-         hash2hex(tx.tx_id, 4, addrhex);
+         hash2hex32(tx.tx_id, addrhex);
          pdebug("tags, drop %s...", addrhex);
          continue;
       }
@@ -434,7 +434,7 @@ int le_update(void)
          /* If ledger and transaction addr match,
           * and both files not at end...
           * copy the old ledger entry to a new struct for editing */
-         hash2hex(lt.addr, 4, addrhex);
+         hash2hex32(lt.addr, addrhex);
          pdebug("editing address %s...", addrhex);
          memcpy(&newle, &oldle, sizeof(LENTRY));
       } else if ((cond < 0 || feof(ltfp)) && feof(lefp) == 0) {
@@ -456,7 +456,7 @@ int le_update(void)
             perr("create tran not 'A'");
             goto CLEANUP_DROP;
          }
-         hash2hex(lt.addr, 4, addrhex);
+         hash2hex32(lt.addr, addrhex);
          pdebug("creating address %s...", addrhex);
          /* CREATE NEW ADDR
           * Copy address from transaction to new ledger entry.
@@ -471,7 +471,7 @@ int le_update(void)
       memcpy(taddr, lt.addr, TXADDRLEN);
 
       do {
-         hash2hex(lt.addr, 4, addrhex);
+         hash2hex32(lt.addr, addrhex);
          pdebug("Applying '%c' to %s...", (char) lt.trancode[0], addrhex);
          /* '-' transaction sorts before 'A' */
          if (lt.trancode[0] == 'A') {

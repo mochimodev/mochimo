@@ -519,7 +519,7 @@ int b_val(char *fname)
 
       /* look up source address in ledger */
       if (le_find(tx.src_addr, &src_le, NULL, TXADDRLEN) == 0) {
-         hash2hex(tx.src_addr, 4, addrhash);
+         hash2hex32(tx.src_addr, addrhash);
          pdebug("error address %s...", addrhash);
          perr("src_addr not in ledger: TX#%" P32u, j);
          goto CLEANUP_TX_DROP;
@@ -701,7 +701,7 @@ int b_val(char *fname)
       perr("ltfp IO error");
       goto CLEANUP_TX;
    } else {
-      hash2hex(bh.maddr, 4, addrhash);
+      hash2hex32(bh.maddr, addrhash);
       pdebug("wrote reward (%08x%08x) to %s...",
          mreward[1], mreward[0], addrhash);
    }
