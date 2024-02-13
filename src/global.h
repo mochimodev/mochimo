@@ -13,6 +13,10 @@
 /* external support */
 #include "types.h"
 
+/* emergency stops */
+#define restart(msg) { palert(msg); kill_services_exit(1); }
+#define resign(msg) { palert(msg); kill_services_exit(0); }
+
 extern int Nonline;         /* number of pid's in Nodes[]                */
 extern word32 Quorum;       /* Number of peers in get_eon() gang[MAXQUORUM] */
 extern word32 Trustblock;   /* trust block validity up to this block     */

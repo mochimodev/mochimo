@@ -30,8 +30,6 @@
 #include "extmath.h"
 #include "extlib.h"
 
-#define restart(msg) { palert(msg); kill_services_exit(1); }
-
 int accept_block(char *ublock, word8 *newnum)
 {
    char buff[256];
