@@ -686,7 +686,7 @@ int server(void)
       send_found();
    } else plog("\nListening...\n");
 
-   unlink("vstart.lck");  /* signal Verisimility that we are up. */
+   remove("vstart.lck");  /* signal Verisimility that we are up. */
 
    /*
     * Main server loop.
@@ -869,7 +869,7 @@ int server(void)
                Stime = Ltime + 20;  /* hold status display */
             }
          }
-         unlink("mblock.dat");
+         remove("mblock.dat");
          Blockfound = 0;
       }
 
@@ -935,7 +935,7 @@ int server(void)
          /* get exclusive access to txq1.dat */
          lfd = lock("mq.lck", 10);
          if(lfd != -1) {
-            unlink("mirror.dat");
+            remove("mirror.dat");
             rename("mq.dat", "mirror.dat");
             Mqcount = 0;
             unlock(lfd);

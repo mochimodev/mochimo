@@ -644,7 +644,7 @@ int trim_tfile(void *highbnum)
    fclose(fpout);
    fclose(fp);
    if(iszero(bnum, 8) && flag != 0) {
-      unlink("tfile.dat");
+      remove("tfile.dat");
       return rename("tfile.tmp", "tfile.dat");  /* VEOK (0) on success */
    }
    perr("tfile(): flag = %d  bnum = 0x%s", flag, bnum2hex(bnum));

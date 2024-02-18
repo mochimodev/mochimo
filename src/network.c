@@ -425,7 +425,7 @@ int send_tf(NODE *np)
                 fname, (int) sizeof(BTRAILER), first, count);
    system(cmd);
    status = send_file(np, fname);  /* returns VEOK or VERROR */
-   unlink(fname);
+   remove(fname);
    return status;
 }  /* end send_tf() */
 
