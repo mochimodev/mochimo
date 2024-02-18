@@ -21,6 +21,7 @@
 #include "extstring.h"
 
 /* Initialize default runtime configuration */
+static unsigned int Nerrs;
 static unsigned int Nlogs;
 static int Loglevel = PLOG_INFO;
 static int Logfunc;
@@ -506,6 +507,15 @@ char *mcm_strerror(int errnum, char *buf, size_t bufsz)
 }  /* end mcm_strerror() */
 
 /**
+ * Get the number of errors printed.
+ * @returns Number of errors
+*/
+unsigned int perrcount(void)
+{
+   return Nerrs;
+}
+
+/**
  * Get the number of logs printed.
  * @returns Number of logs
 */
@@ -573,7 +583,8 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...)
    fprintf(stream, "\n");
    fflush(stream);
 
-   /* increment log counter */
+   /* increment log counter/s */
+   if (ll <= PLOG_ERROR) Nerrs++;
    Nlogs++;
 
    /* THREADSAFE atomic lock would end here... */
