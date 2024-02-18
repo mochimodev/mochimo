@@ -13,16 +13,16 @@
 #include "tfile.h"
 
 /* internal support */
-#include "util.h"
 #include "types.h"
 #include "trigg.h"
 #include "peach.h"
 #include "network.h"
 #include "global.h"
+#include "error.h"
 
 /* external support */
 #include <string.h>
-#include "extthread.h"
+#include "extthrd.h"
 #include "extmath.h"
 #include "extlib.h"
 #include "extio.h"
@@ -56,7 +56,7 @@ ThreadProc thread_pow_val(void *arg)
       /* Boxing Day Anomaly -- Bugfix */
       if (cmp64(argp->bt.bnum, boxingday) == 0) {
          if (memcmp(argp->bt.bhash, boxdayhash, 32) != 0) {
-            pdebug("init(): Boxing Day Anomaly Bhash Failure");
+            pdebug("Boxing Day Anomaly Bhash Failure");
              argp->tr = 0x0101; /* fail */
          } else argp->tr = 0x0001; /* pass */
       } else
@@ -92,14 +92,14 @@ int append_tfile(char *fname, char *tfile)
    }
    fp = fopen(tfile, "ab");
    if (fp == NULL) {
-      perrno(errno, "append_tfile() failed on fopen() for %s", tfile);
+      perrno("failed on fopen() for %s", tfile);
       return VERROR;
    } else {
       count = fwrite(&bt, 1, sizeof(BTRAILER), fp);
       fclose(fp);
    }
    if(count != sizeof(BTRAILER)) {
-      perr("append_tfile() failed on fwrite(): wrote %zu/%zu bytes to %s",
+      perr("failed on fwrite(): wrote %zu/%zu bytes to %s",
          count, sizeof(BTRAILER), tfile);
       return VERROR;
    }
@@ -164,7 +164,7 @@ int readtrailer(BTRAILER *trailer, char *fname)
 
    fp = fopen(fname, "rb");
    if (fp == NULL) {
-      perrno(errno, "readtrailer() failed on fopen() for %s", fname);
+      perrno("failed on fopen() for %s", fname);
       return VERROR;
    } else {
       seekerr = fseek(fp, -(sizeof(BTRAILER)), SEEK_END);
@@ -172,11 +172,11 @@ int readtrailer(BTRAILER *trailer, char *fname)
       fclose(fp);
    }
    if(seekerr) {
-      perr("readtrailer() failed on fseek() for %s: ecode=%d", fname, seekerr);
+      perr("failed on fseek() for %s: ecode=%d", fname, seekerr);
       return VERROR;
    }
    if(count != sizeof(BTRAILER)) {
-      perr("readtrailer() failed on fread() for %s: read %zu/%zu bytes",
+      perr("failed on fread() for %s: read %zu/%zu bytes",
          fname, count, sizeof(BTRAILER));
       return VERROR;
    }
@@ -195,7 +195,7 @@ int readtf(void *buff, word32 bnum, word32 count)
       return 0;
    }
    count = fread(buff, sizeof(BTRAILER), count, fp);
-   pdebug("readtf() read %u trailers", count);
+   pdebug("read %u trailers", count);
    fclose(fp);
    return count;
 }  /* end readtf() */
@@ -247,13 +247,13 @@ int past_weight(word8 *weight, word32 lownum)
    word8 temp[32];
 
    cbnum = get32(Cblocknum);
-   if(lownum >= cbnum) perr("past_weight() failed on insufficient cbnum");
+   if(lownum >= cbnum) perr("failed on insufficient cbnum");
    else {
       memcpy(weight, Weight, 32);
       for( ; cbnum > lownum; cbnum--) {
          if((cbnum & 0xff) == 0) continue;  /* skip NG blocks */
          if(readtf(&bt, cbnum, 1) != 1) {
-            perr("past_weight() failed on readtf()");
+            perr("failed on readtf()");
             break;
          }
          /* Reduce weight based on difficulty
@@ -289,7 +289,7 @@ int loadproof(TX *tx)
 int checkproof(TX *tx, word32 *splitblock)
 {
    unsigned j;
-   int count, message;
+   int count;
    BTRAILER *bt, bts;
    word32 diff, stime, s, time0, now, difficulty, highblock, prevnum;
    static word32 tnum[2];
@@ -311,10 +311,10 @@ int checkproof(TX *tx, word32 *splitblock)
    /* The first proof trailer must match us, */
    count = readtf(&bts, tnum[0], 1);  /* so read our tfile */
    /* and compare it to theirs. */
-   if(count != 1 || memcmp(bt, &bts, sizeof(BTRAILER)) != 0) BAIL(1);
+   if(count != 1 || memcmp(bt, &bts, sizeof(BTRAILER)) != 0) goto bail;
    /* If we get here, our weights must also match at the first trailer. */
    /* Compute our weight at their low block number less one. */
-   if(past_weight(weight, tnum[0] - 1) != VEOK) BAIL(2);
+   if(past_weight(weight, tnum[0] - 1) != VEOK) goto bail;
 
    /* Verify peer's proof trailers in OP_FOUND TX. */
    diff = INVALID_DIFF;
@@ -324,39 +324,39 @@ int checkproof(TX *tx, word32 *splitblock)
    for(j = 0; j < NTFTX; j++, bt++) {
       tnum[0] = get32(bt->bnum);  /* get trailer block number */
       /* check tfile bnum sequence */
-      if(tnum[0] != prevnum + 1) BAIL(3);
+      if(tnum[0] != prevnum + 1) goto bail;
       prevnum = tnum[0];
       stime = get32(bt->stime);
       time0 = get32(bt->time0);
       difficulty = get32(bt->difficulty);
-      if(difficulty > 255) BAIL(4);
-      if(stime <= time0) BAIL(5);  /* bad solve time sequence */
-      if(stime > (now + BCONFREQ)) BAIL(6);  /* a future block is bad */
-      if(j != 0 && memcmp(bt->phash, (bt - 1)->bhash, HASHLEN)) BAIL(7);
+      if(difficulty > 255) goto bail;
+      if(stime <= time0) goto bail;  /* bad solve time sequence */
+      if(stime > (now + BCONFREQ)) goto bail;  /* a future block is bad */
+      if(j != 0 && memcmp(bt->phash, (bt - 1)->bhash, HASHLEN)) goto bail;
       if(bt->bnum[0] == 0) continue;  /* skip NG block */
       if(diff != INVALID_DIFF) {
-         if(difficulty != diff) BAIL(8);  /* bad difficulty sequence */
+         if(difficulty != diff) goto bail;  /* bad difficulty sequence */
       }
       if(j != 0) {
          /* stime must increase */
-         if(stime <= (s = get32((bt - 1)->stime))) BAIL(9);
-         if(time0 != s) BAIL(10);  /* time0 must == the previous stime */
+         if(stime <= (s = get32((bt - 1)->stime))) goto bail;
+         if(time0 != s) goto bail;  /* time0 must == the previous stime */
       }
       if(get32(bt->tcount) != 0) {
          /* bt is not a pseudoblock so check work: */
          if(cmp64(bt->bnum, v24trigger) > 0) {  /* v2.4 */
-            if (peach_check(bt) != VEOK) BAIL(11);
+            if (peach_check(bt) != VEOK) goto bail;
          } else {  /* v2.3 and prior */
-            if (trigg_check(bt) != VEOK) BAIL(12);
+            if (trigg_check(bt) != VEOK) goto bail;
          }
       }
       add_weight(weight, difficulty, bt->bnum);  /* tally peer's chain weight */
       /* Compute diff = next difficulty to check next peer trailer. */
       diff = set_difficulty(bt);
-      if(!Running) BAIL(13);
+      if(!Running) goto bail;
    }  /* end for j, bt -- proof trailers check */
 
-   if(memcmp(weight, tx->weight, 32)) BAIL(14);  /* their weight is bad */
+   if(memcmp(weight, tx->weight, 32)) goto bail;  /* their weight is bad */
 
    /* Scan through trailer array to find where chain splits: splitblock */
    bt = (BTRAILER *) TRANBUFF(tx);
@@ -369,17 +369,17 @@ int checkproof(TX *tx, word32 *splitblock)
          *splitblock = tnum[0];  /* return first non-matching block number */
          break;
       }
-      if(!Running) BAIL(15);
+      if(!Running) goto bail;
       /* trailers match -- continue scan */
    }  /* end for j, bt -- split detection */
-   if(j == 0) BAIL(16);  /* never matched -- should not happen */
-   if(j >= NTFTX) BAIL(17);  /* no split found -- should not happen */
+   if(j == 0) goto bail;  /* never matched -- should not happen */
+   if(j >= NTFTX) goto bail;  /* no split found -- should not happen */
 allow:
-   pdebug("checkproof() splitblock = 0x%x", *splitblock);
+   pdebug("splitblock = 0x%x", *splitblock);
    return VEOK;  /* allow syncup() to run */
 bail:
-   pdebug("checkproof() ignore peer (%d)", message);
-   return message;  /* ignore contention */
+   pdebug("ignore peer");
+   return VERROR;  /* ignore contention */
 }  /* end checkproof() */
 
 /**
@@ -417,8 +417,8 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
    word8 highblock[8];         /* return value */
    long filelen;
    unsigned endblock;
-   int ecode, gblock;
-   char genfile[100];
+   int i, ecode, gblock;
+   char genfile[100], bnumhex[17];
    word32 tcount;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
    static word32 v24trigger[2] = { V24TRIGGER, 0 };
@@ -451,7 +451,7 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
 
    fp = fopen(fname, "rb");
    if(!fp) {
-      perr("tf_val(): Cannot open %s", fname);
+      perr("Cannot open %s", fname);
       ecode = 101;
       goto tfval_end;
    }
@@ -478,13 +478,18 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
                if (tid[tidx] > 0 && targp[tidx].tr) {
                   tres = thread_join(tid[tidx]);
                   if (tres != VEOK) {
-                     perrno(tres, "tf_val() failed to wait for thread");
+                     perrno("failed to wait for thread");
                   }  /* check thread status */
                   if ((targp[tidx].tr >> 8) != VEOK) {
-                     perr("tf_val(0x%s) failed on POW validation",
-                        bnum2hex(targp[tidx].bt.bnum));
+                     bnum2hex(targp[tidx].bt.bnum, bnumhex);
+                     perr("(0x%s) failed on POW validation", bnumhex);
                      /* wait for all threads to finish */
-                     thread_join_list(tid, tlen);
+                     for (i = 0; i < tlen; i++) {
+                        if (tid[i] == 0) continue;
+                        if (thread_cancel(tid[i]) != 0) {
+                           perrno("thread_cancel()");
+                        }
+                     }
                      ecode = 9;
                      break;
                   }
@@ -502,15 +507,10 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
       /* check for EOF or error */
       if (feof(fp) || ecode) break;
 
-      if (bt.bnum[0] == 0 && endblock) {
+      if (!weight_only && bt.bnum[1] == 0 && endblock) {
          percent = 100.0 * get32(bt.bnum) / endblock;
-         if (weight_only) {
-            psticky("Tfile check %.02f%% (0x%" P32x ")",
-               percent, get32(bt.bnum));
-         } else {
-            psticky("Validating Tfile %.2f%% (0x%" P32x ")",
-               percent, get32(bt.bnum));
-         }
+         plog("Validating Tfile %.2f%% (0x%" P32x ")",
+            percent, get32(bt.bnum));
       }
 
       tcount = get32(bt.tcount);
@@ -564,7 +564,7 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
                   if (tres != VEOK) {
                      tid[tidx--] = 0;
                      if (Dynasleep) sleep(Dynasleep);
-                     perrno(tres, "tf_val() failed to create thread");
+                     perrno("failed to create thread");
                   } else {
                      tactive++;
                      break;
@@ -576,7 +576,7 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
                   /* Boxing Day Anomaly -- Bugfix */
                   if(cmp64(bt.bnum, boxingday) == 0) {
                      if(memcmp(bt.bhash, boxdayhash, 32) != 0) {
-                        pdebug("init(): Boxing Day Anomaly Bhash Failure");
+                        pdebug("Boxing Day Anomaly Bhash Failure");
                         break;
                      }
                   } else
@@ -610,14 +610,21 @@ next:
       add64(highblock, One, highblock);  /* bnum in next trailer */
    }  /* end for */
    /* ensure all threads are finished */
-   if (tactive) thread_join_list(tid, tlen);
+   if (tactive) {
+      /* wait for all threads to finish */
+      for (i = 0; i < tlen; i++) {
+         if (tid[i] == 0) continue;
+         if (thread_cancel(tid[i]) != 0) {
+            perrno("thread_cancel()");
+         }
+      }
+   }
    sub64(highblock, One, bnum);     /* fix high block number */
    memcpy(weight, highweight, HASHLEN);
    fclose(fp);
-   pdebug("tf_val(): ecode = %d  bnum = 0x%s  weight = 0x...%x",
-                  ecode, bnum2hex(highblock), highweight[0]);
+   pdebug("ecode = %d  bnum = 0x%s  weight = 0x...%x",
+      ecode, bnum2hex(highblock, bnumhex), highweight[0]);
 tfval_end:
-   psticky("");
    return ecode;
 }  /* end tf_val() */
 
@@ -627,6 +634,7 @@ int trim_tfile(void *highbnum)
    FILE *fp, *fpout;
    BTRAILER bt;
    word8 bnum[8], flag;
+   char bnumhex[17];
 
    fp = fopen("tfile.dat", "rb");
    if(!fp) return VERROR;
@@ -647,7 +655,7 @@ int trim_tfile(void *highbnum)
       remove("tfile.dat");
       return rename("tfile.tmp", "tfile.dat");  /* VEOK (0) on success */
    }
-   perr("tfile(): flag = %d  bnum = 0x%s", flag, bnum2hex(bnum));
+   perr("flag = %d  bnum = 0x%s", flag, bnum2hex(bnum, bnumhex));
    return VERROR;  /* non-zero -- fail */
 }  /* end trim_tfile() */
 
