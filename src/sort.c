@@ -13,14 +13,13 @@
 #include "sort.h"
 
 /* internal support */
-#include "util.h"
+#include "error.h"
 #include "types.h"
 
 /* external support */
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <errno.h>
 
 static LTRAN *Ltrans;   /* malloc'd Ltrans[]: Nlt * sizeof(LTRAN) - sort */
 
@@ -85,38 +84,51 @@ int sortlt(char *fname)
    /* open ltran file */
    fp = fopen(fname, "r+b");
    if (fp == NULL) {
-      return perrno(errno, "sortlt(): failed to fopen(%s)", fname);
+      perrno("failed to fopen(%s)", fname);
+      return VERROR;
    }
 
    /* seek to file end */
    if (fseek(fp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "sortlt(): failed to fseek(END)");
+      perrno("failed to fseek(END)");
+      goto FAIL_IO;
    }
    /* obtain file offset (at file end), check valid size */
    offset = ftell(fp);
-   if (offset == EOF) mErrno(FAIL_IO, "sortlt(): failed to ftell()");
+   if (offset == EOF) {
+      perrno("failed to ftell()");
+      goto FAIL_IO;
+   }
    if ((offset % sizeof(LTRAN)) != 0) {
-      mError(FAIL_IO, "sortlt(): invalid length: %ld", offset);
+      perr("invalid length: %ld", offset);
+      goto FAIL_IO;
    }
    /* calc transactions */
    Nlt = offset / sizeof(LTRAN);
-   if (Nlt == 0) mError(FAIL_IO, "sortlt(): 0 transactions");
+   if (Nlt == 0) {
+      perr("0 transactions");
+      goto FAIL_IO;
+   }
    /* seek to file start */
    if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO, "sortlt(): failed to fseek(SET)");
+      perrno("failed to fseek(SET)");
+      goto FAIL_IO;
    }
    /* allocate memory */
    Ltidx = malloc((len = Nlt * sizeof(word32)));
    if (Ltidx == NULL) {
-      mError(FAIL_Ltidx, "sortlt(): failed to malloc(%zu) Ltidx", len);
+      perr("failed to malloc(%zu) Ltidx", len);
+      goto FAIL_Ltidx;
    }
    Ltrans = malloc((len = Nlt * sizeof(LTRAN)));
    if (Ltrans == NULL) {
-      mError(FAIL_Ltrans, "sortlt(): failed to malloc(%zu) Ltrans", len);
+      perr("failed to malloc(%zu) Ltrans", len);
+      goto FAIL_Ltrans;
    }
    /* read-in transactions */
    if (fread(Ltrans, sizeof(LTRAN), Nlt, fp) != Nlt) {
-      mError(FAIL_IO2, "sortlt(): failed to fread(Ltrans)");
+      perr("failed to fread(Ltrans)");
+      goto FAIL_IO2;
    }
    /* initialize transaction index; Ltidx[] = 0,1,2,3,4,5,... */
    for (j = 0; j < Nlt; j++) Ltidx[j] = j;
@@ -124,12 +136,14 @@ int sortlt(char *fname)
    qsort(Ltidx, Nlt, sizeof(word32), compare_lt);
    /* return to start of file */
    if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO2, "sortlt(): failed to fseek(SET) (pre-write)");
+      perrno("failed to fseek(SET) (pre-write)");
+      goto FAIL_IO2;
    }
    /* write sorted transactions */
    for (j = 0; j < Nlt; j++) {
       if (fwrite(&Ltrans[Ltidx[j]], sizeof(LTRAN), 1, fp) != 1) {
-         mError(FAIL_IO2, "sortlt(): failed to fwrite()");
+         perr("failed to fwrite()");
+         goto FAIL_IO2;
       }
    }
 
@@ -165,56 +179,64 @@ int sorttx(char *fname)
    word8 *bp;
    size_t len;
    long offset;
-   int ecode;
    word32 j;
 
    /* ensure pointers are free */
-   if (Tx_ids) {
-      free(Tx_ids);
-      Tx_ids = NULL;
-   }
-   if (Txidx) {
-      free(Txidx);
-      Txidx = NULL;
-   }
+   sorttx_free();
 
    /* open txclean file, and seek to end */
    fp = fopen(fname, "rb");
-   if (fp == NULL) mErrno(FAIL, "sorttx(): failed to fopen(%s)", fname);
+   if (fp == NULL) {
+      perrno("failed to fopen(%s)", fname);
+      return VERROR;
+   }
    if (fseek(fp, 0, SEEK_END) != 0) {
-      mErrno(FAIL_IO, "sorttx(): failed to fseek(END)");
+      perrno("failed to fseek(END)");
+      goto CLEANUP;
    }
    /* obtain file offset (at file end), check valid size */
    offset = ftell(fp);
-   if (offset == EOF) mErrno(FAIL_IO, "sorttx(): failed to ftell(fp)");
+   if (offset == EOF) {
+      perrno("failed to ftell(fp)");
+      goto CLEANUP;
+   }
    if ((offset % sizeof(TXQENTRY)) != 0) {
-      mError(FAIL_IO, "sorttx(): invalid size: %ld bytes", offset);
+      perr("invalid size: %ld bytes", offset);
+      goto CLEANUP;
    }
    /* calc transactions */
    Ntx = offset / sizeof(TXQENTRY);
-   if (Ntx == 0) mError(FAIL_IO, "sorttx(): 0 transactions");
+   if (Ntx == 0) {
+      perr("0 transactions");
+      goto CLEANUP;
+   }
    /* seek to file start */
    if (fseek(fp, 0, SEEK_SET) != 0) {
-      mErrno(FAIL_IO, "sorttx(): failed to fseek(SET)");
+      perrno("failed to fseek(SET)");
+      goto CLEANUP;
    }
    /* allocate memory */
    Txidx = malloc((len = Ntx * sizeof(word32)));
    if (Txidx == NULL) {
-      mError(FAIL_TXIDX, "sorttx(): failed to malloc(%zu) Txidx", len);
+      perr("failed to malloc(%zu) Txidx", len);
+      goto CLEANUP_FREE;
    }
    Tx_ids = malloc((len = Ntx * HASHLEN));
    if (Tx_ids == NULL) {
-      mError(FAIL_TXIDS, "sorttx(): failed to malloc(%zu) Tx_ids", len);
+      perr("failed to malloc(%zu) Tx_ids", len);
+      goto CLEANUP_FREE;
    }
    /* Read each (pre-computed) TXID into Tx_ids[Ntx][HASHLEN] */
    for(j = 0, bp = Tx_ids; j < Ntx; j++, bp += HASHLEN) {
       /* seek down in transaction record to txid[] */
       if (fseek(fp, sizeof(TXQENTRY) - HASHLEN, SEEK_CUR) != 0) {
-         mErrno(FAIL_IO2, "sorttx(): failed to fseek(CUR)");
+         perrno("failed to fseek(CUR)");
+         goto CLEANUP_FREE;
       }
       /* reading txid[] puts us at start of next record (TXQENTRY) */
       if (fread(bp, HASHLEN, 1, fp) != 1) {
-         mError(FAIL_IO2, "sorttx(): failed to fread(bp)");
+         perr("failed to fread(bp)");
+         goto CLEANUP_FREE;
       }
       /* initialize index Txidx[] = 0,1,2,3,4,5,... */
       Txidx[j] = j;
@@ -229,18 +251,11 @@ int sorttx(char *fname)
    return VEOK;
 
    /* failure / error handling */
-FAIL_IO2:
-   free(Tx_ids);
-FAIL_TXIDS:
-   Tx_ids = NULL;
-   free(Txidx);
-FAIL_TXIDX:
-   Txidx = NULL;
-FAIL_IO:
+CLEANUP_FREE:
+   sorttx_free();
+CLEANUP:
    fclose(fp);
-FAIL:
-
-   return ecode;
+   return VERROR;
 }  /* end sorttx() */
 
 /* end include guard */
