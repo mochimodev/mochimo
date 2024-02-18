@@ -14,16 +14,14 @@
 
 /* internal support */
 #include "wots.h"
-#include "util.h"
 #include "ledger.h"
 #include "global.h"
+#include "error.h"
 
 /* external support */
 #include <string.h>
 #include <stdlib.h>
-#include "extprint.h"
 #include "extmath.h"
-#include <errno.h>
 
 word8 *Tagidx;    /* array of all 12-word8 tags in ledger order */
 word32 Ntagidx;   /* number of tags in Tagidx[] */
@@ -50,15 +48,13 @@ static inline int tag_equal(word8 *a, word8 *b)
 */
 void tag_free(void)
 {
-#undef FnMSG
-#define FnMSG(x)  "tag_free(): " x
-   pdebug(FnMSG("entered..."));
+   pdebug("entered...");
 
    Ntagidx = 0;
    if (Tagidx != NULL) {
       free(Tagidx);
       Tagidx = NULL;
-      pdebug(FnMSG("Tagidx free'd"));
+      pdebug("Tagidx free'd");
    }
 }
 
@@ -73,33 +69,45 @@ int tag_buildidx(void)
    word8 *tp;
    size_t len;
    word32 n;
-   int ecode;
 
-#undef FnMSG
-#define FnMSG(x)  "tag_builidx(): " x
-   pdebug(FnMSG("building..."));
+   pdebug("building...");
 
    /* check Tagidx for existing build */
    if (Tagidx != NULL) {
-      pdebug(FnMSG("tag index already made"));
+      pdebug("tag index already made");
       return VEOK;
    }
 
    /* open ledger file for binary reading */
    fp = fopen("ledger.dat", "rb");
-   if (fp == NULL) mErrno(FAIL, FnMSG("cannot open ledger.dat"));
+   if (fp == NULL) {
+      perrno("cannot open ledger.dat");
+      goto FAIL;
+   }
    /* obtain ledger sizeand idx count */
-   if (fseek(fp, 0L, SEEK_END) != 0) mErrno(FAIL_IO, FnMSG("fseek(END)"));
+   if (fseek(fp, 0L, SEEK_END) != 0) {
+      perrno("fseek(END)");
+      goto FAIL_IO;
+   }
    Ntagidx = ftell(fp) / sizeof(le);
    /* malloc space for tags */
    Tagidx = (word8 *) malloc((len = Ntagidx * TXTAGLEN));
-   if (Tagidx == NULL) mErrno(FAIL_IO, FnMSG("malloc(%zu)"), len);
+   if (Tagidx == NULL) {
+      perrno("malloc(%zu)", len);
+      goto FAIL_IO;
+   }
    /* return ledger file pointer to beginning */
-   if (fseek(fp, 0L, SEEK_SET) != 0) mErrno(FAIL_IO, FnMSG("fseek(SET)"));
+   if (fseek(fp, 0L, SEEK_SET) != 0) {
+      perrno("fseek(SET)");
+      goto FAIL_IO;
+   }
    /* read ledger entry tags into Tagidx */
    for (tp = Tagidx, n = 0; n < Ntagidx; n++, tp += TXTAGLEN) {
       if (fread(&le, sizeof(le), 1, fp) != 1) {
-         if (ferror(fp)) mErrno(FAIL_IO, FnMSG("file error"));
+         if (ferror(fp)) {
+            perrno("file error");
+            goto FAIL_IO;
+         }
          break;  /* EOF */
       }
       /* copy current ledger entry tag into Tagidx via tp */
@@ -108,14 +116,15 @@ int tag_buildidx(void)
    fclose(fp);
 
    /* success */
-   pdebug(FnMSG("success, Ntagidx = %" P32u), Ntagidx);
+   pdebug("success, Ntagidx = %" P32u, Ntagidx);
    return VEOK;
 
    /* failure / error handling */
-FAIL_IO: fclose(fp);
-FAIL: tag_free();
-
-   return ecode;
+FAIL_IO:
+   fclose(fp);
+FAIL:
+   tag_free();
+   return VERROR;
 }  /* end tag_buildidx() */
 
 /**
@@ -129,12 +138,9 @@ int tag_qfind(word8 *addr)
    TXQENTRY tx;
    FILE *fp;
    word8 *tag, *txtag;
-   int ecode;
 
    /* init */
-#undef FnMSG
-#define FnMSG(x)  "tag_qfind(): " x
-   pdebug(FnMSG("searching queues..."));
+   pdebug("searching queues...");
    tag = ADDR_TAG_PTR(addr);
    txtag = ADDR_TAG_PTR(tx.chg_addr);
 
@@ -142,7 +148,10 @@ int tag_qfind(word8 *addr)
    fp = fopen("txq1.dat", "rb");
    if (fp != NULL) {  /* search for tag in txq1.dat */
       while (fread(&tx, sizeof(tx), 1, fp) && !tag_equal(tag, txtag));
-      if (ferror(fp)) mErrno(FAIL_IO, FnMSG("fread(txq1.dat)"));
+      if (ferror(fp)) {
+         perrno("fread(txq1.dat)");
+         goto FAIL_IO;
+      }
       if (feof(fp)) fclose(fp);  /* tag not found */
       else {  /* tag found */
          fclose(fp);
@@ -157,7 +166,10 @@ int tag_qfind(word8 *addr)
    fp = fopen("txclean.dat", "rb");
    if (fp != NULL) {  /* search for tag in txclean.dat */
       while (fread(&tx, sizeof(tx), 1, fp) && !tag_equal(tag, txtag));
-      if (ferror(fp)) mErrno(FAIL_IO, FnMSG("fread(txclean.dat)"));
+      if (ferror(fp)) {
+         perrno("fread(txclean.dat)");
+         goto FAIL_IO;
+      }
       if (feof(fp)) fclose(fp);  /* tag not found */
       else {  /* tag found */
          fclose(fp);
@@ -169,9 +181,9 @@ int tag_qfind(word8 *addr)
    return VERROR;
 
    /* failure / error handling */
-FAIL_IO: fclose(fp);
-
-   return ecode;
+FAIL_IO:
+   fclose(fp);
+   return VERROR;
 }  /* end tag_qfind() */
 
 /**
@@ -192,16 +204,14 @@ int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
    FILE *fp;
    word8 *tag, *tp;
    word32 n;
-   int ecode;
 
    /* init */
-#undef FnMSG
-#define FnMSG(x)  "tag_find(): " x
-   pdebug(FnMSG("searching Tagidx..."));
+   pdebug("searching Tagidx...");
 
    /* check/build Tagidx */
    if (Tagidx == NULL && tag_buildidx() != VEOK) {
-      mError(FAIL, FnMSG("failed to tag_buildidx()"));
+      perr("failed to tag_buildidx()");
+      goto FAIL;
    }
 
    /* init */
@@ -223,14 +233,20 @@ int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
       if (foundaddr != NULL || balance != NULL) {
          /* and caller wants ledger entry... */
          fp = fopen("ledger.dat", "rb");
-         if (fp == NULL) mErrno(FAIL, FnMSG("cannot open ledger.dat"));
+         if (fp == NULL) {
+            perrno("cannot open ledger.dat");
+            goto FAIL;
+         }
          /* n is record number in ledger.dat */
          if (fseek(fp, n * sizeof(le), SEEK_SET) != 0) {
-            mErrno(FAIL_IO, FnMSG("fseek(SET)"));
+            perrno("fseek(SET)");
+            goto FAIL_IO;
          } else if (fread(&le, sizeof(le), 1, fp) != 1) {
-            mErrno(FAIL_IO, FnMSG("fread(le)"));
+            perrno("fread(le)");
+            goto FAIL_IO;
          } else if (memcmp(ADDR_TAG_PTR(le.addr), tag, len)) {
-            mErrno(FAIL_IO, FnMSG("memcmp(SET)"));
+            perrno("memcmp(SET)");
+            goto FAIL_IO;
          } else fclose(fp);
          /* copy address/balance to available pointers */
          if (foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
@@ -244,10 +260,11 @@ int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
    return VERROR;
 
    /* failure / error handling */
-FAIL_IO: fclose(fp);
-FAIL: tag_free();
-
-   return ecode;
+FAIL_IO:
+   fclose(fp);
+FAIL:
+   tag_free();
+   return VERROR;
 }  /* end tag_find() */
 
 /**
