@@ -14,19 +14,18 @@
 
 /* internal support */
 #include "wots.h"
-#include "util.h"
 #include "trigg.h"
 #include "tag.h"
 #include "peach.h"
 #include "ledger.h"
 #include "global.h"
+#include "error.h"
 
 /* external support */
 #include <sys/wait.h>
 #include "exttime.h"
 #include "extmath.h"
 #include "extlib.h"
-#include <errno.h>
 #include "crc16.h"
 
 #ifndef _WIN32
@@ -73,7 +72,7 @@
  */
 int mtx_val(MTX *mtx, word32 *fee)
 {
-   int j, message;
+   int j;
    word8 total[8], mfees[8], *bp, *limit;
    static word8 addr[TXADDRLEN];
 
@@ -84,10 +83,10 @@ int mtx_val(MTX *mtx, word32 *fee)
     * tx_val() or bval.c has already checked src != chg, src exists,
     *   sig is good, and totals are good.
     */
-   if(!ADDR_HAS_TAG(mtx->src_addr)) BAIL(1);
+   if(!ADDR_HAS_TAG(mtx->src_addr)) goto bail;
    if(memcmp(ADDR_TAG_PTR(mtx->src_addr),
-             ADDR_TAG_PTR(mtx->chg_addr), TXTAGLEN) != 0) BAIL(2);
-   if(cmp64(mtx->change_total, Mfee) <= 0) BAIL(3);
+             ADDR_TAG_PTR(mtx->chg_addr), TXTAGLEN) != 0) goto bail;
+   if(cmp64(mtx->change_total, Mfee) <= 0) goto bail;
 
    memset(total, 0, 8);
    memset(mfees, 0, 8);
@@ -96,17 +95,17 @@ int mtx_val(MTX *mtx, word32 *fee)
       /* zero dst[] tag marks end of list.  */
       if(iszero(mtx->dst[j].tag, TXTAGLEN)) {
          for(bp = mtx->dst[j].amount; bp < limit; bp++) {
-            if(*bp) BAIL(4);  /* Check that rest of dst[] list is zeros. */
+            if(*bp) goto bail;  /* Check that rest of dst[] list is zeros. */
          }
          break;
       }
-      if(iszero(mtx->dst[j].amount, 8)) BAIL(5);  /* bad send amount */
+      if(iszero(mtx->dst[j].amount, 8)) goto bail;  /* bad send amount */
       /* no dst to src */
       if(memcmp(mtx->dst[j].tag,
-                ADDR_TAG_PTR(mtx->src_addr), TXTAGLEN) == 0) BAIL(6);
+                ADDR_TAG_PTR(mtx->src_addr), TXTAGLEN) == 0) goto bail;
       /* tally fees and send_total */
-      if(add64(total, mtx->dst[j].amount, total)) BAIL(7);
-      if(add64(mfees, fee, mfees)) BAIL(8);  /* Mfee or Myfee */
+      if(add64(total, mtx->dst[j].amount, total)) goto bail;
+      if(add64(mfees, fee, mfees)) goto bail;  /* Mfee or Myfee */
       if(get32(Cblocknum) >= MTXTRIGGER) {
          memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
          mtx->zeros[j] = 0;
@@ -115,12 +114,11 @@ int mtx_val(MTX *mtx, word32 *fee)
       }
    }  /* end for j */
    /* Check tallies... */
-   if(cmp64(total, mtx->send_total) != 0) BAIL(9);
-   if(cmp64(mtx->tx_fee, mfees) < 0) BAIL(10);
-   return 0;  /* valid */
+   if(cmp64(total, mtx->send_total) != 0) goto bail;
+   if(cmp64(mtx->tx_fee, mfees) < 0) goto bail;
+   return VEOK;  /* valid */
 bail:
-   if(message && Trace) plog("mtx_val(): %d", message);
-   return message;  /* bad */
+   return VERROR;  /* bad */
 }  /* end mtx_val() */
 
 /* Validate a transaction against ledger
@@ -141,23 +139,23 @@ int tx_val(TX *tx)
    static TX txs;
 
    if(memcmp(tx->src_addr, tx->chg_addr, TXADDRLEN) == 0) {
-      pdebug("tx_val(): src == chg");  /* also mtx */
+      pdebug("src == chg");  /* also mtx */
       return 2;
    }
 
    if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXADDRLEN) == 0) {
-      pdebug("tx_val(): src == dst");
+      pdebug("src == dst");
       return 2;
    }
 
    /* validate transaction fixed fee */
    if(cmp64(tx->tx_fee, Mfee) < 0) {
-      pdebug("tx_val(): bad mining fee");
+      pdebug("bad mining fee");
       return 2;
    }
    /* validate my fee */
    if(cmp64(tx->tx_fee, Myfee) < 0) {
-      pdebug("tx_val(): fee < %u", Myfee[0]);
+      pdebug("fee < %u", Myfee[0]);
       return 1;
    }
 
@@ -175,13 +173,13 @@ int tx_val(TX *tx)
    wots_pk_from_sig(pk2, tx->tx_sig, message, &tx->src_addr[TXSIGLEN],
                     (word32 *) rnd2);
    if(memcmp(pk2, tx->src_addr, TXSIGLEN) != 0) {
-      plog("tx_val(): WOTS signature failed!");
+      plog("WOTS signature failed!");
       return 3;
    }
 
    /* look up source address in ledger */
    if(le_find(tx->src_addr, &src_le, NULL, TXADDRLEN) == FALSE) {
-      pdebug("tx_val(): src_addr not in ledger");
+      pdebug("src_addr not in ledger");
       return 1;
    }
    total[0] = total[1] = 0;
@@ -189,11 +187,11 @@ int tx_val(TX *tx)
    cond =  add64(tx->send_total, tx->change_total, total);
    cond += add64(tx->tx_fee, total, total);
    if(cond) {
-      plog("tx_val(): TX amount overflow");
+      plog("TX amount overflow");
       return 2;
    }
    if(cmp64(src_le.balance, total) != 0) {
-      pdebug("tx_val(): bad transaction total != src_le.balance");
+      pdebug("bad transaction total != src_le.balance");
       return 1;
    }
    if(TX_IS_MTX(tx)) {
@@ -280,7 +278,7 @@ pid_t mgc(word32 ip)
    /* create grandchild */
    pid = fork();
    if(pid < 0) {
-      perr("mgc(): Cannot fork()");
+      perr("Cannot fork()");
       return 0;  /* to parent */
    }
    if(pid) return pid;  /* to parent */
@@ -291,7 +289,7 @@ pid_t mgc(word32 ip)
 
    fp = fopen("mirror.dat", "rb");
    if(fp == NULL) {
-      perr("mgc(): Cannot open mirror.dat");
+      perr("Cannot open mirror.dat");
       exit(1);
    }
    offset = 0;
@@ -299,7 +297,7 @@ pid_t mgc(word32 ip)
    while(Running) {
       lockfd = lock("mq.lck", 20);
       if(lockfd == -1) {
-         perr("mgc(): Cannot lock mq.lck"); fclose(fp); exit(1);
+         perr("Cannot lock mq.lck"); fclose(fp); exit(1);
       }
       if(fseek(fp, offset, SEEK_SET)) {
          unlock(lockfd); fclose(fp); exit(1);
@@ -339,7 +337,7 @@ pid_t mirror1(word32 *iplist, int len)
    /* create child */
    pid = fork();
    if(pid < 0) {
-      perr("mirror(): Cannot fork()");
+      perr("Cannot fork()");
       return 0;
    }
    if(pid) return pid;  /* to parent */
@@ -427,7 +425,7 @@ int process_tx(NODE *np)
 
    fp = fopen("txq1.dat", "ab");
    if(!fp) {
-      perr("process_tx(): Cannot open txq1.dat");
+      perr("Cannot open txq1.dat");
       return 1;
    }
 
@@ -454,12 +452,12 @@ int process_tx(NODE *np)
    /* lock mirror file */
    lockfd = lock("mq.lck", 20);
    if(lockfd == -1) {
-      perr("process_tx(): Cannot lock mq.lck");  /* should not happen */
+      perr("Cannot lock mq.lck");  /* should not happen */
       return 1;
    }
    fp = fopen("mq.dat", "ab");
    if(!fp) {
-      perr("process_tx(): Cannot open mq.dat");
+      perr("Cannot open mq.dat");
       unlock(lockfd);
       return 1;
    }
@@ -467,7 +465,7 @@ int process_tx(NODE *np)
    /* If empty slot in mirror address map, fill it
     * in and then write tx to mirror queue, mq.dat.
     */
-   pdebug("process_tx(): before txmap()");
+   pdebug("before txmap()");
    if(txmap(tx, np->ip) == VEOK) {
       count = fwrite(tx, 1, sizeof(TX), fp);
       if(count != sizeof(TX)) {
@@ -475,10 +473,10 @@ int process_tx(NODE *np)
          ecode = 1;
       } else Mqcount++;
    }
-   pdebug("process_tx(): after txmap()");
+   pdebug("after txmap()");
    fclose(fp);      /* close mirror queue, mq.dat */
    unlock(lockfd);  /* unlock mirror queue lock, mq.lck */
-   pdebug("process_tx(): done %d", ecode);
+   pdebug("done %d", ecode);
    return ecode;
 }  /* end process_tx() */
 
