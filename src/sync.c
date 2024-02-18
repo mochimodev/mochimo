@@ -13,7 +13,6 @@
 #include "sync.h"
 
 /* internal support */
-#include "util.h"
 #include "types.h"
 #include "trigg.h"
 #include "tfile.h"
@@ -21,14 +20,17 @@
 #include "network.h"
 #include "ledger.h"
 #include "global.h"
+#include "error.h"
 #include "bval.h"
 #include "bup.h"
 
 /* external support */
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <string.h>
+#include <signal.h>
 #include <dirent.h>
-#include "extthread.h"
+#include "extthrd.h"
 #include "extmath.h"
 #include "extlib.h"
 #include "extint.h"
@@ -51,11 +53,9 @@ ThreadProc thread_get_block(void *arg)
    /* initialize */
    sprintf(fname, "b%" P32x ".tmp", get32(args->bnum));
    sprintf(fname2, "b%" P32x ".dat", get32(args->bnum));
-   res = get_file(args->ip, args->bnum, fname);
-   if (res == VEOK) {
-      res = rename(fname, fname2);
-      if (res != VEOK) {
-         perrno(res, "catchup(): failed to move %s -> %s", fname, fname2);
+   if (get_file(args->ip, args->bnum, fname) == VEOK) {
+      if (rename(fname, fname2) != 0) {
+         perrno("failed to move %s -> %s", fname, fname2);
          res = VERROR;
       }
    }
@@ -79,12 +79,17 @@ int reset_chain(void)
    DIR *dp;
    char *ext;
    char fname[FILENAME_MAX];
-   char bcfname[FILENAME_MAX] = "";
+   char bcfname[FILENAME_MAX];
+
+   *fname = '\0';
+   *bcfname = '\0';
 
    /* find highest named blockchain file in Bcdir */
    dp = opendir(Bcdir);
-   if (dp == NULL) return perrno(errno, "failed to open Bcdir...");
-   else while((ep = readdir(dp))) {
+   if (dp == NULL) {
+      perrno("failed to open Bcdir...");
+      return VERROR;
+   } else while((ep = readdir(dp))) {
       /* ensure valid blockchain file format (strlen("b*.bc") == 20) */
       if (ep->d_name[0] != 'b' || strlen(ep->d_name) != 20) continue;
       if ((ext = strrchr(ep->d_name, '.')) == NULL) continue;
@@ -93,6 +98,7 @@ int reset_chain(void)
       if (strncmp(ep->d_name, bcfname, FILENAME_MAX) > 0) {
          /* ensure filename hexadecimal is exposed */
          if (sscanf(ep->d_name, "b%08x%08x", &bchk[1], &bchk[0]) == 2) {
+            /* strncpy() MAY NOT result in null-terminated copy */
             strncpy(bcfname, ep->d_name, FILENAME_MAX);
             bcfname[FILENAME_MAX - 1] = '\0';
             put64(bnum, bchk);
@@ -102,10 +108,14 @@ int reset_chain(void)
    closedir(dp);
 
    /* read block trailer of file and ensure block numbers match */
-   snprintf(fname, FILENAME_MAX, "%.128s/%.128s", Bcdir, bcfname);
+   path_join(fname, sizeof(fname), Bcdir, bcfname);
    if (readtrailer(&bt, fname)) {
-      return perr("failed to read block trailer, %s", fname);
-   } else if (cmp64(bt.bnum, bnum)) return perr("%s bnum mismatch!", fname);
+      perr("failed to read block trailer, %s", fname);
+      return VERROR;
+   } else if (cmp64(bt.bnum, bnum)) {
+      perr("%s bnum mismatch!", fname);
+      return VERROR;
+   }
 
    /* initialize chain data from block trailer */
    put64(Cblocknum, bnum);
@@ -123,15 +133,17 @@ int reset_chain(void)
  */
 int delete_blocks(void *matchblock)
 {
-   char fname[128];
    int j;
    word8 bnum[8];
+   char fname[FILENAME_MAX];
+   char bcfname[21];
 
    put64(bnum, matchblock);
    if(iszero(bnum,8)) add64(bnum, One, bnum);
    for(j = 0; ; j++) {
-      sprintf(fname, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
-      if(unlink(fname) != 0) break;
+      bnum2fname(bnum, bcfname);
+      path_join(fname, sizeof(fname), Bcdir, bcfname);
+      if (remove(fname) != 0) break;
       add64(bnum, One, bnum);
    }
    return j;
@@ -141,9 +153,9 @@ int delete_blocks(void *matchblock)
 /* Extract Genesis Block to ledger.dat */
 int extract_gen(char *lfile)
 {
-   char fname[128];
+   char fname[FILENAME_MAX];
 
-   sprintf(fname, "%s/b0000000000000000.bc", Bcdir);
+   path_join(fname, sizeof(fname), Bcdir, "b0000000000000000.bc");
    /* extract the ledger from our Genesis Block */
    return le_extract(fname, lfile);
 }
@@ -156,73 +168,88 @@ int testnet(void)
 {
    TXQENTRY tx;
    FILE *bcfp, *txfp;
-   word32 bnum[2];
+   word8 bnum[8];
    word32 hdrlen;
-   int ecode;
-
-   char bcfname[FILENAME_MAX];
+   char fname[FILENAME_MAX];
+   char bcfname[21];
 
    plog("Generating testnet...");
 
    /* reset_chain() and calc bnum as last (not current) neogenesis */
    if (reset_chain() == VEOK) {
       put64(bnum, Cblocknum);
-      bnum[0] = (bnum[0] - 1) & 0xffffff00;
-   } else mError(FAIL, "testnet(): failed to reset_chain()");
+      put32(bnum, (get32(bnum) - 1) & 0xffffff00);
+   } else {
+      perr("failed to reset_chain()");
+      goto FAIL;
+   }
 
    /* trim Tfile to bnum */
    if (trim_tfile(bnum) != VEOK) {
-      mError(FAIL, "testnet(): failed to trim_tfile()");
+      perr("failed to trim_tfile()");
+      goto FAIL;
    }
 
    /* extract ledger from neogenesis */
-   snprintf(bcfname, FILENAME_MAX, "%.64s/b%s.bc", Bcdir, bnum2hex(bnum));
-   if (le_extract(bcfname, "ledger.tmp") != VEOK) {
-      mError(FAIL, "testnet(): failed to le_extract(%s)", bcfname);
+   bnum2fname(bnum, bcfname);
+   path_join(fname, sizeof(fname), Bcdir, bcfname);
+   if (le_extract(fname, "ledger.tmp") != VEOK) {
+      perr("failed to le_extract(%s)", fname);
+      goto FAIL;
    }
 
    /* delete blocks above bnum storing first transactions as txclean.dat */
    while (cmp64(bnum, Cblocknum) <= 0) {
       add64(bnum, One, bnum);
-      snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(bnum));
-      if (!fexists(bcfname)) break;  /* no more blocks */
+      bnum2fname(bnum, bcfname);
+      path_join(fname, sizeof(fname), Bcdir, bcfname);
+      if (!fexists(fname)) break;  /* no more blocks */
       if (fexists("txclean.dat")) {
-         remove(bcfname);
+         remove(fname);
          continue;
       }
       /* open block file and check for transactions */
-      bcfp = fopen(bcfname, "rb");
+      bcfp = fopen(fname, "rb");
       if (bcfp == NULL) {
-         mErrno(FAIL, "testnet(): failed to fopen(%s, rb)", bcfname);
+         perrno("failed to fopen(%s, rb)", fname);
+         goto FAIL;
       } else if (fread(&hdrlen, sizeof(hdrlen), 1, bcfp) != 1) {
-         mError(FAIL2, "testnet(): failed to fread(hdrlen)");
+         perr("failed to fread(hdrlen)");
+         goto FAIL2;
       } else if (hdrlen != sizeof(BHEADER)) {
-         pdebug("testnet(): no txs in %s, skipping...", bcfname);
+         pdebug("no txs in %s, skipping...", fname);
       } else if (fseek(bcfp, (long) hdrlen, SEEK_SET) != 0) {
-         mErrno(FAIL2, "testnet(): failed to fseek(SET)");
+         perrno("failed to fseek(SET)");
+         goto FAIL2;
       } else {  /* bcfp is ready to read transactions */
          txfp = fopen("txclean.dat", "wb");
          if (txfp == NULL) {
-            mErrno(FAIL2, "testnet(): failed to fopen(txclean.dat, wb)");
+            perrno("failed to fopen(txclean.dat, wb)");
+            goto FAIL2;
          }
          /* ... write txs; relies on sizeof(BTRAILER) < sizeof(TXQENTRY) */
          while (fread(&tx, sizeof(tx), 1, bcfp)) {
             if (fwrite(&tx, sizeof(tx), 1, txfp) != 1) {
-               mError(FAIL3, "testnet(): failed to fwrite(tx)");
+               perr("failed to fwrite(tx)");
+               goto FAIL3;
             }
          }
          /* check errors on bcfp */
-         if (ferror(bcfp)) mError(FAIL3, "testnet(): failed to fread(tx)");
+         if (ferror(bcfp)) {
+            perr("failed to fread(tx)");
+            goto FAIL3;
+         }
          fclose(txfp);
       }
       fclose(bcfp);
-      remove(bcfname);
+      remove(fname);
    }
 
    /* apply new ledger */
    remove("ledger.dat");
    if (rename("ledger.tmp", "ledger.dat") != 0) {
-      mErrno(FAIL, "testnet(): failed to move ledger.tmp to ledger.dat");
+      perrno("failed to move ledger.tmp to ledger.dat");
+      goto FAIL;
    }
 
    plog("Testnet generated successfully!");
@@ -241,7 +268,7 @@ FAIL2:
 FAIL:
    perr("Failed to generated testnet :(");
 
-   return ecode;
+   return VERROR;
 }  /* end testnet() */
 
 /**
@@ -260,11 +287,13 @@ int catchup(word32 plist[], word32 count)
    /* initialize... */
    show("getblock");  /* get blockchain files */
    pdebug("catchup(%" P32u " peers): begin...", count);
-   if ((res = mkdir_p(Bcdir))) {  /* ensure Bcdir is ready */
-      perrno(res, "catchup(): failed to verify %s/ directory", Bcdir);
+   if (mkdir_p(Bcdir) != 0) {  /* ensure Bcdir is ready */
+      perrno("failed to verify %s/ directory", Bcdir);
       return VERROR;
    }  /* fill args with peer ips */
-   for(done = n = 0; n < MAXQUORUM && n < count; n++) args[n].ip = plist[n];
+   for (done = n = 0; n < MAXQUORUM && n < count; n++) {
+      args[n].ip = plist[n];
+   }
 
    /* download/validate/update blocks from args */
    put64(bclear, Cblocknum);
@@ -272,8 +301,7 @@ int catchup(word32 plist[], word32 count)
       for(put64(bnum, Cblocknum), done = i = 0; i < n; i++) {
          if (args[i].ip == 0) done++;
          else if (tid[i] > 0 && args[i].tr) {  /* thread finished */
-            res = thread_join(tid[i]);
-            if (res != VEOK) perrno(res, "catchup(): thread_join");
+            if (thread_join(tid[i]) != 0) perrno("thread_join");
             if ((args[i].tr >> 8) != VEOK) args[i].ip = 0;  /* kick */
             args[i].tr = 0;
             tid[i] = 0;
@@ -292,13 +320,13 @@ int catchup(word32 plist[], word32 count)
             } while(fexists(fname) || fexists(fname2));
             /* create file for child, so the children don't fight */
             fp = fopen(fname, "w");
-            if (fp == NULL) perrno(errno, "catchup(): fopen(%s) failed", fname);
+            if (fp == NULL) perrno("fopen(%s) failed", fname);
             else {
                fclose(fp);
                put64(args[i].bnum, bnum);
                res = thread_create(&(tid[i]), &thread_get_block, &args[i]);
-               if (res != VEOK) {
-                  perrno(res, "catchup(): thread_create");
+               if (res != 0) {
+                  perrno("thread_create");
                   args[i].tr = 0;
                   tid[i] = 0;
                   remove(fname);
@@ -312,9 +340,14 @@ int catchup(word32 plist[], word32 count)
          if (fexists(fname2)) {
             res = b_update(fname2, 0);
             if (res != VEOK) {
-               perr("catchup(): failed to update block file %s", fname2);
+               perr("failed to update block file %s", fname2);
                /* wait for all threads to finish and return res */
-               thread_join_list(tid, n);
+               for (i = 0; i < n; i++) {
+                  if (tid[i] == 0) continue;
+                  if (thread_cancel(tid[i]) != 0) {
+                     perrno("thread_cancel(%zu)", (size_t) tid[i]);
+                  }
+               }
                return res;
             }
          }
@@ -331,17 +364,17 @@ int catchup(word32 plist[], word32 count)
 int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 {
    static word8 num256[8] = { 0, 1, };
-   char ipaddr[16], fname[FILENAME_MAX];
+   char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN];
    int result;
 
    show("gettfile");  /* get tfile */
-   pdebug("resync(): fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
+   pdebug("fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
    while(Running && *quorum) {
       remove("tfile.dat");
       if (get_file(*quorum, NULL, "tfile.tmp") == VEOK) {
          if (rename("tfile.tmp", "tfile.dat") == 0) break;
-         perrno(errno, "resync(): failed to rename tfile.dat");
+         perrno("failed to rename tfile.dat");
       }
       /* remove quorum member, and try again */
       remove32(*quorum, quorum, *qidx, qidx);
@@ -351,9 +384,9 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    show("tfval");  /* validate tfile */
    if (tf_val("tfile.dat", bnum, weight, 0)) return VERROR;
-   else pdebug("resync(): tfile.dat is valid.");
+   else pdebug("tfile.dat is valid.");
    if (cmp256(weight, highweight) >= 0 && cmp64(bnum, highbnum) >= 0) {
-      pdebug("resync(): tfile.dat matches advertised bnum and weight.");
+      pdebug("tfile.dat matches advertised bnum and weight.");
    } else return VERROR;
    if (!(*quorum)) restart("tfval no quorum");
    if (!Running) resign("tfval exiting");
@@ -362,7 +395,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    /* determine starting neo-genesis block */
    put64(bnum, highbnum); bnum[0] = 0;
    if (sub64(bnum, num256, bnum)) memset(bnum, 0, 8);
-   pdebug("resync(): neo-genesis block 0x%s", bnum2hex(bnum));
+   pdebug("neo-genesis block 0x%s", bnum2hex(bnum, NULL));
    /* clean bc/ directory of block >= ngnum */
    delete_blocks(bnum);
    /* trim the tfile back to the neo-genesis block and close the ledger */
@@ -370,7 +403,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    le_close();  /* close ledger, we're gonna grab a new one... */
    /* download neo-genesis block if no backup */
    if(!iszero(bnum, 8)) {  /* ... no need to download genesis block */
-      plog("init(): downloading neo-genesis block 0x%s", bnum2hex(bnum));
+      plog("downloading neo-genesis block 0x%s", bnum2hex(bnum, NULL));
       while(Running && *quorum) {
          remove("ngblock.dat");
          if(get_file(*quorum, bnum, "ngblock.dat") == VEOK) break;
@@ -380,9 +413,10 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       if (!(*quorum)) restart("getneo no quorum");
       if (!Running) resign("getneo exiting");
       /* transfer neo-genesis block to bcdir */
-      sprintf(fname, "%.106s/b%.16s.bc", Bcdir, bnum2hex(bnum));
+      bnum2fname(bnum, bcfname);
+      path_join(fname, sizeof(fname), Bcdir, bcfname);
       if(rename("ngblock.dat", fname) != 0) {
-         perrno(errno, "init(): cannot move neo-genesis to %s", fname);
+         perrno("cannot move neo-genesis to %s", fname);
          return VERROR;
       }
       /* extract ledger from neo-genesis block... */
@@ -399,7 +433,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if(!iszero(bnum, 8)) {  /* Cblockhash was set by reset_chain() */
       result = ng_val(fname, bnum);
       if(result != 0) {
-         plog("init(): Bad NG block! ecode: %d", result);
+         plog("Bad NG block! ecode: %d", result);
          remove(fname);
          return VERROR;
       }
@@ -407,7 +441,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    /* get blockchain */
    if (catchup(quorum, *qidx) != VEOK) {
-      plog("resync(): catchup() encountered an error, restarting...");
+      plog("catchup() encountered an error, restarting...");
       restart("catchup error");
    }
 
@@ -425,7 +459,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    tf_val("tfile.dat", bnum, weight, 1);
    memcpy(Weight, weight, HASHLEN);
    if(cmp64(bnum, Cblocknum) != 0) {
-      perr("init(): block number mismatch!");  /* should not happen */
+      perr("block number mismatch!");  /* should not happen */
       restart("tfval_last error");
    }
 
@@ -446,8 +480,8 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 {
    word8 bnum[8], tfweight[HASHLEN], saveweight[HASHLEN];
-   static word32 lastneo[2], sblock[2];
-   char buff[256];
+   word8 lastneo[8], sblock[8];
+   char buff[256], bcfname[21];
    int j;
    NODE *np2;
    time_t lasttime;
@@ -468,61 +502,62 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    }
 
    /* Close server ledger */	
-   pdebug("syncup(): beginning state save...");
+   pdebug("beginning state save...");
    le_close();
 
    /* Backup TFILE, Ledger, and blocks to split-tree directory. */
    /* system("mkdir split"); * already exists */
-   pdebug("syncup(): Backing up TFILE, ledger.dat, and blocks...");
+   pdebug("Backing up TFILE, ledger.dat, and blocks...");
    system("rm -f split/*");  /* don't complain, just do it */
    system("cp tfile.dat split");
    system("cp ledger.dat split");
    system("mv bc/*.bc split");
    memcpy(saveweight, Weight, HASHLEN);
 
-   sblock[0] = splitblock;
+   put32(sblock + 4, 0);
+   put32(sblock, splitblock);
    /* Compute first previous NG block */
-   lastneo[0] = (get32(Cblocknum) & 0xffffff00) - 256;
-   pdebug("syncup(): Identified first previous NG block as %s",
-                  bnum2hex(&lastneo));
+   put64(lastneo, Cblocknum);
+   put32(lastneo, (get32(lastneo) & 0xffffff00) - 256);
+   bnum2fname(lastneo, bcfname);
+   pdebug("Identified first previous NG block as %s", bcfname);
 
    /* Delete Ledger and trim T-File */
-   if(unlink("ledger.dat") != 0) {
+   if(remove("ledger.dat") != 0) {
       pdebug("syncup() failed!  Unable to delete ledger.dat");
       goto badsyncup;
    }
-   if(trim_tfile(&lastneo) != VEOK) {
-      pdebug("syncup(): T-File trim failed!");
+   if(trim_tfile(lastneo) != VEOK) {
+      pdebug("T-File trim failed!");
       goto badsyncup;
    }
 
    /* Extract first previous Neogenesis Block to ledger.dat */
-   pdebug("syncup(): Expanding Neo-genesis block to ledger.dat...");
-   sprintf(buff, "cp split/b%s.bc bc/b%s.bc", bnum2hex(&lastneo), 
-           bnum2hex(&lastneo));
+   pdebug("Expanding Neo-genesis block to ledger.dat...");
+   sprintf(buff, "cp split/%s bc/%s", bcfname, bcfname);
    system(buff);
-   sprintf(buff, "bc/b%s.bc", bnum2hex(&lastneo));
+   sprintf(buff, "bc/%s", bcfname);
    if(le_extract(buff, "ledger.dat") != VEOK) {
-      pdebug("syncup(): failed!  Unable to extract ledger!");
+      pdebug("failed!  Unable to extract ledger!");
       goto badsyncup;
    }
 
    /* setup Difficulty and globals, based on neogenesis block */
    if(reset_chain() != VEOK) {
-      pdebug("syncup(): failed!  reset_chain() failed!");
+      pdebug("failed!  reset_chain() failed!");
       goto badsyncup;
    }
    le_open("ledger.dat", "rb");
 
-   pdebug("Split point is block %s", bnum2hex(&sblock));
+   pdebug("Split point is block %s", bnum2hex(sblock, NULL));
    add64(lastneo, One, bnum);
    for( ;cmp64(bnum, sblock) < 0; ) {
-      pdebug("syncup(): Copying split/b%s.bc to spblock.tmp",
-                     bnum2hex(bnum));
-      sprintf(buff, "cp split/b%s.bc spblock.tmp", bnum2hex(bnum));
+      bnum2fname(bnum, bcfname);
+      pdebug("Copying split/%s to spblock.tmp", bcfname);
+      sprintf(buff, "cp split/%s spblock.tmp", bcfname);
       system(buff);
       if(b_update("spblock.tmp", 1) != VEOK) {
-         pdebug("syncup(): failed to update our own block.");
+         pdebug("failed to update our own block.");
          goto badsyncup;
       }
       add64(bnum, One, bnum);
@@ -534,9 +569,9 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    put64(bnum, sblock);
    for(j = 0; ; ) {
       if(bnum[0] == 0) add64(bnum, One, bnum);  /* skip NG blocks */
-      sprintf(buff, "b%s.dat", bnum2hex(bnum));
+      sprintf(buff, "b%s.dat", bnum2hex64(bnum, bcfname));
       if(j == 60) {
-         pdebug("syncup(): failed while downloading %s from %s",
+         pdebug("failed while downloading %s from %s",
                         buff, ntoa(&peerip, NULL));
          goto badsyncup;
       }
@@ -548,7 +583,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
          continue;
       }
       if(b_update(buff, 0) != VEOK) {
-         pdebug("syncup(): cannot update peer's block.");
+         pdebug("cannot update peer's block.");
          goto badsyncup;
       }
       add64(bnum, One, bnum);
@@ -557,7 +592,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    system("rm split/*");
    /* re-compute tfile weight */
    if(tf_val("tfile.dat", bnum, tfweight, 1)) {
-      plog("syncup(): tf_val() error");
+      plog("tf_val() error");
    } else plog("syncup() is good!");
    memcpy(Weight, tfweight, HASHLEN);
    Insyncup = 0;
@@ -565,7 +600,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
 badsyncup:
    /* Restore block chain from saved state after a bad re-sync attempt. */
-   pdebug("syncup(): bad sync: restoring saved state...");
+   pdebug("bad sync: restoring saved state...");
    le_close();
    system("mv split/tfile.dat .");
    system("mv split/ledger.dat .");
@@ -590,12 +625,12 @@ int contention(NODE *np)
    int result;
    BTRAILER *bt;
 
-   pdebug("contention(): IP: %s", ntoa(&np->ip, NULL));
+   pdebug("IP: %s", ntoa(&np->ip, NULL));
 
    tx = &np->tx;
    /* ignore low weight */
    if(cmp256(tx->weight, Weight) <= 0) {
-      pdebug("contention(): Ignoring low weight");
+      pdebug("Ignoring low weight");
       return 0;
    }
    /* ignore NG blocks */
@@ -605,7 +640,7 @@ int contention(NODE *np)
    }
 
    if(memcmp(Cblockhash, tx->pblockhash, HASHLEN) == 0) {
-      pdebug("contention(): get the expected block");
+      pdebug("get the expected block");
       return 1;  /* get block */
    }
 
