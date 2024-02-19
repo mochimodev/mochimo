@@ -479,6 +479,7 @@ int send_found(void)
    word32 *ipp;
    NODE node;
    BTRAILER bt;
+   char bnumhex[17];
    char fname[FILENAME_MAX];
    char bcfname[21];
    int ecode;
@@ -519,8 +520,7 @@ bad:
       memcpy(Prevhash, bt.phash, HASHLEN);
    }  /* end if NG block v.23 */
 
-   pdebug("send_found(0x%08x%08x)",
-      ((word32 *) Cblocknum)[1], ((word32 *) Cblocknum)[0]);
+   pdebug("send_found(0x%s)", bnum2hex(Cblocknum, bnumhex));
 
    loadproof(&tx);  /* get proof from tfile.dat */
    /* Send found message to recent peers */
@@ -891,6 +891,7 @@ int scan_network
    word8 highhash[HASHLEN] = { 0 };
    word8 highweight[32] = { 0 };
    word8 highbnum[8] = { 0 };
+   char weighthex[65], bnumhex[17];
 
    done = next = qcount = 0;
    plog("begin network scan... ");
@@ -961,10 +962,8 @@ int scan_network
       } else millisleep(1);
    }
    pdebug("found %d qualifying nodes...", qcount);
-   pdebug("qualifying weight 0x...%08x%08x%08x", ((word32 *) highweight)[2],
-      ((word32 *) highweight)[1], ((word32 *) highweight)[0]);
-   pdebug("qualifying block 0x%08x%08x",
-      ((word32 *) highbnum)[1], ((word32 *) highbnum)[0]);
+   pdebug("qualifying weight 0x...%s", weight2hex(highweight, weighthex));
+   pdebug("qualifying block 0x%s", bnum2hex(highbnum, bnumhex));
 
    /* set highest hash, weight and block number */
    if (hash) memcpy(hash, highhash, HASHLEN);
