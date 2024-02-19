@@ -322,6 +322,7 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...);
 void setplogfunctions(int val);
 void setploglevel(int ll);
 void setplogtime(int val);
+char *weight2hex(word8 weight[32], char hex[65]);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

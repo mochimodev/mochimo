@@ -617,5 +617,34 @@ void setplogtime(int val)
    Logtime = val;
 }
 
+/**
+ * Convert a 256-bit chain weight to a hexadecimal string.
+ * Leading zeros are ommited from hexidecimal string result.
+ * @param weight Pointer to 256-bit chain weight (or equivalent value)
+ * @param hex Pointer to 65 byte character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
+*/
+char *weight2hex(word8 weight[32], char hex[65])
+{
+   word32 *dp;
+   char *cp;
+   int i;
+   static char sbuf[65];
+
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
+
+   /* skip empty values -- print initial hex value w/o leading zeros */
+   dp = (word32 *) weight;
+   for (i = 7; i > 0 && dp[i] == 0; i--);
+   snprintf(hex, 65, "%x", dp[i--]);
+   for (cp = hex + strlen(hex); i >= 0; i--, cp += strlen(cp)) {
+      snprintf(cp, 64 - (cp - hex), "%08x", dp[i]);
+   }
+
+   return hex;
+}
+
 /* end include guard */
 #endif
