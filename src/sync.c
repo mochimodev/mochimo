@@ -108,7 +108,7 @@ int reset_chain(void)
    closedir(dp);
 
    /* read block trailer of file and ensure block numbers match */
-   path_join(fname, sizeof(fname), Bcdir, bcfname);
+   path_join(fname, Bcdir, bcfname);
    if (readtrailer(&bt, fname)) {
       perr("failed to read block trailer, %s", fname);
       return VERROR;
@@ -142,7 +142,7 @@ int delete_blocks(void *matchblock)
    if(iszero(bnum,8)) add64(bnum, One, bnum);
    for(j = 0; ; j++) {
       bnum2fname(bnum, bcfname);
-      path_join(fname, sizeof(fname), Bcdir, bcfname);
+      path_join(fname, Bcdir, bcfname);
       if (remove(fname) != 0) break;
       add64(bnum, One, bnum);
    }
@@ -155,7 +155,7 @@ int extract_gen(char *lfile)
 {
    char fname[FILENAME_MAX];
 
-   path_join(fname, sizeof(fname), Bcdir, "b0000000000000000.bc");
+   path_join(fname, Bcdir, "b0000000000000000.bc");
    /* extract the ledger from our Genesis Block */
    return le_extract(fname, lfile);
 }
@@ -192,7 +192,7 @@ int testnet(void)
 
    /* extract ledger from neogenesis */
    bnum2fname(bnum, bcfname);
-   path_join(fname, sizeof(fname), Bcdir, bcfname);
+   path_join(fname, Bcdir, bcfname);
    if (le_extract(fname, "ledger.tmp") != VEOK) {
       perr("failed to le_extract(%s)", fname);
       goto FAIL;
@@ -202,7 +202,7 @@ int testnet(void)
    while (cmp64(bnum, Cblocknum) <= 0) {
       add64(bnum, One, bnum);
       bnum2fname(bnum, bcfname);
-      path_join(fname, sizeof(fname), Bcdir, bcfname);
+      path_join(fname, Bcdir, bcfname);
       if (!fexists(fname)) break;  /* no more blocks */
       if (fexists("txclean.dat")) {
          remove(fname);
@@ -414,7 +414,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       if (!Running) resign("getneo exiting");
       /* transfer neo-genesis block to bcdir */
       bnum2fname(bnum, bcfname);
-      path_join(fname, sizeof(fname), Bcdir, bcfname);
+      path_join(fname, Bcdir, bcfname);
       if(rename("ngblock.dat", fname) != 0) {
          perrno("cannot move neo-genesis to %s", fname);
          return VERROR;

@@ -250,36 +250,34 @@ char *ve2str(int ve)
 /**
  * CONSIDER USING THE path_join() MACRO;
  * Join multiple strings into a file path written to a buffer.
- * @param buf Pointer to output character array, or NULL
- * @param bufsz Size of output character array, @a buf, in bytes
- * @param count Number of string parameters to follow
+ * @param path Pointer to character array[FILENAME_MAX], or NULL
+ * @param count Number of string parameters to join
  * @param ... Strings to join together
- * @returns Pointer to provided @a buf or (if not provided)
+ * @returns Pointer to provided @a path or (if not provided)
  * internal static buffer containing the resulting output.
 */
-char *path_join_count(char *buf, size_t bufsz, int count, ...)
+char *path_join_count(char path[FILENAME_MAX], int count, ...)
 {
    va_list args;
    char *next;
+   static char sbuf[FILENAME_MAX];
 
    /* static buffer and usage check */
-   static char sbuf[FILENAME_MAX];
-   if (buf == NULL) {
-      bufsz = sizeof(sbuf);
-      buf = sbuf;
-   }
+   if (path == NULL) path = sbuf;
 
    /* join variable arguments together */
    va_start(args, count);
-   for (*buf = '\0'; count > 0; count --) {
+   for (*path = '\0'; count > 0; count --) {
       next = va_arg(args, char *);
       if (next == NULL || *next == '\0') continue;
-      if (*buf != '\0') strncat(buf, PATH_SEP, bufsz - strlen(buf) - 1);
-      strncat(buf, next, bufsz - strlen(buf) - 1);
+      if (*path != '\0') {
+         strncat(path, PATH_SEP, FILENAME_MAX - strlen(path) - 1);
+      }
+      strncat(path, next, FILENAME_MAX - strlen(path) - 1);
    }
    va_end(args);
 
-   return buf;
+   return path;
 }
 
 /**

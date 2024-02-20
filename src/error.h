@@ -46,8 +46,8 @@
  * @param bufsz Size of buffer to write to, in bytes
  * @param ... Strings to join together
 */
-#define path_join(buf, bufsz, ...) \
-   path_join_count(buf, bufsz, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define path_join(path, ...) \
+   path_join_count(path, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
 
 /**
  * Print an alert level log.
@@ -314,7 +314,7 @@ char *hash2hex32(word8 hash[4], char hex[9]);
 char *metric_reduce(double *value);
 char *op2str(unsigned op);
 char *ve2str(int ve);
-char *path_join_count(char *buf, size_t bufsz, int count, ...);
+char *path_join_count(char path[FILENAME_MAX], int count, ...);
 char *mcm_strerror(int errnum, char *buf, size_t bufsz);
 unsigned int perrcount(void);
 unsigned int plogcount(void);

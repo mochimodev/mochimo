@@ -305,7 +305,7 @@ int send_file(NODE *np, char *fname)
    tx = &(np->tx);
    if (fname == NULL) {
       bnum2fname(tx->blocknum, bcfname);
-      fname = path_join(dummy, sizeof(dummy), Bcdir, bcfname);
+      fname = path_join(dummy, Bcdir, bcfname);
    }
    pdebug("(%s, %s) sending...", np->id, fname);
 
@@ -396,7 +396,7 @@ int send_hash(NODE *np)
    char bcfname[21];
 
    bnum2fname(np->tx.blocknum, bcfname);
-   path_join(fname, sizeof(fname), Bcdir, bcfname);
+   path_join(fname, Bcdir, bcfname);
    if(readtrailer(&bt, fname) != VEOK) return VERROR;
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy hash of tx.blocknum to TX */
@@ -506,7 +506,7 @@ int send_found(void)
       /* Back up our Cblocknum in child only to 0x...ff block. */
       if(sub64(Cblocknum, One, Cblocknum)) goto bad;
       bnum2fname(Cblocknum, bcfname);
-      path_join(fname, sizeof(fname), Bcdir, bcfname);
+      path_join(fname, Bcdir, bcfname);
       ecode = 2;
       if(readtrailer(&bt, fname) != VEOK
          || cmp64(Cblocknum, bt.bnum) != 0) {
