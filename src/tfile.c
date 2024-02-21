@@ -507,7 +507,7 @@ int tf_val(char *fname, void *bnum, void *weight, int weight_only)
       /* check for EOF or error */
       if (feof(fp) || ecode) break;
 
-      if (!weight_only && bt.bnum[1] == 0 && endblock) {
+      if (!weight_only && get16(bt.bnum) == 0 && endblock) {
          percent = 100.0 * get32(bt.bnum) / endblock;
          plog("Validating Tfile %.2f%% (0x%" P32x ")",
             percent, get32(bt.bnum));
