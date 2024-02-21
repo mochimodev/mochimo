@@ -30,33 +30,6 @@
 #include "extmath.h"
 #include "extlib.h"
 
-int accept_block(char *ublock, word8 *newnum)
-{
-   char buff[256];
-   char cmd[288];
-   char bnum[18];
-
-   bnum2hex(newnum, bnum);
-   sprintf(buff, "b%s.bc", bnum);
-   sprintf(cmd, "%s/b%s.bc", Bcdir, bnum);
-   if(fexists(buff) || fexists(cmd)) {
-      perr("failed: %s already exists!", buff);
-      return VERROR;
-   }
-   if(rename(ublock, buff) != 0) {
-      perrno("failed on rename() %s to %s", ublock, buff);
-      return VERROR;
-   }
-   sprintf(cmd, "mv %s %s", buff, Bcdir);
-   if (system(cmd)) return VERROR;
-   sprintf(buff, "%s/b%s.bc", Bcdir, bnum);
-   if(!fexists(buff)) {
-      perr("failed on system(%s): %s missing", cmd, buff);
-      return VERROR;
-   }
-   return VEOK;
-}  /* end accept_block() */
-
 void print_bup(BTRAILER *bt, char *solvestr)
 {
    word32 bnum, btxs, btime, bdiff;
@@ -312,8 +285,8 @@ int b_update(char *fname, int mode)
    BTRAILER bt;
    word32 bnum, len;
    int ecode;
-   char bcfname[FILENAME_MAX], *solvestr;
-   char bnumhex[18];
+   char fpath[FILENAME_MAX], *solvestr;
+   char bcfname[21];
    char bhash[10];
    FILE *fp;
 
@@ -408,10 +381,13 @@ int b_update(char *fname, int mode)
    Difficulty = set_difficulty(&bt);
    Time0 = get32(bt.stime);
    /* add block trailer to tfile and accept block */
+   bnum2fname(Cblocknum, bcfname);
+   path_join(fpath, Bcdir, bcfname);
    if (append_tfile(fname, "tfile.dat") != VEOK) {
       restart("failed to append_tfile()");
-   } else if (accept_block(fname, Cblocknum) != VEOK) {
-      restart("failed to accept_block()");
+   } else if (rename(fname, fpath) != 0) {
+      perrno("failed on rename() %s to %s", fname, fpath);
+      restart("failed to accept block");
    }
 
    /* update server data */
@@ -441,9 +417,9 @@ int b_update(char *fname, int mode)
        * Determine input block b...ff.bc file with Cblocknum.
        * Update Cblockhash, Cblocknum, Prevhash, Eon and tfile.dat
        */
-      bnum2hex(Cblocknum, bnumhex);
-      snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnumhex);
-      if (neogen(bcfname, "ngblock.dat") != VEOK) {
+      bnum2fname(Cblocknum, bcfname);
+      path_join(fpath, Bcdir, bcfname);
+      if (neogen(fpath, "ngblock.dat") != VEOK) {
          restart("failed to neogen()");
       } else if (add64(Cblocknum, One, Cblocknum)) {
          restart("neogenesis blocknum overflow");
@@ -454,10 +430,13 @@ int b_update(char *fname, int mode)
       memcpy(Cblockhash, bt.bhash, HASHLEN);
       Eon++;
       /* add neogenesis block trailer to tfile and accept block */
+      bnum2fname(Cblocknum, bcfname);
+      path_join(fpath, Bcdir, bcfname);
       if (append_tfile("ngblock.dat", "tfile.dat") != VEOK) {
          restart("failed to append_tfile(ngblock.dat)");
-      } else if (accept_block("ngblock.dat", Cblocknum) != VEOK){
-         restart("failed to accept_block(ngblock.dat)");
+      } else if (rename("ngblock.dat", fpath) != 0) {
+         perrno("failed on rename() ngblock.dat to %s", fpath);
+         restart("failed to accept block");
       }
       /* check CAROUSEL() */
       if (get32(Cblocknum) == Lastday) {
