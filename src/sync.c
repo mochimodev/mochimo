@@ -53,8 +53,10 @@ ThreadProc thread_get_block(void *arg)
    /* initialize */
    sprintf(fname, "b%" P32x ".tmp", get32(args->bnum));
    sprintf(fname2, "b%" P32x ".dat", get32(args->bnum));
-   if (get_file(args->ip, args->bnum, fname) == VEOK) {
-      if (rename(fname, fname2) != 0) {
+   res = get_file(args->ip, args->bnum, fname);
+   if (res == VEOK) {
+      res = rename(fname, fname2);
+      if (res != 0) {
          perrno("failed to move %s -> %s", fname, fname2);
          res = VERROR;
       }
