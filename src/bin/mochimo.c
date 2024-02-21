@@ -625,7 +625,7 @@ int init(void)
  *
  * Uses globals from data.c
  */
-int server(void)
+int server(int reuse_addr)
 {
    /* real time of current server loop - set by server() */
    static time_t Ltime;
@@ -662,13 +662,19 @@ int server(void)
    addr.sin_addr.s_addr = INADDR_ANY;
    addr.sin_family = AF_INET;
 
-   int enable = 1;
-   setsockopt(lsd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+   /* reuse_addr is passed in from main() as runtime option */
+   setsockopt(lsd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(int));
 
    show("bind");
    for(;;) {
       if(!Running) { sock_close(lsd); return 0; }
       if(bind(lsd, (struct sockaddr *) &addr, sizeof(addr)) == 0) break;
+      /* timeout after ~5 minutes */
+      if (difftime(time(NULL), Ltime) > 300) {
+         perr("Timeout binding port %d", Port);
+         sock_close(lsd);
+         return 0;
+      }
       plog("Trying to bind port %d...", Port);
       sleep(5);
       if(Monitor && !Bgflag) monitor();
@@ -1075,6 +1081,8 @@ int usage(void)
       "   -Mn        set transaction fee to n\n"
       "   -Sanctuary=N,Lastday\n"
       "   -Tn        set Trustblock to n for tfval() speedup\n"
+      "   --reuse-addr\n"
+      "        enable listening server socket option SO_REUSEADDR\n"
    );
 #ifdef BX_MYSQL
    printf("   -X         Export to MySQL database on block update\n");
@@ -1092,6 +1100,7 @@ int main(int argc, char **argv)
    static int k, j;
    static char proc_name[64], *cp;
    static word8 endian[] = { 0x34, 0x12 };
+   int reuse_addr = 0;
 
    /* sanity checks -- for undesired structure padding */
    if (sizeof(word32) != 4) resign("word32 should be 4 bytes");
@@ -1121,13 +1130,6 @@ int main(int argc, char **argv)
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
 #endif
 
-   /* sanity check -- for duplicate processes */
-   cp = strrchr(argv[0], '/');
-   if (cp == NULL) cp = strrchr(argv[0], '\\');
-   if (cp++ && *cp) strncpy(proc_name, cp, sizeof(proc_name));
-   else strncpy(proc_name, argv[0], sizeof(proc_name));
-   if (proc_dups(proc_name)) resign("Mochimo is already running!");
-
    /* improve random generators */
    srand16fast(time(NULL) ^ getpid());
    srand16(time(NULL), 0, 123456789 ^ getpid());
@@ -1142,6 +1144,7 @@ int main(int argc, char **argv)
             cp = &argv[j][2];
             if (*cp == '\0') goto EOA;  /* -- end of args */
             else if (strcmp("help", cp) == 0) exit(usage());
+            else if (strcmp("reuse-addr", cp) == 0) reuse_addr = 1;
             else if (strcmp("testnet", cp) == 0) exit(testnet());
             else if (strcmp("veronica", cp) == 0) exit(veronica());
             else perr("Unknown argument, %s", argv[j]);
@@ -1268,7 +1271,7 @@ EOA:  /* end of arguments */
    /* perform init and start server */
    if (Running) {
       if (Running && init() == VEOK) {
-         server();
+         server(reuse_addr);
          /* shutdown sockets */
          sock_cleanup();
          /* stop services */
