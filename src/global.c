@@ -12,6 +12,16 @@
 
 #include "global.h"
 
+/* internal support */
+#include "error.h"
+
+/* external support */
+#include "extinet.h"
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+
 int Nonline;         /* number of pid's in Nodes[]                */
 word32 Quorum = 4;   /* Number of peers in get_eon() gang[MAXQUORUM] */
 word32 Trustblock;   /* trust block validity up to this block     */
@@ -77,6 +87,147 @@ pid_t Mqpid;            /* mirror() */
 int Mqcount;            /* count of mq.dat records */
 
 word8 One[8] = { 1 };   /* for 64-bit maths */
+
+/**
+ * Terminate services and exit with @a ecode.
+ * @param ecode value to supply to exit()
+*/
+void kill_services_exit(int ecode)
+{
+   if (Found_pid) kill(Found_pid, SIGTERM);
+   if (Bcon_pid) kill(Bcon_pid, SIGTERM);
+   if (Mqpid) kill(Mqpid, SIGTERM);
+   if (Mpid) kill(Mpid, SIGTERM);
+   sock_cleanup();
+   Running = 0;
+   while (waitpid(-1, NULL, 0) != -1);
+   exit(ecode);
+}
+
+char *show(char *state)
+{
+   if(state == NULL) state = "(null)";
+   if(Statusarg) strncpy(Statusarg, state, 8);
+   return state;
+}
+
+/* kill the block constructor */
+int stop_bcon(void)
+{
+   int status = VETIMEOUT;
+
+   if (Bcon_pid) {
+      pdebug("   Waiting for b_con() to exit");
+      kill(Bcon_pid, SIGTERM);
+      waitpid(Bcon_pid, NULL, 0);
+      Bcon_pid = 0;
+   }
+
+   return status;
+}
+
+/* kill send_found() */
+int stop_found(void)
+{
+   int status = VETIMEOUT;
+
+   if (Found_pid) {
+      pdebug("   Waiting for send_found() to exit");
+      kill(Found_pid, SIGTERM);
+      waitpid(Found_pid, &status, 0);
+      Found_pid = 0;
+   }
+
+   return status;
+}
+
+/* kill the miner child */
+int stop_miner(void)
+{
+   int status = VETIMEOUT;
+
+   if (Mpid) {
+      pdebug("   Waiting for miner to exit");
+      kill(Mpid, SIGTERM);
+      waitpid(Mpid, &status, 0);
+      /* remove miner files */
+      remove("miner.tmp");
+      remove("bctx.dat");
+      Mpid = 0;
+   }
+
+   return status;
+}
+
+/* kill mirror() children and grandchildren */
+void stop_mirror(void)
+{
+   if(Mqpid) {
+      pdebug("   Reaping mirror() zombies...");
+      kill(Mqpid, SIGTERM);
+      waitpid(Mqpid, NULL, 0);
+      Mqpid = 0;
+   }
+}  /* end stop_mirror() */
+
+/* Read in common global data */
+int read_global(void)
+{
+   FILE *fp;
+   size_t count;
+
+   fp = fopen("global.dat", "rb");
+   if (fp == NULL) {
+      perrno("read_global() failed on fopen() for global.dat");
+      return VERROR;
+   } else {
+      count = 0;
+      count += fread(Cblocknum,    1,  8, fp);
+      count += fread(Cblockhash,   1, 32, fp);
+      count += fread(Prevhash,     1, 32, fp);
+      count += fread(&Mfee,        1,  8, fp);
+      count += fread(&Difficulty,  1,  4, fp);
+      count += fread(&Time0,       1,  4, fp);
+      count += fread(&Bgflag,      1,  1, fp);
+      fclose(fp);
+   }
+   if(count != (8+32+32+4+8+4+1)) {
+      perr("read_global() failed on fread() for %s: read %zu/%zu bytes",
+         "global.dat", count, (size_t) (8+32+32+4+8+4+1));
+      return VERROR;
+   }
+   return VEOK;
+}  /* end read_global() */
+
+
+/* Write out common global data */
+int write_global(void)
+{
+   FILE *fp;
+   size_t count;
+
+   fp = fopen("global.dat", "wb");
+   if (fp == NULL) {
+      perrno("write_global() failed on fopen() for global.dat");
+      return VERROR;
+   } else {
+      count = 0;
+      count += fwrite(Cblocknum,    1,  8, fp);
+      count += fwrite(Cblockhash,   1, 32, fp);
+      count += fwrite(Prevhash,     1, 32, fp);
+      count += fwrite(&Mfee,        1,  8, fp);
+      count += fwrite(&Difficulty,  1,  4, fp);
+      count += fwrite(&Time0,       1,  4, fp);
+      count += fwrite(&Bgflag,      1,  1, fp);
+      fclose(fp);
+   }
+   if(count != (8+32+32+4+8+4+1)) {
+      perr("write_global() failed on fwrite() for %s: wrote %zu/%zu bytes",
+         "global.dat", count, (size_t) (8+32+32+4+8+4+1));
+      return VERROR;
+   }
+   return VEOK;
+}  /* write_global() */
 
 /* end include guard */
 #endif

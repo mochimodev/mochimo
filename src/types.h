@@ -20,7 +20,7 @@
 #include "extio.h"
 #include "extint.h"
 
-/* ------ Begin Dev Section -----*/
+/* ---------------- BEGIN CONFIGURABLE DEFINITIONS --------------------- */
 
 /* Version checking */
 #define PVERSION      4      /* protocol version number (short) */
@@ -53,12 +53,9 @@
 #define SPDIR        "split"  /**< rename to dir for backup storage */
 #define NGDIR        "ng"     /**< rename to dir for neogen storage */
 
-#define ERRFNAME     "error.log" /**< default error log filename */
-#define LOGFNAME     "mochi.log" /**< default standard log filename */
+/* ---------------- END CONFIGURABLE DEFINITIONS ----------------------- */
 
-/* ------ end Dev Section  -----*/
-
-/* ----------------- DO NOT CHANGE BELOW THIS LINE --------------------- */
+/* ---------------- DO NOT CHANGE BELOW THIS LINE ---------------------- */
 
 /* DEPRECATION MACRO, marks functions DECPRECATED for certain compilers */
 #if defined(__GNUC__) || defined(__clang__)
@@ -70,22 +67,22 @@
 #endif
 
 /* set default "preferred path separator" per OS */
-#ifndef PREFERRED_PATH_SEPARATOR
+#ifndef PREFERRED_PATH_SEP
    #ifdef _WIN32
-      #define PREFERRED_PATH_SEPARATOR  "\\"
+      #define PREFERRED_PATH_SEP  "\\"
    #else
-      #define PREFERRED_PATH_SEPARATOR  "/"
+      #define PREFERRED_PATH_SEP  "/"
    #endif
 #endif
 
 /**
  * Path separator to use when concatenating file paths.
- * Path separator is defined by "PREFERRED_PATH_SEPARATOR", or an
- * OS specific separator ("\\" or "/") resulting in the following:
+ * Path separator is defined as "PREFERRED_PATH_SEP", by an OS
+ * specific separator ("\\" or "/") resulting in the following:
  * - Windows\\path\\to
  * - UNIX/path/to
 */
-#define PATH_SEPARATOR  PREFERRED_PATH_SEPARATOR
+#define PATH_SEP  PREFERRED_PATH_SEP
 
 /* boolean return codes */
 #ifndef TRUE

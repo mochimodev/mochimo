@@ -16,13 +16,20 @@
 
 #define GPUMAX 64
 
-/* ensure GIT_VERSION exists */
+/* define EXEC_NAME and GIT_VERSION (if not defined) */
 #ifndef GIT_VERSION
-   #define GIT_VERSION "no-git-version"
-
+   #define GIT_VERSION
+#endif
+#ifndef EXEC_NAME
+   #define EXEC_NAME "Mochimo Server " /* "Daemon " */ GIT_VERSION
 #endif
 
 /* system support */
+#ifndef _WIN32
+   #include <execinfo.h>
+
+#endif
+
 #include <unistd.h>
 #include <time.h>
 #include <sys/wait.h>  /* for waitpid() */
@@ -33,6 +40,7 @@
 #include <stdarg.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <dirent.h>  /* UNIX directory utils */
 #include <errno.h>
 #include <ctype.h>
 
@@ -41,13 +49,11 @@
 #include "extinet.h"    /* socket support */
 #include "extlib.h"     /* general support */
 #include "extmath.h"    /* 64-bit math support */
-#include "extprint.h"   /* print/logging support */
 #include "crc32.h"      /* for mirroring */
 #include "crc16.h"
 
 /* Include everything that we need */
 #include "wots.h"
-#include "util.h"       /* server support */
 #include "tx.h"
 #include "trigg.h"
 #include "tfile.h"
@@ -57,8 +63,58 @@
 #include "network.h"
 #include "ledger.h"
 #include "global.h"     /* System wide globals  */
+#include "error.h"
 #include "bup.h"
 #include "bcon.h"
+
+int check_directory(char *dirname)
+{
+   char fname[FILENAME_MAX];
+
+   mkdir_p(dirname);
+   snprintf(fname, FILENAME_MAX, "%s/chkfile", dirname);
+   if (ftouch(fname) == VEOK) return remove(fname);
+   perrno("Permission failure, %s", dirname);
+   return VERROR;
+}
+
+int clear_directory(char *dname)
+{
+   DIR *dp;
+   struct dirent *ep;
+   char fname[FILENAME_MAX];
+
+   dp = opendir(dname);
+   if (dp == NULL) {
+      perrno("failed to open dir %s...", dname);
+      return VERROR;
+   }
+   while ((ep = readdir(dp))) {
+      snprintf(fname, FILENAME_MAX, "%s/%s", dname, ep->d_name);
+      remove(fname); /* ignores non-empty directories */
+   }
+   closedir(dp);
+
+   /* success */
+   return VEOK;
+}
+
+/**
+ * Get string from terminal input without newline char.
+ * @param buff Pointer to char array to place input
+ * @param len Maximum length of char array @a buff
+ * @returns Pointer to @a buff
+*/
+char *tgets(char *buff, int len)
+{
+   char *cp;
+
+   if (fgets(buff, len, stdin) == NULL) *buff = '\0';
+   cp = strchr(buff, '\n');
+   if (cp) *cp = '\0';
+
+   return buff;
+}
 
 int veronica(void)
 {
@@ -72,26 +128,26 @@ int veronica(void)
 /* Display system statistics */
 int print_stats(void)
 {
-   print("Status:\n\n");
-   print("   Aeon:            %u\n", Eon);
-   print("   Generation:      %u\n", Ngen);
-   print("   Online:          %u\n", Nonline);
-   print("   Raw TX in:       %u\n", Nlogins);
-   print("   Bad peers:       %u\n", Nbadlogs);
-   print("   No space:        %u\n", Nspace);
-   print("   Client timeouts: %u\n", Ntimeouts);
-   print("   Server errors:   %u\n", get_num_errs());
-   print("   TX recvd:        %u\n", Nrec);
-   print("   TX dups:         %u\n", Ndups);
-   print("   txq1 count:      %u\n", Txcount);
-   print("   Balances sent:   %u\n", Nbalance);
-   print("   Sends blocked:   %u\n", Nsenderrs);
-   print("   Blocks solved:   %u\n", Nsolved);
-   print("   Blocks updated:  %u\n\n", Nupdated);
+   printf("Status:\n\n");
+   printf("   Aeon:            %u\n", Eon);
+   printf("   Generation:      %u\n", Ngen);
+   printf("   Online:          %u\n", Nonline);
+   printf("   Raw TX in:       %u\n", Nlogins);
+   printf("   Bad peers:       %u\n", Nbadlogs);
+   printf("   No space:        %u\n", Nspace);
+   printf("   Client timeouts: %u\n", Ntimeouts);
+   printf("   Server errors:   %u\n", perrcount());
+   printf("   TX recvd:        %u\n", Nrec);
+   printf("   TX dups:         %u\n", Ndups);
+   printf("   txq1 count:      %u\n", Txcount);
+   printf("   Balances sent:   %u\n", Nbalance);
+   printf("   Sends blocked:   %u\n", Nsenderrs);
+   printf("   Blocks solved:   %u\n", Nsolved);
+   printf("   Blocks updated:  %u\n\n", Nupdated);
 
-   print("Current block: 0x%s\n", bnum2hex(Cblocknum));
-   print("Weight:        0x...%s\n", bnum2hex(Weight));
-   print("Difficulty:    %d  %s\n", Difficulty,
+   printf("Current block: 0x%s\n", bnum2hex(Cblocknum, NULL));
+   printf("Weight:        0x...%s\n", bnum2hex(Weight, NULL));
+   printf("Difficulty:    %d  %s\n", Difficulty,
       Mpid ? "solving..." : "waiting for tx...");
    return 0;
 } /* end print_stats() */
@@ -120,7 +176,7 @@ void betabait(void)
                 (word32) Hps, Hps ? "" : "(calculated after 2 TXs/updates)"
    );
    printf("Current block: 0x%s\n"
-          "Difficulty:    %d  %s\n\n", bnum2hex(Cblocknum),
+          "Difficulty:    %d  %s\n\n", bnum2hex(Cblocknum, NULL),
           Difficulty, Mpid ? "solving..." : "waiting for TX...");
 } /* end betabait() */
 
@@ -129,13 +185,12 @@ void monitor(void)
 {
    static word8 runmode = 0;   /* 1 for single stepping */
    static char buff[81] = { 0 };
-   static char logfile[81] = LOGFNAME;     /* log file name */
 
    /*
     * Print banner if not single stepping.
     */
    if (runmode == 0) {
-      print("\n\nMochimo System Monitor " GIT_VERSION "\n? for help\n\n");
+      printf("\n\nMochimo System Monitor " GIT_VERSION "\n? for help\n\n");
    }
 
    show("monitor");
@@ -143,26 +198,21 @@ void monitor(void)
     * Command loop.
     */
    for(;;) {
-      print("mochimo> ");
+      printf("mochimo> ");
       tgets(buff, 80);
 
       /* process input */
       if (strcmp(buff, "st") == 0) print_stats();  /* stats command */
       else if (strcmp(buff, "si") == 0) {    /* single step command */
          runmode = 1 - runmode;
-         print("Single step is %s\n", runmode ? "on." : "off.");
+         printf("Single step is %s\n", runmode ? "on." : "off.");
       } else if (strcmp(buff, "ll") == 0) {  /* print level command */
-         print("Note: affects the level of logs printed to screen.\n");
-         print("Log level (%d-%d): ", PLEVEL_NONE, PLEVEL_DEBUG);
+         printf("Note: affects the level of logs printed to screen.\n");
+         printf("Log level (0-%d): ", PLOG_DEBUG);
          /* additional input required */
-         if (*tgets(buff, 80)) set_print_level(atoi(buff));
-      } else if (strcmp(buff, "ol") == 0) {  /* log level command */
-         print("Note: affects the level of logs printed to files.\n");
-         print("Output level (%d-%d): ", PLEVEL_NONE, PLEVEL_DEBUG);
-         /* additional input required */
-         if (*tgets(buff, 80)) set_output_level(atoi(buff));
+         if (*tgets(buff, 80)) setploglevel(atoi(buff));
       } else if (strcmp(buff, "r") == 0) {    /* restart command */
-         print("Confirm restart (Y/n)? ");
+         printf("Confirm restart (Y/n)? ");
          /* additional input required */
          tgets(buff, 80);
          if (strcmp(buff, "Y") == 0) restart("monitor");
@@ -171,24 +221,15 @@ void monitor(void)
          Running = 0;
          return;
       } else if (strcmp(buff, "p") == 0) {   /* print peers command */
-         print("Trusted peers:\n");
+         printf("Trusted peers:\n");
          print_ipl(Tplist, TPLISTLEN);
-         print("Recent peers:\n");
+         printf("Recent peers:\n");
          print_ipl(Rplist, RPLISTLEN);
-         print("Pinklisted:\n");
+         printf("Pinklisted:\n");
          print_ipl(Epinklist, RPLISTLEN);
          continue;
-      } else if (strcmp(buff, "o") == 0) {   /* toggle log file */
-         set_output_file(NULL, NULL);
-         print("Log file is closed.\n");
-         print("Log file [%s]: ", logfile);
-         /* additional input required */
-         if(*tgets(buff, 80)) strncpy(logfile, buff, 80);
-         if (set_output_file(logfile, "a")) {
-            print("Cannot open %s\n", logfile);
-         } else print("Log file %s is open.\n", logfile);
       } else if (strcmp(buff, "m") == 0) {   /* mining mode */
-         print("Enable mining (Y/n) [%s]? ", Nominer ? "n" : "Y");
+         printf("Enable mining (Y/n) [%s]? ", Nominer ? "n" : "Y");
          /* additional input required */
          if (*tgets(buff, 80)) {
             if (strcmp(buff, "Y") == 0) Nominer = 0;
@@ -196,7 +237,7 @@ void monitor(void)
          }
       } else if (*buff == '\0') {   /* ENTER to continue server */
          Monitor = runmode;
-         print("In server() loop...\n");
+         printf("In server() loop...\n");
          return;
       }
 
@@ -235,13 +276,13 @@ int miner(char *blockin, char *blockout)
    time_t start, prev;
    word32 n;
    char phaiku[256];
-   int ecode;
 
    show("solving");
 
    /* pre-checks */
    if (!fexists(blockin)) {
-      mError(FAIL, "miner(): missing blockin %s", blockin);
+      perr("missing blockin %s", blockin);
+      goto FAIL;
    }
 
    /* init */
@@ -261,20 +302,23 @@ int miner(char *blockin, char *blockout)
    while (Running) {
       /* read candidate block file and bctx */
       if (read_data(&bctx, sizeof(bctx), "bctx.dat") != sizeof(bctx)) {
-         mError(FAIL, "miner(): failed to read_data(bctx)");
+         perr("failed to read_data(bctx)");
+         goto FAIL;
       } else if (readtrailer(&bt, blockin) != VEOK) {
-         mError(FAIL, "miner(): failed to read %s trailer", blockin);
+         perr("failed to read %s trailer", blockin);
+         goto FAIL;
       }
       /* remove miner files */
       remove("bctx.dat");
       remove("miner.tmp");
       /* copy blockin to miner.tmp to perform current work */
       if (fcopy(blockin, "miner.tmp") != 0) {
-         mError(FAIL, "miner(): failed to copy %s to miner.tmp", blockin);
+         perr("failed to copy %s to miner.tmp", blockin);
+         goto FAIL;
       }
 
 
-         pdebug("miner(): solving block: 0x%s", bnum2hex(bt.bnum));
+         pdebug("solving block: 0x%s", bnum2hex(bt.bnum, NULL));
 #ifdef CUDA
          for (m = 0, n = 0; Running; m++, usleep(Dynasleep)) {
             if (m >= num_cuda_gpus) m = 0;
@@ -305,17 +349,18 @@ int miner(char *blockin, char *blockout)
 #endif
                /* double check solve is valid */
                if (peach_check(&bt) != VEOK) {
-                  mError(FAIL, "miner(): invalid solve!\n");
                   memset(&btout, 0, sizeof(btout));
+                  perr("invalid solve!\n");
+                  goto FAIL;
                } else {
                   /* solve is valid */
                   show("solved");
                   trigg_expand(bt.nonce, phaiku);
-                  if (!Bgflag) print("\nSOLVED!!!\n\n%s\n", phaiku);
+                  if (!Bgflag) printf("\nSOLVED!!!\n\n%s\n", phaiku);
                   /* ensure solve time is valid */
                   while (Running) {
                      if (difftime(time(NULL), get32(bt.time0)) > 0) break;
-                     pwarn("miner(): early solve! Check system clock...");
+                     pwarn("early solve! Check system clock...");
                      sleep(1);
                   }
                   /* put solve time in trailer */
@@ -326,19 +371,23 @@ int miner(char *blockin, char *blockout)
                   /* write trailer to miner.tmp */
                   fp = fopen("miner.tmp", "r+b");
                   if (fp == NULL) {
-                     mError(FAIL, "miner(): cannot re-open miner.tmp");
+                     perr("cannot re-open miner.tmp");
+                     goto FAIL;
                   } else if (fseek(fp, -(sizeof(bt)), SEEK_END) != 0) {
-                     mError(FAIL_FP, "miner(): fseek(bt) on miner.tmp");
+                     perr("fseek(bt) on miner.tmp");
+                     goto FAIL_FP;
                   } else if (fwrite(&bt, sizeof(bt), 1, fp) != 1) {
-                     mError(FAIL_FP, "miner(): fwrite(bt) on miner.tmp");
+                     perr("fwrite(bt) on miner.tmp");
+                     goto FAIL_FP;
                   } else fclose(fp);
                   /* move mblock.tmp to blockout */
                   remove(blockout);
                   if (rename("miner.tmp", blockout) != 0) {
-                     mError(FAIL, "miner(): cannot rename miner.tmp");
+                     perr("cannot rename miner.tmp");
+                     goto FAIL;
                   }
                   /* final log */
-                  pdebug("miner: solved 0x%s", bnum2hex(bt.bnum));
+                  pdebug("miner: solved 0x%s", bnum2hex(bt.bnum, NULL));
                   Running = 0;
                }  /* end if (peach_check(&bt)... else... */
             }  /* end if (peach_solve(&bt, diff, bt.nonce)... */
@@ -365,7 +414,7 @@ FAIL_FP:
    fclose(fp);
 FAIL:
 
-   return ecode;
+   return VERROR;
 }  /* end miner() */
 
 /* Start the miner as a child process */
@@ -388,7 +437,7 @@ int start_miner(void)
 int init(void)
 {
    /* static word8 FortyEight[8] = { 48, }; */
-   char fname[FILENAME_MAX], weightstr[65];
+   char fname[FILENAME_MAX], weighthex[65], bnumhex[17];
    word32 peer, qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
    word8 netweight[32], netbnum[8]; //, bnum[8];
@@ -421,7 +470,8 @@ int init(void)
    if (fcopy("../maddr.dat", "maddr.dat") != VEOK) {
       if (!fexists("maddr.dat")) {
          if (fcopy("../maddr.mat", "maddr.dat") != VEOK) {
-            return perr("Failed to copy mining address");
+            perr("Failed to copy mining address");
+            return VERROR;
          } else pwarn("using maddr.MAT (the founder's mining address)");
       }
    }
@@ -430,59 +480,63 @@ int init(void)
    if (!fexists("tfile.dat") || !fexists(fname)) {
       pdebug("Core chain files compromised, attempting restoration...");
       if (fcopy("../genblock.bc", fname) != VEOK) {
-         return perr("Failed to restore %s from ../genblock.bc", fname);
+         perr("Failed to restore %s from ../genblock.bc", fname);
+         return VERROR;
       } else if (fcopy("../tfile.dat", "tfile.dat") != VEOK) {
-         return perr("Failed to restore tfile.dat from ../tfile.dat");
+         perr("Failed to restore tfile.dat from ../tfile.dat");
+         return VERROR;
       }
    }
    /* open ledger or extract from genesis block */
    if (!fexists("ledger.dat") || le_open("ledger.dat", "rb") != VEOK) {
       pdebug("Extracting ledger from ../genblock.bc ...");
       if (le_extract("../genblock.bc", "ledger.dat") != VEOK) {
-         return perr("Failed to extract ledger from ../genblock.bc");
+         perr("Failed to extract ledger from ../genblock.bc");
+         return VERROR;
       } else if (le_open("ledger.dat", "rb") != VEOK) { /* try again */
-         return perr("Failed to open ledger.dat");
+         perr("Failed to open ledger.dat");
+         return VERROR;
       }
    }
 
    plog("Init chain...");
    /* Find the last block in bc/ and reset Time0, and Difficulty */
-   if (reset_chain() != VEOK) return perr("reset_chain() failed");
+   if (reset_chain() != VEOK) {
+      perr("reset_chain() failed");
+      return VERROR;
+   }
    /* validate our own tfile.dat to compute Weight */
    if (tf_val("tfile.dat", highblock, Weight, 1)) {
-      perr("init(): bad tfile.dat -- resync");
+      perr("bad tfile.dat -- resync");
       memset(Cblocknum, 0, 8);  /* flag resync */
    } else if (cmp64(Cblocknum, highblock)) {
-      pdebug("init(): %d %d", get32(Cblocknum), get32(highblock));
-      pdebug("init(): %s", weight2hex(Weight));
-      perr("init(): tfile mismatch -- resync");
+      pdebug("%d %d", get32(Cblocknum), get32(highblock));
+      pdebug("0x...%s", weight2hex(Weight, weighthex));
+      perr("tfile mismatch -- resync");
       memset(Cblocknum, 0, 8);  /* flag resync */
    } else if (!iszero(Cblocknum, 8)) {
-      plog(" - 0x%" P32x " 0x%s", get32(Cblocknum),
-         val2hex(Weight, 32, weightstr, 65));
+      plog(" - 0x%s 0x%s", bnum2hex(Cblocknum, bnumhex),
+         weight2hex(Weight, weighthex));
    }
 
    /* scan entire network of peers */
    while (Running) {
       /* reset peers, download start peers, initialize peer lists */
       plog("Init peers...");
-      remove("start.lst");
-      http_get("https://mochimo.org/peers/start", "start.lst", STD_TIMEOUT);
       count = read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
       if (count > 0) plog(" - added %" P32u " pinklisted peers", count);
       count = read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
       if (count > 0) plog(" - added %" P32u " trusted peers", count);
       count = read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
       count += read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
-      count += read_ipl("start.lst", Rplist, RPLISTLEN, &Rplistidx);
       if (count > 0) plog(" - added %" P32u " recent peers", count);
       /* ensure recent peers list is shuffled */
       shuffle32(Rplist, RPLISTLEN);
       /* scan network for quorum and highest hash/weight/bnum */
       plog("Init network...");
       qlen = scan_network(quorum, MAXQUORUM, nethash, netweight, netbnum);
-      plog(" - %d/%d 0x%" P32x " 0x%s", qlen, MAXQUORUM, get32(netbnum),
-         val2hex(netweight, 32, weightstr, 65));
+      plog(" - %d/%d 0x%s 0x...%s", qlen, MAXQUORUM,
+         bnum2hex(netbnum, bnumhex), weight2hex(netweight, weighthex));
       if (qlen == 0) break; /* all alone... */
       else if (qlen < Quorum) {  /* insufficient quorum */
          plog("Insufficient quorum, try again...");
@@ -495,23 +549,23 @@ int init(void)
          result = cmp256(Weight, netweight);  /* compare network weight */
          if (result < 0) {
             pdebug("network weight compares higher");
-            print("\n");
-            print(" ┌────────────────────────────────────┐\n");
-            print(" │ an overwhelming sense of confusion │\n");
-            print(" └────────────────────────────────────┘\n\n");
+            printf("\n");
+            printf(" ┌────────────────────────────────────┐\n");
+            printf(" │ an overwhelming sense of confusion │\n");
+            printf(" └────────────────────────────────────┘\n\n");
          } else if (result > 0) {
             pdebug("network weight compares lower");
-            print("\n");
-            print(" ┌────────────────────────────────────┐\n");
-            print(" │   an overwhelming sense of power   │\n");
-            print(" └────────────────────────────────────┘\n\n");
+            printf("\n");
+            printf(" ┌────────────────────────────────────┐\n");
+            printf(" │   an overwhelming sense of power   │\n");
+            printf(" └────────────────────────────────────┘\n\n");
             break;  /* we're heavier, finish */
          } else if (memcmp(Cblockhash, nethash, HASHLEN) == 0) {
             pdebug("network weight and hash compares equal");
-            print("\n");
-            print(" ┌────────────────────────────────────┐\n");
-            print(" │ an overwhelming sense of belonging │\n");
-            print(" └────────────────────────────────────┘\n\n");
+            printf("\n");
+            printf(" ┌────────────────────────────────────┐\n");
+            printf(" │ an overwhelming sense of belonging │\n");
+            printf(" └────────────────────────────────────┘\n\n");
             break;  /* we're in sync, finish */
          }
          /* have we fallen behind or split from the chain? */
@@ -535,7 +589,7 @@ int init(void)
                if (sub64(bnum, FortyEight, bnum)) break;
                count = readtf(&bt, get32(bnum), get32(FortyEight));
                if (count % sizeof(BTRAILER)){
-                  perr("init(): error reading tfile, count= %s", count);
+                  perr("error reading tfile, count= %s", count);
                   break;
                } else {
                   // acquire same segment of Tfile as above and compare
@@ -573,7 +627,7 @@ int init(void)
  *
  * Uses globals from data.c
  */
-int server(void)
+int server(int reuse_addr)
 {
    /* real time of current server loop - set by server() */
    static time_t Ltime;
@@ -610,13 +664,19 @@ int server(void)
    addr.sin_addr.s_addr = INADDR_ANY;
    addr.sin_family = AF_INET;
 
-   int enable = 1;
-   setsockopt(lsd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+   /* reuse_addr is passed in from main() as runtime option */
+   setsockopt(lsd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(int));
 
    show("bind");
    for(;;) {
       if(!Running) { sock_close(lsd); return 0; }
       if(bind(lsd, (struct sockaddr *) &addr, sizeof(addr)) == 0) break;
+      /* timeout after ~5 minutes */
+      if (difftime(time(NULL), Ltime) > 300) {
+         perr("Timeout binding port %d", Port);
+         sock_close(lsd);
+         return 0;
+      }
       plog("Trying to bind port %d...", Port);
       sleep(5);
       if(Monitor && !Bgflag) monitor();
@@ -634,7 +694,7 @@ int server(void)
       send_found();
    } else plog("\nListening...\n");
 
-   unlink("vstart.lck");  /* signal Verisimility that we are up. */
+   remove("vstart.lck");  /* signal Verisimility that we are up. */
 
    /*
     * Main server loop.
@@ -662,7 +722,7 @@ int server(void)
          /* Adds to lists if needed and returns exit status 0-3 */
          status = child_status(np, pid, status);
          if(opcode == OP_FOUND) {
-            if(Blockfound == 0) perr("server(): line %d", __LINE__);
+            if(Blockfound == 0) perr("line %d", __LINE__);
             else {
                /* exit services */
                stop_bcon();
@@ -721,7 +781,7 @@ int server(void)
                if(pid == 0) {
                   /* in child -- execute() */
                   opcode = get16(np->tx.opcode);
-                  pdebug("execute(): opcode = %d", opcode);
+                  pdebug("opcode = %d", opcode);
                   switch (opcode) {
                      case OP_FOUND:
                         /* get the advertised found block -- synchronous
@@ -767,7 +827,7 @@ int server(void)
                         break;
                      default:
                         Nbadlogs++;  /* bad OP's */
-                        pdebug("execute(): bad opcode: %d", opcode);
+                        pdebug("bad opcode: %d", opcode);
                         status = VEBAD;
                   }  /* end switch op */
                   sock_close(np->sd);
@@ -822,7 +882,7 @@ int server(void)
                Stime = Ltime + 20;  /* hold status display */
             }
          }
-         unlink("mblock.dat");
+         remove("mblock.dat");
          Blockfound = 0;
       }
 
@@ -888,7 +948,7 @@ int server(void)
          /* get exclusive access to txq1.dat */
          lfd = lock("mq.lck", 10);
          if(lfd != -1) {
-            unlink("mirror.dat");
+            remove("mirror.dat");
             rename("mq.dat", "mirror.dat");
             Mqcount = 0;
             unlock(lfd);
@@ -949,6 +1009,59 @@ int server(void)
    return 0;
 } /* end server() */
 
+/**
+ * Segmentation fault handler.
+ * @note compile with "-g -rdynamic" for readable backtrace
+ * @note Not compatible with Windows at this stage
+*/
+void segfault(int sig)
+{
+#ifndef _WIN32
+   void *array[10];
+   size_t size;
+
+   /* get void*'s for all entries on the stack */
+   size = backtrace(array, 10);
+#else
+   fprintf(stderr, "*no backtrace on this system*\n");
+#endif
+
+   /* print out all the frames to stderr */
+   fprintf(stderr, "Error: signal %d:\n", sig);
+
+#ifndef _WIN32
+   backtrace_symbols_fd(array, size, STDERR_FILENO);
+#endif
+
+   exit(1);
+}
+
+/*
+ * Signal handlers
+ *
+ * Enter monitor on ctrl-C
+ */
+void ctrlc(int sig)
+{
+   printf("\n");
+   pdebug("Got signal %i", sig);
+   signal(SIGINT, ctrlc);
+   if (Ininit) Running = 0;
+   else Monitor = 1;
+}
+
+/*
+ * Clear run flag, Running on SIGTERM
+ */
+void sigterm(int sig)
+{
+   printf("\n");
+   pdebug("Got signal %i", sig);
+   signal(SIGTERM, sigterm);
+   sock_cleanup();
+   Running = 0;
+}
+
 int usage(void)
 {
    printf("\n"
@@ -975,6 +1088,8 @@ int usage(void)
       "   -Mn        set transaction fee to n\n"
       "   -Sanctuary=N,Lastday\n"
       "   -Tn        set Trustblock to n for tfval() speedup\n"
+      "   --reuse-addr\n"
+      "        enable listening server socket option SO_REUSEADDR\n"
    );
 #ifdef BX_MYSQL
    printf("   -X         Export to MySQL database on block update\n");
@@ -989,14 +1104,18 @@ int usage(void)
  */
 int main(int argc, char **argv)
 {
+   static char *cp;
    static int k, j;
-   static char proc_name[64], *cp;
    static word8 endian[] = { 0x34, 0x12 };
+   int reuse_addr = 0;
+   char hostname[64];
+   char addrname[18];
 
    set_print_level(PLEVEL_LOG);
 
    /* sanity checks -- for undesired structure padding */
-   if (sizeof(word32) != 4) resign("word32 should be 4 bytes");
+   if (sizeof(word32) != 4) {
+      resign("word32 should be 4 bytes");
    /*else if (sizeof(TX) != TXBUFFLEN) {
       resign("struct size error TX != TXBUFFLEN");
    }*/ else if (sizeof(LTRAN) != (TXWOTSLEN + 1 + TXAMOUNT)) {
@@ -1012,21 +1131,24 @@ int main(int argc, char **argv)
    /* pre-init */
    Ininit = 1;
    Running = 1;
-   fix_signals();             /* redirect signals */
+   /* Ignore all signals. */
+   for(j = 0; j <= 23; j++) {
+      signal(j, SIG_IGN);
+   }
+   signal(SIGINT, ctrlc);     /* then install ctrl-C handler */
+   signal(SIGTERM, sigterm);  /* ...and software termination */
+   signal(SIGSEGV, segfault); /* segmentation fault handler */
+#ifndef _WIN32
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
-
-   /* sanity check -- for duplicate processes */
-   cp = strrchr(argv[0], '/');
-   if (cp == NULL) cp = strrchr(argv[0], '\\');
-   if (cp++ && *cp) strncpy(proc_name, cp, sizeof(proc_name));
-   else strncpy(proc_name, argv[0], sizeof(proc_name));
-   if (proc_dups(proc_name)) resign("Mochimo is already running!");
+#endif
 
    /* improve random generators */
    srand16fast(time(NULL) ^ getpid());
    srand16(time(NULL), 0, 123456789 ^ getpid());
    /* enable socket support */
    sock_startup();
+   /* lof functions */
+   setplogfunctions(1);
 
    /* Parse command line arguments. */
    for (j = 1; Running && j < argc; j++) {
@@ -1036,6 +1158,7 @@ int main(int argc, char **argv)
             cp = &argv[j][2];
             if (*cp == '\0') goto EOA;  /* -- end of args */
             else if (strcmp("help", cp) == 0) exit(usage());
+            else if (strcmp("reuse-addr", cp) == 0) reuse_addr = 1;
             else if (strcmp("testnet", cp) == 0) exit(testnet());
             else if (strcmp("veronica", cp) == 0) exit(veronica());
             else perr("Unknown argument, %s", argv[j]);
@@ -1062,8 +1185,7 @@ int main(int argc, char **argv)
                perr("missing log level value\n");
                exit(usage());
             }
-            set_print_level((k = atoi(&argv[j][2])));
-            set_output_level(k);
+            setploglevel((k = atoi(&argv[j][2])));
             break;
          case 'n':  /* disable miner */
             Nominer = 1;
@@ -1076,11 +1198,6 @@ int main(int argc, char **argv)
             Myfee[0] = atoi(&argv[j][2]);
             if (Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
             else Cbits |= C_MFEE;
-            break;
-         case 'o':  /* open log file used by plog() */
-            if (argv[j][2]) set_output_file(&argv[j][2], "a");
-            else set_output_file(LOGFNAME, "a");
-            Cbits |= C_LOGGING;
             break;
          case 'p':  /* set home/dst communication port */
             Port = Dstport = atoi(&argv[j][2]);
@@ -1142,22 +1259,27 @@ int main(int argc, char **argv)
    }  /* end for j */
 EOA:  /* end of arguments */
 
-   /* print header & disclaimer */
-   plog("Mochimo Server " GIT_VERSION " on " __DATE__ " " __TIME__);
-   plog("Mochimo Mainnet Live Since June 25, 2018 15:43:45 GMT");
-   plog("Mochimo Codebase v2 Released October 27, 2018");
-   plog("Copyright (c) 2022 Adequate Systems, LLC. All Rights Reserved.");
-   plog("See the PDF/TEXT versions of the license agreement:");
-   plog("   https://mochimo.org/license.pdf");
-   plog("   https://mochimo.org/license");
-   plog("");
+   /* print (and log) copyright and version information */
+   plog(EXEC_NAME ", built " __DATE__ " " __TIME__);
+   plog("Copyright (c) 2018-2023 Adequate Systems, LLC.  All Rights Reserved.");
+   plog("See the License Agreement at the links below:");
+   plog("   https://mochimo.org/license.pdf (PDF version)");
+   plog("   https://mochimo.org/license (TEXT version)");
+   printf("\n");
+   /* get local machine name and IP address */
+   gethostname(hostname, sizeof(hostname));
+   gethostip(addrname, sizeof(addrname));
+   /* print (and log) host information */
+   plog("Network Host Information...");
+   plog("  Machine name: %s", *hostname ? hostname : "unknown");
+   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
+   printf("\n");
+   sleep(3);
 
    /* perform init and start server */
    if (Running) {
-      sleep(3);  /* for effect */
-      phostinfo();  /* for info */
       if (Running && init() == VEOK) {
-         server();
+         server(reuse_addr);
          /* shutdown sockets */
          sock_cleanup();
          /* stop services */
@@ -1170,9 +1292,6 @@ EOA:  /* end of arguments */
          save_ipl(Epinkipfname, Epinklist, EPINKLEN);
       }
    }
-
-   /* clear any sticky */
-   psticky("");
 
    return 0;
 }  /* end main() */

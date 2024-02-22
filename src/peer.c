@@ -11,10 +11,12 @@
 
 #include "peer.h"
 
+/* internal support */
+#include "error.h"
+
 /* external support */
 #include <string.h>
 #include <stdlib.h>
-#include "extprint.h"
 #include "extlib.h"
 #include "extinet.h"
 
@@ -136,11 +138,11 @@ void print_ipl(word32 *list, word32 len)
    unsigned int j;
 
    for(j = 0; j < len && list[j]; j++) {
-      if((j % 4) == 0) print("\n");
-      print("   %-15.15s", ntoa(&list[j], NULL));
+      if((j % 4) == 0) printf("\n");
+      printf("   %-15.15s", ntoa(&list[j], NULL));
    }
 
-   print("\n\n");
+   printf("\n\n");
 }
 
 /**
@@ -148,36 +150,39 @@ void print_ipl(word32 *list, word32 len)
  * Returns VEOK on success, else VERROR */
 int save_ipl(char *fname, word32 *list, word32 len)
 {
-   static char preface[] = "# Peer list (built by node)\n";
-   char ipaddr[16];  /* for threadsafe ntoa() usage */
+   const char preface[] = "# Peer list (saved by node)\n";
+   char ipaddr[18];
    word32 j;
    FILE *fp;
 
-   pdebug("save_ipl(%s): saving...", fname);
+   pdebug("saving %s...", fname);
 
    /* open file for writing */
    fp = fopen(fname, "w");
    if (fp == NULL) {
-      perrno(errno, "save_ipl(%s): fopen failed", fname);
+      perrno("fopen(%s) failed", fname);
       return VERROR;
    };
 
+   /* write preface */
+   if (fwrite(preface, strlen(preface), 1, fp) != 1) goto IOERROR;
+
    /* save non-zero entries */
-   for(j = 0; j < len && list[j] != 0; j++) {
+   for(j = 0; j < len; j++) {
+      if (list[j] == 0) continue;
       ntoa(&list[j], ipaddr);
-      if ((j == 0 && fwrite(preface, strlen(preface), 1, fp) != 1) ||
-         (fwrite(ipaddr, strlen(ipaddr), 1, fp) != 1) ||
-         (fwrite("\n", 1, 1, fp) != 1)) {
-         fclose(fp);
-         remove(fname);
-         perr("save_ipl(%s): *** I/O error writing address line", fname);
-         return VERROR;
-      }
+      strncat(ipaddr, "\n", 2);
+      if (fwrite(ipaddr, strlen(ipaddr), 1, fp) != 1) goto IOERROR;
    }
 
    fclose(fp);
-   plog("save_ipl(%s): recent peers saved", fname);
+   plog("%s saved", fname);
    return VEOK;
+IOERROR:
+   fclose(fp);
+   remove(fname);
+   perr("*** %s I/O write error", fname);
+   return VERROR;
 }  /* end save_ipl() */
 
 /**
@@ -193,7 +198,7 @@ int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
    word32 count;
    FILE *fp;
 
-   pdebug("read_ipl(%s): reading...", fname);
+   pdebug("reading %s...", fname);
    count = 0;
 
    /* check valid fname and open for reading */
@@ -206,12 +211,12 @@ int read_ipl(char *fname, word32 *plist, word32 plistlen, word32 *plistidx)
       if (strtok(buff, " #\r\n\t") == NULL) break;
       if (*buff == '\0') continue;
       if (addpeer(aton(buff), plist, plistlen, plistidx)) {
-         pdebug("read_ipl(%s): added %s", fname, buff);
+         pdebug("added %s from %s", buff, fname);
          count++;
       }
    }
    /* check for read errors */
-   if (ferror(fp)) perr("read_ipl(%s): *** I/O error", fname);
+   if (ferror(fp)) perr("*** %s I/O error", fname);
 
    fclose(fp);
    return count;

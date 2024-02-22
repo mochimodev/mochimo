@@ -15,12 +15,21 @@
 #include "network.h"
 
 /* extended-c support */
-#include "extprint.h"
 #include "extint.h"
+#ifndef _WIN32
+   #include <sys/file.h>   /* flock() */
+
+#endif
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#ifndef _WIN32
+   int lock(char *lockfile, int seconds);
+   int unlock(int fd);
+
 #endif
 
 int mtx_val(MTX *mtx, word32 *fee);

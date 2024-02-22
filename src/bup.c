@@ -13,13 +13,14 @@
 #include "bup.h"
 
 /* internal support */
-#include "util.h"
+#include "tfile.h"
 #include "tag.h"
 #include "sort.h"
 #include "peer.h"
 #include "peach.h"
 #include "ledger.h"
 #include "global.h"
+#include "error.h"
 #include "bval.h"
 #include "bcon.h"
 
@@ -28,6 +29,39 @@
 #include <stdlib.h>
 #include "extmath.h"
 #include "extlib.h"
+
+void print_bup(BTRAILER *bt, char *solvestr)
+{
+   word32 bnum, btxs, btime, bdiff;
+   char haiku[256], *haiku1, *haiku2, *haiku3;
+   char hash[10];
+
+   /* prepare block stats */
+   bnum = get32(bt->bnum);
+   btxs = get32(bt->tcount);
+   btime = get32(bt->stime) - get32(bt->time0);
+   bdiff = get32(bt->difficulty);
+   /* print haiku if non-pseudo block */
+   if (!Insyncup && btxs) {
+      /* expand and split haiku into lines for printing */
+      trigg_expand(bt->nonce, haiku);
+      haiku1 = strtok(haiku, "\n");
+      haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
+      haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
+      printf("\n/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
+      /* print block update and details */
+      plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
+         btime, bdiff, btxs);
+   }
+   /* print block identification */
+   hash2hex32(bt->bhash, hash);
+   plog("%s-block: 0x%" P32x " #%s...", solvestr, bnum, hash);
+   /* print miner data if enabled */
+   if (!Ininit && !Insyncup && !Nominer) {
+      read_data(&Hps, sizeof(Hps), "hps.dat");
+      printf("Solved: %" P32u "  Hps: %" P32u "\n", Nsolved, Hps);
+   }
+}  /* end print_bup() */
 
 /**
  * Remove bad TX's from a txclean file based on a blockchain file.
@@ -51,58 +85,68 @@ int b_txclean(char *bcfname)
    word32 diff[2];
    word32 btx, nout;       /* transaction record counters */
    clock_t ticks;
-   int cond, ecode;
+   int cond;
+   char addrhash[10];
 
    void *ap, *bp;    /* comparison pointers */
 
    /* init */
    ticks = clock();
-   ecode = VEOK;
    nout = 0;
 
    /* check txclean exists AND has transactions to clean*/
    if (!fexists("txclean.dat")) {
-      pdebug("b_txclean(): nothing to clean, done...");
+      pdebug("nothing to clean, done...");
       return VEOK;
    }
 
    /* build sorted index Txidx[] from txclean.dat */
    if (sorttx("txclean.dat") != VEOK) {
-      mError(FAIL, "b_txclean(): bad sorttx(txclean.dat)");
+      perr("bad sorttx(txclean.dat)");
+      return VERROR;
    }
    /* open validated block file, read fixed length header and check */
    bfp = fopen(bcfname, "rb");
    if (bfp == NULL) {
-      mErrno(FAIL_IN, "b_txclean(): failed to fopen(%s)", bcfname);
+      perrno("failed to fopen(%s)", bcfname);
+      goto CLEANUP;
    } else if (fread(&hdrlen, 4, 1, bfp) != 1) {
-      mError(FAIL_IO, "b_txclean(): failed to fread(hdrlen)");
+      perr("failed to fread(hdrlen)");
+      goto CLEANUP_BLK;
    } else if (hdrlen != sizeof(BHEADER)) {
-      mError(FAIL_IO, "b_txclean(): bad hdrlen");
+      perr("bad hdrlen");
+      goto CLEANUP_BLK;
    }
    /* seek to and read block trailer */
    if (fseek(bfp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
-      mErrno(FAIL_IO, "b_txclean(): failed to fseek(END-BTRAILER)");
+      perrno("failed to fseek(END-BTRAILER)");
+      goto CLEANUP_BLK;
    } else if (fread(&bt, sizeof(BTRAILER), 1, bfp) != 1) {
-      mError(FAIL_IO, "b_txclean(): failed to fread(bt)");
+      perr("failed to fread(bt)");
+      goto CLEANUP_BLK;
    }
    /* check Cblocknum alignment with block number */
    if (sub64(bt.bnum, Cblocknum, diff) || diff[0] != 1 || diff[1] != 0) {
-      mError(FAIL_IO, "b_txclean(): bt.bnum - Cblocknum != 1");
+      perr("bt.bnum - Cblocknum != 1");
+      goto CLEANUP_BLK;
    }
    /* re-open the clean TX queue to read */
    fp = fopen("txclean.dat", "rb");
    if (fp == NULL) {
-      mErrno(FAIL_IO, "b_txclean(): failed to fopen(txclean.dat)");
+      perrno("failed to fopen(txclean.dat)");
+      goto CLEANUP_BLK;
    }
    /* create new clean TX queue */
    fpout = fopen("txq.tmp", "wb");
    if (fpout == NULL) {
-      mErrno(FAIL_OUT, "b_txclean(): failed to fopen(txq.tmp)");
+      perrno("failed to fopen(txq.tmp)");
+      goto CLEANUP_TXC;
    }
 
    /***** Read Merkel Block Array from new block *****/
    if (fseek(bfp, hdrlen, SEEK_SET) != 0) {
-      mErrno(FAIL_IO2, "b_txclean(): failed to fseek(bfp, SET)");
+      perrno("failed to fseek(bfp, SET)");
+      goto CLEANUP_TXQ;
    }
 
    /* Remove TX_ID's from clean TX queue that are in the new block.
@@ -125,22 +169,25 @@ int b_txclean(char *bcfname)
          /* if Merkel Block TX_ID is higher, pass clean TX to temp */
          if (cond > 0) {
             if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-               mErrno(FAIL_IO2, "b_txclean(): failed to fseek(fp, SET)");
+               perrno("failed to fseek(fp, SET)");
+               goto CLEANUP_TXQ;
             } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
-               mError(FAIL_IO2, "b_txclean(): failed to fread(tx)");
+               perr("failed to fread(tx)");
+               goto CLEANUP_TXQ;
             } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
-               mError(FAIL_IO2, "b_txclean(): failed to fwrite(tx)");
+               perr("failed to fwrite(tx)");
+               goto CLEANUP_TXQ;
             } else {
-               pdebug("b_txclean(): keep tx_id %s...",
-                  addr2str(&Tx_ids[*idx * HASHLEN]));
+               hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
+               pdebug("keep tx_id %s...", addrhash);
             }
             nout++;  /* count output records to temp file -- new txclean */
          }
          /* skip dup transaction ids */
          if (cond >= 0) {
             do {  /* break on end of clean TX file or non-dup tx_id */
-               pdebug("b_txclean(): drop tx_id %s...",
-                  addr2str(&Tx_ids[*idx * HASHLEN]));
+               hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
+               pdebug("drop tx_id %s...", addrhash);
                j++;
                ap = (void *) &Tx_ids[*(idx++) * HASHLEN];
                bp = (void *) &Tx_ids[*idx * HASHLEN];
@@ -159,60 +206,65 @@ int b_txclean(char *bcfname)
          ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
          bp = (void *) &Tx_ids[*idx * HASHLEN];
          if (memcmp(ap, bp, HASHLEN) == 0) {
-            pdebug("b_txclean(): drop dup tx_id, drop tx_id %s...",
-               addr2str(&Tx_ids[*idx * HASHLEN]));
+            hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
+            pdebug("drop dup tx_id, drop tx_id %s...", addrhash);
             continue;
          }
       }
       /* Read clean TX in sorted order using index. */
       if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-         mErrno(FAIL_IO2, "b_txclean(): failed to (re)fseek(fp, SET)");
+         perrno("failed to (re)fseek(fp, SET)");
+         goto CLEANUP_TXQ;
       } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
-         mError(FAIL_IO2, "b_txclean(): failed to (re)fread(tx)");
+         perr("failed to (re)fread(tx)");
+         goto CLEANUP_TXQ;
       } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
-         mError(FAIL_IO2, "b_txclean(): failed to (re)fwrite(tx)");
+         perr("failed to (re)fwrite(tx)");
+         goto CLEANUP_TXQ;
       } else {
-         pdebug("b_txclean(): keep remaining tx_id %s...",
-            addr2str(txc.tx_id));
+         hash2hex32(txc.tx_id, addrhash);
+         pdebug("keep remaining tx_id %s...", addrhash);
       }
       nout++;
    }  /* end for j */
 
    if (btx > get32(bt.tcount)) {  /* should never happen! */
-      mError(FAIL_IO2, "b_txclean(): bad tcount in new block");
+      perr("bad tcount in new block");
+      goto CLEANUP_TXQ;
    }
+
+   /* cleanup */
+   fclose(fpout);
+   fclose(fp);
+   fclose(bfp);
+   sorttx_free();
+
+   remove("txclean.dat");
+   if (nout == 0) pdebug("txclean.dat is empty");
+   else if (rename("txq.tmp", "txclean.dat") != VEOK) {
+      perr("failed to move txq to txclean");
+      remove("txq.tmp");
+      return VERROR;
+   }
+
+   /* clean TX queue is updated */
+   pdebug("wrote %u/%u entries to txclean", nout, Ntx);
+   pdebug("block level txclean done in %gs", diffclocktime(ticks));
+
+   /* success */
+   return VEOK;
 
    /* cleanup / error handling */
-FAIL_IO2:
+CLEANUP_TXQ:
    fclose(fpout);
-FAIL_OUT:
-   fclose(fp);
-FAIL_IO:
-   fclose(bfp);
-FAIL_IN:
-   free(Tx_ids);
-   free(Txidx);
-   Tx_ids = NULL;
-   Txidx = NULL;
-FAIL:
-
-   /* if no failures */
-   if (ecode == VEOK) {
-      remove("txclean.dat");
-      if (nout == 0) pdebug("b_txclean(): txclean.dat is empty");
-      else if (rename("txq.tmp", "txclean.dat") != VEOK) {
-         mError(FAIL, "b_txclean(): failed to move txq to txclean");
-      }
-
-      /* clean TX queue is updated */
-      pdebug("b_txclean(): wrote %u/%u entries to txclean", nout, Ntx);
-      pdebug("b_txclean(): done in %gs", diffclocktime(clock(), ticks));
-   }
-
-   /* final cleanup */
    remove("txq.tmp");
-
-   return ecode;
+CLEANUP_TXC:
+   fclose(fp);
+CLEANUP_BLK:
+   fclose(bfp);
+CLEANUP:
+   sorttx_free();
+   return VERROR;
 }  /* end b_txclean() */
 
 /**
@@ -231,23 +283,34 @@ FAIL:
 int b_update(char *fname, int mode)
 {
    BTRAILER bt;
-   word32 bnum;
+   word32 bnum, len;
    int ecode;
-   char bcfname[FILENAME_MAX], *solvestr;
+   char fpath[FILENAME_MAX], *solvestr;
+   char bcfname[21];
+   char bhash[10];
+   FILE *fp;
 
    /* init */
    solvestr = NULL;
 
-   pdebug("b_update(): updating block...");
+   pdebug("updating block...");
 
    /* check block file exists */
    if (!fexists(fname)) {
-      pdebug("b_update(): %s missing...", fname);
+      pdebug("%s missing...", fname);
       return VERROR;
    }
 
-   /* check for pseudo-block */
-   if (gethdrlen(fname) == 4) mode = 2;
+   /* check "their" blocks (mode == 0) for pseudo-block */
+   if (mode == 0) {
+      fp = fopen(fname, "rb");
+      if (fp == NULL) return VERROR;
+      ecode = fread(&len, 4, 1, fp);
+      if (feof(fp)) set_errno(EMCM_EOF);
+      fclose(fp);
+      if (ecode != 1) return VERROR;
+      if (len == 4) mode = 2;
+   }
 
    /* separate validation process for pseudo-block */
    if (mode != 2) {
@@ -272,21 +335,21 @@ int b_update(char *fname, int mode)
       /* clean the transaction queue, with the block and the ledger */
       /* ... NOTE: blockchain clean only occurs on successful update */
       if (ecode == VEOK && b_txclean(fname) != VEOK) {
-         pwarn("b_update(): b_txclean() failure, forcing clean...");
+         pwarn("b_txclean() failure, forcing clean...");
          remove("txclean.dat");
       }
       /* ... NOTE: le_txclean() opens server ledger reference */
       if (le_txclean() != VEOK) {
-         pwarn("b_update(): le_txclean failure, forcing clean...");
+         pwarn("le_txclean failure, forcing clean...");
          remove("txclean.dat");
       }
       /* (re)open the ledger, regardless of above results */
       if (le_open("ledger.dat", "rb") != VEOK) {
-         restart("b_update(): failed to reopen ledger after update");
+         restart("failed to reopen ledger after update");
       }
       /* check chain ecode result */
       if (ecode != VEOK) {
-         pdebug("b_update(): (validate -> update) failure");
+         pdebug("(validate -> update) failure");
          if (mode != 0) {
             rename(fname, "mblock.dat.fail");
             rename("ltran.dat.last", "ltran.dat.fail");
@@ -295,7 +358,8 @@ int b_update(char *fname, int mode)
          return VERROR;
       }
    } else if (p_val(fname) != VEOK) {
-      return perr("b_update(): failed to validate pseudo-block");
+      perr("failed to validate pseudo-block");
+      return VERROR;
    }
 
    /* Everything below this line has to succeed, or else
@@ -306,9 +370,9 @@ int b_update(char *fname, int mode)
     * Cblockhash, Cblocknum, Prevhash, Difficulty, Time0, and tfile.dat
     */
    if (add64(Cblocknum, One, Cblocknum)) {
-      restart("b_update(): new blocknum overflow");
+      restart("new blocknum overflow");
    } else if (readtrailer(&bt, fname) != VEOK) {
-      restart("b_update(): failed to readtrailer()");
+      restart("failed to readtrailer()");
    }
    memcpy(Prevhash, Cblockhash, HASHLEN);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
@@ -317,16 +381,19 @@ int b_update(char *fname, int mode)
    Difficulty = set_difficulty(&bt);
    Time0 = get32(bt.stime);
    /* add block trailer to tfile and accept block */
+   bnum2fname(Cblocknum, bcfname);
+   path_join(fpath, Bcdir, bcfname);
    if (append_tfile(fname, "tfile.dat") != VEOK) {
-      restart("b_update(): failed to append_tfile()");
-   } else if (accept_block(fname, Cblocknum) != VEOK) {
-      restart("b_update(): failed to accept_block()");
+      restart("failed to append_tfile()");
+   } else if (rename(fname, fpath) != 0) {
+      perrno("failed on rename() %s to %s", fname, fpath);
+      restart("failed to accept block");
    }
 
    /* update server data */
    remove("cblock.dat");
    if (write_global() != VEOK) {
-      restart("b_update(): failed to write_global()");
+      restart("failed to write_global()");
    } else if (Ininit == 0) {
       if (Insyncup == 0) {
          if (mode == 1 && solvestr == NULL) {  /* not "pushed" */
@@ -350,41 +417,46 @@ int b_update(char *fname, int mode)
        * Determine input block b...ff.bc file with Cblocknum.
        * Update Cblockhash, Cblocknum, Prevhash, Eon and tfile.dat
        */
-      snprintf(bcfname, FILENAME_MAX, "%s/b%s.bc", Bcdir, bnum2hex(Cblocknum));
-      if (neogen(bcfname, "ngblock.dat") != VEOK) {
-         restart("b_update(): failed to neogen()");
+      bnum2fname(Cblocknum, bcfname);
+      path_join(fpath, Bcdir, bcfname);
+      if (neogen(fpath, "ngblock.dat") != VEOK) {
+         restart("failed to neogen()");
       } else if (add64(Cblocknum, One, Cblocknum)) {
-         restart("b_update(): neogenesis blocknum overflow");
+         restart("neogenesis blocknum overflow");
       } else if (readtrailer(&bt, "ngblock.dat") != VEOK) {
-         restart("b_update(): failed to readtrailer(ngblock.dat)");
+         restart("failed to readtrailer(ngblock.dat)");
       }
       memcpy(Prevhash, Cblockhash, HASHLEN);
       memcpy(Cblockhash, bt.bhash, HASHLEN);
       Eon++;
       /* add neogenesis block trailer to tfile and accept block */
+      bnum2fname(Cblocknum, bcfname);
+      path_join(fpath, Bcdir, bcfname);
       if (append_tfile("ngblock.dat", "tfile.dat") != VEOK) {
-         restart("b_update(): failed to append_tfile(ngblock.dat)");
-      } else if (accept_block("ngblock.dat", Cblocknum) != VEOK){
-         restart("b_update(): failed to accept_block(ngblock.dat)");
+         restart("failed to append_tfile(ngblock.dat)");
+      } else if (rename("ngblock.dat", fpath) != 0) {
+         perrno("failed on rename() ngblock.dat to %s", fpath);
+         restart("failed to accept block");
       }
       /* check CAROUSEL() */
       if (get32(Cblocknum) == Lastday) {
          tag_free();  /* Erase old in-memory Tagidx[] */
-         if (le_renew()) restart("b_update(): failed to le_renew()");
+         if (le_renew()) restart("failed to le_renew()");
          /* clean the tx queue (again), no bc file */
          if (le_txclean() != VEOK) {
-            pwarn("b_update(): forcing clean TX queue...");
+            pwarn("forcing clean TX queue...");
             remove("txclean.dat");
          }
          /* (re)open the ledger, regardless of above results */
          if (le_open("ledger.dat", "rb") != VEOK) {
-            restart("b_update(): failed to reopen ledger after update");
+            restart("failed to reopen ledger after update");
          }
       }
       /* print block update */
       if(!Bgflag) {
          bnum = get32(bt.bnum);
-         plog("Neogenesis: 0x%" P32x " #%s...", bnum, addr2str(bt.bhash));
+         hash2hex32(bt.bhash, bhash);
+         plog("Neogenesis: 0x%" P32x " #%s...", bnum, bhash);
       }
    }
 

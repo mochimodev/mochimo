@@ -16,21 +16,23 @@
 #include "types.h"
 
 /* external support */
+#include <stdarg.h>  /* for va_list support */
+#include <math.h>    /* for isnan/isinf/log10/pow */
 #include "extstring.h"
 
-/* system support */
-#include <stdarg.h>  /* for va_list */
-#include <math.h>    /* for metric_reduce() */
-#ifdef _WIN32  /* Windows compatibility */
-   /* localtime_r() is not specified by Windows.. */
+/* Initialize default runtime configuration */
+static unsigned int Nerrs;
+static unsigned int Nlogs;
+static int Loglevel = PLOG_INFO;
+static int Logfunc;
+static int Logtime;
+
+/* Windows compatibility */
+#ifdef _WIN32
+   /* localtime_r() is not specified by Windows... */
    #define localtime_r(t, tm) localtime_s(tm, t)
 
 #endif
-
-/* Initialize default runtime configuration */
-static unsigned int Nlogs;
-static int Loglevel = LL_INFO;
-static int Logtime;
 
 /**
  * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.
@@ -58,7 +60,7 @@ int argument(char *argv, char *chk1, char *chk2)
    if (vp) *vp = '=';
 
    return result;
-}
+}  /* end argument() */
 
 /**
  * Obtain the value associated with the current argument index.
@@ -83,50 +85,49 @@ char *argvalue(int *idx, int argc, char *argv[])
    } else --(*idx);
 
    return vp;
-}
+}  /* end argvalue() */
 
 /**
- * Append to a character string buffer. Calculates the remaining available
- * space in @a buf using @a bufsz and `strlen(buf)`, and appends at most
- * the remaining available space, less 1 (for the null terminator).
- * @param buf Pointer to character string buffer
- * @param bufsz Size of @a buf, in bytes
- * @param fmt Pointer to null-terminated string specifying how to interpret
- * the data
- * @param ... arguments specifying data to print
- * @returns Number of characters (not insluding the null terminator) which
- * would have been written to @a buf if @a bufsz was ignored.
+ * Convert a block number into a blockchain filename (w/ 64-bit hex).
+ * @param bnum Pointer to 64-bit block number
+ * @param fname Pointer to output character array, or NULL
+ * @returns Pointer to provided @a fname or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-int asnprintf(char *buf, size_t bufsz, const char *fmt, ...)
+char *bnum2fname(word8 bnum[8], char fname[21])
 {
-   va_list args;
-   size_t cur;
-   int count;
+   word8 *bp;
+   static char sbuf[21];
 
-   cur = strlen(buf);
-   va_start(args, fmt);
-   count = vsnprintf(&buf[cur], bufsz > cur ? bufsz - cur : 0, fmt, args);
-   va_end(args);
+   /* static buffer check */
+   if (fname == NULL) fname = sbuf;
 
-   return count;
+   bp = (word8 *) bnum;
+   snprintf(fname, 21, "b%02x%02x%02x%02x%02x%02x%02x%02x.bc",
+      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
+
+   return fname;
 }
 
 /**
  * Convert a 64-bit block number to a hexadecimal string.
  * Leading zeros are omitted from hexidecimal string result.
  * @param bnum Pointer to 64-bit block number
- * @param hex Pointer to character array of at least 17 bytes
- * @returns Pointer to @a hex.
+ * @param hex Pointer to output character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-char *bnum2hex(void *bnum, char *hex)
+char *bnum2hex(word8 bnum[8], char hex[17])
 {
    word32 *b32;
+   static char sbuf[17];
 
-   if (bnum) {
-      b32 = (word32 *) bnum;
-      if (b32[1]) snprintf(hex, 17, "%" P32x "%08" P32x, b32[1], b32[0]);
-      else snprintf(hex, 17, "%" P32x, b32[0]);
-   } else snprintf(hex, 17, "(null)");
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
+
+   b32 = (word32 *) bnum;
+   if (b32[1]) snprintf(hex, 17, "%" P32x "%08" P32x, b32[1], b32[0]);
+   else snprintf(hex, 17, "%" P32x, b32[0]);
 
    return hex;
 }
@@ -134,18 +135,21 @@ char *bnum2hex(void *bnum, char *hex)
 /**
  * Convert a 64-bit block number to a full 64-bit hexadecimal string.
  * @param bnum Pointer to 64-bit block number
- * @param hex Pointer to character array of at least 17 bytes
- * @returns Pointer to @a hex.
+ * @param hex Pointer to output character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-char *bnum2hex64(void *bnum, char *hex)
+char *bnum2hex64(word8 bnum[8], char hex[17])
 {
    word8 *bp;
+   static char sbuf[17];
 
-   if (bnum) {
-      bp = (word8 *) bnum;
-      snprintf(hex, 17, "%02x%02x%02x%02x%02x%02x%02x%02x",
-         bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
-   } else snprintf(hex, 17, "(null)");
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
+
+   bp = (word8 *) bnum;
+   snprintf(hex, 17, "%02x%02x%02x%02x%02x%02x%02x%02x",
+      bp[7], bp[6], bp[5], bp[4], bp[3], bp[2], bp[1], bp[0]);
 
    return hex;
 }
@@ -156,21 +160,22 @@ double diffclocktime(clock_t prev)
 }
 
 /**
- * Convert a hash to a hexadecimal string.
- * @param hash Pointer to hash
- * @param count Number of hash bytes to convert
- * @param hex Pointer to character array
- * @returns Pointer to @a hex.
+ * Convert 32 bits of a hash to a hexadecimal string.
+ * @param hash Pointer to 32-bits of any byte array
+ * @param hex Pointer to output character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-char *hash2hex(void *hash, int count, char *hex)
+char *hash2hex32(word8 hash[4], char hex[9])
 {
-   int i;
    word8 *bp;
+   static char sbuf[17];
+
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
 
    bp = (word8 *) hash;
-   for (hex[0] = '\0', i = 0; i < count; i++) {
-      snprintf(&hex[i * 2], 3, "%02x", bp[i]);
-   }
+   snprintf(hex, 9, "%02x%02x%02x%02x", bp[0], bp[1], bp[2], bp[3]);
 
    return hex;
 }
@@ -239,56 +244,40 @@ char *ve2str(int ve)
       case VEBAD: return "VEBAD";
       case VEBAD2: return "VEBAD2";
       default: return "(unknown)";
-   }
-}
+   }  /* end switch (ve) */
+}  /* end ve2str() */
 
 /**
- * Convert a 256-bit chain weight to a hexadecimal string.
- * Leading zeros are ommited from hexidecimal string result.
- * @param weight Pointer to 256-bit chain weight (or equivalent value)
- * @param hex Pointer to character array of at least 65 bytes
- * @returns Pointer to @a hex
-*/
-char *weight2hex(void *weight, char *hex)
-{
-   word32 *w32 = (word32 *) weight;
-   int count, p;
-
-   for (count = 0, p = 7; p >= 0; p--) {
-      if (p && w32[p] == 0) continue;
-      if (count == 0) count = snprintf(hex, 65, "%" P32x, w32[p]);
-      else count += asnprintf(hex, 65, "%08" P32x, w32[p]);
-   }
-
-   return hex;
-}
-
-/**
+ * CONSIDER USING THE path_join() MACRO;
  * Join multiple strings into a file path written to a buffer.
- * Consider using path_join() instead.
- * @param buf Pointer to a buffer to write to
- * @param count Number of strings to join
+ * @param path Pointer to character array[FILENAME_MAX], or NULL
+ * @param count Number of string parameters to join
  * @param ... Strings to join together
- * @returns (int) value respresenting operation result.
- * 0 for success, or non-zero value representing the number at which count
- * was reduced before an error occurred.
+ * @returns Pointer to provided @a path or (if not provided)
+ * internal static buffer containing the resulting output.
 */
-int path_count_join(char *buf, int count, ...)
+char *path_join_count(char path[FILENAME_MAX], int count, ...)
 {
    va_list args;
+   char *next;
+   static char sbuf[FILENAME_MAX];
 
-   *buf = '\0';
-   if (count > 0) {
-      va_start(args, count);
-      strncat(buf, va_arg(args, char *), FILENAME_MAX - strlen(buf));
-      for (count--; count > 0; count--) {
-         strncat(buf, PATH_SEPARATOR, FILENAME_MAX - strlen(buf));
-         strncat(buf, va_arg(args, char *), FILENAME_MAX - strlen(buf));
+   /* static buffer and usage check */
+   if (path == NULL) path = sbuf;
+
+   /* join variable arguments together */
+   va_start(args, count);
+   for (*path = '\0'; count > 0; count --) {
+      next = va_arg(args, char *);
+      if (next == NULL || *next == '\0') continue;
+      if (*path != '\0') {
+         strncat(path, PATH_SEP, FILENAME_MAX - strlen(path) - 1);
       }
-      va_end(args);
+      strncat(path, next, FILENAME_MAX - strlen(path) - 1);
    }
+   va_end(args);
 
-   return count;
+   return path;
 }
 
 /**
@@ -301,122 +290,33 @@ int path_count_join(char *buf, int count, ...)
 const char *mcm_errno_text(int errnum)
 {
    switch (errnum) {
-      case EMCMLEDEBIT:
-         return "Ledger entry debit did not match balance";
-      case EMCMLECREDITOVERFLOW:
-         return "Ledger entry credit overflowed the balance";
-      case EMCMLEDEPTH:
-         return "Maximum ledger depth reached";
-      case EMCMLENOTAVAIL:
-         return "Internal Ledger is not available";
-      case EMCMLETRANCODE:
-         return "Unknown ledger entry transaction code";
-      case EMCMNOTXS:
-         return "No transactions to handle";
-      case EMCMOPCODE:
-         return "Unhandled operation code";
-      case EMCMOPHELLO:
-         return "Missing OP_HELLO packet";
-      case EMCMOPHELLOACK:
-         return "Missing OP_HELLO_ACK packet";
-      case EMCMOPNVAL:
-         return "Invalid operation code";
-      case EMCMOPRECV:
-         return "Received unexpected operation code";
-      case EMCMPKTCRC:
-         return "Invalid CRC16 packet hash";
-      case EMCMPKTIDS:
-         return "Unexpected packet identification";
-      case EMCMPKTNACK:
-         return "Unexpected negative acknowledgement";
-      case EMCMPKTNET:
-         return "Incompatible packet network";
-      case EMCMPKTOPCODE:
-         return "Invalid packet opcode";
-      case EMCMPKTTLR:
-         return "Invalid packet trailer";
-      case EMCMTXCHGEXISTS:
-         return "Change address is not in Ledger";
-      case EMCMTXCHGNOLE:
-         return "Change address is not in Ledger";
-      case EMCMTXCHGNOTAG:
-         return "Change address is not Tagged";
-      case EMCMTXDSTNOLE:
-         return "Destination address is not in Ledger";
-      case EMCMTXDSTNOTAG:
-         return "Destination address is not Tagged";
-      case EMCMTXDUP:
-         return "Duplicate transaction ID";
-      case EMCMTXFEE:
-         return "Fee is invalid";
-      case EMCMTXFEEOVERFLOW:
-         return "Overflow of transaction feees";
-      case EMCMTXID:
-         return "Bad transaction ID";
-      case EMCMTXOVERFLOW:
-         return "Overflow of transaction amounts";
-      case EMCMTXSORT:
-         return "Bad transaction sort";
-      case EMCMTXSRCISCHG:
-         return "Source address is change address";
-      case EMCMTXSRCISDST:
-         return "Source address is destination address";
-      case EMCMTXSRCNOLE:
-         return "Source address is not in Ledger";
-      case EMCMTXSRCNOTAG:
-         return "Source address is not Tagged";
-      case EMCMTXTAGCHG:
-         return "Invalid Tag activation (change address already exists)";
-      case EMCMTXTAGSRC:
-         return "Invalid Tag activation (source address is tagged)";
-      case EMCMTXTOTAL:
-         return "Transaction total does not match ledger balance";
-      case EMCMTXWOTS:
-         return "WOTS+ signature invalid";
-      case EMCMXTXCHGTOTAL:
-         return "eXtended TX change total is less than fee";
-      case EMCMXTXDSTAMOUNT:
-         return "eXtended TX destination amount is zero";
-      case EMCMXTXFEES:
-         return "eXtended TX fee does not match tally";
-      case EMCMXTXHASPUNCT:
-         return "eXtended TX MEMO contains punctuation character";
-      case EMCMXTXNONPRINT:
-         return "eXtended TX MEMO contains non-printable character";
-      case EMCMXTXNOTERM:
-         return "eXtended TX MEMO is missing a null terminator";
-      case EMCMXTXNZTPADDING:
-         return "eXtended TX contains non-zero trailing padding";
-      case EMCMXTXSENDTOTAL:
-         return "eXtended TX send total is zero";
-      case EMCMXTXTAGMATCH:
-         return "eXtended TX destination tag matches source tag";
-      case EMCMXTXTAGMISMATCH:
-         return "eXtended TX source tag does not match change tag";
-      case EMCMXTXTAGNOLE:
-         return "eXtended TX destination tag is not in Ledger";
-      case EMCMXTXTOTALS:
-         return "eXtended TX total does not match tally";
-      case EMCMXTXNODEF:
-         return "eXtended TX type is not defined";
+      /* core relateed errors... */
       case EMCM_MATH64_OVERFLOW:
          return "Unspecified 64-bit math overflow";
       case EMCM_MATH64_UNDERFLOW:
          return "Unspecified 64-bit math underflow";
-      case EMCM_SORT_LENGTH:
-         return "Unexpected file length during sort";
+
+      /* file related errors... */
       case EMCM_EOF:
          return "Unexpected end-of-file";
       case EMCM_FILECOUNT:
          return "Unexpected number of items in file";
+      case EMCM_FILEDATA:
+         return "Unexpected file data";
       case EMCM_FILELEN:
          return "Unexpected length of file";
+      case EMCM_SORTLEN:
+         return "Unexpected file length during sort";
+
+      /* block related errors... */
       case EMCM_BHASH:
          return "Bad block hash";
       case EMCM_BNUM:
          return "Bad block number";
       case EMCM_DIFF:
          return "Bad difficulty";
+      case EMCM_GENHASH:
+         return "Bad Genesis hash";
       case EMCM_HDRLEN:
          return "Bad header length";
       case EMCM_MADDR:
@@ -433,8 +333,12 @@ const char *mcm_errno_text(int errnum)
          return "Bad merkle root";
       case EMCM_NONCE:
          return "Bad nonce";
+      case EMCM_NZGEN:
+         return "Non-zero Genesis data";
       case EMCM_PHASH:
          return "Bad (previous) block hash";
+      case EMCM_PTIME:
+         return "Bad TOT time";
       case EMCM_STIME:
          return "Bad solve time";
       case EMCM_TCOUNT:
@@ -443,38 +347,136 @@ const char *mcm_errno_text(int errnum)
          return "Bad start time";
       case EMCM_TLRLEN:
          return "Bad trailer length";
+      case EMCM_TMAX:
+         return "Too many transactions";
       case EMCM_TRAILER:
          return "Bad trailer data";
-      case EMCM_LE_AMOUNTS_OVERFLOW:
+
+      /* ledger entry related errors... */
+      case EMCM_LEOVERFLOW:
          return "Overflow of ledger amounts";
-      case EMCM_LE_AMOUNTS_SUM:
-         return "Bad sum of ledger amounts";
-      case EMCM_LE_EMPTY:
+      case EMCM_LEEMPTY:
          return "No records written to ledger file";
-      case EMCM_LE_NON_NG:
+      case EMCM_LEEXTRACT:
          return "Ledger cannot be extracted from a non-NG block";
-      case EMCM_LE_SORT:
+      case EMCM_LESORT:
          return "Bad ledger sort";
-      case EMCM_LE_TAG_REF:
+      case EMCM_LESUM:
+         return "Bad sum of ledger amounts";
+      case EMCM_LETAG:
          return "Bad tag reference to ledger entry";
-      case EMCM_LT_CODE:
-         return "Bad ledger tx code";
-      case EMCM_LT_DEBIT:
-         return "Ledger tx debit, does not match ledger entry balance";
-      case EMCM_LT_NOT_CREDIT:
-         return "Unexpected ledger tx code for ledger entry creation";
-      case EMCM_LT_SORT:
-         return "Bad ledger tx sort";
-      case EMCM_POW_TRIGG:
+
+      /* ledger transaction related errors... */
+      case EMCM_LTCODE:
+         return "Bad ledger transaction code";
+      case EMCM_LTCREDIT:
+         return "Unexpected ledger transaction code for ledger entry creation";
+      case EMCM_LTDEBIT:
+         return "Ledger transaction debit, does not match ledger entry balance";
+      case EMCM_LTSORT:
+         return "Bad ledger transactions sort";
+
+      /* network related errors... */
+      case EMCM_OPCODE:
+         return "Unhandled operation code";
+      case EMCM_OPHELLO:
+         return "Missing OP_HELLO packet";
+      case EMCM_OPHELLOACK:
+         return "Missing OP_HELLO_ACK packet";
+      case EMCM_OPNVAL:
+         return "Invalid operation code";
+      case EMCM_OPRECV:
+         return "Received unexpected operation code";
+      case EMCM_PKTCRC:
+         return "Invalid CRC16 packet hash";
+      case EMCM_PKTIDS:
+         return "Unexpected packet identification";
+      case EMCM_PKTNACK:
+         return "Unexpected negative acknowledgement";
+      case EMCM_PKTNET:
+         return "Incompatible packet network";
+      case EMCM_PKTOPCODE:
+         return "Invalid packet opcode";
+      case EMCM_PKTTLR:
+         return "Invalid packet trailer";
+
+      /* POW related errors... */
+      case EMCM_POWTRIGG:
          return "Bad PoW (Trigg)";
-      case EMCM_POW_PEACH:
+      case EMCM_POWPEACH:
          return "Bad PoW (Peach)";
-      case EMCM_POW_ANOMALY:
+      case EMCM_POWANOMALY:
          return "Bad PoW Anomaly (bugfix)";
-      case EMCM_GENHASH:
-         return "Bad Genesis hash";
-      case EMCM_NZGEN:
-         return "Non-zero Genesis data";
+
+      /* transaction related errors... */
+      case EMCM_TX0:
+         return "No transactions to handle";
+      case EMCM_TXCHGEXISTS:
+         return "Change address is not in Ledger";
+      case EMCM_TXCHGNOLE:
+         return "Change address is not in Ledger";
+      case EMCM_TXCHGNOTAG:
+         return "Change address is not Tagged";
+      case EMCM_TXDSTNOLE:
+         return "Destination address is not in Ledger";
+      case EMCM_TXDSTNOTAG:
+         return "Destination address is not Tagged";
+      case EMCM_TXDUP:
+         return "Duplicate transaction ID";
+      case EMCM_TXFEE:
+         return "Fee is invalid";
+      case EMCM_TXFEE_OVERFLOW:
+         return "Overflow of transaction feees";
+      case EMCM_TXID:
+         return "Bad transaction ID";
+      case EMCM_TXOVERFLOW:
+         return "Overflow of transaction amounts";
+      case EMCM_TXSORT:
+         return "Bad transaction sort";
+      case EMCM_TXCHG:
+         return "Source address is change address";
+      case EMCM_TXDST:
+         return "Source address is destination address";
+      case EMCM_TXSRCLE:
+         return "Source address is not in Ledger";
+      case EMCM_TXSRCNOTAG:
+         return "Source address is not Tagged";
+      case EMCM_TXTAGCHG:
+         return "Invalid Tag activation (change address already exists)";
+      case EMCM_TXTAGSRC:
+         return "Invalid Tag activation (source address is tagged)";
+      case EMCM_TXTOTAL:
+         return "Transaction total does not match ledger balance";
+      case EMCM_TXWOTS:
+         return "WOTS+ signature invalid";
+
+      /* eXtended transaction related errors... */
+      case EMCM_XTXCHGTOTAL:
+         return "eXtended TX change total is less than fee";
+      case EMCM_XTXDSTAMOUNT:
+         return "eXtended TX destination amount is zero";
+      case EMCM_XTXFEES:
+         return "eXtended TX fee does not match tally";
+      case EMCM_XTXHASPUNCT:
+         return "eXtended TX MEMO contains punctuation character";
+      case EMCM_XTXNONPRINT:
+         return "eXtended TX MEMO contains non-printable character";
+      case EMCM_XTXNOTERM:
+         return "eXtended TX MEMO is missing a null terminator";
+      case EMCM_XTXNZTPADDING:
+         return "eXtended TX contains non-zero trailing padding";
+      case EMCM_XTXSENDTOTAL:
+         return "eXtended TX send total is zero";
+      case EMCM_XTXTAGMATCH:
+         return "eXtended TX destination tag matches source tag";
+      case EMCM_XTXTAGMISMATCH:
+         return "eXtended TX source tag does not match change tag";
+      case EMCM_XTXTAGNOLE:
+         return "eXtended TX destination tag is not in Ledger";
+      case EMCM_XTXTOTALS:
+         return "eXtended TX total does not match tally";
+      case EMCM_XTXUNDEF:
+         return "eXtended TX type is not defined";
       default: return NULL;
    }  /* end switch (errnum) */
 }  /* end mcm_errno_text() */
@@ -500,6 +502,15 @@ char *mcm_strerror(int errnum, char *buf, size_t bufsz)
    strncpy(buf, cp, bufsz);
    buf[bufsz - 1] = '\0';
    return buf;
+}  /* end mcm_strerror() */
+
+/**
+ * Get the number of errors printed.
+ * @returns Number of errors
+*/
+unsigned int perrcount(void)
+{
+   return Nerrs;
 }
 
 /**
@@ -524,12 +535,17 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...)
    time_t t;
    struct tm dt;
    va_list args;
+   FILE *stream;
+   int ecode;
    char error[64];
    char timestamp[28];
-   int ecode = errno;
 
-   /* ignore empty format and higher trace levels */
+   /* ignore empty format and higher log levels */
    if (fmt == NULL || fmt[0] == 0 || Loglevel < ll) return;
+
+   /* determine appropriate stream and save errno */
+   stream = (ll < PLOG_WARN) ? stderr : stdout;
+   ecode = errno;
 
    /* THREADSAFE atomic lock would start here... */
 
@@ -538,39 +554,52 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...)
       time(&t);
       localtime_r(&t, &dt);
       strftime(timestamp, sizeof(timestamp), "[%F %T%z] ", &dt);
-      printf("%s ", timestamp);
+      fprintf(stream, "%s ", timestamp);
    }
    /* print prefix */
    switch (ll) {
-      case LL_ALERT: printf("CRITICAL!!! "); break;
-      case LL_ERRNO: /* fallthrough */
-      case LL_ERROR: printf("ERROR! "); break;
-      case LL_WARN: printf("Warning... "); break;
-   /* case LL_DEBUG: */
-      default: printf("DEBUG<%s:%d> ", func, line);
+      case PLOG_ALERT: fprintf(stream, "CRITICAL!!! "); break;
+      case PLOG_ERRNO: /* fallthrough */
+      case PLOG_ERROR: fprintf(stream, "ERROR! "); break;
+      case PLOG_WARN: fprintf(stream, "Warning... "); break;
+      case PLOG_DEBUG: fprintf(stream, "DEBUG "); break;
+   }
+   /* print function reference (always on DEBUG) */
+   if (Logfunc || ll == PLOG_DEBUG) {
+      fprintf(stream, "<%s:%d> ", func, line);
    }
    /* print information */
    va_start(args, fmt);
-   vprintf(fmt, args);
+   vfprintf(stream, fmt, args);
    va_end(args);
    /* print error details (if errno) */
-   if (ll == LL_ERRNO) {
+   if (ll == PLOG_ERRNO) {
       mcm_strerror(ecode, error, sizeof(error));
-      printf(": (%d) %s", ecode, error);
+      fprintf(stream, ": (%d) %s", ecode, error);
    }
    /* newline and flush to stream */
-   printf("\n");
-   fflush(stdout);
+   fprintf(stream, "\n");
+   fflush(stream);
 
-   /* increment trace log counter */
+   /* increment log counter/s */
+   if (ll <= PLOG_ERROR) Nerrs++;
    Nlogs++;
 
    /* THREADSAFE atomic lock would end here... */
 }  /* end plogx() */
 
 /**
+ * Set logging function references.
+ * @param ll Value to set option (boolean)
+*/
+void setplogfunctions(int val)
+{
+   Logfunc = val;
+}
+
+/**
  * Set the logging level cap.
- * @param ll Trace logging level to print (inclusive)
+ * @param ll Log level to print (inclusive)
 */
 void setploglevel(int ll)
 {
@@ -584,6 +613,35 @@ void setploglevel(int ll)
 void setplogtime(int val)
 {
    Logtime = val;
+}
+
+/**
+ * Convert a 256-bit chain weight to a hexadecimal string.
+ * Leading zeros are ommited from hexidecimal string result.
+ * @param weight Pointer to 256-bit chain weight (or equivalent value)
+ * @param hex Pointer to 65 byte character array, or NULL
+ * @returns Pointer to provided @a hex or (if not provided)
+ * internal static buffer containing the resulting output.
+*/
+char *weight2hex(word8 weight[32], char hex[65])
+{
+   word32 *dp;
+   char *cp;
+   int i;
+   static char sbuf[65];
+
+   /* static buffer check */
+   if (hex == NULL) hex = sbuf;
+
+   /* skip empty values -- print initial hex value w/o leading zeros */
+   dp = (word32 *) weight;
+   for (i = 7; i > 0 && dp[i] == 0; i--);
+   snprintf(hex, 65, "%x", dp[i--]);
+   for (cp = hex + strlen(hex); i >= 0; i--, cp += strlen(cp)) {
+      snprintf(cp, 64 - (cp - hex), "%08x", dp[i]);
+   }
+
+   return hex;
 }
 
 /* end include guard */

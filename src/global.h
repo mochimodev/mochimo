@@ -10,7 +10,12 @@
 #define MOCHIMO_GLOBAL_H
 
 
+/* external support */
 #include "types.h"
+
+/* emergency stops */
+#define restart(msg) { palert(msg); kill_services_exit(1); }
+#define resign(msg) { palert(msg); kill_services_exit(0); }
 
 extern int Nonline;         /* number of pid's in Nodes[]                */
 extern word32 Quorum;       /* Number of peers in get_eon() gang[MAXQUORUM] */
@@ -77,6 +82,24 @@ extern pid_t Mqpid;              /* mirror() */
 extern int Mqcount;              /* count of mq.dat records */
 
 extern word8 One[8];             /* for 64-bit maths */
+
+/* C/C++ compatible function prototypes */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void kill_services_exit(int ecode);
+char *show(char *state);
+int stop_bcon(void);
+int stop_found(void);
+int stop_miner(void);
+void stop_mirror(void);
+int read_global(void);
+int write_global(void);
+
+#ifdef __cplusplus
+}  /* end extern "C" */
+#endif
 
 /* end include guard */
 #endif
