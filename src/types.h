@@ -120,14 +120,32 @@
 #define TXSIG_INLEN  (TRANLEN - TXSIGLEN)
 #define TXCRC_INLEN  ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN )
 
-#define TX_IS_MTX(tx) \
-   ((tx)->dst_addr[2196] == 0x00 && (tx)->dst_addr[2197] == 0x01)
-#define MDST_NUM_DST 100       /* number of tags (MDST) in MTX dst[] */
-#define MDST_NUM_DZEROS 208    /* length of MTX zeros[] */
+/* Address and Tag definitions */
 
-#define ADDR_TAG_PTR(addr) (((word8 *) (addr)) + 2196)
+/** Offset, in bytes, at which a tag begins within an address */
+#define TAGOFFSET          ( TXADDRLEN - TXTAGLEN )
+#define ADDR_TAG_PTR(addr) ( ((word8 *) (addr)) + TAGOFFSET )
 #define ADDR_HAS_TAG(addr) \
-   (((word8 *) (addr))[2196] != 0x42 && ((word8 *) (addr))[2196] != 0x00)
+   ( *(ADDR_TAG_PTR(addr)) && *(ADDR_TAG_PTR(addr)) != 0x42 )
+
+/* eXtended Transaction (XTX) definitions */
+
+/** Conditional test for an eXtended Transaction */
+#define IS_XTX(tx)      ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET] == 0 )
+#define XTX_TYPE(tx)    ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 1] )
+#define XTX_COUNT(tx)   ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 2] )
+
+/** Number of bytes before XTXDATA in a TX */
+#define XTX_HDRLEN ( TXADDRLEN * 2 )
+/** Number of bytes after XTXDATA in a TX */
+#define XTX_TLRLEN ( TXADDRLEN + (TXAMOUNT * 3) + TXSIGLEN + (HASHLEN * 3) )
+
+/** Invalid Transaction type */
+#define XTX_NONE   0x00
+/** Multi-destination Transaction type */
+#define XTX_MDST   0x01
+/** Memorandum Transaction type */
+#define XTX_MEMO   0x02
 
 /* Historic Compatibility Break Points */
 #define DTRIGGER31 17185   /* for v2.0 new set_difficulty() */
