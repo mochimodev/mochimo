@@ -151,9 +151,10 @@
 #define C_PUSH          1
 
 /**
- * Capability bit for wallets. Indicates the operation of a wallet.
+ * Capability bit for opt-in to network activity. Allows a node to
+ * receive network activity and be included in network peerlists.
 */
-#define C_WALLET        2
+#define C_OPTIN         2
 
 /**
  * Capability bit for nodes activating the Sanctuary Protocol. Indicates
