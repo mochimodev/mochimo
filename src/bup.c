@@ -441,7 +441,11 @@ int b_update(char *fname, int mode)
       /* check CAROUSEL() */
       if (get32(Cblocknum) == Lastday) {
          tag_free();  /* Erase old in-memory Tagidx[] */
-         if (le_renew()) restart("failed to le_renew()");
+         plog("Lastday 0x%x.  Carousel begins...", Lastday);
+         if (le_renew() != VEOK) {
+            perrno("Carousel failure");
+            restart("failed to le_renew()");
+         }
          /* clean the tx queue (again), no bc file */
          if (le_txclean() != VEOK) {
             pwarn("forcing clean TX queue...");

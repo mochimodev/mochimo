@@ -226,50 +226,58 @@ FAIL_NEO:
    return VERROR;
 }  /* end le_extract() */
 
-/* Returns 0 on success, else error code. */
+/**
+ * Apply the Sanctuary Protocol to renew the ledger.
+ * @return (int) value representing renew result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
 int le_renew(void)
 {
    FILE *fp, *fpout;
    LENTRY le;
-   int message = 0;
-   word32 n, m;
-   static word32 sanctuary[2];
+   word32 sanctuary[2];
 
    if(Sanctuary == 0) return VEOK;  /* success */
    le_close();  /* make sure ledger.dat is closed */
-   plog("Lastday 0x%0x.  Carousel begins...", Lastday);
-   n = m = 0;
    sanctuary[0] = Sanctuary;
+   sanctuary[1] = 0;
 
+   /* open ledger and replacement files */
    fp = fopen("ledger.dat", "rb");
-   if(fp == NULL) return VERROR;
+   if (fp == NULL) return VERROR;
    fpout = fopen("ledger.tmp", "wb");
-   if(fpout == NULL) goto CLEANUP_DAT;
+   if (fpout == NULL) goto FAIL_DAT;
+
+   /* renew the ledger per Carousal requirements */
    for(;;) {
-      if(fread(&le, sizeof(le), 1, fp) != 1) break;
-      n++;
+      if (fread(&le, sizeof(le), 1, fp) != 1) {
+         if (ferror(fp)) goto FAIL_IO;
+         break;  /* EOF */
+      }
       if(sub64(le.balance, sanctuary, le.balance)) continue;
       if(cmp64(le.balance, Mfee) <= 0) continue;
-      if(fwrite(&le, sizeof(le), 1, fpout) != 1) goto CLEANUP_TMP;
-      m++;
+      if(fwrite(&le, sizeof(le), 1, fpout) != 1) goto FAIL_IO;
    }
+
+   /* cleanup files -- swap ledger */
    fclose(fp);
    fclose(fpout);
-   fp = fpout = NULL;
    remove("ledger.dat");
-   if(rename("ledger.tmp", "ledger.dat")) goto CLEANUP_TMP;
-   plog("%u citizens renewed out of %u", n - m, n);
+   if (rename("ledger.tmp", "ledger.dat") != 0) {
+      return VERROR;
+   }
 
    /* success */
    return VEOK;
 
    /* cleanup / error handling */
-CLEANUP_TMP:
+FAIL_IO:
    fclose(fpout);
    remove("ledger.tmp");
-CLEANUP_DAT:
+FAIL_DAT:
    fclose(fp);
-   perr("Carousel renewal code: %d (%u,%u)", message, n - m, n);
+
    return VERROR;
 }  /* end le_renew() */
 
