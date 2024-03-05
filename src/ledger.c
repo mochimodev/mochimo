@@ -26,7 +26,7 @@
 #include <errno.h>
 
 static FILE *Lefp;
-static unsigned long Nledger;
+static word64 Nledger;
 word32 Sanctuary;
 word32 Lastday;
 
@@ -76,26 +76,31 @@ void hash_wots_addr(void *hash, const void *wots)
 /* Open ledger "ledger.dat" */
 int le_open(char *ledger, char *fopenmode)
 {
-   unsigned long offset;
+   word64 offset;
 
    /* Already open? */
    if(Lefp) return VEOK;
-   Nledger = 0;
+
+   /* open ledger and seek to EOF */
    Lefp = fopen(ledger, fopenmode);
-   if(Lefp == NULL) {
-      perrno("Cannot open ledger");
+   if (Lefp == NULL) return VERROR;
+   if (fseek64(Lefp, 0LL, SEEK_END) != 0) {
+      le_close();
       return VERROR;
    }
-   if(fseek(Lefp, 0, SEEK_END)) goto bad;
-   offset = ftell(Lefp);
-   if(offset < sizeof(LENTRY) || (offset % sizeof(LENTRY)) != 0) goto bad;
-   Nledger = offset / sizeof(LENTRY);  /* number of ledger entries */
+
+   /* determine file size (via position) and check validity */
+   offset = ftell64(Lefp);
+   if(offset < sizeof(LENTRY) || (offset % sizeof(LENTRY)) != 0) {
+      le_close();
+      set_errno(EMCM_FILELEN);
+      return VERROR;
+   }
+
+   /* set number of ledger entries */
+   Nledger = offset / sizeof(LENTRY);
+
    return VEOK;
-bad:
-   fclose(Lefp);
-   Lefp = NULL;
-   perr("Bad ledger I/O format");
-   return VERROR;
 }  /* end le_open() */
 
 
