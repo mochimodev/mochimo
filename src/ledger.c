@@ -125,36 +125,18 @@ void le_close(void)
 */
 int le_find(word8 *addr, LENTRY *le, word16 len)
 {
-   long cond, mid, hi, low;
-   word8 addr2[TXADDRLEN];
+   word64 mid, hi, low;
+   int cond;
 
    if(Lefp == NULL) {
       perr("use le_open() first!");
       return 0;
    }
 
-   /* derive hash-based address from incompatible address lengths */
-   switch (len) {
-      /* support for TXSIGLEN or old balance request with ZEROED Tag */
-      case TXSIGLEN: /* fallthrough */
-      case (TXWOTSLEN - TXTAGLEN):
-         /* derive hash-based address from WOTS+ address (partial) */
-         sha256(addr, TXSIGLEN, addr2);
-         len = TXADDRLEN - TXTAGLEN;
-         break;
-      /* support for full WOTS+ address hash (inc. tag) */
-      case TXWOTSLEN:
-         hash_wots_addr(addr2, addr);
-         len = TXADDRLEN;
-         break;
-      /* otherwise, assume hash-based address from input */
-      default:
-         memcpy(addr2, addr, (size_t) len);
-         /* search length protection */
-         if (len > TXADDRLEN) {
-            len = TXADDRLEN;
-         }
-   }
+   /* search length cannot be zero */
+   if (len == 0) return 0;
+   /* clamp search length to TXADDRLEN */
+   if (len > TXADDRLEN) len = TXADDRLEN;
 
    low = 0;
    hi = Nledger - 1;
@@ -163,7 +145,7 @@ int le_find(word8 *addr, LENTRY *le, word16 len)
       mid = (hi + low) / 2;
       if(fseek(Lefp, mid * sizeof(LENTRY), SEEK_SET) != 0) break;
       if(fread(le, 1, sizeof(LENTRY), Lefp) != sizeof(LENTRY)) break;
-      cond = memcmp(addr2, le->addr, (size_t) len);
+      cond = memcmp(addr, le->addr, len);
       if(cond == 0) return 1;  /* found target addr */
       if(cond < 0) hi = mid - 1; else low = mid + 1;
    }  /* end while */
