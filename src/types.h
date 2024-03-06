@@ -408,7 +408,12 @@ typedef union {
  * - tx_adrs[20-31] = 0x420000000e00000001000000 (WOTS+)
  * - tx_adrs[20-31] = 0x420000000e00000002000000 (alt sig scheme)
  * - tx_adrs[20-31] = 0x................03000000 (etc.)
- */
+ *
+ * Transaction nonce was introduced to ENSURE (within reasonable doubt)
+ * that transaction IDs remain unique. The node handler MUST ensure the
+ * field contains the block number of the block it is solved into, so
+ * as to ensure the integrity of the "uniqueness" of a transaction ID.
+*/
 typedef struct {
    /* transaction data (These fields are order dependent) */
    word8 src_addr[TXADDRLEN];     /* 44 */
