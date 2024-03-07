@@ -9,6 +9,8 @@
 #ifndef MOCHIMO_TX_H
 #define MOCHIMO_TX_H
 
+/* define 64-bit off_t for stdio BEFORE all includes */
+#define _FILE_OFFSET_BITS  64
 
 /* internal support */
 #include "types.h"
@@ -26,12 +28,8 @@
 extern "C" {
 #endif
 
-#ifndef _WIN32
-   int lock(char *lockfile, int seconds);
-   int unlock(int fd);
-
-#endif
-
+int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream);
+int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int mtx_val(MTX *mtx, word32 *fee);
 int tx_val(TX *tx);
 int txcheck(word8 *src_addr);

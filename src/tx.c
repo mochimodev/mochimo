@@ -64,6 +64,109 @@
 
 #endif
 
+/**
+ * Read a single Transaction and eXtended Data entry in to the provided
+ * buffers, @a txe and @a xdata, from the given input @a stream. The
+ * file position indicator is advanced by the size of the whole entry.
+ * @param txe Pointer to Transaction Entry buffer
+ * @param xdata Pointer to eXtended Data buffer, or NULL
+ * @param stream The stream to read from
+ * @return (int) value representing the read result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream)
+{
+   size_t res, xlen;
+
+   /* read up to transaction change address to check for MDST */
+   res = fread(txe, XTX_HDRLEN, 1, stream);
+   if (res != 1) return VERROR;
+
+   /* determine if eXtended Data is present */
+   if (IS_XTX(txe)) {
+      switch (XTX_TYPE(txe)) {
+         /* ... add eXtended Transaction data types here */
+         case XTX_MDST:
+            /* infer +1 MDST count due to byte limitations */
+            xlen = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
+            break;
+         default:
+            /* no eXtended Data available */
+            xlen = 0;
+      }
+      /* read eXtended Data or skip if xdata is NULL */
+      if (xlen > 0) {
+         if (xdata == NULL) {
+            res = (size_t) fseek64(stream, (long long) xlen, SEEK_CUR);
+            if (res != 0) return VERROR;
+         } else {
+            res = fread(xdata, xlen, 1, stream);
+            if (res != 1) return VERROR;
+         }
+      }
+   }
+
+   /* read remaining transaction data (from chg_addr) */
+   res = fread(txe->chg_addr, sizeof(TXQENTRY) - XTX_HDRLEN, 1, stream);
+   if (res != 1) return VERROR;
+
+   return VEOK;
+}  /* end tx_fread() */
+
+/**
+ * Write a single Transaction and eXtended Data entry from the provided
+ * buffers, @a txe and @a xdata, to the given input @a stream. The file
+ * position indicator is advanced by the size of the whole entry. If the
+ * provided Transaction entry does not indicate an eXtended Transaction
+ * entry that contains eXtended Data, it MAY be left NULL.
+ * @param txe Pointer to Transaction Entry buffer
+ * @param xdata Pointer to eXtended Data buffer, or NULL
+ * @param stream The stream to read from
+ * @return (int) value representing the write result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ * @exception errno=ENODATA Write requires xdata, which was not provided
+ */
+int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
+{
+   size_t res, xlen;
+
+   /* write transaction data up to possible eXtended Data */
+   res = fwrite(txe, XTX_HDRLEN, 1, stream);
+   if (res != 1) return VERROR;
+
+   /* determine if eXtended Data is present */
+   if (IS_XTX(txe)) {
+      switch (XTX_TYPE(txe)) {
+         /* ... add eXtended Transaction data types here */
+         case XTX_MDST:
+            /* infer +1 MDST count due to byte limitations */
+            xlen = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
+            break;
+         default:
+            /* no eXtended Data available */
+            xlen = 0;
+      }
+      /* read eXtended Data or skip if xdata is NULL */
+      if (xlen > 0) {
+         if (xdata == NULL) {
+            set_errno(ENODATA);
+            return VERROR;
+         } else {
+            res = fwrite(xdata, xlen, 1, stream);
+            if (res != 1) return VERROR;
+         }
+      }
+   }
+
+   /* write remaining transaction data */
+   res = fwrite(txe->chg_addr, XTX_TLRLEN, 1, stream);
+   if (res != 1) return VERROR;
+
+   return VEOK;
+}  /* end tx_fwrite() */
+
 /* Validates a multi-dst transaction MTX.
  * (Does all tag checking as well.)
  * tx->src_addr is already checked in ledger.dat and totals tally.
