@@ -31,6 +31,10 @@
 #define VA_SHIFT(...) VA_SELECT(__VA_ARGS__)
 #define VA_COUNT(...) VA_SHIFT(__VA_ARGS__, VA_NUMBER)
 
+/* STATIC ASSERTION MACRO, for compile time assertion */
+#define STATIC_ASSERT(condition, message) \
+   ( (void) sizeof(char[1 - (2 * (!!(condition)))]) )
+
 /* print log levels */
 #define PLOG_ALERT 0
 #define PLOG_ERRNO 1
