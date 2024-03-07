@@ -33,6 +33,7 @@ int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int mtx_val(MTX *mtx, word32 *fee);
 int tx_val(TX *tx);
 int txcheck(word8 *src_addr);
+int txclean(const char *txfname, const char *bcfname);
 int txmap(TX *tx, word32 src_ip);
 pid_t mgc(word32 ip);
 pid_t mirror1(word32 *iplist, int len);

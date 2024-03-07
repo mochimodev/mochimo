@@ -13,6 +13,7 @@
 #include "bup.h"
 
 /* internal support */
+#include "tx.h"
 #include "tfile.h"
 #include "tag.h"
 #include "sort.h"
@@ -62,210 +63,6 @@ void print_bup(BTRAILER *bt, char *solvestr)
       printf("Solved: %" P32u "  Hps: %" P32u "\n", Nsolved, Hps);
    }
 }  /* end print_bup() */
-
-/**
- * Remove bad TX's from a txclean file based on a blockchain file.
- * Uses "ledger.dat" as (input) ledger file, "txq.tmp" as temporary (output)
- * txclean file and renames to "txclean.dat" on success.
- * @param bcfname Filename of blockchain file to check against (optional)
- * @returns VEOK on success, else VERROR
- * @note Nothing else should be using the ledger.
- * @note Leaves ledger.dat open on return.
-*/
-int b_txclean(char *bcfname)
-{
-   TXQENTRY txc;           /* passes transactions from input to output */
-   TXQENTRY tx;            /* Holds one transaction in the array */
-   BTRAILER bt;            /* holds block trailer data of bcfname */
-   FILE *fp, *fpout;       /* input/output txclean file pointers */
-   FILE *bfp;              /* input block file pointer */
-   word32 *idx;
-   word32 j;               /* unsigned iteration and comparison */
-   word32 hdrlen;          /* for block header length */
-   word32 diff[2];
-   word32 btx, nout;       /* transaction record counters */
-   clock_t ticks;
-   int cond;
-   char addrhash[10];
-
-   void *ap, *bp;    /* comparison pointers */
-
-   /* init */
-   ticks = clock();
-   nout = 0;
-
-   /* check txclean exists AND has transactions to clean*/
-   if (!fexists("txclean.dat")) {
-      pdebug("nothing to clean, done...");
-      return VEOK;
-   }
-
-   /* build sorted index Txidx[] from txclean.dat */
-   if (sorttx("txclean.dat") != VEOK) {
-      perr("bad sorttx(txclean.dat)");
-      return VERROR;
-   }
-   /* open validated block file, read fixed length header and check */
-   bfp = fopen(bcfname, "rb");
-   if (bfp == NULL) {
-      perrno("failed to fopen(%s)", bcfname);
-      goto CLEANUP;
-   } else if (fread(&hdrlen, 4, 1, bfp) != 1) {
-      perr("failed to fread(hdrlen)");
-      goto CLEANUP_BLK;
-   } else if (hdrlen != sizeof(BHEADER)) {
-      perr("bad hdrlen");
-      goto CLEANUP_BLK;
-   }
-   /* seek to and read block trailer */
-   if (fseek(bfp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
-      perrno("failed to fseek(END-BTRAILER)");
-      goto CLEANUP_BLK;
-   } else if (fread(&bt, sizeof(BTRAILER), 1, bfp) != 1) {
-      perr("failed to fread(bt)");
-      goto CLEANUP_BLK;
-   }
-   /* check Cblocknum alignment with block number */
-   if (sub64(bt.bnum, Cblocknum, diff) || diff[0] != 1 || diff[1] != 0) {
-      perr("bt.bnum - Cblocknum != 1");
-      goto CLEANUP_BLK;
-   }
-   /* re-open the clean TX queue to read */
-   fp = fopen("txclean.dat", "rb");
-   if (fp == NULL) {
-      perrno("failed to fopen(txclean.dat)");
-      goto CLEANUP_BLK;
-   }
-   /* create new clean TX queue */
-   fpout = fopen("txq.tmp", "wb");
-   if (fpout == NULL) {
-      perrno("failed to fopen(txq.tmp)");
-      goto CLEANUP_TXC;
-   }
-
-   /***** Read Merkel Block Array from new block *****/
-   if (fseek(bfp, hdrlen, SEEK_SET) != 0) {
-      perrno("failed to fseek(bfp, SET)");
-      goto CLEANUP_TXQ;
-   }
-
-   /* Remove TX_ID's from clean TX queue that are in the new block.
-   * Merkel Array in new block is already sorted on TX_ID;
-   * bval checks this in foreign blocks.
-   * Above we sorted clean queue, txclean.dat, with sorttx() call.
-   *
-   * NOTE: end of file check on Merkel Block (bfp) depends on block
-   *       trailer being shorter than a TXQENTRY !
-   */
-
-   nout = 0;    /* output counter */
-   btx = 0;  /* block counter */
-   idx = Txidx;  /* *idx is its index */
-   /* read transactions from the block array */
-   for (j = 0; j < Ntx && fread(&tx, sizeof(TXQENTRY), 1, bfp); ) {
-      btx++;  /* count transactions in block */
-      do {  /* check if block tx matches clean tx... */
-         cond = memcmp(tx.tx_id, &Tx_ids[*idx * HASHLEN], HASHLEN);
-         /* if Merkel Block TX_ID is higher, pass clean TX to temp */
-         if (cond > 0) {
-            if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-               perrno("failed to fseek(fp, SET)");
-               goto CLEANUP_TXQ;
-            } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
-               perr("failed to fread(tx)");
-               goto CLEANUP_TXQ;
-            } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
-               perr("failed to fwrite(tx)");
-               goto CLEANUP_TXQ;
-            } else {
-               hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
-               pdebug("keep tx_id %s...", addrhash);
-            }
-            nout++;  /* count output records to temp file -- new txclean */
-         }
-         /* skip dup transaction ids */
-         if (cond >= 0) {
-            do {  /* break on end of clean TX file or non-dup tx_id */
-               hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
-               pdebug("drop tx_id %s...", addrhash);
-               j++;
-               ap = (void *) &Tx_ids[*(idx++) * HASHLEN];
-               bp = (void *) &Tx_ids[*idx * HASHLEN];
-            } while (j < Ntx && memcmp(ap, bp, HASHLEN) == 0);
-         }
-         /* if (cond <= 0) the block transaction is not in txclean.dat
-         * (Maybe the block is foreign, maybe we're done) */
-      } while (j < Ntx && cond > 0);
-   }  /* end for(j = 0... */
-
-   /* At end of Merkel Block, and if there are remaining transactions,
-   * copy the remaining transactions from txclean.dat to temp file */
-   for( ; j < Ntx; j++, idx++) {
-      if (j > 0) {
-         /* Check for dups in txclean.dat */
-         ap = (void *) &Tx_ids[idx[-1] * HASHLEN];
-         bp = (void *) &Tx_ids[*idx * HASHLEN];
-         if (memcmp(ap, bp, HASHLEN) == 0) {
-            hash2hex32(&Tx_ids[*idx * HASHLEN], addrhash);
-            pdebug("drop dup tx_id, drop tx_id %s...", addrhash);
-            continue;
-         }
-      }
-      /* Read clean TX in sorted order using index. */
-      if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-         perrno("failed to (re)fseek(fp, SET)");
-         goto CLEANUP_TXQ;
-      } else if (fread(&txc, sizeof(TXQENTRY), 1, fp) != 1) {
-         perr("failed to (re)fread(tx)");
-         goto CLEANUP_TXQ;
-      } else if (fwrite(&txc, sizeof(TXQENTRY), 1, fpout) != 1) {
-         perr("failed to (re)fwrite(tx)");
-         goto CLEANUP_TXQ;
-      } else {
-         hash2hex32(txc.tx_id, addrhash);
-         pdebug("keep remaining tx_id %s...", addrhash);
-      }
-      nout++;
-   }  /* end for j */
-
-   if (btx > get32(bt.tcount)) {  /* should never happen! */
-      perr("bad tcount in new block");
-      goto CLEANUP_TXQ;
-   }
-
-   /* cleanup */
-   fclose(fpout);
-   fclose(fp);
-   fclose(bfp);
-   sorttx_free();
-
-   remove("txclean.dat");
-   if (nout == 0) pdebug("txclean.dat is empty");
-   else if (rename("txq.tmp", "txclean.dat") != VEOK) {
-      perr("failed to move txq to txclean");
-      remove("txq.tmp");
-      return VERROR;
-   }
-
-   /* clean TX queue is updated */
-   pdebug("wrote %u/%u entries to txclean", nout, Ntx);
-   pdebug("block level txclean done in %gs", diffclocktime(ticks));
-
-   /* success */
-   return VEOK;
-
-   /* cleanup / error handling */
-CLEANUP_TXQ:
-   fclose(fpout);
-   remove("txq.tmp");
-CLEANUP_TXC:
-   fclose(fp);
-CLEANUP_BLK:
-   fclose(bfp);
-CLEANUP:
-   sorttx_free();
-   return VERROR;
-}  /* end b_txclean() */
 
 /**
  * mode: 0 = their block
@@ -332,15 +129,13 @@ int b_update(char *fname, int mode)
          /* txq1.dat is empty now */
          Txcount = 0;
       }
-      /* clean the transaction queue, with the block and the ledger */
-      /* ... NOTE: blockchain clean only occurs on successful update */
-      if (ecode == VEOK && b_txclean(fname) != VEOK) {
-         pwarn("b_txclean() failure, forcing clean...");
-         remove("txclean.dat");
-      }
-      /* ... NOTE: le_txclean() opens server ledger reference */
-      if (le_txclean() != VEOK) {
-         pwarn("le_txclean failure, forcing clean...");
+      /* clean the transaction queue, with the block and the ledger.
+       * clean with blockchain file only occurs on successful update.
+       * NOTE: txclean() opens server ledger reference.
+       */
+      if (txclean("txclean.dat", ecode == VEOK ? fname : NULL) != VEOK) {
+         perrno("txclean failure");
+         pwarn("forcing clean...");
          remove("txclean.dat");
       }
       /* (re)open the ledger, regardless of above results */
@@ -447,7 +242,7 @@ int b_update(char *fname, int mode)
             restart("failed to le_renew()");
          }
          /* clean the tx queue (again), no bc file */
-         if (le_txclean() != VEOK) {
+         if (txclean("txclean.dat", NULL) != VEOK) {
             pwarn("forcing clean TX queue...");
             remove("txclean.dat");
          }

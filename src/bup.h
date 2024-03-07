@@ -15,7 +15,6 @@
 extern "C" {
 #endif
 
-int b_txclean(char *bcfname);
 int b_update(char *fname, int mode);
 
 #ifdef __cplusplus

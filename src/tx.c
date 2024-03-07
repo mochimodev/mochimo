@@ -23,10 +23,32 @@
 
 /* external support */
 #include <sys/wait.h>
+#include <string.h>
 #include "exttime.h"
 #include "extmath.h"
 #include "extlib.h"
 #include "crc16.h"
+
+/**
+ * @private Transaction ID reference structure.
+ * Contains an ID and file position type pair.
+*/
+typedef struct {
+   word8 id[HASHLEN];
+   fpos_t pos;
+} TXREF;
+
+/**
+ * @private
+ * Comparison function to sort TXREF objects by id.
+*/
+static int compare_txref(const void *va, const void *vb)
+{
+   TXREF *a = (TXREF *) va;
+   TXREF *b = (TXREF *) vb;
+
+   return memcmp(a->id, b->id, sizeof(a->id));
+}
 
 #ifndef _WIN32
 
@@ -340,6 +362,187 @@ int txcheck(word8 *src_addr)
    }  /* end if fp */
    return VEOK;  /* src_addr not found */
 }  /* end txcheck() */
+
+/**
+ * Clean a Transaction Queue file, @a txfname, of entries that may have
+ * been invalidated by an updated Ledger or may have been solved into a
+ * recent Blockchain file, @a bcfname. If a Blockchain file is not 
+ * provided, a Ledger-only clean will be performed.
+ * @param txfname Filename of the clean transaction queue file
+ * @param bcfname Filename of the block to clean against, or NULL
+ * @return (int) value representing the clean result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int txclean(const char *txfname, const char *bcfname)
+{
+   TXQENTRY txe, txc;      /* block entry and txclean transactions */
+   XDATA xdata;            /* eXtended transaction data (for transfer) */
+   FILE *fp, *bfp, *tfp;   /* input, blockchain and temporary files */
+   TXREF *tx;              /* malloc'd transaction ID references */
+   size_t count, actual;   /* malloc'd and actual element counts */
+   size_t j, nout;
+   fpos_t pos;             /* file position offset indicator */
+   long long offset;       /* file position offset value */
+   word32 hdrlen;          /* for block header length */
+   int cond;
+   char tmpfname[FILENAME_MAX];
+
+   /* ensure ledger is open (required) */
+   if (le_open("ledger.dat", "rb") != VEOK) {
+      perr("failed to le_open(ledger.dat)");
+      return VERROR;
+   }
+
+   /* GENERATE SORTED (ASCENDING) TXID REFERENCES FOR COMPARE */
+
+   /* open provided txclean file */
+   fp = fopen(txfname, "rb");
+   if (fp == NULL) return VERROR;
+
+   /* obtain EOF offset */
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto FAIL_FP;
+   offset = ftell64(fp);
+   if (offset == EOF) goto FAIL_FP;
+   if (offset == 0LL) {
+      /* nothing to clean */
+      fclose(fp);
+      return VEOK;
+   }
+   if ((size_t) offset < sizeof(TXQENTRY)) {
+      /* file contains unknown data */
+      set_errno(EMCM_FILEDATA);
+      goto FAIL_FP;
+   }
+
+   /* malloc required space (approximate) */
+   count = (size_t) offset / sizeof(TXQENTRY);
+   tx = malloc(count * sizeof(TXREF));
+   if (tx == NULL) goto FAIL_FP;
+
+   /* store txid and associated fpos_t value in arrays */
+   for(rewind(fp), actual = 0; actual < count; actual++) {
+      /* store position for later use (if tx is read) */
+      if (fgetpos(fp, &pos) != 0) goto FAIL_FP_MEM;
+      if (tx_fread(&txc, NULL, fp) != VEOK) {
+         if (ferror(fp)) goto FAIL_FP_MEM;
+         break;  /* EOF */
+      }
+      /* set txid reference data */
+      memcpy(&(tx[actual].id), txc.tx_id, HASHLEN);
+      tx[actual].pos = pos;
+   }
+   /* check for leftover data */
+   if (ftell64(fp) < offset) {
+      set_errno(EMCM_FILEDATA);
+      goto FAIL_FP_MEM;
+   }
+   /* sort the txid reference array */
+   qsort(tx, actual, sizeof(TXREF), compare_txref);
+
+   /* PREPARE BLOCKCHAIN FILE FOR TRANSACTION COMPARISON (IF PROVIDED) */
+
+   bfp == NULL;
+   /* NOTE: bfp MUST BE initialized NULL for error handling */
+   if (bcfname != NULL) {
+      /* open validated block file */
+      bfp = fopen(bcfname, "rb");
+      if (bfp == NULL) goto FAIL_FP_MEM;
+      /* read and check fixed length header */
+      if (fread(&hdrlen, 4, 1, bfp) != 1) {
+         if (!ferror(fp)) set_errno(EMCM_EOF);
+         goto FAIL_FP_MEM_BFP;
+      }
+      if (hdrlen != sizeof(BHEADER)) {
+         set_errno(EMCM_HDRLEN);
+         goto FAIL_FP_MEM_BFP;
+      }
+      /* seek to start of Merkle Array */
+      if (fseek(bfp, (long) hdrlen, SEEK_SET) != 0) {
+         goto FAIL_FP_MEM_BFP;
+      }
+   }
+
+   /* FILTER OLD QUEUE BASED ON BLOCK AND LEDGER */
+
+   /* generate temporary filename */
+   snprintf(tmpfname, sizeof(tmpfname), "txc-%04x.tmp", rand16());
+   tfp = fopen(tmpfname, "wb");
+   if (tfp == NULL) goto FAIL_FP_MEM_BFP;
+
+   /* Remove TX_ID's from clean TX queue that are in the new block.
+    * Remove remaining invalidated (per ledger) transactions.
+    * Merkel Array in new block is sorted on TX_ID (checked in bval).
+    * Clean queue, txclean.dat, is sorted by reference array above.
+    *
+    * NOTE: end of file check on Merkel Block (bfp) depends on block
+    *       trailer being shorter than a TXQENTRY !
+    *       STATIC_ASSERT() prevents this.
+    */
+   STATIC_ASSERT(sizeof(BTRAILER) >= sizeof(TXQENTRY), "LOOP EOF CHECK");
+   for (cond = j = nout = 0; j < actual; j++) {
+      if (bfp != NULL) {
+         do {
+            /* if block transaction ID compared AFTER reference, hold... */
+            if (cond <= 0) {
+               /* read next transaction from block */
+               if (tx_fread(&txe, NULL, bfp) != VEOK) {
+                  if (ferror(bfp)) goto FAIL_ALL;
+                  /* EOF -- break inner loop */
+                  fclose(bfp);
+                  bfp = NULL;
+                  break;
+               }
+            }
+            /* compare block transaction ID with reference ID */
+            cond = memcmp(txe.tx_id, tx[j].id, HASHLEN);
+            /* if ID from block compares BEFORE reference, redo... */
+         } while (cond < 0);
+         /* if ID from block compares EQUAL TO reference, skip... */
+         if (bfp != NULL && cond == 0) continue;
+      }
+      /* .. else; read reference transaction from previously set fpos */
+      if (fsetpos(fp, &(tx[j].pos)) != 0) goto FAIL_ALL;
+      if (tx_fread(&txc, &xdata, fp) != VEOK) goto FAIL_ALL;
+      /* if (re)validation fails, skip... */
+      /** @todo: replace tx_val with less wasteful tx_reval process */
+      if (tx_val(&txc, &xdata) != VEOK) continue;
+      /* ... else; write clean (valid) transaction to output */
+      if (tx_fwrite(&txc, &xdata, tfp) != VEOK) goto FAIL_ALL;
+      nout++;
+   }  /* end for() */
+
+   /* cleanup */
+   fclose(tfp);
+   fclose(bfp);
+   fclose(fp);
+   free(tx);
+
+   /* out with the old, in with the new */
+   remove(txfname);
+   if (nout > 0) {
+      if (rename(tmpfname, txfname) != 0) {
+         remove(tmpfname);
+         return VERROR;
+      }
+   }
+
+   /* success */
+   return VEOK;
+
+   /* cleanup / error handling */
+FAIL_ALL:
+   fclose(tfp);
+   remove(tmpfname);
+FAIL_FP_MEM_BFP:
+   if (bfp != NULL) fclose(bfp);
+FAIL_FP_MEM:
+   free(tx);
+FAIL_FP:
+   fclose(fp);
+
+   return VERROR;
+}  /* end txclean() */
 
 /* Add src_ip to tx address map (weight[])
  * Called from process_tx()

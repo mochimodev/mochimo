@@ -616,7 +616,7 @@ int init(void)
    }
 
    write_global();
-   le_txclean();
+   txclean("txclean.dat", NULL);
    Ininit = 0;
 
    return Running ? VEOK : VERROR;
