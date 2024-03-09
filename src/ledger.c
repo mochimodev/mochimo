@@ -59,6 +59,16 @@ static int addr_compare_wots(const void *a, const void *b)
 }
 
 /**
+ * @private
+ * Comparison function to sort LTRAN objects by address + transaction code.
+ * DOES NOT CONSIDER Ledger transaction amount in sorting process.
+*/
+static int compare_lt(const void *va, const void *vb)
+{
+   return memcmp(va, vb, TXADDRLEN + 1);
+}
+
+/**
  * Convert a WOTS+ address to a Hashed-based address. Copies tag data.
  * @param hash Pointer to destination hash-based address
  * @param wots Pointer to source WOTS+ address
@@ -282,221 +292,205 @@ FAIL_DAT:
 }  /* end le_renew() */
 
 /**
- * Update leadger by applying ledger transaction deltas to a ledger. Uses
- * "ltran.dat" as (input) ledger transaction deltas file, "ledger.tmp" as
- * temporary (output) ledger file and renames to "ledger.dat" on success.
- * Ledger file is kept sorted on addr. Ledger transaction file is sorted by
- * sortlt() on addr+trancode, where '-' comes before 'A'.
- * @returns VEOK on success, else VERROR
-*/
-int le_update(void)
+ * Update a leadger file, @a lefname, by applying deltas from a ledger
+ * transaction file, @a ltfname. Ledger file is kept sorted on addr.
+ * Ledger transaction file is sorted by addr+code, '-' comes before 'A'.
+ * @param lefname Filename of the Ledger file to update
+ * @param ltfname Filename of the Ledger transaction file containing deltas
+ * @return (int) value representing the update result
+ * @retval VEBAD2 on malicious; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int le_update(const char *lefname, const char *ltfname)
 {
-   LENTRY oldle, newle;    /* input/output ledger entries */
-   LTRAN lt;               /* ledger transaction  */
-   FILE *ltfp, *fp;        /* input ltran and output ledger pointers */
-   FILE *lefp;             /* ledger file pointers */
-   clock_t ticks;
-   word32 nout;            /* temp file output counter */
-   word8 hold;             /* hold ledger entry for next loop */
-   word8 taddr[TXADDRLEN];    /* for transaction address hold */
-   word8 le_prev[TXADDRLEN];  /* for ledger sequence check */
-   word8 lt_prev[TXADDRLEN];  /* for tran delta sequence check */
-   int cond;
-   char addrhex[10];
+   LENTRY le, le_hold;        /* for ledger entry and ledger hold data */
+   LTRAN lt;                  /* for ledger transaction data */
+   FILE *fp, *lefp, *ltfp;    /* output, ledger, and ltran file pointers */
+   word8 le_prev[TXADDRLEN];     /* for ledger sequence check */
+   word8 lt_prev[TXADDRLEN + 1]; /* for ltran sequence check */
+   word8 hold, empty;
+   int compare;
+   char tmpfname[FILENAME_MAX];
 
-   /* init */
-   ticks = clock();
-   nout = 0;         /* output record counter */
-   hold = 0;         /* hold ledger flag */
-   memset(le_prev, 0, TXADDRLEN);
-   memset(lt_prev, 0, TXADDRLEN);
-
-   /* ensure ledger reference is closed for update */
+   /* ensure ledger (global ref) is closed for update */
    le_close();
 
    /* sort the ledger transaction file */
-   if (sortlt("ltran.dat") != VEOK) {
-      perr("le_update: bad sortlt(ltran.dat)");
+   if (filesort(ltfname, sizeof(LTRAN), LEBUFSZ, compare_lt) != 0) {
       return VERROR;
    }
 
-   /* open ledger (local ref), ledger transactions, and new ledger */
-   lefp = fopen("ledger.dat", "rb");
-   if (lefp == NULL) {
-      perrno("failed to fopen(ledger.dat)");
-      return VERROR;
+   /* open ledger (local ref), ledger transactions */
+   lefp = fopen(lefname, "rb");
+   if (lefp == NULL) return VERROR;
+   ltfp = fopen(ltfname, "rb");
+   if (ltfp == NULL) goto FAIL_LE;
+
+   /* generate temporary filename and open as new ledger */
+   snprintf(tmpfname, sizeof(tmpfname), "le-%04x.tmp", rand16());
+   fp = fopen(tmpfname, "wb");
+   if (fp == NULL) goto FAIL_LE_LT;
+
+   /* read initial ledger entry and ledger transaction records */
+   if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
+      if (ferror(lefp)) goto FAIL_ALL;
+      /* EOF -- shouldn't happen, shouldn't matter */
+      fclose(lefp);
+      lefp = NULL;
    }
-   ltfp = fopen("ltran.dat", "rb");
-   if (ltfp == NULL) {
-      perrno("failed to fopen(ltran.dat)");
-      goto CLEANUP_LE;
-   }
-   fp = fopen("ledger.tmp", "wb");
-   if (fp == NULL) {
-      perrno("failed to fopen(ledger.tmp)");
-      goto CLEANUP_LT;
+   if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+      if (ferror(lefp)) goto FAIL_ALL;
+      /* EOF -- shouldn't happen, shouldn't matter */
+      fclose(ltfp);
+      ltfp = NULL;
    }
 
-   /* prepare initial ledger transaction */
-   fread(&lt, sizeof(LTRAN), 1, ltfp);
-   if (ferror(ltfp)) {
-      perrno("failed to fread(lt)");
-      goto CLEANUP_TMP;
-   }
+   /* iterate through files while either files are NOT EOF */
+   for (hold = 0, empty = 1; lefp != NULL || ltfp != NULL; ) {
 
-   /* while one of the files is still open */
-   while (feof(lefp) == 0 || feof(ltfp) == 0) {
-      /* if ledger entry on hold, skip read, else do read and sort checks */
-      if (hold) hold = 0;
-      else if (feof(lefp) == 0) {
-         /* read ledger entry, check sort, and store entry in le_prev */
-         if (fread(&oldle, sizeof(LENTRY), 1, lefp) != 1) {
-            /* check file errors, else "continue" loop for eof check */
-            if (ferror(lefp)) {
-               perrno("fread(oldle)");
-               goto CLEANUP_TMP;
-            } else continue;
-         } else if (memcmp(oldle.addr, le_prev, TXADDRLEN) < 0) {
-            perr("bad ledger.dat sort");
-            goto CLEANUP_TMP;
-         } else memcpy(le_prev, oldle.addr, TXADDRLEN);
-      }
-      /* compare ledger address to latest transaction address */
-      cond = memcmp(oldle.addr, lt.addr, TXADDRLEN);
-      if (cond == 0 && feof(ltfp) == 0 && feof(lefp) == 0) {
-         /* If ledger and transaction addr match,
-          * and both files not at end...
-          * copy the old ledger entry to a new struct for editing */
-         hash2hex32(lt.addr, addrhex);
-         pdebug("editing address %s...", addrhex);
-         memcpy(&newle, &oldle, sizeof(LENTRY));
-      } else if ((cond < 0 || feof(ltfp)) && feof(lefp) == 0) {
-         /* If ledger compares "before" transaction or transaction eof,
-          * and ledger file is NOT at end...
-          * write the old ledger entry to temp file */
-         if (fwrite(&oldle, sizeof(LENTRY), 1, fp) != 1) {
-            perr("bad write on temp ledger");
-            goto CLEANUP_TMP;
-         }
-         nout++;  /* count records in temp file */
-         continue;  /* nothing else to do */
-      } else if((cond > 0 || feof(lefp)) && feof(ltfp) == 0) {
-         /* If the next ledger entry comes "after" the current transaction
-          * or ledger file is EOF, AND transaction file is NOT EOF... */
-         if(lt.trancode[0] != 'A') {
-            /* ... the ONLY acceptable trancode is an append ("A"), and is
-             * considered malicious intent if missed by previous checks */
-            perr("create tran not 'A'");
-            goto CLEANUP_DROP;
-         }
-         hash2hex32(lt.addr, addrhex);
-         pdebug("creating address %s...", addrhex);
-         /* CREATE NEW ADDR
-          * Copy address from transaction to new ledger entry.
-          */
-         memcpy(&newle.addr, lt.addr, TXADDRLEN);
-         memset(newle.balance, 0, 8);  /* but zero balance for apply_tran */
-         /* Hold old ledger entry to insert before this addition. */
-         hold = 1;
-      }
+      /* check ledger transaction file is open for processing */
+      if (ltfp != NULL) {
+         /* only perform initial comparison on ledger entry file */
+         if (lefp != NULL) compare = addr_compare(le.addr, lt.addr);
 
-      /* save ledger transaction address */
-      memcpy(taddr, lt.addr, TXADDRLEN);
-
-      do {
-         hash2hex32(lt.addr, addrhex);
-         pdebug("Applying '%c' to %s...", (char) lt.trancode[0], addrhex);
-         /* '-' transaction sorts before 'A' */
-         if (lt.trancode[0] == 'A') {
-            if (add64(newle.balance, lt.amount, newle.balance)) {
-               pdebug("balance OVERFLOW! Zero-ing balance...");
-               memset(newle.balance, 0, 8);
+         /* if ledger entry compares AFTER ledger transaction, OR
+          * if ledger entry file is EOF... */
+         if (compare > 0 || lefp == NULL) {
+            /* the ONLY acceptable ledger transaction code here is an
+             * CREDIT ("A") code, else assume malicious intent */
+            if (lt.trancode[0] != 'A') {
+               set_errno(EMCM_LTCREDIT);
+               goto FAIL_DROP;
             }
-         } else if(lt.trancode[0] == '-') {
-            if (cmp64(newle.balance, lt.amount) != 0) {
-               perr("'-' balance != trans amount");
-               goto CLEANUP_DROP;
+            /* hold ledger entry while associated file is open */
+            if (lefp != NULL) {
+               memcpy(&le_hold, &le, sizeof(LENTRY));
+               hold = 1;
             }
-            memset(newle.balance, 0, 8);
-         } else {
-            perr("bad trancode");
-            goto CLEANUP_TMP;
-         }
-         /* --- ^ shouldn't happen */
-         /* read next transaction */
-         pdebug("apply -- reading transaction");
-         if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
-            if (ferror(ltfp)) {
-               perrno("fread(lt)");
-               goto CLEANUP_TMP;
+            /* clear ledger entry data, set ledger transaction address */
+            memset(&le, 0, sizeof(LENTRY));
+            memcpy(le.addr, lt.addr, TXADDRLEN);
+            /* set compare for ledger transaction processing */
+            compare = 0;
+         }  /* end if (compare > 0 || lefp == NULL) */
+
+         /* while ledger entry compares EQUAL TO ledger transaction... */
+         while (compare == 0) {
+            /* apply ledger transaction */
+            switch ((char) lt.trancode[1]) {
+               case 'A':
+                  /* transaction CREDIT operation */
+                  if (add64(le.balance, lt.amount, le.balance)) {
+                     /** @todo: reconsider math overflow as error? */
+                     /* set_errno(EMCM_MATH64_OVERFLOW); */
+                     /* goto FAIL_DROP; */
+                     memset(le.balance, 0, sizeof(le.balance));
+                  }
+                  break;
+               case '-':
+                  /* transaction DEBIT operation */
+                  if (cmp64(le.balance, lt.amount) != 0) {
+                     set_errno(EMCM_LTDEBIT);
+                     goto FAIL_DROP;
+                  }
+                  memset(le.balance, 0, sizeof(le.balance));
+                  break;
+               default:
+                  /* invalid transaction operation */
+                  set_errno(EMCM_LTCODE);
+                  goto FAIL_ALL;
             }
-            pdebug("eof on tran");
-            break;
-         }
-         /* Sequence check on lt.addr */
-         if (memcmp(lt.addr, lt_prev, TXADDRLEN) < 0) {
-            perr("bad ltran.dat sort");
-            goto CLEANUP_TMP;
-         }
-         memcpy(lt_prev, lt.addr, TXADDRLEN);
+            /* read next ledger transaction */
+            memcpy(lt_prev, lt.addr, TXADDRLEN + 1);
+            if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+               if (ferror(lefp)) goto FAIL_ALL;
+               /* EOF -- cleanup, break inner loop */
+               fclose(ltfp);
+               ltfp = NULL;
+               break;
+            }
+            /* check sort -- MUST BE ascending, ALLOW duplicates */
+            /* NOTE: sort check SHOULD include transaction code */
+            if (memcmp(lt_prev, lt.addr, TXADDRLEN + 1) > 0) {
+               set_errno(EMCM_LTSORT);
+               goto FAIL_ALL;
+            }
+            /* recompare latest ledger transaction */
+            compare = addr_compare(le.addr, lt.addr);
+         }  /* end while (compare == 0) */
+      }  /* end if (ltfp != NULL) */
 
-         /* Check for multiple transactions on a single address:
-         * '-' must come before 'A'
-         * (Transaction file did not run out and its addr matches
-         *  the previous transaction...)
-         */
-      } while (memcmp(lt.addr, taddr, TXADDRLEN) == 0);
-
-      /* Only balances > Mfee are written to updated ledger. */
-      if (cmp64(newle.balance, Mfee) > 0) {
-         pdebug("writing new balance");
-         /* write new balance to temp file */
-         if (fwrite(&newle, sizeof(LENTRY), 1, fp) != 1) {
-            perr("bad write on temp ledger");
-            goto CLEANUP_TMP;
+      /* if lendger entry compares BEFORE ledger transaction, OR
+       * ledger transaction file is EOF... */
+      if (compare < 0 || ltfp == NULL) {
+         /* if ledger entry balance > MFEE, write to output */
+         if (cmp64(le.balance, Mfee) > 0) {
+            if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) {
+               goto FAIL_ALL;
+            } else empty = 0;
          }
-         nout++;  /* count output records */
-      } else pdebug("new balance <= Mfee is not written");
-   }  /* end while not both on EOF  -- updating ledger */
+         /* if ledger entry file open... */
+         if (lefp != NULL) {
+            /* copy ledger hold to ledger entry, OR... */
+            if (hold) {
+               memcpy(&le, &le_hold, sizeof(LENTRY));
+               hold = 0;
+               continue;
+            }
+            /* read next ledger transaction, AND... */
+            memcpy(le_prev, le.addr, TXADDRLEN);
+            if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
+               if (ferror(lefp)) goto FAIL_ALL;
+               /* EOF -- cleanup */
+               fclose(lefp);
+               lefp = NULL;
+               continue;
+            }
+            /* check sort -- MUST BE ascending, NO duplicates */
+            if (memcmp(le_prev, le.addr, TXADDRLEN) >= 0) {
+               set_errno(EMCM_LESORT);
+               goto FAIL_ALL;
+            }
+         }  /* end  if (lefp != NULL) */
+      }  /* end if (compare < 0... */
+   }  /* end while () */
+   /* empty ledger check */
+   if (empty) {
+      set_errno(EMCM_LEEMPTY);
+      goto FAIL_ALL;
+   }
 
-   /* cleanup */
+   /* cleanup -- lefp/ltfp already closed */
    fclose(fp);
-   fclose(ltfp);
-   fclose(lefp);
 
    /* finalize */
-   if (nout) {
-      /* if there are entries in ledger.tmp */
-      remove("ledger.dat");
-      rename("ledger.tmp", "ledger.dat");
-      remove("ltran.dat.last");
-      rename("ltran.dat", "ltran.dat.last");
-   } else {
-      remove("ledger.tmp");  /* remove empty temp file */
-      perr("the ledger is empty!");
-      return VERROR;
-   }
-
-   pdebug("wrote %u entries to new ledger", nout);
-   pdebug("ledger update completed in %gs", diffclocktime(ticks));
+   remove(lefname);
+   if (rename(tmpfname, lefname) != 0) return VERROR;
+   /* ... make copy of ledger transaction file */
+   snprintf(tmpfname, sizeof(tmpfname), "%s.last", ltfname);
+   remove(tmpfname);
+   if (rename(ltfname, tmpfname) != 0) return VERROR;
 
    /* success */
    return VEOK;
 
-   /* failure / error handling */
-CLEANUP_DROP:
+   /* cleanup / error handling */
+FAIL_DROP:
    fclose(fp);
-   remove("ledger.tmp");
-   fclose(ltfp);
-   fclose(lefp);
+   remove(tmpfname);
+   if (ltfp) fclose(ltfp);
+   if (lefp) fclose(lefp);
+
    return VEBAD2;
-CLEANUP_TMP:
+FAIL_ALL:
    fclose(fp);
-   remove("ledger.tmp");
-CLEANUP_LT:
-   fclose(ltfp);
-CLEANUP_LE:
-   fclose(lefp);
+   remove(tmpfname);
+FAIL_LE_LT:
+   if (ltfp) fclose(ltfp);
+FAIL_LE:
+   if (lefp) fclose(lefp);
+
    return VERROR;
 }  /* end le_update() */
 

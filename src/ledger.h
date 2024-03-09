@@ -44,7 +44,7 @@ void le_close(void);
 int le_extract(const char *neogen_file, const char *ledger_file);
 int le_find(word8 *addr, LENTRY *le, word16 len);
 int le_renew(void);
-int le_update(void);
+int le_update(const char *lefname, const char *ltfname);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus

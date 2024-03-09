@@ -121,7 +121,7 @@ int b_update(char *fname, int mode)
       /* perform block validation, update and tx queue clean... */
       /* ... NOTE: le_update() closes server ledger reference */
       ecode = b_val(fname);
-      if (ecode == VEOK) ecode = le_update();
+      if (ecode == VEOK) ecode = le_update("ledger.dat", "ltran.dat");
       /* ... NOTE: transaction queues should be combined before clean */
       if (fexists("txq1.dat")) {
          system("cat txq1.dat >>txclean.dat 2>/dev/null");
