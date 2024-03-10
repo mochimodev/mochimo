@@ -245,14 +245,14 @@ enum mcm_errno_t {
    EMCM_TXDSTNOLE,
    /** Destination address is not Tagged */
    EMCM_TXDSTNOTAG,
-   /** Duplicate transaction ID */
-   EMCM_TXDUP,
    /** Fee is invalid */
    EMCM_TXFEE,
    /** Overflow of transaction feees */
    EMCM_TXFEE_OVERFLOW,
    /** Bad transaction ID */
    EMCM_TXID,
+   /** Duplicate transaction ID */
+   EMCM_TXIDDUP,
    /* Invalid transaction */
    EMCM_TXINVAL,
    /** Overflow of transaction amounts */
@@ -263,6 +263,8 @@ enum mcm_errno_t {
    EMCM_TXCHG,
    /** Source address is destination address */
    EMCM_TXDST,
+   /** Duplicate transaction source address */
+   EMCM_TXSRCDUP,
    /** Source address is not in Ledger */
    EMCM_TXSRCLE,
    /** Source address is not Tagged */

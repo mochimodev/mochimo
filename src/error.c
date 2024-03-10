@@ -421,14 +421,14 @@ const char *mcm_errno_text(int errnum)
          return "Destination address is not in Ledger";
       case EMCM_TXDSTNOTAG:
          return "Destination address is not Tagged";
-      case EMCM_TXDUP:
-         return "Duplicate transaction ID";
       case EMCM_TXFEE:
          return "Fee is invalid";
       case EMCM_TXFEE_OVERFLOW:
          return "Overflow of transaction feees";
       case EMCM_TXID:
          return "Bad transaction ID";
+      case EMCM_TXIDDUP:
+         return "Duplicate transaction ID";
       case EMCM_TXINVAL:
          return "Invalid transaction";
       case EMCM_TXOVERFLOW:
@@ -439,6 +439,8 @@ const char *mcm_errno_text(int errnum)
          return "Source address is change address";
       case EMCM_TXDST:
          return "Source address is destination address";
+      case EMCM_TXSRCDUP:
+         return "Duplicate transaction source address";
       case EMCM_TXSRCLE:
          return "Source address is not in Ledger";
       case EMCM_TXSRCNOTAG:
