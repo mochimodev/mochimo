@@ -183,7 +183,7 @@ int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
    }
 
    /* write remaining transaction data */
-   res = fwrite(txe->chg_addr, XTX_TLRLEN, 1, stream);
+   res = fwrite(txe->chg_addr, sizeof(TXQENTRY) - XTX_HDRLEN, 1, stream);
    if (res != 1) return VERROR;
 
    return VEOK;
