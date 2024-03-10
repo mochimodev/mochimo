@@ -132,13 +132,12 @@
 
 /** Conditional test for an eXtended Transaction */
 #define IS_XTX(tx)      ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET] == 0 )
+/** Type code (word8) for an eXtended Transaction */
 #define XTX_TYPE(tx)    ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 1] )
+/** eXtended Data count (not length) for an eXtended Transaction */
 #define XTX_COUNT(tx)   ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 2] )
-
-/** Number of bytes before XTXDATA in a TX */
+/** Number of bytes before eXtended Data begins in a Transaction */
 #define XTX_HDRLEN ( TXADDRLEN * 2 )
-/** Number of bytes after XTXDATA in a TX */
-#define XTX_TLRLEN ( TXADDRLEN + (TXAMOUNT * 3) + TXSIGLEN + (HASHLEN * 3) )
 
 /** Invalid Transaction type */
 #define XTX_NONE   0x00
