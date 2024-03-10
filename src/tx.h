@@ -28,6 +28,12 @@
 extern "C" {
 #endif
 
+#ifndef _WIN32
+   int lock(char *lockfile, int seconds);
+   int unlock(int fd);
+
+#endif
+
 int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int mtx_val(MTX *mtx, word32 *fee);
