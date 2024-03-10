@@ -249,6 +249,48 @@ int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
    return VEOK;
 }  /* end tx_fwrite() */
 
+/**
+ * Hash Transaction Entry, @a txe, and eXtended Data, @a xdata, parts per
+ * their intended buffer structure as if found within a blockchain file.
+ * @param txe Pointer to Transaction Entry data
+ * @param xdata Pointer to eXtended Data
+ * @param out Pointer to place finalized hash
+ */
+void tx_hash(TXQENTRY *txe, XDATA *xdata, void *out)
+{
+   SHA256_CTX ctx;
+   size_t len;
+
+   sha256_init(&ctx);
+
+   /* update hash with pre-xtx transaction data */
+   sha256_update(&ctx, txe->src_addr, TXADDRLEN);
+   sha256_update(&ctx, txe->dst_addr, TXADDRLEN);
+
+   /* determine if eXtended Data is present */
+   if (IS_XTX(txe)) {
+      switch (XTX_TYPE(txe)) {
+         /* ... add eXtended Transaction data types here */
+         case XTX_MDST:
+            /* infer +1 MDST count due to byte limitations */
+            len = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
+            break;
+         default:
+            /* no eXtended Data available */
+            len = 0;
+      }
+      /* update hash with transaction eXtended Data */
+      sha256_update(&ctx, xdata, xlen);
+   }
+
+   /* update hash with remaining transaction data */
+   len = sizeof(TXQENTRY) - (TXADDRLEN * 2);
+   sha256_update(&ctx, txe->chg_addr, len);
+
+   /* finalize */
+   sha256_final(&ctx, out);
+}  /* end tx_hash() */
+
 /* Validates a multi-dst transaction MTX.
  * (Does all tag checking as well.)
  * tx->src_addr is already checked in ledger.dat and totals tally.
