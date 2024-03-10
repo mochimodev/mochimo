@@ -136,8 +136,6 @@
 #define XTX_TYPE(tx)    ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 1] )
 /** eXtended Data count (not length) for an eXtended Transaction */
 #define XTX_COUNT(tx)   ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 2] )
-/** Number of bytes before eXtended Data begins in a Transaction */
-#define XTX_HDRLEN ( TXADDRLEN * 2 )
 
 /** Invalid Transaction type */
 #define XTX_NONE   0x00

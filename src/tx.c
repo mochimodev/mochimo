@@ -99,10 +99,10 @@ static int compare_txref(const void *va, const void *vb)
  */
 int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream)
 {
-   size_t res, xlen;
+   size_t len, res;
 
    /* read up to transaction change address to check for MDST */
-   res = fread(txe, XTX_HDRLEN, 1, stream);
+   res = fread(txe, (TXADDRLEN * 2), 1, stream);
    if (res != 1) return VERROR;
 
    /* determine if eXtended Data is present */
@@ -111,26 +111,27 @@ int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream)
          /* ... add eXtended Transaction data types here */
          case XTX_MDST:
             /* infer +1 MDST count due to byte limitations */
-            xlen = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
+            len = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
             break;
          default:
             /* no eXtended Data available */
-            xlen = 0;
+            len = 0;
       }
       /* read eXtended Data or skip if xdata is NULL */
-      if (xlen > 0) {
+      if (len > 0) {
          if (xdata == NULL) {
-            res = (size_t) fseek64(stream, (long long) xlen, SEEK_CUR);
+            res = (size_t) fseek64(stream, (long long) len, SEEK_CUR);
             if (res != 0) return VERROR;
          } else {
-            res = fread(xdata, xlen, 1, stream);
+            res = fread(xdata, len, 1, stream);
             if (res != 1) return VERROR;
          }
       }
    }
 
    /* read remaining transaction data (from chg_addr) */
-   res = fread(txe->chg_addr, sizeof(TXQENTRY) - XTX_HDRLEN, 1, stream);
+   len = sizeof(TXQENTRY) - (TXADDRLEN * 2);
+   res = fread(txe->chg_addr, len, 1, stream);
    if (res != 1) return VERROR;
 
    return VEOK;
@@ -152,10 +153,10 @@ int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream)
  */
 int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
 {
-   size_t res, xlen;
+   size_t len, res;
 
    /* write transaction data up to possible eXtended Data */
-   res = fwrite(txe, XTX_HDRLEN, 1, stream);
+   res = fwrite(txe, (TXADDRLEN * 2), 1, stream);
    if (res != 1) return VERROR;
 
    /* determine if eXtended Data is present */
@@ -164,26 +165,27 @@ int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
          /* ... add eXtended Transaction data types here */
          case XTX_MDST:
             /* infer +1 MDST count due to byte limitations */
-            xlen = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
+            len = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
             break;
          default:
             /* no eXtended Data available */
-            xlen = 0;
+            len = 0;
       }
       /* read eXtended Data or skip if xdata is NULL */
-      if (xlen > 0) {
+      if (len > 0) {
          if (xdata == NULL) {
             set_errno(ENODATA);
             return VERROR;
          } else {
-            res = fwrite(xdata, xlen, 1, stream);
+            res = fwrite(xdata, len, 1, stream);
             if (res != 1) return VERROR;
          }
       }
    }
 
    /* write remaining transaction data */
-   res = fwrite(txe->chg_addr, sizeof(TXQENTRY) - XTX_HDRLEN, 1, stream);
+   len = sizeof(TXQENTRY) - (TXADDRLEN * 2);
+   res = fwrite(txe->chg_addr, len, 1, stream);
    if (res != 1) return VERROR;
 
    return VEOK;
