@@ -87,6 +87,64 @@ static int compare_txref(const void *va, const void *vb)
 #endif
 
 /**
+ * Derive Transaction Entry, @a txe, and eXtended Data, @a xdata, parts
+ * from a transaction data buffer received from the network.
+ * @note DOES NOT COPY tx_nonce and tx_id. This function is designed for
+ * use on a transaction buffer received directly from the network, where
+ * the nonce and id are NOT generally provided.
+ * @param txe Pointer to put Transaction Entry data
+ * @param xdata Pointer to put eXtended Data
+ * @param buffer Pointer to buffer to derive transaction parts from
+ * @param bufsz Length, in bytes, of provided @a buffer
+ * @return (int) value representing the result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int tx_data(TXQENTRY *txe, XDATA *xdata, const void *buffer, size_t bufsz)
+{
+   word8 *xbuffer;
+   size_t len, total;
+
+   /* check buffer contains at least TXQENTRY (excl. nonce and id) */
+   total = sizeof(TXQENTRY) - 8 - HASHLEN;
+   if (bufsz < total) {
+      set_errno(EMCM_TXINVAL);
+      return VERROR;
+   }
+
+   xbuffer = ((word8 *) buffer) + (TXADDRLEN * 2);
+   /* determine if eXtended Data is present */
+   if (IS_XTX(buffer)) {
+      switch (XTX_TYPE(buffer)) {
+         /* ... add eXtended Transaction data types here */
+         case XTX_MDST:
+            /* infer +1 MDST count due to byte limitations */
+            len = ((size_t) XTX_COUNT(buffer) + 1) * sizeof(MDST);
+            break;
+         default:
+            /* no eXtended Data available */
+            len = 0;
+      }
+      if (len > 0) {
+         /* check buffer contains aditional xdata (len) */
+         if (bufsz < (total + len)) {
+            set_errno(EMCM_TXINVAL);
+            return VERROR;
+         }
+         /* copy xdata (if provided) and adjust buffer */
+         if (xdata != NULL) memcpy(xdata, xbuffer, len);
+         xbuffer = xbuffer + len;
+      }
+   }
+
+   /* copy core transaction data */
+   memcpy(txe, buffer, (TXADDRLEN * 2));
+   memcpy(txe->chg_addr, xbuffer, total - (TXADDRLEN * 2));
+
+   return VEOK;
+}  /* end tx_data() */
+
+/**
  * Read a single Transaction and eXtended Data entry in to the provided
  * buffers, @a txe and @a xdata, from the given input @a stream. The
  * file position indicator is advanced by the size of the whole entry.

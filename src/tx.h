@@ -34,6 +34,7 @@ extern "C" {
 
 #endif
 
+int tx_data(TXQENTRY * txe, XDATA * xdata, const void * buffer, size_t bufsz);
 int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int mtx_val(MTX *mtx, word32 *fee);
