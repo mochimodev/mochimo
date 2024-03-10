@@ -253,6 +253,8 @@ enum mcm_errno_t {
    EMCM_TXFEE_OVERFLOW,
    /** Bad transaction ID */
    EMCM_TXID,
+   /* Invalid transaction */
+   EMCM_TXINVAL,
    /** Overflow of transaction amounts */
    EMCM_TXOVERFLOW,
    /** Bad transaction sort */

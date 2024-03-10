@@ -429,6 +429,8 @@ const char *mcm_errno_text(int errnum)
          return "Overflow of transaction feees";
       case EMCM_TXID:
          return "Bad transaction ID";
+      case EMCM_TXINVAL:
+         return "Invalid transaction";
       case EMCM_TXOVERFLOW:
          return "Overflow of transaction amounts";
       case EMCM_TXSORT:
