@@ -32,31 +32,43 @@ word32 Lastday;
 
 /**
  * Hashed-based address comparison function. Includes tag in comparison.
- * @param a Pointer to data to compare
- * @param b Pointer to data to compare against
- * @return (int) value representing comparison result
+ * @param a Pointer to address to compare
+ * @param b Pointer to address to compare against
+ * @return (int) value representing result
  * @retval 0 @a a is equal to @a b
  * @retval <0 @a a is less than @a b
  * @retval >0 @a a is greater than @a b
-*/
-static int addr_compare(const void *a, const void *b)
+ */
+int addr_compare(const void *a, const void *b)
 {
    return memcmp(a, b, TXADDRLEN);
 }
 
 /**
- * WOTS+ address comparison function. Includes tag in comparison.
+ * Hashed-based address tag comparison function. ONLY compares tag.
  * @param a Pointer to data to compare
  * @param b Pointer to data to compare against
- * @return (int) value representing comparison result
+ * @return (int) value representing result
  * @retval 0 @a a is equal to @a b
  * @retval <0 @a a is less than @a b
  * @retval >0 @a a is greater than @a b
-*/
-static int addr_compare_wots(const void *a, const void *b)
+ */
+int addr_tag_compare(const void *a, const void *b)
 {
-   return memcmp(a, b, TXWOTSLEN);
+   return tag_compare(ADDR_TAG_PTR(a), ADDR_TAG_PTR(b));
 }
+
+/**
+ * Equality check for address tags. ONLY compares tag.
+ * Implements an efficient 12-byte check.
+ * @param a Pointer to address with tag to compare
+ * @param b Pointer to address with tag to compare against
+ * @returns 1 if address tags match, else 0
+ */
+int addr_tag_equal(const void *a, const void *b)
+{
+   return tag_equal(ADDR_TAG_PTR(a), ADDR_TAG_PTR(b));
+}  /* end tag_equal() */
 
 /**
  * @private
@@ -72,7 +84,7 @@ static int lt_compare(const void *va, const void *vb)
  * Convert a WOTS+ address to a Hashed-based address. Copies tag data.
  * @param hash Pointer to destination hash-based address
  * @param wots Pointer to source WOTS+ address
-*/
+ */
 void hash_wots_addr(void *hash, const void *wots)
 {
    sha256(wots, TXSIGLEN, hash);
@@ -493,6 +505,35 @@ FAIL_LE:
 
    return VERROR;
 }  /* end le_update() */
+
+/**
+ * Tag comparison function.
+ * @param a Pointer to tag to compare
+ * @param b Pointer to tag to compare against
+ * @returns (int) value representing result
+ * @retval >0 if tag A is greater than tag B
+ * @retval <0 if tag A is less than tag B
+ * @retval 0 if tags are equal
+ */
+int tag_compare(const void *a, const void *b)
+{
+   return memcmp(a, b, TXTAGLEN);
+}  /* end tag_cmp() */
+
+/**
+ * Equality check for tags. Implements an efficient 12-byte check.
+ * @param a Pointer to tag to check
+ * @param b Pointer to tag to check against
+ * @returns 1 if tags match, else 0
+ */
+int tag_equal(const void *a, const void *b)
+{
+   return (
+      ((word32 *) a)[0] == ((word32 *) b)[0] &&
+      ((word32 *) a)[1] == ((word32 *) b)[1] &&
+      ((word32 *) a)[2] == ((word32 *) b)[2]
+   );
+}  /* end tag_equal() */
 
 /* end include guard */
 #endif

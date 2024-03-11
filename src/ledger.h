@@ -38,6 +38,9 @@ extern word32 Lastday;
 extern "C" {
 #endif
 
+int addr_compare(const void * a, const void * b);
+int addr_tag_compare(const void * a, const void * b);
+int addr_tag_equal(const void * a, const void * b);
 void hash_wots_addr(void *hash, const void *wots);
 int le_open(char *ledger, char *fopenmode);
 void le_close(void);
@@ -45,6 +48,8 @@ int le_extract(const char *neogen_file, const char *ledger_file);
 int le_find(word8 *addr, LENTRY *le, word16 len);
 int le_renew(void);
 int le_update(const char *lefname, const char *ltfname);
+int tag_compare(const void *a, const void *b);
+int tag_equal(const void *a, const void *b);
 
 /* end extern "C" {} for C++ */
 #ifdef __cplusplus
