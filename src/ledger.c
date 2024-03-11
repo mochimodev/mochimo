@@ -62,8 +62,8 @@ static int addr_compare_wots(const void *a, const void *b)
  * @private
  * Comparison function to sort LTRAN objects by address + transaction code.
  * DOES NOT CONSIDER Ledger transaction amount in sorting process.
-*/
-static int compare_lt(const void *va, const void *vb)
+ */
+static int lt_compare(const void *va, const void *vb)
 {
    return memcmp(va, vb, TXADDRLEN + 1);
 }
@@ -317,7 +317,7 @@ int le_update(const char *lefname, const char *ltfname)
    le_close();
 
    /* sort the ledger transaction file */
-   if (filesort(ltfname, sizeof(LTRAN), LEBUFSZ, compare_lt) != 0) {
+   if (filesort(ltfname, sizeof(LTRAN), LEBUFSZ, lt_compare) != 0) {
       return VERROR;
    }
 
