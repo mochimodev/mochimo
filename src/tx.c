@@ -280,7 +280,7 @@ void tx_hash(TXQENTRY *txe, XDATA *xdata, void *out)
             len = 0;
       }
       /* update hash with transaction eXtended Data */
-      sha256_update(&ctx, xdata, xlen);
+      sha256_update(&ctx, xdata, len);
    }
 
    /* update hash with remaining transaction data */
