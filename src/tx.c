@@ -431,38 +431,81 @@ int tx_val(TX *tx)
    return 0;  /* tx valid */
 }  /* end tx_val() */
 
-/* Search txq1.dat and txclean.dat for src_addr.
- * Return VEOK if the src_addr is not found, otherwise VERROR.
+/**
+ * Search txq1.dat and txclean.dat for conflicts with the src_addr or
+ * (when applicable) chg_addr tags, of queued transactions.
+ * @param src_addr Pointer to source address
+ * @param chg_addr Pointer to change address
+ * @return (int) value representing the result
+ * @retval VERROR on conflict; check errno for details
+ * @retval VEOK on success
  */
-int txcheck(word8 *src_addr)
+int txcheck(word8 *src_addr, word8 *chg_addr)
 {
    FILE *fp;
-   TXQENTRY tx;
+   TXQENTRY txe;
+   int chg_chk;
 
+   /* determine requirement for additional chg_addr checks */
+   chg_chk = ADDR_HAS_TAG(chg_addr) && !addr_tag_equal(src_addr, chg_addr);
+   /* NOTE: chg_addr tag conflict checks would not usually be required
+    * until the tag validation stage of a transaction validation routine,
+    * however it feels particularly convenient/efficient to perform the
+    * check at the same time as the src_addr conflict checks
+    */
+
+   /* read transaction in txq1 checkiung for conflicts */
    fp = fopen("txq1.dat", "rb");
-   if(fp != NULL) {
-      for(;;) {
-         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
-         if(memcmp(tx.src_addr, src_addr, TXWOTSLEN) == 0) {
-            fclose(fp);
-            return VERROR;  /* found */
+   if (fp != NULL) {
+      while (tx_fread(&txe, NULL, fp) == VEOK) {
+         if (memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+            /* source address conflict */
+            set_errno(EMCM_TXSRCDUP);
+            goto FAIL;
          }
-      }  /* end for */
-      fclose(fp);
+         if (chg_chk) {
+            if (addr_tag_equal(txe.chg_addr, chg_addr)) {
+               /* change address tag conflict */
+               set_errno(EMCM_TXCHGTAGDUP);
+               goto FAIL;
+            }
+         }
+      }
+      /* error check file and close*/
+      if (ferror(fp)) goto FAIL;
+      fclose(fp);  /* EOF */
    }  /* end if fp */
 
+   /* duplicate search routine (as above) for txclean */
    fp = fopen("txclean.dat", "rb");
-   if(fp != NULL) {
-      for(;;) {
-         if(fread(&tx, 1, sizeof(TXQENTRY), fp) != sizeof(TXQENTRY)) break;
-         if(memcmp(tx.src_addr, src_addr, TXWOTSLEN) == 0) {
-            fclose(fp);
-            return VERROR;  /* found */
+   if (fp != NULL) {
+      while (tx_fread(&txe, NULL, fp) == VEOK) {
+         if (memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+            /* source address conflict */
+            set_errno(EMCM_TXSRCDUP);
+            goto FAIL;
          }
-      }  /* end for */
-      fclose(fp);
+         if (chg_chk) {
+            if (addr_tag_equal(txe.chg_addr, chg_addr)) {
+               /* change address tag conflict */
+               set_errno(EMCM_TXCHGTAGDUP);
+               goto FAIL;
+            }
+         }
+      }
+      /* error check file and close*/
+      if (ferror(fp)) goto FAIL;
+      fclose(fp);  /* EOF */
    }  /* end if fp */
-   return VEOK;  /* src_addr not found */
+
+   /* no conflicts found */
+   return VEOK;
+
+   /* cleanup / error handling */
+FAIL:
+   fclose(fp);
+
+   return VERROR;
 }  /* end txcheck() */
 
 /**
@@ -544,7 +587,7 @@ int txclean(const char *txfname, const char *bcfname)
 
    /* PREPARE BLOCKCHAIN FILE FOR TRANSACTION COMPARISON (IF PROVIDED) */
 
-   bfp == NULL;
+   bfp = NULL;
    /* NOTE: bfp MUST BE initialized NULL for error handling */
    if (bcfname != NULL) {
       /* open validated block file */
@@ -608,7 +651,7 @@ int txclean(const char *txfname, const char *bcfname)
       if (tx_fread(&txc, &xdata, fp) != VEOK) goto FAIL_ALL;
       /* if (re)validation fails, skip... */
       /** @todo: replace tx_val with less wasteful tx_reval process */
-      if (tx_val(&txc, &xdata) != VEOK) continue;
+      if (tx_val(&txc, &xdata, Cblocknum) != VEOK) continue;
       /* ... else; write clean (valid) transaction to output */
       if (tx_fwrite(&txc, &xdata, tfp) != VEOK) goto FAIL_ALL;
       nout++;
