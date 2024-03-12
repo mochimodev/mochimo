@@ -254,9 +254,11 @@ int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
  * their intended buffer structure as if found within a blockchain file.
  * @param txe Pointer to Transaction Entry data
  * @param xdata Pointer to eXtended Data
+ * @param full Set non-zero for a "full" Transaction ID hash or
+ * set zero for a Transaction Signature Message hash.
  * @param out Pointer to place finalized hash
  */
-void tx_hash(TXQENTRY *txe, XDATA *xdata, void *out)
+void tx_hash(TXQENTRY *txe, XDATA *xdata, int full, void *out)
 {
    SHA256_CTX ctx;
    size_t len;
@@ -284,8 +286,9 @@ void tx_hash(TXQENTRY *txe, XDATA *xdata, void *out)
    }
 
    /* update hash with remaining transaction data */
-   len = sizeof(TXQENTRY) - (TXADDRLEN * 2);
-   sha256_update(&ctx, txe->chg_addr, len);
+   if (full) {
+      sha256_update(&ctx, txe->chg_addr, txe->tx_id - txe->chg_addr);
+   } else sha256_update(&ctx, txe->chg_addr, txe->tx_sig - txe->chg_addr);
 
    /* finalize */
    sha256_final(&ctx, out);

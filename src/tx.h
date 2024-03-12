@@ -37,7 +37,7 @@ extern "C" {
 int tx_data(TXQENTRY * txe, XDATA * xdata, const void * buffer, size_t bufsz);
 int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream);
-void tx_hash(TXQENTRY *txe, XDATA *xdata, void *out);
+void tx_hash(TXQENTRY *txe, XDATA *xdata, int full, void *out);
 int mtx_val(MTX *mtx, word32 *fee);
 int tx_val(TX *tx);
 int txcheck(word8 *src_addr, word8 *chg_addr);
