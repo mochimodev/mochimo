@@ -294,62 +294,74 @@ void tx_hash(TXQENTRY *txe, XDATA *xdata, int full, void *out)
    sha256_final(&ctx, out);
 }  /* end tx_hash() */
 
-/* Validates a multi-dst transaction MTX.
- * (Does all tag checking as well.)
- * tx->src_addr is already checked in ledger.dat and totals tally.
- * tx_val() sets fee parameter to Myfee and bval.c sets fee to Mfee.
- * Returns 0 on valid, else error code.
+
+/**
+ * @private
+ * Validate a Multi-Destination Transaction (incl. reference field).
+ * @param txe Pointer to Transaction Entry
+ * @param mdst Pointer to Multi-Destination array
+ * @return (int) value representing the validation result
+ * @retval VEBAD2 on bad signature; check errno for details
+ * @retval VEBAD on bad transaction; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
  */
-int mtx_val(MTX *mtx, word32 *fee)
+static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
 {
-   int j;
-   word8 total[8], mfees[8], *bp, *limit;
-   static word8 addr[TXWOTSLEN];
+   word8 addr[TXADDRLEN];
+   word8 total[8], mfees[8];
+   int j, count;
 
-   limit = &mtx->zeros[0];
-
-   /* Check that src and chg have tags.
-    * Check that src and chg have same tag.
-    * tx_val() or bval.c has already checked src != chg, src exists,
-    *   sig is good, and totals are good.
-    */
-   if(!ADDR_HAS_TAG(mtx->src_addr)) goto bail;
-   if(memcmp(ADDR_TAG_PTR(mtx->src_addr),
-             ADDR_TAG_PTR(mtx->chg_addr), TXTAGLEN) != 0) goto bail;
-   if(cmp64(mtx->change_total, Mfee) <= 0) goto bail;
+   /* check valid reference format */
+   if (xtx_ref_val((char *) txe->dst_addr) != VEOK) {
+      set_errno(EMCM_XTXREF);
+      return VEBAD;
+   }
 
    memset(total, 0, 8);
    memset(mfees, 0, 8);
+   memset(addr, 0, TXADDRLEN);
+   count = (int) XTX_COUNT(txe) + 1;
    /* Tally each dst[] amount and mfees... */
-   for(j = 0; j < MDST_NUM_DST; j++) {
-      /* zero dst[] tag marks end of list.  */
-      if(iszero(mtx->dst[j].tag, TXTAGLEN)) {
-         for(bp = mtx->dst[j].amount; bp < limit; bp++) {
-            if(*bp) goto bail;  /* Check that rest of dst[] list is zeros. */
-         }
-         break;
+   for (j = 0; j < count; j++) {
+      if (iszero(mdst[j].amount, 8)) {
+         set_errno(EMCM_XTXDSTAMOUNT);
+         return VEBAD;
       }
-      if(iszero(mtx->dst[j].amount, 8)) goto bail;  /* bad send amount */
       /* no dst to src */
-      if(memcmp(mtx->dst[j].tag,
-                ADDR_TAG_PTR(mtx->src_addr), TXTAGLEN) == 0) goto bail;
-      /* tally fees and send_total */
-      if(add64(total, mtx->dst[j].amount, total)) goto bail;
-      if(add64(mfees, fee, mfees)) goto bail;  /* Mfee or Myfee */
-      if(get32(Cblocknum) >= MTXTRIGGER) {
-         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
-         mtx->zeros[j] = 0;
-         /* If dst[j] tag not found, put error code in zeros[] array. */
-         if(tag_find(addr, NULL, NULL, TXTAGLEN) != VEOK) mtx->zeros[j] = 1;
+      if (tag_equal(mdst[j].tag, ADDR_TAG_PTR(txe->src_addr))) {
+         set_errno(EMCM_XTXTAGMATCH);
+         return VEBAD;
       }
-   }  /* end for j */
+      /* tally fees and send_total */
+      if (add64(total, mdst[j].amount, total)) {
+         set_errno(EMCM_XTXTOTALS);
+         return VEBAD;
+      }
+      if (add64(mfees, fee, mfees)) {
+         set_errno(EMCM_XTXFEES);
+         return VEBAD;
+      }
+      /* dst tag MUST exist in the ledger */
+      memcpy(ADDR_TAG_PTR(addr), mdst[j].tag, TXTAGLEN);
+      if (!tag_find(addr, NULL, NULL, TXTAGLEN)) {
+         set_errno(EMCM_XTXTAGNOLE);
+         return VERROR;
+      }
+   }
    /* Check tallies... */
-   if(cmp64(total, mtx->send_total) != 0) goto bail;
-   if(cmp64(mtx->tx_fee, mfees) < 0) goto bail;
+   if (cmp64(total, txe->send_total) != 0) {
+      set_errno(EMCM_XTXTOTALS);
+      return VEBAD;
+   }
+   if (cmp64(txe->tx_fee, mfees) < 0) {
+      set_errno(EMCM_XTXFEES);
+      return VEBAD;
+   }
+
    return VEOK;  /* valid */
-bail:
-   return VERROR;  /* bad */
-}  /* end mtx_val() */
+}  /* end xtx_mdst_val() */
+
 
 /* Validate a transaction against ledger
  *
