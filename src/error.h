@@ -285,16 +285,12 @@ enum mcm_errno_t {
    EMCM_XTXDSTAMOUNT,
    /** eXtended TX fee does not match tally */
    EMCM_XTXFEES,
-   /** eXtended TX MEMO contains punctuation character */
-   EMCM_XTXHASPUNCT,
-   /** eXtended TX MEMO contains non-printable character */
-   EMCM_XTXNONPRINT,
-   /** eXtended TX MEMO is missing a null terminator */
-   EMCM_XTXNOTERM,
-   /** eXtended TX contains non-zero trailing padding */
-   EMCM_XTXNZTPADDING,
+   /** Invalid reference format in eXtended Transaction */
+   EMCM_XTXREF,
    /** eXtended TX send total is zero */
    EMCM_XTXSENDTOTAL,
+   /** eXtended TX source is not tagged */
+   EMCM_XTXSRCNOTAG,
    /** eXtended TX destination tag matches source tag */
    EMCM_XTXTAGMATCH,
    /** eXtended TX source tag does not match change tag */

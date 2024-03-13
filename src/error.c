@@ -461,16 +461,12 @@ const char *mcm_errno_text(int errnum)
          return "eXtended TX destination amount is zero";
       case EMCM_XTXFEES:
          return "eXtended TX fee does not match tally";
-      case EMCM_XTXHASPUNCT:
-         return "eXtended TX MEMO contains punctuation character";
-      case EMCM_XTXNONPRINT:
-         return "eXtended TX MEMO contains non-printable character";
-      case EMCM_XTXNOTERM:
-         return "eXtended TX MEMO is missing a null terminator";
-      case EMCM_XTXNZTPADDING:
-         return "eXtended TX contains non-zero trailing padding";
+      case EMCM_XTXREF:
+         return "Invalid reference format in eXtended Transaction";
       case EMCM_XTXSENDTOTAL:
          return "eXtended TX send total is zero";
+      case EMCM_XTXSRCNOTAG:
+         return "eXtended TX source is not tagged";
       case EMCM_XTXTAGMATCH:
          return "eXtended TX destination tag matches source tag";
       case EMCM_XTXTAGMISMATCH:
