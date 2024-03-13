@@ -30,22 +30,22 @@
 #include "crc16.h"
 
 /**
- * @private Transaction ID reference structure.
+ * @private Transaction Position structure.
  * Contains an ID and file position type pair.
 */
 typedef struct {
    word8 id[HASHLEN];
    fpos_t pos;
-} TXREF;
+} TXPOS;
 
 /**
  * @private
- * Comparison function to sort TXREF objects by id.
+ * Comparison function to sort TXPOS objects by id.
 */
-static int compare_txref(const void *va, const void *vb)
+static int txpos_compare(const void *va, const void *vb)
 {
-   TXREF *a = (TXREF *) va;
-   TXREF *b = (TXREF *) vb;
+   TXPOS *a = (TXPOS *) va;
+   TXPOS *b = (TXPOS *) vb;
 
    return memcmp(a->id, b->id, sizeof(a->id));
 }
@@ -527,7 +527,7 @@ int txclean(const char *txfname, const char *bcfname)
    TXQENTRY txe, txc;      /* block entry and txclean transactions */
    XDATA xdata;            /* eXtended transaction data (for transfer) */
    FILE *fp, *bfp, *tfp;   /* input, blockchain and temporary files */
-   TXREF *tx;              /* malloc'd transaction ID references */
+   TXPOS *tx;              /* malloc'd transaction positions */
    size_t count, actual;   /* malloc'd and actual element counts */
    size_t j, nout;
    fpos_t pos;             /* file position offset indicator */
@@ -565,7 +565,7 @@ int txclean(const char *txfname, const char *bcfname)
 
    /* malloc required space (approximate) */
    count = (size_t) offset / sizeof(TXQENTRY);
-   tx = malloc(count * sizeof(TXREF));
+   tx = malloc(count * sizeof(TXPOS));
    if (tx == NULL) goto FAIL_FP;
 
    /* store txid and associated fpos_t value in arrays */
@@ -586,7 +586,7 @@ int txclean(const char *txfname, const char *bcfname)
       goto FAIL_FP_MEM;
    }
    /* sort the txid reference array */
-   qsort(tx, actual, sizeof(TXREF), compare_txref);
+   qsort(tx, actual, sizeof(TXPOS), txpos_compare);
 
    /* PREPARE BLOCKCHAIN FILE FOR TRANSACTION COMPARISON (IF PROVIDED) */
 
