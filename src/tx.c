@@ -27,6 +27,7 @@
 #include "exttime.h"
 #include "extmath.h"
 #include "extlib.h"
+#include <ctype.h>
 #include "crc16.h"
 
 /**
@@ -294,6 +295,74 @@ void tx_hash(TXQENTRY *txe, XDATA *xdata, int full, void *out)
    sha256_final(&ctx, out);
 }  /* end tx_hash() */
 
+/**
+ * @private
+ * Validate a 32 byte eXtended Transaction reference field.
+ * @param buffer Pointer to start of 32 byte reference buffer
+ * @return VEOK on success, or VERROR or error; check errno for details
+ */
+static int xtx_ref_val(void *buffer)
+{
+   char *reference;
+   int j;
+
+   /* define states for stages of validation */
+   enum { START, DIGIT_DASH, DIGIT, UPPER_DASH, UPPER, ZERO } state;
+
+   /* Validation format rules (from types.h):
+    * - CONTAINS only uppercase [A-Z], digit [0-9], dash [-], null [\0]
+    * - SHALL be null terminated with remaining unused bytes zeroed
+    *   - (e.g. VALID   `(char[32]) { 'A','-','1','\0','\0','\0', ... }`)
+    *   - (e.g. INVALID `(char[32]) { 'A','-','1','\0','B','\0', ... }`)
+    * - MAY have multiple uppercase OR digits (NOT both) grouped together
+    * - SHALL only contain a dash to separate groups of uppercase or digit
+    * - SHALL NOT contain consecutive groups of the same group type
+    *   - (e.g. VALID   "AB-00-EF", "123-CDE-789", "ABC", "123")
+    *   - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
+    */
+
+   reference = (char *) buffer;
+   /* ensure null termination */
+   if (reference[HASHLEN - 1] != '\0') {
+      return VERROR;
+   }
+
+   /* validate reference format */
+   for (state = START, j = 0; j < HASHLEN; j++) {
+      /* state determines the next allowed characters */
+      switch (state) {
+         /* NOTE: "continue" here is associated with for() loop */
+         case START:  /* allow either null, digit, or uppercase */
+            if (reference[j] == '\0') { state = ZERO; continue; }
+            if (isdigit(reference[j])) { state = DIGIT; continue; }
+            /* fallthrough */
+         case DIGIT_DASH:  /* allow only uppercase (follows "[0-9]-") */
+            if (isupper(reference[j])) { state = UPPER; continue; }
+            break;  /* switch() */
+         case UPPER_DASH:  /* allow only numeric (follows "[A-Z]-") */
+            if (isdigit(reference[j])) { state = DIGIT; continue; }
+            break;  /* switch() */
+         case DIGIT:  /* allow either numeric, dash, or ZERO */
+            if (isdigit(reference[j])) continue;  /* for() */
+            if (reference[j] == '-') { state = UPPER_DASH; continue; }
+            if (reference[j] == '\0') { state = ZERO; continue; }
+            break;  /* switch() */
+         case UPPER:  /* allow either uppercase, dash, or ZERO */
+            if (isupper(reference[j])) continue;  /* for() */
+            if (reference[j] == '-') { state = DIGIT_DASH; continue; }
+            if (reference[j] == '\0') { state = ZERO; continue; }
+            break;  /* switch() */
+         case ZERO:  /* allow only ZERO (end of reference) */
+            if (reference[j] == '\0') continue;  /* for() */
+      }  /* end switch(state) */
+
+      /* no valid character for current state */
+      return VERROR;
+   }  /* end for() */
+
+   /* reference valid */
+   return VEOK;
+}  /* end xtx_ref_val() */
 
 /**
  * @private
@@ -338,7 +407,7 @@ static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
          set_errno(EMCM_XTXTOTALS);
          return VEBAD;
       }
-      if (add64(mfees, fee, mfees)) {
+      if (add64(mfees, Myfee, mfees)) {
          set_errno(EMCM_XTXFEES);
          return VEBAD;
       }
