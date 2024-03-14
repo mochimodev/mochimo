@@ -862,16 +862,13 @@ FAIL_FP:
  * Called from process_tx()
  * Returns VERROR if no space in map, else VEOK.
  */
-int txmap(TX *tx, word32 src_ip)
+static int txmap(TX *tx, word32 src_ip)
 {
    int j;
    word32 *ipp;
 
    /* Apply Matt's Algorithm v1.0 to control mirroring... */
-   if(get16(tx->len) != 0) {
-      /* from wallet */
-      memset(tx->weight, 0, 32);  /* clear address map */
-   } else {
+   if (tx->version[1] & C_OPTIN) {
       /* try to put src_ip in map */
       for(ipp = (word32 *) tx->weight, j = 0; j < 8; ipp++, j++) {
          if(*ipp == 0) {
@@ -880,10 +877,10 @@ int txmap(TX *tx, word32 src_ip)
          }
       }
       if(j >= 8) return VERROR;  /* no space in map to mirror() */
-   }  /* end if not from wallet */
+   } else memset(tx->weight, 0, 32);  /* clear address map */
+
    return VEOK;
 }  /* end txmap() */
-
 
 /* Create a grandchild to send TX's in mirror.dat to ip... */
 pid_t mgc(word32 ip)

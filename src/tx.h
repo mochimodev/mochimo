@@ -41,7 +41,6 @@ void tx_hash(TXQENTRY *txe, XDATA *xdata, int full, void *out);
 int tx_val(TXQENTRY *txe, XDATA *xdata, word8 *bnum);
 int txcheck(word8 *src_addr, word8 *chg_addr);
 int txclean(const char *txfname, const char *bcfname);
-int txmap(TX *tx, word32 src_ip);
 pid_t mgc(word32 ip);
 pid_t mirror1(word32 *iplist, int len);
 pid_t mirror(void);
