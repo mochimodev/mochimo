@@ -420,6 +420,7 @@ typedef struct {
    word8 send_total[TXAMOUNT];    /* 8 */
    word8 change_total[TXAMOUNT];
    word8 tx_fee[TXAMOUNT];
+   word8 tx_btl[8];               /* 8 -- block-to-live */
    /* validation data */
    word8 tx_sig[TXSIGLEN];        /* 2144 */
    word8 tx_pubkey[HASHLEN];      /* 32 */
