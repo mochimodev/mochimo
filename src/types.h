@@ -120,6 +120,16 @@
 #define TXSIG_INLEN  (TRANLEN - TXSIGLEN)
 #define TXCRC_INLEN  ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN )
 
+/* Digital Signature Algorithm definitions */
+
+/** Obtain DSA type code from Transaction Entry pointer */
+#define DSA_TYPE(tx) ( get32(((TXQENTRY *) (tx))->tx_adrs + 28) )
+
+/** Invalid DSA type */
+#define DSA_NONE  0x00
+/** WOTS+ DSA type */
+#define DSA_WOTS  0x01
+
 /* Address and Tag definitions */
 
 /** Offset, in bytes, at which a tag begins within an address */
