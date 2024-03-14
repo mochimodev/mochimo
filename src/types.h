@@ -376,40 +376,58 @@ typedef union {
    /* ... add eXtended Transaction data types here */
 } XDATA;
 
-/** Structure for a Transaction Entry.
- * A Transaction Entry may also indicate an eXtended Transaction (XTX)
- * type by using the dst_addr field as a metadata field. Additionally,
- * where appropriate, eXtended TX data may be present between dst_addr
- * and chg_addr fields, "extending" the length of a transaction.
+/**
+ * @struct TXQENTRY
+ * Structure for a standard or eXtended Transaction Entry.
+ * For eXtended Transaction Entry details, see TXQENTRY::dst_addr.
  *
- * Where the XTX type indicates XTX_MDST...
- * - dst_addr[32] shall indicate an XTX type transaction (0x00)
- * - dst_addr[33] shall indicate Multi-Destination (XTX_MDST)
- * - dst_addr[34] shall indicate the number of destinations (max 256)
- * - dst_addr[0-31] shall indicate each valid tag (256 bits, 1bit/dst)
- * - AND eXtended TX data of at most MDST[256] will be present
- * Where the XTX type indicates XTX_MEMO...
- * - dst_addr[32] shall indicate an XTX type transaction (0x00)
- * - dst_addr[33] shall indicate Memorandum (XTX_MEMO)
- * - dst_addr[34] shall indicate the length of the MEMO (max 32 chars)
- * - dst_addr[0-11] shall indicate the destination tag to send funds to
- * - dst_addr[12-31] shall indicate the Memorandum message and contain
- *   ONLY printable characters, as specified by the default C locale
- * - Any unused space following a Memorandum shall be zero filled
- * Where the XTX type indicates XTX_NONE...
- * - this is illegal; throw it in the bin and start again
+ * @property TXQENTRY::dst_addr[TXADDRLEN]
+ * Destination address, or eXtended Transaction metadata.
+ * Transactions may indicate an eXtended Transaction by using this field
+ * as a "metadata" field. In such a case...
+ * - dst_addr[0-31] MAY be used to include a transaction reference
+ *   - CONTAINS only uppercase [A-Z], digit [0-9], dash [-], null [\0]
+ *   - SHALL be null terminated with remaining unused bytes zeroed
+ *     - (e.g. VALID   (char[32]) { 'A','-','1','\0','\0','\0', ... } )
+ *     - (e.g. INVALID (char[32]) { 'A','-','1','\0','B','\0', ... } )
+ *   - MAY have multiple uppercase OR digits (NOT both) grouped together
+ *   - SHALL only contain a dash to separate groups of uppercase or digit
+ *   - SHALL NOT contain consecutive groups of the same group type
+ *     - (e.g. VALID   "AB-00-EF", "123-CDE-789", "ABC", "123")
+ *     - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
+ * - dst_addr[32] SHALL indicate an XTX type transaction (0x00)
+ * - dst_addr[33] SHALL indicate the specific type of XTX (>0x00)
+ *   - Where the XTX type indicates XTX_MDST...
+ *     - dst_addr[33] SHALL indicate Multi-Destination (XTX_MDST)
+ *     - dst_addr[34] SHALL indicate the number of destinations (max 256)
+ *     - xdata.mdst[] will contain each destination and associated amount
+ *     - tx_fee will be adjusted based on the number of destinations + 1
+ *   - Where the XTX type indicates XTX_NONE...
+ *     - this is illegal; throw it in the bin
  *
- * Consideration for additional Digital Signature Algorithms is accounted
- * for in the tx_adrs field. When a src_addr uses WOTS+, tx_adrs[] will
- * always end with the "default" tag. DSA types can be indicated as:
- * - tx_adrs[20-31] = 0x420000000e00000001000000 (WOTS+)
- * - tx_adrs[20-31] = 0x420000000e00000002000000 (alt sig scheme)
- * - tx_adrs[20-31] = 0x................03000000 (etc.)
+ * @property TXQENTRY::tx_btl[8]
+ * Transaction block-to-live, expiration indicator.
+ * For a block-to-live value of zero, the transaction can never expire.
+ * For non-zero block-to-live values, the transaction expires for all
+ * block numbers greater than the block-to-live value. Additionally, a
+ * block-to-live value is considered invalid if it exceeds the block
+ * number by more than 256 blocks into the future.
  *
- * Transaction nonce was introduced to ENSURE (within reasonable doubt)
- * that transaction IDs remain unique. The node handler MUST ensure the
- * field contains the block number of the block it is solved into, so
- * as to ensure the integrity of the "uniqueness" of a transaction ID.
+ * @property TXQENTRY::tx_adrs[HASHLEN]
+ * WOTS+ Hash Function Address Scheme, or other Digital Signature Algorithm.
+ * Currently only used to validate WOTS+ transaction signatures, provides
+ * useable space for identifying alternate Digital Signature Algorithms, or
+ * even alternate validation procedures, such as proposed ZCF features.
+ * - tx_adrs[20-31] = 0x420000000e00000001000000 (indicates WOTS+)
+ * - tx_adrs[20-31] = 0x420000000e00000002000000 (MAY indicate alt DSA)
+ * - tx_adrs[20-31] = 0x012345678901234500000000 (MAY indicate ZCF AUTH)
+ * - etc.
+ *
+ * @property TXQENTRY::tx_nonce[8]
+ * Transaction nonce.
+ * The transaction nonce ensures the integrity of unique transaction IDs
+ * (within reasonable doubt) by always containing the block number of the
+ * block it is solved into.
 */
 typedef struct {
    /* transaction data (These fields are order dependent) */
