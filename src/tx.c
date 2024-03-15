@@ -627,7 +627,7 @@ int txcheck(word8 *src_addr, word8 *chg_addr)
    fp = fopen("txq1.dat", "rb");
    if (fp != NULL) {
       while (tx_fread(&txe, NULL, fp) == VEOK) {
-         if (memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+         if (memcmp(txe.src_addr, src_addr, TXADDRLEN) == 0) {
             /* source address conflict */
             set_errno(EMCM_TXSRCDUP);
             goto FAIL;
@@ -649,7 +649,7 @@ int txcheck(word8 *src_addr, word8 *chg_addr)
    fp = fopen("txclean.dat", "rb");
    if (fp != NULL) {
       while (tx_fread(&txe, NULL, fp) == VEOK) {
-         if (memcmp(tx.src_addr, src_addr, TXADDRLEN) == 0) {
+         if (memcmp(txe.src_addr, src_addr, TXADDRLEN) == 0) {
             /* source address conflict */
             set_errno(EMCM_TXSRCDUP);
             goto FAIL;
