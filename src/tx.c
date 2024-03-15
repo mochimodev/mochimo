@@ -931,8 +931,7 @@ pid_t mgc(word32 ip)
          if(search32(ip, (word32 *) mtx.weight, 8)) continue;
       }
       if(callserver(&node, ip) != VEOK) break;
-      put16(node.tx.len, TRANLEN);
-      memcpy(TRANBUFF(&node.tx), TRANBUFF(&mtx), TRANLEN);
+      memcpy(node.tx.buffer, mtx.buffer, sizeof(mtx.buffer));
       /* copy ip address map to outgoing TX */
       memcpy(node.tx.weight, mtx.weight, 32);
       send_op(&node, OP_TX);
