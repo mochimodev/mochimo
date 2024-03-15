@@ -953,6 +953,7 @@ int server(int reuse_addr)
             Mqcount = 0;
             unlock(lfd);
             Mqpid = mirror();  /* start child */
+            if (Mqpid == 0) perrno("mirror() FORK FAILURE");
          }
       }
       if(Mqpid) {

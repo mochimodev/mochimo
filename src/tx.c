@@ -945,30 +945,32 @@ pid_t mgc(word32 ip)
 /* Send tx to all current or recent peers on iplist.
  * Called from server()       --  becomes child
  */
-pid_t mirror1(word32 *iplist, int len)
+pid_t mirror(void)
 {
-   pid_t pid, peer[RPLISTLEN];
-   int j;
+   pid_t pid, peer[RPLISTLEN + TPLISTLEN];
+   int j, len;
    word8 busy;
 
    /* create child */
    pid = fork();
-   if(pid < 0) {
-      perr("Cannot fork()");
-      return 0;
-   }
+   if (pid < 0) return 0;
    if(pid) return pid;  /* to parent */
 
    /* in child */
    pdebug("mirror()...");
    show("mirror");
 
-   shuffle32(iplist, len);  /* NOTE: can create embedded zeros. */
    /* Create up to len mgc() grandchildren */
-   for(j = 0; j < len; j++) {
-      if(iplist[j] == 0) { peer[j] = 0; continue; }
-      peer[j] = mgc(iplist[j]);  /* grandchild */
+   memset(peer, 0, sizeof(peer));
+   for (j = len = 0; j < RPLISTLEN; j++) {
+      if (Rplist[j] == 0) continue;
+      peer[len++] = mgc(Rplist[j]);  /* grandchild */
    }
+   for (j = 0; j < TPLISTLEN; j++) {
+      if (Tplist[j] == 0) continue;
+      peer[len++] = mgc(Tplist[j]);  /* grandchild */
+   }
+   pdebug("prepared %d mgc()...", len);
 
    /* while Running, wait for grandchildren to finish. */
    while(Running) {
@@ -981,36 +983,19 @@ pid_t mirror1(word32 *iplist, int len)
       if(!busy) exit(0);
       else millisleep(1);
    }  /* end while Running */
+   pdebug("... unfinished mgc()");
+
    /* got SIGTERM */
    for(j = 0; j < len; j++) {
       if(peer[j]) {
+         pdebug("killing mgc(%ld)...", (long) peer[j]);
          kill(peer[j], SIGTERM);     /* Kill grandchild */
          waitpid(peer[j], NULL, 0);  /* and burry her. */
+         pdebug("... killed mgc(%ld)", (long) peer[j]);
       }
    }
    exit(0);
-}  /* end mirror1() */
-
-/* Send tx to either current or recent peers
- * Called from server()       --  becomes child
- */
-pid_t mirror(void)
-{
-   word32 Splist[TPLISTLEN + RPLISTLEN] = { 0 };
-   int i, num;
-
-   num = 0;
-   for (i = 0; i < TPLISTLEN; i++) {
-      if (Tplist[i] == 0) break; /* no more trusted peers */
-      Splist[num++] = Tplist[i];
-   }
-   for (i = 0; i < RPLISTLEN; i++) {
-      if (Rplist[i] == 0) break; /* no more recent peers */
-      Splist[num++] = Rplist[i];
-   }
-
-   return mirror1(Splist, num);
-}
+}  /* end mirror() */
 
 /**
  * Process a transaction received into a NODE structure's TX buffer.
