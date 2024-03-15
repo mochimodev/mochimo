@@ -431,88 +431,173 @@ static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
    return VEOK;  /* valid */
 }  /* end xtx_mdst_val() */
 
-
-/* Validate a transaction against ledger
- *
- * Returns: 0 if vaild (accept)
- *          1 if server error (drop)
- *          2 or 3 if evil    (drop)
+/**
+ * Validate a Hashed transaction. Requires an open ledger.
+ * @param txe Pointer to transaction entry to validate
+ * @param xdata Pointer to eXtended Data to validate
+ * @param bnum Pointer to block number to validate against
+ * @return (int) value representing validation result
+ * @retval VEBAD2 on invalid signature; check errno for details
+ * @retval VEBAD on bad transaction data; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
  */
-int tx_val(TX *tx)
+int tx_val(TXQENTRY *txe, XDATA *xdata, word8 *bnum)
 {
-   int cond;
-   static LENTRY src_le;            /* source ledger entry */
-   word32 total[2];                 /* for 64-bit maths */
-   static word8 message[HASHLEN];    /* transaction hash for WOTS */
-   static word8 pk2[WOTSSIGBYTES];   /* more WOTS */
-   static word8 rnd2[32];            /* for WOTS addr[] */
-   MTX *mtx;
-   static TX txs;
+   LENTRY le;
+   word8 message[HASHLEN];    /* for signature validation */
+   word8 addr_hash[HASHLEN];  /* for signature validation */
+   word8 wots[WOTSSIGBYTES];  /* for WOTS signature validation */
+   word32 adrs[HASHLEN / 4];  /* for WOTS signature validation */
+   word32 total[2];           /* for 64-bit maths */
+   int overflow;
 
-   if(memcmp(tx->src_addr, tx->chg_addr, TXWOTSLEN) == 0) {
-      pdebug("src == chg");  /* also mtx */
-      return 2;
+   /* only non-zero block-to-live values are checked */
+   if (!iszero(txe->tx_btl, 8)) {
+      /* prepare block-to-live upper bound */
+      if (add64(bnum, (word16[4]) { 0x100 }, total)) {
+         set_errno(EMCM_MATH64_OVERFLOW);
+         return VERROR;
+      }
+      /* check block number against block-to-live range */
+      if (cmp64(txe->tx_btl, bnum) < 0 || cmp64(txe->tx_btl, total) > 0) {
+         set_errno(EMCM_TXBTL);
+         return VEBAD;
+      }
+   }
+   /* check block number matches nonce */
+   if (cmp64(txe->tx_nonce, bnum) != 0) {
+      set_errno(EMCM_TXNONCE);
+      return VEBAD;
    }
 
-   if(!TX_IS_MTX(tx) && memcmp(tx->src_addr, tx->dst_addr, TXWOTSLEN) == 0) {
-      pdebug("src == dst");
-      return 2;
+   /* validate src != chg */
+   if (addr_compare(txe->src_addr, txe->chg_addr) == 0) {
+      set_errno(EMCM_TXCHG);
+      return VEBAD;
    }
 
-   /* validate transaction fixed fee */
-   if(cmp64(tx->tx_fee, Mfee) < 0) {
-      pdebug("bad mining fee");
-      return 2;
-   }
-   /* validate my fee */
-   if(cmp64(tx->tx_fee, Myfee) < 0) {
-      pdebug("fee < %u", Myfee[0]);
-      return 1;
+   /* validate transaction fee -- implicit MFEE check (Myfee >= MFEE) */
+   if (cmp64(txe->tx_fee, Myfee) < 0) {
+      set_errno(EMCM_TXFEE);
+      return VEBAD;
    }
 
-   /* check WTOS signature */
-   if(TX_IS_MTX(tx) && get32(Cblocknum) >= MTXTRIGGER) {
-      memcpy(&txs, tx, sizeof(txs));
-      mtx = (MTX *) TRANBUFF(&txs);  /* poor man's union */
-      memset(mtx->zeros, 0, MDST_NUM_DZEROS);
-      sha256(txs.src_addr, TXSIG_INLEN, message);
+   /* for XTX type transactions... */
+   if (IS_XTX(txe)) {
+      /* ... source address MUST be tagged */
+      if (!ADDR_HAS_TAG(txe->src_addr)) {
+         set_errno(EMCM_XTXSRCNOTAG);
+         return VEBAD;
+      }
+      /* ... source address tag MUST equal change address tag */
+      if (!addr_tag_equal(txe->src_addr, txe->chg_addr)) {
+         set_errno(EMCM_XTXTAGMISMATCH);
+         return VEBAD;
+      }
+      /* ... change total MUST be > MFEE, so the address is not dissolved */
+      /** @todo revisit reasoning for this last check */
+      if (cmp64(txe->change_total, Mfee) <= 0) {
+         set_errno(EMCM_XTXCHGTOTAL);
+         return VEBAD;
+      }
    } else {
-      sha256(tx->src_addr, TXSIG_INLEN, message);
-   }
+   /* ... OR, for non-XTX transactions... */
 
-   memcpy(rnd2, &tx->src_addr[TXSIGLEN+32], 32);  /* copy WOTS addr[] */
-   wots_pk_from_sig(pk2, tx->tx_sig, message, &tx->src_addr[TXSIGLEN],
-                    (word32 *) rnd2);
-   if(memcmp(pk2, tx->src_addr, TXSIGLEN) != 0) {
-      plog("WOTS signature failed!");
-      return 3;
-   }
+      /* ... check src != dst */
+      if (addr_compare(txe->src_addr, txe->dst_addr) == 0) {
+         set_errno(EMCM_TXDST);
+         return VEBAD;
+      }
+/* >> BEGIN OLD TAG VALIDATION */
+      /* ... validate destination tag */
+      if (ADDR_HAS_TAG(txe->dst_addr)) {
+         /* check full dst_addr is in ledger, else invalid */
+         if (le_find(txe->dst_addr, &le, TXADDRLEN) == 0) {
+            set_errno(EMCM_TXDSTNOLE);
+            return VERROR;
+         }
+      }
+      /* if change tag exists and source tag != change tag, check... */
+      if (ADDR_HAS_TAG(txe->chg_addr)) {
+         if (!addr_tag_equal(txe->src_addr, txe->chg_addr)) {
+            /* ... if src is not default, tx is invalid */
+            if (ADDR_HAS_TAG(txe->src_addr)) {
+               set_errno(EMCM_TXTAGSRC);
+               return VEBAD;
+            }
+            /* ... if change tag is in ledger.dat, tx is invalid */
+            if (tag_find(txe->chg_addr, NULL, NULL, TXTAGLEN) == 1) {
+               set_errno(EMCM_TXTAGCHG);
+               return VERROR;
+            }
+         }
+      }
+      /* chg_addr tag queue conflict checks that would normally be done
+       * here were moved into txq_check() for convenience/efficiency */
+/* >> END OLD TAG VALIDATION */
+   }  /* end if (IS_XTX(txe))... else... */
+
+   /* generate transaction signature message */
+   tx_hash(txe, xdata, 0, message);
+
+   /* determine appropriate DSA type */
+   switch (DSA_TYPE(txe)) {
+      case DSA_WOTS:
+         /* recreate WOTS+ public key from signature */
+         memcpy(adrs, txe->tx_adrs, HASHLEN);
+         wots_pk_from_sig(wots, txe->tx_sig, message, txe->tx_seed, adrs);
+         /* NOTE: next check prevents free floating bytes in tx_adrs */
+         if (memcmp(txe->tx_adrs, adrs, HASHLEN) != 0) {
+            set_errno(EMCM_TXADRS);
+            return VEBAD2;
+         }
+         /* validate hashed address against source */
+         sha256(wots, WOTSSIGBYTES, addr_hash);
+         if (memcmp(addr_hash, txe->src_addr, HASHLEN) != 0) {
+            set_errno(EMCM_TXWOTS);
+            return VEBAD2;
+         }
+         break;
+      default:
+         /* includes DSA_NONE */
+         set_errno(EMCM_TXDSA);
+         return VEBAD2;
+   }  /* end switch (DSA_TYPE(txe)) */
 
    /* look up source address in ledger */
-   if(le_find(tx->src_addr, &src_le, NULL, TXWOTSLEN) == FALSE) {
-      pdebug("src_addr not in ledger");
-      return 1;
+   if (!le_find(txe->src_addr, &le, TXADDRLEN)) {
+      set_errno(EMCM_TXSRCLE);
+      return VERROR;
    }
    total[0] = total[1] = 0;
    /* use add64() to check for overflow */
-   cond =  add64(tx->send_total, tx->change_total, total);
-   cond += add64(tx->tx_fee, total, total);
-   if(cond) {
-      plog("TX amount overflow");
-      return 2;
+   overflow =  add64(txe->send_total, txe->change_total, total);
+   overflow += add64(txe->tx_fee, total, total);
+   if (overflow) {
+      set_errno(EMCM_TXOVERFLOW);
+      return VEBAD;
    }
-   if(cmp64(src_le.balance, total) != 0) {
-      pdebug("bad transaction total != src_le.balance");
-      return 1;
+   /* check totals match ledger balance */
+   if (cmp64(le.balance, total) != 0) {
+      set_errno(EMCM_TXTOTAL);
+      return VERROR;
    }
-   if(TX_IS_MTX(tx)) {
-      mtx = (MTX *) TRANBUFF(tx);  /* poor man's union */
-      if(mtx_val(mtx, Myfee)) return 1;  /* bad mtx */
-   } else {
-      if(tag_valid(tx->src_addr, tx->chg_addr, tx->dst_addr,
-                   NULL) != VEOK) return 1;  /* bad tag */
+
+   /* return validation result for eXtended Transaction types... */
+   if (IS_XTX(txe)) {
+      switch (XTX_TYPE(txe)) {
+         case XTX_MDST:
+            return xtx_mdst_val(txe, xdata->mdst);
+         default:
+            /* includes XTX_NONE */
+            set_errno(EMCM_XTXUNDEF);
+            return VEBAD;
+      }
    }
-   return 0;  /* tx valid */
+
+   /* transaction is valid */
+   return VEOK;
 }  /* end tx_val() */
 
 /**
