@@ -1012,88 +1012,84 @@ pid_t mirror(void)
    return mirror1(Splist, num);
 }
 
-
-/* Called by gettx()  -- in parent
- *
+/**
+ * Process a transaction received into a NODE structure's TX buffer.
  * Validate a TX, write clean TX to txq1.dat, and raw TX to
  * mirror queue, mq.dat.
  * Locks mq.lck while appending mq.dat.
+ * @param np Pointer to NODE containing transaction to process
+ * @return (int) value representing the result
+ * @retval VEBAD2 on invalid signature; check errno for details
+ * @retval VEBAD on bad data; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
  */
 int process_tx(NODE *np)
 {
+   TXQENTRY txe;
+   XDATA xdata;
+   FILE *fp;
    TX *tx;
    int evilness;
    int count, lockfd;
    int ecode;
-   word8 tx_id[HASHLEN];
-   FILE *fp;
 
-   pdebug("process_tx()");
    show("tx");
 
    tx = &np->tx;
 
+   /* process transaction data into txe and xdata parts */
+   ecode = tx_data(&txe, &xdata, tx->buffer, get16(tx->len));
+   if (ecode != VEOK) return VEBAD;
+
+   /* (quick) check for duplicate transactions */
+   ecode = txcheck(txe.src_addr, txe.chg_addr);
+   if (ecode != VEOK) {
+      Ndups++;
+      return ecode;
+   }
+
+   /* nonce must be applied before validation */
+   put64(txe.tx_nonce, Cblocknum);
+
    /* Validate addresses, fee, signature, source balance, and total. */
-   evilness = tx_val(tx);
+   evilness = tx_val(&txe, &xdata, Cblocknum);
    if(evilness) return evilness;
 
-   /* Compute tx_id[] (hash of tx->src_addr) to append to txq1.dat. */
-   sha256(tx->src_addr, TXWOTSLEN, tx_id);
+   /* update transaction hash */
+   tx_hash(&txe, &xdata, 1, txe.tx_id);
 
    fp = fopen("txq1.dat", "ab");
-   if(!fp) {
-      perr("Cannot open txq1.dat");
-      return 1;
-   }
+   if (fp == NULL) return VERROR;
 
-   /* Now write transaction to txq1.dat followed by tx_id */
-   ecode = 0;
-   /* 3 addresses (TXWOTSLEN*3) + 3 amounts (8*3) + signature (TXSIGLEN) */
-   count = fwrite(TRANBUFF(tx), 1, TRANLEN, fp);
-   if(count != TRANLEN) ecode = 1;
-   /* then append source tx_id */
-   count = fwrite(tx_id, 1, HASHLEN, fp);
-   if(count != HASHLEN) ecode = 1;
-   pdebug("writing TX to txq1.dat");
+   /* write transaction (incl. nonce and id) to txq1.dat */
+   ecode = tx_fwrite(&txe, &xdata, fp);
    fclose(fp);  /* close txq1.dat */
-   if(ecode) {
-      perr("bad write on txq1.dat");
-      return 1;
-   }
-   else {
-      Txcount++;
-      pdebug("incrementing Txcount to %d", Txcount);
-   }
+   if (ecode != VEOK) return VERROR;
+
+   Txcount++;
    Nrec++;  /* total good TX received */
 
    /* lock mirror file */
    lockfd = lock("mq.lck", 20);
-   if(lockfd == -1) {
-      perr("Cannot lock mq.lck");  /* should not happen */
-      return 1;
-   }
+   if (lockfd == -1) return VERROR;
    fp = fopen("mq.dat", "ab");
-   if(!fp) {
-      perr("Cannot open mq.dat");
+   if (fp == NULL) {
       unlock(lockfd);
-      return 1;
+      return VERROR;
    }
-   ecode = 0;
+   ecode = VEOK;
    /* If empty slot in mirror address map, fill it
     * in and then write tx to mirror queue, mq.dat.
     */
-   pdebug("before txmap()");
    if(txmap(tx, np->ip) == VEOK) {
       count = fwrite(tx, 1, sizeof(TX), fp);
       if(count != sizeof(TX)) {
-         perr("bad write on mq.dat");
-         ecode = 1;
+         ecode = VERROR;
       } else Mqcount++;
    }
-   pdebug("after txmap()");
    fclose(fp);      /* close mirror queue, mq.dat */
    unlock(lockfd);  /* unlock mirror queue lock, mq.lck */
-   pdebug("done %d", ecode);
    return ecode;
 }  /* end process_tx() */
 
