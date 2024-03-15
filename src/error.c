@@ -411,12 +411,18 @@ const char *mcm_errno_text(int errnum)
       /* transaction related errors... */
       case EMCM_TX0:
          return "No transactions to handle";
+      case EMCM_TXADRS:
+         return "Invalid address scheme data";
+      case EMCM_TXBTL:
+         return "Transaction block-to-live out of range";
       case EMCM_TXCHGEXISTS:
          return "Change address is not in Ledger";
       case EMCM_TXCHGNOLE:
          return "Change address is not in Ledger";
       case EMCM_TXCHGNOTAG:
          return "Change address is not Tagged";
+      case EMCM_TXCHGTAGDUP:
+         return "Duplicate change address tag";
       case EMCM_TXDSTNOLE:
          return "Destination address is not in Ledger";
       case EMCM_TXDSTNOTAG:
@@ -437,8 +443,12 @@ const char *mcm_errno_text(int errnum)
          return "Bad transaction sort";
       case EMCM_TXCHG:
          return "Source address is change address";
+      case EMCM_TXDSA:
+         return "Invalid Digital Signature Algorithm";
       case EMCM_TXDST:
          return "Source address is destination address";
+      case EMCM_TXNONCE:
+         return "Invalid transaction nonce";
       case EMCM_TXSRCDUP:
          return "Duplicate transaction source address";
       case EMCM_TXSRCLE:

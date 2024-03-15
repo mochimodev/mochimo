@@ -235,12 +235,18 @@ enum mcm_errno_t {
    /* transaction related errors... */
    /** No transactions to handle */
    EMCM_TX0,
+   /** Invalid address scheme data */
+   EMCM_TXADRS,
+   /** Transaction block-to-live out of range */
+   EMCM_TXBTL,
    /** Change address is not in Ledger */
    EMCM_TXCHGEXISTS,
    /** Change address is not in Ledger */
    EMCM_TXCHGNOLE,
    /** Change address is not Tagged */
    EMCM_TXCHGNOTAG,
+   /** Duplicate change address tag */
+   EMCM_TXCHGTAGDUP,
    /** Destination address is not in Ledger */
    EMCM_TXDSTNOLE,
    /** Destination address is not Tagged */
@@ -261,8 +267,12 @@ enum mcm_errno_t {
    EMCM_TXSORT,
    /** Source address is change address */
    EMCM_TXCHG,
+   /** Invalid Digital Signature Algorithm */
+   EMCM_TXDSA,
    /** Source address is destination address */
    EMCM_TXDST,
+   /** Invalid transaction nonce */
+   EMCM_TXNONCE,
    /** Duplicate transaction source address */
    EMCM_TXSRCDUP,
    /** Source address is not in Ledger */
