@@ -9,8 +9,6 @@
 #ifndef MOCHIMO_TX_H
 #define MOCHIMO_TX_H
 
-/* define 64-bit off_t for stdio BEFORE all includes */
-#define _FILE_OFFSET_BITS  64
 
 /* internal support */
 #include "types.h"
