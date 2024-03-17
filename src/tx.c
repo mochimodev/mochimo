@@ -717,7 +717,7 @@ int txclean(const char *txfname, const char *bcfname)
    /* obtain EOF offset */
    if (fseek64(fp, 0LL, SEEK_END) != 0) goto FAIL_FP;
    offset = ftell64(fp);
-   if (offset == EOF) goto FAIL_FP;
+   if (offset == (-1)) goto FAIL_FP;
    if (offset == 0LL) {
       /* nothing to clean */
       fclose(fp);
