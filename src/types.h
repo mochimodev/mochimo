@@ -92,6 +92,13 @@
 	#define FALSE  0   /**< Boolean value for FALSE (#ifndef) */
 #endif
 
+/* 64-bit compound literal definitions */
+
+/** 64-bit compound literal (pointer) representing a value of One (1) */
+#define ONE64  (word8[8]) { 1 }
+/** 64-bit compound literal (pointer) representing a value of Zero (0) */
+#define ZERO64 (word8[8]) { 0 }
+
 #define HASHLEN   32  /**< Digest length of core hashes - SHA256LEN */
 
 /* status return codes */
