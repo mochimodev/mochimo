@@ -32,28 +32,16 @@
 */
 int pseudo(char *output)
 {
-   static const word32 pseudo_hdrlen = 4;
+   const word32 hdrlen = 4;
 
    SHA256_CTX ctx;
    BTRAILER bt;
-   clock_t ticks;
    FILE *fp;
-
-   /* init */
-   ticks = clock();
-
-   pdebug("generating pseudo-block at %s...", output);
 
    /* open pseudo-block file and write hdrlen */
    fp = fopen(output, "wb");
-   if (fp == NULL) {
-      perrno("failed to fopen(%s)", output);
-      return VERROR;
-   }
-   if (fwrite(&pseudo_hdrlen, 4, 1, fp) != 1) {
-      perr("failed to fwrite(pseudo_hdrlen)");
-      goto CLEANUP;
-   }
+   if (fp == NULL) return VERROR;
+   if (fwrite(&hdrlen, 4, 1, fp) != 1) goto CLEANUP;
 
    /* fill block trailer with appropriate pseudo-data */
    memset(&bt, 0, sizeof(bt));
@@ -65,20 +53,15 @@ int pseudo(char *output)
 
    /* compute pseudo-block hash directly into block trailer */
    sha256_init(&ctx);
-   sha256_update(&ctx, &pseudo_hdrlen, 4);
+   sha256_update(&ctx, &hdrlen, 4);
    sha256_update(&ctx, &bt, sizeof(bt) - HASHLEN);
    sha256_final(&ctx, bt.bhash);
 
    /* write block trailer to pseudo-block file */
-   if (fwrite(&bt, sizeof(bt), 1, fp) != 1) {
-      perr("failed to fwrite(bt)");
-      goto CLEANUP;
-   }
+   if (fwrite(&bt, sizeof(bt), 1, fp) != 1) goto CLEANUP;
 
    /* cleanup */
    fclose(fp);
-
-   pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
    return VEOK;

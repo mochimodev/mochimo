@@ -889,6 +889,7 @@ int server(int reuse_addr)
       /* generate pseudo-block in "times of trouble", else check bcon */
       if(Ltime >= (Time0 + BRIDGE) && TIMES_OF_TROUBLE(Cblocknum)) {
          if (pseudo("pblock.dat") != VEOK) {
+            perrno("pseudo() FAILURE");
             restart("Failed to make pseudo-block");
          } else {
             /* exit services */
