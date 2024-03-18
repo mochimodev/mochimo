@@ -74,140 +74,106 @@ CLEANUP:
 }  /* end pseudo() */
 
 /**
- * Generate a neogenesis block.
- * Uses input bc file (0x..ff) to create a output neogen-bc file (0x..00).
- * @param input Filename of input block (matching bnum 0x..ff)
+ * Generate a neogenesis block. Uses a block trailer (MUST BE 0x..ff) and
+ * a ledger file as input to create a output neogenesis file (0x..00).
+ * @param bt Pointer to block trailer data
+ * @param lefile Filename of ledger to convert to neogenesis block
  * @param output Filename of output block (typically "ngblock.dat")
  * @returns VEOK on success, else VERROR
 */
-int neogen(char *input, char *output)
+int neogen(const BTRAILER *bt, const char *lefile, const char *output)
 {
    SHA256_CTX bctx;     /* (entire) block hash */
-   BTRAILER bt, nbt;    /* input and output block trailers */
+   BTRAILER bt_out;     /* output block trailers */
+   NGHEADER ngh;        /* neogenesis header data */
    FILE *nfp, *lfp;
-   clock_t ticks;
-   size_t total, count; /* size counters */
-   long llen;           /* ledger length */
-   word32 hdrlen;       /* header length for neo block */
+   size_t count;        /* size counters */
+   long long llen;      /* ledger length */
    word8 neobnum[8];
    word8 buff[BUFSIZ];
 
-   /* init */
-   ticks = clock();
-
-   pdebug("generating neogenesis-block...");
-
-   /* read and check trailer from 0x..ff block */
-   if (readtrailer(&bt, input) != VEOK) {
-      perr("failed to read_trailer()");
-      return VERROR;
-   } else if (bt.bnum[0] != 0xff) {
-      perr("bad modulus on bt.bnum");
+   /* calculate neogensis block number */
+   if (add64(bt->bnum, ONE64, bt_out.bnum)) {
+      set_errno(EMCM_MATH64_OVERFLOW);
       return VERROR;
    }
-
-   /* calculate neogensis block number */
-   add64(bt.bnum, One, neobnum);
-   if (neobnum[0] != 0) {
-      perr("bad modulus on Cblocknum");
+   /* block number MUST be 0x...00 */
+   if (bt_out.bnum[0] != 0x00) {
+      set_errno(EMCM_BNUM);
       return VERROR;
    }
 
    /* open ledger read-only */
-   lfp = fopen("ledger.dat", "rb");
-   if (lfp == NULL) {
-      perrno("failed to fopen(ledger.dat)");
-      return VERROR;
-   }
+   lfp = fopen(lefile, "rb");
+   if (lfp == NULL) return VERROR;
    /* fseek() to compute ledger length and check */
-   if (fseek(lfp, 0, SEEK_END) != 0) {
-      perrno("failed to fseek(END)");
-      goto CLEANUP_LE;
-   }
-   llen = ftell(lfp);
-   if (llen == EOF) {
-      perrno("failed to ftell(lfp)");
-      goto CLEANUP_LE;
-   }
+   if (fseek64(lfp, 0LL, SEEK_END) != 0) goto FAIL_LE;
+   llen = ftell64(lfp);
+   if (llen == (-1)) goto FAIL_LE;
    if (llen == 0 || (llen % sizeof(LENTRY)) != 0) {
-      perr("invalid ledger length: %ld", llen);
-      goto CLEANUP_LE;
+      set_errno(EMCM_FILELEN);
+      goto FAIL_LE;
    }
+
+   /* build neogensis header data */
+   put32(ngh.hdrlen, sizeof(NGHEADER));
+   put64(ngh.lbytes, &llen);
 
    /* open neogenesis output file for writing */
    nfp = fopen(output, "wb");
-   if(nfp == NULL) {
-      perrno("failed to fopen(%s)", output);
-      goto CLEANUP_LE;
-   }
+   if (nfp == NULL) goto FAIL_LE;
+   /* Begin the Neo-Genesis block by writing the header */
+   if (fwrite(&ngh, sizeof(NGHEADER), 1, nfp) != 1) goto FAIL_ALL;
 
-   /* Add length of ledger.dat to length of header length field. */
-   hdrlen = (word32) llen + 4;
-   /* Begin the Neo-Genesis block by writing the header length to it. */
-   if (fwrite(&hdrlen, 4, 1, nfp) != 1) {
-      perr("failed to fwrite(hdrlen)");
-      goto CLEANUP_NEO;
-   }
-
-   sha256_init(&bctx);  /* begin entire block hash */
-   sha256_update(&bctx, &hdrlen, 4); /* ... with the header length field. */
+   /* initialize and begin block hash */
+   sha256_init(&bctx);
+   sha256_update(&bctx, &ngh, sizeof(NGHEADER));
 
    /* Cue ledger.dat to beginning and copy it to neo-gen block
     * header whilst hashing it into bctx.
     */
-   if (fseek(lfp, 0, SEEK_SET) != 0) {
-      perrno("failed to fseek(lfp, SET)");
-      goto CLEANUP_NEO;
-   }
-   for (total = 0; (count = fread(buff, 1, BUFSIZ, lfp)); total += count) {
-      sha256_update(&bctx, buff, count);
-      if (fwrite(buff, count, 1, nfp) != 1) {
-         perr("failed to fwrite(buff)");
-         goto CLEANUP_NEO;
+   for (rewind(lfp); llen > 0; llen -= (long long) count) {
+      /* read ledger data from ledger file */
+      count = fread(buff, 1, BUFSIZ, lfp);
+      if (count < BUFSIZ) {
+         if (ferror(lfp)) goto FAIL_ALL;
+         /* for() SHOULD break at EOF... */
+         if (count <= 0) {
+            /* ... else, UNEXPECTED EOF */
+            set_errno(EMCM_EOF);
+            goto FAIL_ALL;
+         }
       }
-   }
-   /* check that everything got copied, and no file errors */
-   if (ferror(lfp)) {
-      perrno("ferror(lfp)");
-      goto CLEANUP_NEO;
-   }
-   if (total != (size_t) llen) {
-      perr("failed to copy all data");
-      goto CLEANUP_NEO;
+      /* write to neogenesis file and update hash */
+      if (fwrite(buff, count, 1, nfp) != 1) goto FAIL_ALL;
+      sha256_update(&bctx, buff, count);
    }
 
    /* Fix-up block trailer and write to neogenesis-block */
-   memset(&nbt, 0, sizeof(nbt));  /* first clear trailer */
-   memcpy(nbt.phash, bt.bhash, HASHLEN);
-   put64(nbt.bnum, neobnum);
-   put32(nbt.stime, get32(bt.stime));
-   put32(nbt.time0, get32(bt.time0));
-   put32(nbt.difficulty, get32(bt.difficulty));
-   sha256_update(&bctx, &nbt, sizeof(nbt) - HASHLEN);
-   sha256_final(&bctx, nbt.bhash);
-   if (fwrite(&nbt, sizeof(BTRAILER), 1, nfp) != 1) {
-      perr("failed to fwrite(nbt)");
-      goto CLEANUP_NEO;
-   } else if (ferror(nfp)) {
-      perrno("ferror(nfp)");
-      goto CLEANUP_NEO;
+   memcpy(bt_out.phash, bt->bhash, HASHLEN);
+   put32(bt_out.stime, get32(bt->stime));
+   put32(bt_out.time0, get32(bt->time0));
+   put32(bt_out.difficulty, get32(bt->difficulty));
+   sha256_update(&bctx, &bt_out, sizeof(BTRAILER) - HASHLEN);
+   sha256_final(&bctx, bt_out.bhash);
+   if (fwrite(&bt_out, sizeof(BTRAILER), 1, nfp) != 1) {
+      goto FAIL_ALL;
    }
 
    /* cleanup */
    fclose(nfp);
    fclose(lfp);
 
-   pdebug("completed in %gs", diffclocktime(ticks));
-
    /* success */
    return VEOK;
 
    /* cleanup / error handling */
-CLEANUP_NEO:
+FAIL_ALL:
    fclose(nfp);
    remove(output);
-CLEANUP_LE:
+FAIL_LE:
    fclose(lfp);
+
    return VERROR;
 }  /* end neogen() */
 
