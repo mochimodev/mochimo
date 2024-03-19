@@ -10,13 +10,15 @@
 #define MOCHIMO_BCON_H
 
 
+#include "types.h"
+
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int pseudo(char *output);
-int neogen(char *input, char *output);
+int pseudo(const char *output);
+int neogen(const BTRAILER *bt, const char *lefile, const char *output);
 int b_con(const char *fname);
 
 #ifdef __cplusplus

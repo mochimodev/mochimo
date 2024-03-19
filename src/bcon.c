@@ -52,7 +52,7 @@ static int txpos_compare(const void *va, const void *vb)
  * @param output Filename of output block (typically "pblock.dat")
  * @returns VEOK on success, else error code
 */
-int pseudo(char *output)
+int pseudo(const char *output)
 {
    const word32 hdrlen = 4;
 
@@ -111,7 +111,6 @@ int neogen(const BTRAILER *bt, const char *lefile, const char *output)
    FILE *nfp, *lfp;
    size_t count;        /* size counters */
    long long llen;      /* ledger length */
-   word8 neobnum[8];
    word8 buff[BUFSIZ];
 
    /* calculate neogensis block number */
