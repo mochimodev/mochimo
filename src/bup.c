@@ -214,7 +214,8 @@ int b_update(char *fname, int mode)
        */
       bnum2fname(Cblocknum, bcfname);
       path_join(fpath, Bcdir, bcfname);
-      if (neogen(fpath, "ngblock.dat") != VEOK) {
+      if (neogen(&bt, "ledger.dat", "ngblock.dat") != VEOK) {
+         perrno("neogen() FAILURE");
          restart("failed to neogen()");
       } else if (add64(Cblocknum, One, Cblocknum)) {
          restart("neogenesis blocknum overflow");
