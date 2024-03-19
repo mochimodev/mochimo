@@ -13,6 +13,7 @@
 #include "bcon.h"
 
 /* internal support */
+#include "tx.h"
 #include "tfile.h"
 #include "sort.h"
 #include "global.h"
@@ -23,6 +24,27 @@
 #include "sha256.h"
 #include "extmath.h"
 #include "extlib.h"
+
+/**
+ * @private Transaction Position structure.
+ * Contains an ID and file position type pair.
+*/
+typedef struct {
+   word8 id[HASHLEN];
+   fpos_t pos;
+} TXPOS;
+
+/**
+ * @private
+ * Comparison function to sort TXPOS objects by id.
+*/
+static int txpos_compare(const void *va, const void *vb)
+{
+   TXPOS *a = (TXPOS *) va;
+   TXPOS *b = (TXPOS *) vb;
+
+   return memcmp(a->id, b->id, sizeof(a->id));
+}
 
 /**
  * Generate a pseudo-block with bnum = Cblocknum + 1. Uses node state
@@ -180,173 +202,181 @@ FAIL_LE:
 /**
  * Construct a candidate block from "txclean.dat". Uses node state
  * (Cblocknum, Cblockhash, Mfee, Difficulty, Time0) for block data.
- * @param fname Candidate block (output) file name: "cblock.dat"
- * @returns VEOK on success, else error code
+ * @param output Filename of output block (typically "cblock.dat")
+ * 
+ * @returns VEOK on success, or VERROR on error; check errno for details
+ * 
+ * @return (int) Mochimo return code
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
-int b_con(char *fname)
+int b_con(const char *output)
 {
-   SHA256_CTX bctx, mctx;  /* (entire) block hash and merkel array */
-   TXQENTRY tx;            /* Holds one transaction in the array */
+   SHA256_CTX mctx;        /* merkel array hash */
+   TXQENTRY txc;           /* for holding transaction data */
+   XDATA xdata;            /* for holding eXtended transaction data */
    BTRAILER bt;            /* block trailers are fixed length */
    BHEADER bh;             /* the minimal length block header */
+   TXPOS *tx;              /* malloc'd transaction positions */
    FILE *fp, *fpout;       /* to read txclean file and write cblock */
-   clock_t ticks;
-   word32 mreward[2];      /* mining reward */
-   word32 bnum[2];         /* new block num */
-   word32 *idx, ntx, num;
-   word8 maddr[TXWOTSLEN]; /* to read mining address for block */
-   word8 prev_tx_id[HASHLEN];  /* to check for duplicate transactions */
-   int cond;
+   fpos_t pos;             /* file position offset indicator */
+   long long offset;       /* file position offset value (ftell) */
+   size_t len, tcount;     /* malloc'd space and transaction count */
+   size_t j;               /* loop counter */
+   int count;              /* read_data() return value */
 
-   /* init */
-   ticks = clock();
+   /* init pointers */
+   fpout = fp = NULL;
+   tx = NULL;
 
-   pdebug("constructing candidate-block...");
-
-   /* get mining address and build sorted Txidx[]... */
-   if (read_data(maddr, TXWOTSLEN, "maddr.dat") != TXWOTSLEN) {
-      perr("failed to read_data(maddr)");
-      return VERROR;
-   } else if (sorttx("txclean.dat") != VEOK) {
-      perr("bad sorttx(txclean.dat)");
+   /* get mining address */
+   count = read_data(bh.maddr, TXADDRLEN, "maddr.dat");
+   if (count != TXADDRLEN || ADDR_HAS_TAG(bh.maddr)) {
+      /* tagged addresses are NOT mining addresses -- for now... */
+      set_errno(EMCM_MADDR);
       return VERROR;
    }
 
-   /* re-open the clean TX queue (txclean.dat) to read */
+   /* open the clean TX queue (txclean.dat) and create a sorted index */
    fp = fopen("txclean.dat", "rb");
-   if (fp == NULL) {
-      perrno("failed to fopen(txclean.dat)");
-      goto CLEANUP;
+   if (fp == NULL) return VERROR;
+
+   /* obtain EOF offset */
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   offset = ftell64(fp);
+   if (offset == (-1)) goto ERROR_CLEANUP;
+   if (offset == 0LL) {
+      /* no transactions? */
+      set_errno(EMCM_TX0);
+      goto ERROR_CLEANUP;
+   }
+   if ((size_t) offset < sizeof(TXQENTRY)) {
+      /* file contains unknown data */
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
    }
 
-   /* create cblock.tmp */
+   /* malloc required space (approximate) */
+   len = (size_t) offset / sizeof(TXQENTRY);
+   tx = malloc(len * sizeof(TXPOS));
+   if (tx == NULL) goto ERROR_CLEANUP;
+
+   /* store txid and associated fpos_t value in arrays */
+   for (rewind(fp), tcount = 0; tcount < len; tcount++) {
+      /* store position for later use (if tx is read) */
+      if (fgetpos(fp, &pos) != 0) goto ERROR_CLEANUP;
+      if (tx_fread(&txc, NULL, fp) != VEOK) {
+         if (ferror(fp)) goto ERROR_CLEANUP;
+         /* EOF -- check fridge for leftovers */
+         if (ftell64(fp) < offset) {
+            set_errno(EMCM_FILEDATA);
+            goto ERROR_CLEANUP;
+         }
+         break;
+      }
+      /* set txid reference data */
+      memcpy(&(tx[tcount].id), txc.tx_id, HASHLEN);
+      tx[tcount].pos = pos;
+   }
+   /* sort the txid reference array */
+   qsort(tx, tcount, sizeof(TXPOS), txpos_compare);
+
+   /* open output for writing */
    fpout = fopen("cblock.tmp", "wb");
-   if (fpout == NULL) {
-      perrno("failed to fopen(cblock.tmp)");
-      goto CLEANUP_TXC;
+   if (fpout == NULL) goto ERROR_CLEANUP;
+
+   /* compute new block number */
+   if (add64(Cblocknum, ONE64, bt.bnum)) {
+      set_errno(EMCM_MATH64_OVERFLOW);
+      goto ERROR_CLEANUP;
    }
 
-   /* compute new block number, mining reward */
-   add64(Cblocknum, One, bnum);
-   get_mreward(mreward, bnum);
-
-   /* prepare new block header... */
-   put32(bh.hdrlen, sizeof(bh));
-   memcpy(bh.maddr, maddr, TXWOTSLEN);
-   put64(bh.mreward, mreward);
-   /* ... and trailer */
-   memset(&bt, 0, sizeof(bt));
-   memcpy(bt.phash, Cblockhash, HASHLEN);
-   put64(bt.bnum, bnum);
-   put64(bt.mfee, Mfee);
-   put32(bt.difficulty, Difficulty);
-   put32(bt.time0, Time0);
-
-   /* prepare hashing states */
-   sha256_init(&bctx);   /* begin entire block hash */
-   sha256_update(&bctx, &bh, sizeof(bh));  /* ... with the header */
-   if (!NEWYEAR(bt.bnum)) sha256_init(&mctx); /* begin Merkel Array hash */
-   else memcpy(&mctx, &bctx, sizeof(mctx));  /* ... or copy bctx state */
+   /* finalize block header data (compute reward) */
+   put32(bh.hdrlen, sizeof(BHEADER));
+   /* ... bh.maddr assigned earlier */
+   get_mreward(bh.mreward, bt.bnum);
 
    /* write header to disk */
-   if (fwrite(&bh, sizeof(bh), 1, fpout) != 1) {
-      perr("failed to fwrite(bh)");
-      goto CLEANUP_CBLK;
+   if (fwrite(&bh, sizeof(BHEADER), 1, fpout) != 1) {
+      goto ERROR_CLEANUP;
    }
 
-   ntx = 0;
-   idx = Txidx;
-   /* Read transactions from txclean.dat in sort order using Txidx[] */
-   for (num = 0; num < Ntx && ntx < MAXBLTX; num++, idx++) {
-      if (num != 0) {
-         cond = memcmp(&Tx_ids[*idx * HASHLEN], prev_tx_id, HASHLEN);
-         if (cond <= 0) {
-            if (cond == 0) continue;  /* ignore duplicate transaction */
-            perr("txclean sort error: TX#%" P32u, num);
-            goto CLEANUP_CBLK;
+   /* begin merkel array hash with mining address */
+   sha256_init(&mctx);
+   sha256_update(&mctx, bh.maddr, TXADDRLEN);
+
+   /* read transactions from txclean.dat using sorted TXPOS array */
+   for (j = 0; j < tcount; j++) {
+      /** @todo: duplicate transaction checks should really be done before
+       * we get here (i.e. when we are cleaning the queue, or validating)
+      */
+      if (j > 0) {
+         /* check previous transaction id for duplicates */
+         if (memcmp(tx[j].id, tx[j-1].id, HASHLEN) == 0) {
+         /* pwarn("duplicate transaction in clean queue"); */
+            /* ignore duplicate transaction */
+            continue;
          }
       }
-      /* remember tx_id for next iteration */
-      memcpy(prev_tx_id, &Tx_ids[*idx * HASHLEN], HASHLEN);
-      /* seek to and read TXQENTRY */
-      if (fseek(fp, *idx * sizeof(TXQENTRY), SEEK_SET) != 0) {
-         perrno("bad fseek(TX): TX#%" P32u, num);
-         goto CLEANUP_CBLK;
-      } else if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
-         perr("bad fread(TX): TX#%" P32u, num);
-         goto CLEANUP_CBLK;
+      /* seek to transaction position */
+      if (fsetpos(fp, &tx[j].pos) != 0) {
+         goto ERROR_CLEANUP;
       }
-      /* add transaction to block hash and merkel array */
-      sha256_update(&bctx, &tx, sizeof(TXQENTRY));
-      sha256_update(&mctx, &tx, sizeof(TXQENTRY));
+      /* read transaction */
+      if (tx_fread(&txc, &xdata, fp) != VEOK) {
+         if (!ferror(fp)) set_errno(EMCM_EOF);
+         goto ERROR_CLEANUP;
+      }
+      /* add transaction id to merkel array */
+      sha256_update(&mctx, txc.tx_id, HASHLEN);
       /* write transaction to block */
-      if (fwrite(&tx, sizeof(TXQENTRY), 1, fpout) != 1) {
-         perr("bad fwrite(TX): TX#%" P32u, num);
-         goto CLEANUP_CBLK;
+      if (tx_fwrite(&txc, &xdata, fpout) != 1) {
+         goto ERROR_CLEANUP;
       }
-      /* increment actual transactions for block */
-      ntx++;
-   }  /* end for num */
+   }  /* end for() */
 
-   /* Put tran count in trailer */
-   if (ntx) put32(bt.tcount, ntx);
-   else {
-      perr("no good transactions");
-      goto CLEANUP_CBLK;
-   }
+   /* finalize block trailer data */
+   memcpy(bt.phash, Cblockhash, HASHLEN);
+   /* ... bt.bnum assigned earlier */
+   put64(bt.mfee, Mfee);
+   put32(bt.tcount, tcount);
+   put32(bt.time0, Time0);
+   put32(bt.difficulty, Difficulty);
+   /* finalize merkel array hash straight into the trailer */
+   sha256_final(&mctx, bt.mroot);
+   /* remaining data is set zero (not known yet) */
+   memset(bt.nonce, 0, HASHLEN);
+   memset(bt.stime, 0, 4);
+   memset(bt.bhash, 0, HASHLEN);
 
-   /* finalize merkel array - (phash+bnum+mfee+tcount+time0+difficulty)*/
-   if (NEWYEAR(bt.bnum)) sha256_update(&mctx, &bt, (HASHLEN+8+8+4+4+4));
-   sha256_final(&mctx, bt.mroot);  /* put the Merkel root in trailer */
-   /* Hash in the trailer leaving out: nonce[32], stime[4], and bhash[32] */
-   sha256_update(&bctx, &bt, (sizeof(BTRAILER) - (2 * HASHLEN) - 4));
-
-   /* Let the miner put final hash[] and stime[] at end of BTRAILER struct
-    * with the calls to sha256_final() and put32().
-    * Gift bctx to miner using write_data() + rename().
-    */
-
-   /* write trailer to disk */
+   /* write trailer to file */
    if (fwrite(&bt, sizeof(BTRAILER), 1, fpout) != 1) {
-      perr("failed to fwrite(bt)");
-      goto CLEANUP_CBLK;
+      goto ERROR_CLEANUP;
    }
 
    /* cleanup */
    fclose(fpout);
    fclose(fp);
+   free(tx);
 
    /* move temporary output (*.tmp) to working output (*.dat) */
-   remove(fname);
-   if (rename("cblock.tmp", fname)) {
-      perrno("rename cblock.tmp to %s", fname);
-      goto CLEANUP;
-   } else if (!Nominer) {
-      /* save bctx to disk for miner */
-      remove("bctx.tmp");
-      remove("bctx.dat");
-      if (write_data(&bctx, sizeof(bctx), "bctx.tmp") != sizeof(bctx)) {
-         perr("failed to write_data(bctx)");
-      } else if (rename("bctx.tmp", "bctx.dat") != 0) {
-         perr("rename bctx");
-      }
+   remove(output);
+   if (rename("cblock.tmp", output) != 0) {
+      return VERROR;
    }
-
-   /* cleanup */
-   sorttx_free();
-
-   pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
    return VEOK;
 
    /* cleanup / error handling */
-CLEANUP_CBLK:
-   fclose(fpout);
-CLEANUP_TXC:
-   fclose(fp);
-CLEANUP:
-   sorttx_free();
+ERROR_CLEANUP:
+   if (fpout != NULL) {
+      fclose(fpout);
+      remove("cblock.tmp");
+   }
+   if (fp != NULL) fclose(fp);
+   if (tx != NULL) free(tx);
+
    return VERROR;
 }  /* end b_con() */
 
