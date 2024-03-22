@@ -720,19 +720,21 @@ int trim_tfile(void *highbnum)
 }  /* end trim_tfile() */
 
 /**
- * Validate a Block Trailer against a previous (excludes PoW).
- * @param btp Pointer to Block Trailer to validate
- * @param pbtp Pointer to previous Block Trailer to validate against
+ * Validate a Block Trailer against a previous trailer.
+ * @note This function does not validate the Proof of Work (PoW) field.
+ * @param bt Pointer to Block Trailer to validate
+ * @param pbt Pointer to previous Block Trailer to validate against, or
+ * NULL to validate a genesis-block trailer
  * @return (int) value representing operation result
- * @retval VERROR on error; check errno for details
+ * @retval VERROR on validation error; check errno for details
  * @retval VEOK on success
-*/
-int validate_trailer(BTRAILER *btp, BTRAILER *pbtp)
+ */
+int validate_trailer(BTRAILER *bt, BTRAILER *pbt)
 {
-   static word32 one[2] = { 1, 0 };
-   static word32 mfee[2] = { MFEE, 0 };
-   static word32 tottrigger[2] = { V23TRIGGER, 0 };
-   static word8 GenesisHash[32] = {
+   const word32 pseudo_trigger[2] = { V23TRIGGER, 0 };
+   /* ... v2.3.0 introduced the pseudo-block */
+   const word32 mfee[2] = { MFEE, 0 };
+   const word8 genesis_hash[32] = {
       0x00, 0x17, 0x0c, 0x67, 0x11, 0xb9, 0xdc, 0x3c,
       0xa7, 0x46, 0xc4, 0x6c, 0xc2, 0x81, 0xbc, 0x69,
       0xe3, 0x03, 0xdf, 0xad, 0x2f, 0x33, 0x3b, 0xa3,
@@ -746,33 +748,39 @@ int validate_trailer(BTRAILER *btp, BTRAILER *pbtp)
    time(&start);
 
    /* if previous Block Trailer NULL, perform genesis checks */
-   if (pbtp == NULL) {
+   if (pbt == NULL) {
       /* check block trailer data is empty (exc. block hash) */
-      if (!iszero(btp, sizeof(BTRAILER) - 32)) goto BAD_NZGEN;
-      if (memcmp(btp->bhash, GenesisHash, 32) != 0) goto BAD_GENHASH;
+      if (!iszero(bt, sizeof(BTRAILER) - HASHLEN)) {
+         set_errno(EMCM_NZGEN);
+         return VERROR;
+      }
+      if (memcmp(bt->bhash, genesis_hash, HASHLEN) != 0) {
+         set_errno(EMCM_GENHASH);
+         return VERROR;
+      }
 
       /* genesis ok */
       return VEOK;
    }
 
-   /* check Mfee */
-   if (btp->bnum[0] && get32(btp->tcount)) {
-      if (cmp64(btp->mfee, mfee) < 0) goto BAD_MFEE;
-   } else if(!iszero(btp->mfee, 8)) goto BAD_MFEE;
+   /* check Mfee NOT zero on normal block, else always zero */
+   if (bt->bnum[0] && get32(bt->tcount)) {
+      if (cmp64(bt->mfee, mfee) < 0) goto BAD_MFEE;
+   } else if(!iszero(bt->mfee, 8)) goto BAD_MFEE;
 
    /* store solve time for multiple checks */
-   stime = get32(btp->stime);
+   stime = get32(bt->stime);
 
    /* check diff and block times */
-   if (btp->bnum[0]) {
+   if (bt->bnum[0]) {
       /* check difficulty (non-NG blocks) */
-      if (get32(btp->difficulty) != set_difficulty(pbtp)) goto BAD_DIFF;
+      if (get32(bt->difficulty) != set_difficulty(pbt)) goto BAD_DIFF;
       /* check early solve time (non-NG blocks) */
-      if (stime <= get32(pbtp->stime)) {
+      if (stime <= get32(pbt->stime)) {
          /* discern failure type */
-         if (stime == get32(pbtp->stime)) goto BAD_STIME;
+         if (stime == get32(pbt->stime)) goto BAD_STIME;
          /* allow stime anomaly ONLY for the Epochalypse, Y2K38 */
-         if ((word32) (stime - get32(pbtp->stime)) > BRIDGE) goto BAD_STIME;
+         if ((word32) (stime - get32(pbt->stime)) > BRIDGE) goto BAD_STIME;
          /* reduce "start" time to 32-bit for future solve time check */
          start &= (time_t) WORD32_C(0xffffffff);
       }
@@ -780,35 +788,43 @@ int validate_trailer(BTRAILER *btp, BTRAILER *pbtp)
       if (stime > start && (stime - start) > BCONFREQ) goto BAD_STIME;
    } else {
       /* check difficulty matches previous (NG blocks) */
-      if (get32(btp->difficulty) != get32(pbtp->difficulty)) goto BAD_DIFF;
+      if (get32(bt->difficulty) != get32(pbt->difficulty)) goto BAD_DIFF;
       /* check solve time matches previous (NG blocks) */
-      if (stime != get32(pbtp->stime)) goto BAD_STIME;
+      if (stime != get32(pbt->stime)) goto BAD_STIME;
    }
    /* check for times of trouble...
     * I can't figure out the "why" of this bnum complexity...
     * so it remains, in a modified but functionally exact state... */
-   if (cmp64(btp->bnum, tottrigger) > 0 /* && btp->bnum[0] != 0xfe && */
-      /* btp->bnum[0] != 0xff && btp->bnum[0] != 0 */) {
-      if (btp->bnum[0] > 0 && btp->bnum[0] < 0xfe) {
-         if ((word32) (stime - get32(btp->time0)) > BRIDGE) goto BAD_STIME;
+   if (cmp64(bt->bnum, pseudo_trigger) > 0 /* && bt->bnum[0] != 0xfe && */
+      /* bt->bnum[0] != 0xff && bt->bnum[0] != 0 */) {
+      if (bt->bnum[0] > 0 && bt->bnum[0] < 0xfe) {
+         if ((word32) (stime - get32(bt->time0)) > BRIDGE) goto BAD_STIME;
       }
    }
    /* check block number increment */
-   add64(pbtp->bnum, one, next_block);
-   if (cmp64(btp->bnum, next_block) != 0) goto BAD_BNUM;
+   add64(pbt->bnum, ONE64, next_block);
+   if (cmp64(bt->bnum, next_block) != 0) {
+      set_errno(EMCM_BNUM);
+      return VERROR;
+   }
    /* check previous hash */
-   if (memcmp(pbtp->bhash, btp->phash, HASHLEN) != 0) goto BAD_PHASH;
+   if (memcmp(pbt->bhash, bt->phash, HASHLEN) != 0){
+      set_errno(EMCM_PHASH);
+      return VERROR;
+   }
 
    /* trailer is valid */
    return VEOK;
 
-BAD_NZGEN: set_errno(EMCM_NZGEN); return VERROR;
-BAD_GENHASH: set_errno(EMCM_GENHASH); return VERROR;
-BAD_MFEE: set_errno(EMCM_MFEE); return VERROR;
-BAD_DIFF: set_errno(EMCM_DIFF); return VERROR;
-BAD_STIME: set_errno(EMCM_STIME); return VERROR;
-BAD_BNUM: set_errno(EMCM_BNUM); return VERROR;
-BAD_PHASH: set_errno(EMCM_PHASH); return VERROR;
+BAD_MFEE:
+   set_errno(EMCM_MFEE);
+   return VERROR;
+BAD_DIFF:
+   set_errno(EMCM_DIFF);
+   return VERROR;
+BAD_STIME:
+   set_errno(EMCM_STIME);
+   return VERROR;
 }  /* end validate_trailer() */
 
 /* end include guard */
