@@ -720,6 +720,47 @@ int trim_tfile(void *highbnum)
 }  /* end trim_tfile() */
 
 /**
+ * Validate the Proof of Work of a Block Trailer.
+ * @param btp Pointer to Block Trailer to validate
+ * @return (int) value representing validation result
+ * @retval VERROR on POW validation error; check errno for details
+ * @retval VEOK on success
+*/
+int validate_pow(BTRAILER *btp)
+{
+   const word32 peach_trigger[2] = { V24TRIGGER, 0 };
+   const word32 boxingday_bnum[2] = { 0x52d3c, 0 };
+   const word8 boxingday_hash[HASHLEN] = {
+      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
+      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
+      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
+      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
+   };  /* see "Boxing Day Anomaly" on [ REDACTED ] for more details. */
+
+   /* v2.4.0 PoW uses Peach algo */
+   if (cmp64(btp->bnum, peach_trigger) > 0) {
+      if (peach_check(btp) == VEOK) return VEOK;
+      /* check Boxing Day Anomaly on PoW failure */
+      if (cmp64(btp->bnum, boxingday_bnum) == 0) {
+         if (memcmp(btp->bhash, boxingday_hash, HASHLEN) == 0) return VEOK;
+         /* anomaly validation failure */
+         set_errno(EMCM_POWANOMALY);
+         return VERROR;
+      }
+      /* peach validation failure */
+      set_errno(EMCM_POWPEACH);
+      return VERROR;
+   }
+
+   /* pre-v2.4.0 PoW uses Trigg algo */
+   if (trigg_check(btp) == VEOK) return VEOK;
+
+   /* trigg validation failure */
+   set_errno(EMCM_POWTRIGG);
+   return VERROR;
+}  /* end validate_pow() */
+
+/**
  * Validate a Block Trailer against a previous trailer.
  * @note This function does not validate the Proof of Work (PoW) field.
  * @param bt Pointer to Block Trailer to validate
