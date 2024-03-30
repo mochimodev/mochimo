@@ -296,35 +296,55 @@ word32 next_difficulty(const BTRAILER *bt)
    return difficulty;
 }  /* next_difficulty() */
 
-/* Compute our weight at lownum and return in weight[]
- * Return VEOK on success, else VERROR.
+/**
+ * Compute our weight at a lower block number of a given Tfile. Current
+ * weight should be provided as if accurate to the latest Tfile trailer.
+ * Serves as a better alternative to re-weighing the entire Tfile.
+ * @param tfile Filename of Tfile to get weight from
+ * @param bnum Pointer to bnum of desired past weight
+ * @param weight Pointer to weight to subtract weight from
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
  */
-int past_weight(word8 *weight, word32 lownum)
+int past_weight(const char *tfile, const word8 bnum[8], word8 weight[32])
 {
+   FILE *fp;
    BTRAILER bt;
-   word32 cbnum;
-   word8 temp[32];
+   long long seek;
+   word8 subweight[32] = { 0 };
 
-   cbnum = get32(Cblocknum);
-   if(lownum >= cbnum) perr("failed on insufficient cbnum");
-   else {
-      memcpy(weight, Weight, 32);
-      for( ; cbnum > lownum; cbnum--) {
-         if((cbnum & 0xff) == 0) continue;  /* skip NG blocks */
-         if(readtf(&bt, cbnum, 1) != 1) {
-            perr("failed on readtf()");
-            break;
-         }
-         /* Reduce weight based on difficulty
-          * Note: Only works above WTRIGGER31. */
-         memset(temp, 0, 32);
-         /* temp = 2**bt.difficulty[0] */
-         temp[bt.difficulty[0] / 8] = 1 << (bt.difficulty[0] % 8);
-         multi_sub(weight, temp, weight, 32);
-      }
-      if (cbnum == lownum) return VEOK;
+   /* open Tfile for reading */
+   fp = fopen(tfile, "rb");
+   if (fp == NULL) return VERROR;
+
+   /* determine seek position */
+   put64(&seek, bnum);
+   seek = seek * sizeof(BTRAILER);
+   /* seek to position of desired weight */
+   if (fseek64(fp, seek, SEEK_SET) != 0) goto ERROR_CLEANUP;
+
+   /* weigh every block trailer to EOF */
+   while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
+      /* Let the neo-genesis (not the 0x..ff) add weight to the chain. */
+      if (bt.bnum[0] != 0xff) add_weight(subweight, bt.difficulty[0]);
    }
-   memset(weight, 0, 32);
+   /* check file errors and cleanup */
+   if (ferror(fp)) goto ERROR_CLEANUP;
+   fclose(fp);
+
+   /* subtract accumulated past weight */
+   if (multi_sub(weight, subweight, weight, 32)) {
+      set_errno(EMCM_MATH64_OVERFLOW);
+      return VERROR;
+   }
+
+   return VEOK;
+
+   /* cleanup / error handling */
+ERROR_CLEANUP:
+   fclose(fp);
+
    return VERROR;
 }  /* end past_weight() */
 
