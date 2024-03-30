@@ -187,7 +187,7 @@ int testnet(void)
    }
 
    /* trim Tfile to bnum */
-   if (trim_tfile(bnum) != VEOK) {
+   if (trim_tfile("tfile.dat", bnum) != VEOK) {
       perr("failed to trim_tfile()");
       goto FAIL;
    }
@@ -401,7 +401,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    /* clean bc/ directory of block >= ngnum */
    delete_blocks(bnum);
    /* trim the tfile back to the neo-genesis block and close the ledger */
-   if (trim_tfile(bnum) != VEOK) restart("getneo tfile_trim()");  /* panic */
+   if (trim_tfile("tfile.dat", bnum) != VEOK) restart("getneo tfile_trim()");  /* panic */
    le_close();  /* close ledger, we're gonna grab a new one... */
    /* download neo-genesis block if no backup */
    if(!iszero(bnum, 8)) {  /* ... no need to download genesis block */
@@ -529,7 +529,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
       pdebug("syncup() failed!  Unable to delete ledger.dat");
       goto badsyncup;
    }
-   if(trim_tfile(lastneo) != VEOK) {
+   if(trim_tfile("tfile.dat", lastneo) != VEOK) {
       pdebug("T-File trim failed!");
       goto badsyncup;
    }

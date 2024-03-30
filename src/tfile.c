@@ -461,34 +461,56 @@ bail:
    return VERROR;  /* ignore contention */
 }  /* end checkproof() */
 
-int trim_tfile(void *highbnum)
+/**
+ * Trim the provided Tfile to a specified block number.
+ * @param highbnum Pointer to block number to trim Tfile to
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ * @todo migrate the embedded _WIN32 compatible ftruncate() MACRO to
+ * a common library (e.g. extended-c -> extio.c)
+ */
+int trim_tfile(const char* tfile, const word8 highbnum[8])
 {
-   FILE *fp, *fpout;
+   FILE *fp;
    BTRAILER bt;
-   word8 bnum[8], flag;
-   char bnumhex[17];
+   long long seek;
 
-   fp = fopen("tfile.dat", "rb");
-   if(!fp) return VERROR;
-   fpout = fopen("tfile.tmp", "wb");
-   if(!fpout) { fclose(fp);  return VERROR; }
+   fp = fopen(tfile, "rb");
+   if (fp == NULL) return VERROR;
 
-   put64(bnum, highbnum);
-   for(flag = 0; ; ) {
-      if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) break;
-      if(fwrite(&bt, 1, sizeof(BTRAILER), fpout) != sizeof(BTRAILER)) break;
-      flag = 1;
-      if(iszero(bnum, 8)) break;
-      sub64(bnum, One, bnum);
+   /* determine seek position */
+   put64(&seek, highbnum);
+   seek = seek * sizeof(BTRAILER);
+   /* seek to position and read trailer (verify bnum) */
+   if (fseek64(fp, seek, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+      if (ferror(fp)) set_errno(EMCM_EOF);
+      goto ERROR_CLEANUP;
    }
-   fclose(fpout);
+   /* verify trim position (highbnum) */
+   if (cmp64(bt.bnum, highbnum) != 0) {
+      set_errno(EMCM_BNUM);
+      goto ERROR_CLEANUP;
+   }
+
+#ifdef _WIN32
+   #define ftruncate(fd, len) _chsize_s(fd, len)
+#endif
+
+   /* truncate file at current position */
+   if (ftruncate(fileno(fp), ftell64(fp)) != 0) goto ERROR_CLEANUP;
+
+   /* cleanup */
    fclose(fp);
-   if(iszero(bnum, 8) && flag != 0) {
-      remove("tfile.dat");
-      return rename("tfile.tmp", "tfile.dat");  /* VEOK (0) on success */
-   }
-   perr("flag = %d  bnum = 0x%s", flag, bnum2hex(bnum, bnumhex));
-   return VERROR;  /* non-zero -- fail */
+
+   return VEOK;
+
+   /* cleanup / error handling */
+ERROR_CLEANUP:
+   fclose(fp);
+
+   return VERROR;
 }  /* end trim_tfile() */
 
 /**
