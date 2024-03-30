@@ -1,6 +1,6 @@
 /**
  * @private
- * @file tfile.c
+ * @headerfile tfile.h <tfile.h>
  * @copyright © Adequate Systems LLC, 2018-2021. All Rights Reserved.
  * <br />For more information, please refer to ../LICENSE
 */
