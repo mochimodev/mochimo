@@ -625,7 +625,8 @@ int contention(NODE *np)
    TX *tx;
    word32 j;
    int result;
-   BTRAILER *bt;
+   BTRAILER *bt, *prev_bt, our_bt[NTFTX];
+   word8 weight[32];
 
    pdebug("IP: %s", ntoa(&np->ip, NULL));
 
@@ -649,7 +650,7 @@ int contention(NODE *np)
    /* Try to do a simple catchup() of more than 1 block on our own chain. */
    j = get32(tx->cblock) - get32(Cblocknum);
    if(j > 1 && j <= NTFTX) {
-        bt = (BTRAILER *) TRANBUFF(tx);  /* top of tx proof array */
+        bt = (BTRAILER *) tx->buffer;  /* top of tx proof array */
         /* Check for matching previous hash in the array. */
         if(memcmp(Cblockhash, bt[NTFTX - j].phash, HASHLEN) == 0) {
            result = catchup(&np->ip, 1);
@@ -658,7 +659,41 @@ int contention(NODE *np)
         }
    }
    /* Catchup failed so check the tx proof and chain weight. */
-   if(checkproof(tx, &splitblock) != VEOK) return 0;  /* ignore bad proof */
+
+   /* check existance of, and that we've received enough proof */
+   if (cmp64(tx->cblock, CL64_32(NTFTX)) < 0) return 0;
+   if ((get16(tx->len) / sizeof(BTRAILER)) < NTFTX) return 0;
+
+   bt = (BTRAILER *) tx->buffer;
+
+   /* read our Tfile data and compare their low trailer -- MUST MATCH */
+   if (read_tfile(our_bt, bt->bnum, NTFTX, "tfile.dat") <= 0) return 0;
+   if (memcmp(bt, our_bt, sizeof(BTRAILER)) != 0) return 0;
+
+   /* compute previous weight for add_weight() */
+   memcpy(weight, Weight, 32);
+   if (past_weight("tfile.dat", bt->bnum, weight) != VEOK) return 0;
+
+   /* scan trailer array... */
+   for (j = 1; j < NTFTX; j++) {
+      bt = &((BTRAILER *) tx->buffer)[j];
+      prev_bt = &((BTRAILER *) tx->buffer)[j - 1];
+      /* ... validate their trailer proof (incl. PoW), and add weight */
+      if (validate_trailer(bt, prev_bt) != VEOK) return 0;
+      if (get32(bt->tcount) && peach_check(bt) != VEOK) return 0;
+      add_weight(weight, bt->difficulty[0]);
+      /* ... check for splitblock */
+      if (splitblock == 0) {
+         if (memcmp(bt, &(our_bt[j]), sizeof(BTRAILER)) == 0) {
+            splitblock = get32(bt->bnum);
+         }
+      }
+   }
+
+   /* check weight weight is as advertised and non-zero splitblock */
+   if (memcmp(weight, tx->weight, 32) != 0) return 0;
+   if (splitblock == 0) return 0;
+
    /* Proof is good so try to re-sync to peer */
    if(syncup(splitblock, tx->cblock, np->ip) != VEOK) return 0;
 done:
