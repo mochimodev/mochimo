@@ -54,113 +54,118 @@ void add_weight(word8 weight[32], word8 difficulty)
    multi_add(weight, add256, weight, 32);
 }  /* end add_weight() */
 
-int append_tfile(char *fname, char *tfile)
-{
-   BTRAILER bt;
-   FILE *fp;
-   size_t count;
-
-   if(readtrailer(&bt, fname) != VEOK) {
-      perr("Cannot append_tfile()");
-      return VERROR;
-   }
-   fp = fopen(tfile, "ab");
-   if (fp == NULL) {
-      perrno("failed on fopen() for %s", tfile);
-      return VERROR;
-   } else {
-      count = fwrite(&bt, 1, sizeof(BTRAILER), fp);
-      fclose(fp);
-   }
-   if(count != sizeof(BTRAILER)) {
-      perr("failed on fwrite(): wrote %zu/%zu bytes to %s",
-         count, sizeof(BTRAILER), tfile);
-      return VERROR;
-   }
-   return VEOK;
-}
-
 /**
- * Get the sum of block rewards represented by a Tfile.
- * @param fname Filename of Tfile to count rewards from
- * @param rewards Pointer to place sum of block rewards
- * @param bnum Pointer to block number of last reward or NULL for no limit
+ * Append a series of Block Trailers to a file.
+ * @param bt Pointer to Block Trailer data to append
+ * @param count Number of Block Trailers to append
+ * @param tfile Filename of Tfile to append to
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int get_tfile_rewards(const char *fname, void *rewards, void *bnum)
+int append_tfile(const BTRAILER *bt, size_t count, const char *tfile)
 {
-   /* premine value = 4757066000000000 */
-   static word32 premine[2] = { 0xbd1a6400, 0x0010e686 };
+   FILE *fp;
+   size_t write_count;
+
+   fp = fopen(tfile, "ab");
+   if (fp == NULL) return VERROR;
+   write_count = fwrite(&bt, sizeof(BTRAILER), count, fp);
+   fclose(fp);
+
+   if (write_count != count) {
+      return VERROR;
+   }
+
+   return VEOK;
+}
+
+/**
+ * Compute the sum of block rewards represented by a Tfile. Only trailers
+ * with a non-zero transaction count are added to the rewards sum. A block
+ * number may be specified to limit the reward sum.
+ * @param tfile Filename of Tfile to count rewards from
+ * @param rewards Pointer to place sum of block rewards
+ * @param bnum Pointer to block number of desired reward sum
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int get_tfrewards(const char *tfile, word8 rewards[8], const word8 bnum[8])
+{
+   /* instamine value = 4757066000000000 */
+   const word32 instamine[2] = { 0xbd1a6400, 0x0010e686 };
 
    BTRAILER bt;
    FILE *fp;
-   word32 reward[2];
-
-   /* sanity check */
-   if (fname == NULL || rewards == NULL) goto FAIL_INVAL;
-
-   /* initialize rewards with premine */
-   put64(rewards, premine);
+   word8 reward[8];
 
    /* open Tfile for reading */
-   fp = fopen(fname, "rb");
+   fp = fopen(tfile, "rb");
    if (fp == NULL) return VERROR;
 
-   /* read trailer data and calculate rewards */
-   while (!feof(fp)) {
-      if (fread(&bt, sizeof(bt), 1, fp) != 1 && ferror(fp)) goto FAIL_IO;
-      /* check block reward limit */
-      if (bnum && cmp64(bt.bnum, bnum) > 0) break;
+   /* initialize premine, read trailer data and calculate rewards */
+   put64(rewards, instamine);
+   while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
       /* no block reward if no transactions */
       if (get32(bt.tcount)) {
-         get_mreward(reward, (word32 *) bt.bnum);
-         if (add64(rewards, reward, rewards)) goto FAIL_IO_OVERFLOW;
+         get_mreward(reward, bt.bnum);
+         if (add64(rewards, reward, rewards)) {
+            set_errno(EMCM_MREWARDS_OVERFLOW);
+            goto ERROR_CLEANUP;
+         }
       }
+      /* break when we reach specified bnum */
+      if (bnum && cmp64(bnum, bt.bnum) <= 0) break;
    }
-
-   /* close Tfile */
+   /* check file errors -- close Tfile */
+   if (ferror(fp)) goto ERROR_CLEANUP;
    fclose(fp);
 
    /* success */
    return VEOK;
 
-/* error handling */
-FAIL_INVAL: set_errno(EINVAL); return VERROR;
-FAIL_IO_OVERFLOW: set_errno(EMCM_MREWARDS_OVERFLOW);
-FAIL_IO: fclose(fp); return VERROR;
-}  /* end get_tfile_rewards() */
+   /* cleanup / error handling */
+ERROR_CLEANUP:
+   fclose(fp);
+   return VERROR;
+}  /* end get_tfrewards() */
 
-/* Compute mining reward and copy to reward
+/**
+ * Compute mining reward for a specified block number.
  * It is a function of block number:
- *
- * Starting Reward: 0x12A05F200
- * Premine: 20800000037927936
- * Mining Distribution: 71778872624714400  (blocks 1-2097152) less NG blocks.
- * NOTE: Calculated for RTRIGGER31 = 16383
- *
+ * @code
+ * +------------------+---------------------------------------+
+ * | Block Number (n) | Reward                                |
+ * +------------------+---------------------------------------+
+ * | 0 - 17184        | 5000000000 + (56000 * n)              |
+ * | 17185 - 373760   | 5917392000 + (150000 * (n - 0x4321))  |
+ * | 373761 - 2097152 | 59523942000 - (28488 * (n - 0x5b401)) |
+ * +------------------+---------------------------------------+
+ * @endcode
+ * @param reward Pointer to place block reward
+ * @param bnum Block number to calculate reward for
  */
-void get_mreward(word32 *reward, word32 *bnum)
+void get_mreward(word8 reward[8], const word8 bnum[8])
 {
+   const word32 base1[2] = { 0x2a05f200, 1 };     /* base  5000000000 */
+   const word32 base2[2] = { 0x60b43c80, 1 };     /* base  5917392000 */
+   const word32 base3[2] = { 0xdbe74670, 0x0d };  /* base 59523942000 */
+   const word32 t1[2] =  { 0x4321, 0 };      /* v2.0 block (17185) */
+   const word32 t2[2] =  { 0x5b401, 0 };     /* mid block (373761) */
+   const word32 t3[2] =  { 0x200000, 0 };    /* final block (2097152) */
+   const word32 delta1[2] = { 56000, 0 };    /* increment (pre-v2.0) */
+   const word32 delta2[2] = { 150000, 0 };   /* increment */
+   const word32 delta3[2] = { 28488, 0 };    /* decrement */
    word8 bnum2[8];
-   static word32 delta[2] = { 0xDAC0, 0 };      /* reward delta 56000 */
-   static word32 base1[2] = { 0x2A05F200, 1 };  /* base 5000000000 */
-   static word32 base2[2] = { 0x60b43c80, 1 };  /* base 5917392000 */
-   static word32 base3[2] = { 0xdbe74670, 0x0d };  /* base 59523942000 */
-   static word32 t1[2] =  { RTRIGGER31, 0 };    /* new reward trigger block */
-   static word32 t2[2] =  { 373761, 0 };        /* mid block */
-   static word32 t3[2] =  { 2097152, 0 };       /* final reward block */
-   static word32 delta2[2] = { 150000, 0 };     /* increment */
-   static word32 delta3[2] = { 28488, 0 };      /* decrement */
 
    if(cmp64(bnum, t1) < 0) {
       /* bnum < 17185 */
-      if(sub64(bnum, One, bnum2)) {
+      if(sub64(bnum, ONE64, bnum2)) {
          /* underflow, no reward */
-         reward[0] = reward[1] = 0;
+         memset(reward, 0, 8);
       } else {
-         mult64(delta, bnum2, reward);
+         mult64(delta1, bnum2, reward);
          add64(reward, base1, reward);
       }
    } else if(cmp64(bnum, t2) < 0) {
@@ -174,9 +179,9 @@ void get_mreward(word32 *reward, word32 *bnum)
       mult64(delta3, bnum2, reward);
       if(sub64(base3, reward, reward)) {
          /* underflow, no reward */
-         reward[0] = reward[1] = 0;
+         memset(reward, 0, 8);
       }
-   } else reward[0] = reward[1] = 0;
+   } else memset(reward, 0, 8);
 }  /* end get_mreward() */
 
 /**

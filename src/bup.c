@@ -178,7 +178,7 @@ int b_update(char *fname, int mode)
    /* add block trailer to tfile and accept block */
    bnum2fname(Cblocknum, bcfname);
    path_join(fpath, Bcdir, bcfname);
-   if (append_tfile(fname, "tfile.dat") != VEOK) {
+   if (append_tfile(&bt, 1, "tfile.dat") != VEOK) {
       restart("failed to append_tfile()");
    } else if (rename(fname, fpath) != 0) {
       perrno("failed on rename() %s to %s", fname, fpath);
@@ -228,7 +228,7 @@ int b_update(char *fname, int mode)
       /* add neogenesis block trailer to tfile and accept block */
       bnum2fname(Cblocknum, bcfname);
       path_join(fpath, Bcdir, bcfname);
-      if (append_tfile("ngblock.dat", "tfile.dat") != VEOK) {
+      if (append_tfile(&bt, 1, "tfile.dat") != VEOK) {
          restart("failed to append_tfile(ngblock.dat)");
       } else if (rename("ngblock.dat", fpath) != 0) {
          perrno("failed on rename() ngblock.dat to %s", fpath);
