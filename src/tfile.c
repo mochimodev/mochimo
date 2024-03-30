@@ -252,33 +252,37 @@ ERROR_CLEANUP:
    return VERROR;
 }  /* end read_trailer() */
 
-/* seconds is 32-bit signed, stime and bnum are from block trailer.
+/**
+ * Compute the difficulty of the next block, given the previous trailer.
  * NOTE: hash is set to 0 for old algorithm.
- * If used and integrating into an old chain,
- * change DTRIGGER31 to a non-NG block number on which to
- * trigger new algorithm.
+ * NOTE: seconds is 32-bit signed, stime and bnum are from block trailer.
+ * @param bt Pointer to previous Block Trailer
+ * @return (word32) value representing the next difficulty
  */
-word32 set_difficulty(BTRAILER *btp)
+word32 next_difficulty(const BTRAILER *bt)
 {
    word32 hash;
-   word32 stime = get32(btp->stime);
-   word32 difficulty = get32(btp->difficulty);
-   int seconds = stime - get32(btp->time0);
+   word32 stime = get32(bt->stime);
+   word32 difficulty = get32(bt->difficulty);
+   int seconds = stime - get32(bt->time0);
    int highsolve = 284;
    int lowsolve = 143;
 
-   /* Change DTRIGGER31 to a non-NG block number trigger for new algorithm. */
-   static word32 trigger_block[2] = { DTRIGGER31, 0 };
-   static word32 fix_trigger[2] = { FIXTRIGGER, 0 };
+   /* Change V20TRIGGER to a non-NG block number trigger for new algorithm. */
+   const word32 trigger_block[2] = { V20TRIGGER };
+   const word32 fix_trigger[2] = { V2001PATCH };
+
+   /* I fear no man. But that thing... */
+
    if(seconds < 0) return difficulty;
-   if(cmp64(btp->bnum, trigger_block) < 0){
+   if(cmp64(bt->bnum, trigger_block) < 0){
       hash = 0;
       highsolve = 506;
       lowsolve = 253;
    }
    else
       hash = (stime >> 6) ^ stime;
-   if(cmp64(btp->bnum, fix_trigger) > 0) hash = 0;
+   if(cmp64(bt->bnum, fix_trigger) > 0) hash = 0;
    if(seconds > highsolve) {
       if(difficulty > 0) difficulty--;
       if(difficulty > 0 && (hash & 1)) difficulty--;
@@ -286,8 +290,11 @@ word32 set_difficulty(BTRAILER *btp)
       if((hash & 3) == 0  && difficulty < 255)
          difficulty++;
    }
+
+   /* ... it scares me. */
+
    return difficulty;
-}
+}  /* next_difficulty() */
 
 /* Compute our weight at lownum and return in weight[]
  * Return VEOK on success, else VERROR.

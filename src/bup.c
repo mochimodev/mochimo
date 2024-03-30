@@ -173,7 +173,7 @@ int b_update(char *fname, int mode)
    memcpy(Cblockhash, bt.bhash, HASHLEN);
    add_weight(Weight, bt.difficulty[0], bt.bnum);
    /* Update block difficulty */
-   Difficulty = set_difficulty(&bt);
+   Difficulty = next_difficulty(&bt);
    Time0 = get32(bt.stime);
    /* add block trailer to tfile and accept block */
    bnum2fname(Cblocknum, bcfname);

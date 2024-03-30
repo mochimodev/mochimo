@@ -123,7 +123,7 @@ int reset_chain(void)
    put64(Cblocknum, bnum);
    Eon = get32(bnum) >> 8;
    Time0 = get32(bt.stime);
-   Difficulty = set_difficulty(&bt);
+   Difficulty = next_difficulty(&bt);
    memcpy(Prevhash, bt.phash, HASHLEN);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
 
