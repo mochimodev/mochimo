@@ -304,7 +304,7 @@ int miner(char *blockin, char *blockout)
       if (read_data(&bctx, sizeof(bctx), "bctx.dat") != sizeof(bctx)) {
          perr("failed to read_data(bctx)");
          goto FAIL;
-      } else if (readtrailer(&bt, blockin) != VEOK) {
+      } else if (read_trailer(&bt, blockin) != VEOK) {
          perr("failed to read %s trailer", blockin);
          goto FAIL;
       }

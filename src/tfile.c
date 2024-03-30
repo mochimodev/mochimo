@@ -221,30 +221,34 @@ ERROR_CLEANUP:
 }  /* end read_tfile() */
 
 /**
- * Read the Block Trailer of a blockchain file.
+ * Read a Block Trailer from a file.
  * May also be used on the Tfile to get the last trailer entry.
- * @param btp Pointer to place Block Trailer data
- * @param fname Filename of blockchain file to read
+ * @param bt Pointer to place Block Trailer data
+ * @param file Filename of blockchain file to read
  * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int read_trailer(BTRAILER *btp, const char *fname)
+int read_trailer(BTRAILER *bt, const char *file)
 {
    FILE *fp;
 
-   /* read Block Trailer data */
-   if ((fp = fopen(fname, "rb")) == NULL) return VERROR;
-   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END)) goto FAIL_IO;
-   if (fread(btp, sizeof(BTRAILER), 1, fp) != 1) goto FAIL_IO;
+   /* open file and read Trailer */
+   fp = fopen(file, "rb");
+   if (fp == NULL) return VERROR;
+   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END)) goto ERROR_CLEANUP;
+   if (fread(bt, sizeof(BTRAILER), 1, fp) != 1) {
+      if (ferror(fp)) goto ERROR_CLEANUP;
+   }
+   /* cleanup */
    fclose(fp);
 
-   /* success */
    return VEOK;
 
-/* error handling */
-FAIL_IO:
+/* cleanup / error handling */
+ERROR_CLEANUP:
    fclose(fp);
+
    return VERROR;
 }  /* end read_trailer() */
 

@@ -481,7 +481,7 @@ int send_hash(NODE *np)
 
    bnum2fname(np->tx.blocknum, bcfname);
    path_join(fname, Bcdir, bcfname);
-   if(readtrailer(&bt, fname) != VEOK) return VERROR;
+   if (read_trailer(&bt, fname) != VEOK) return VERROR;
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy hash of tx.blocknum to TX */
    memcpy(TRANBUFF(&np->tx), bt.bhash, HASHLEN);
@@ -594,7 +594,7 @@ int send_found(void)
       bnum2fname(Cblocknum, bcfname);
       path_join(fname, Bcdir, bcfname);
       ecode = 2;
-      if(readtrailer(&bt, fname) != VEOK
+      if (read_trailer(&bt, fname) != VEOK
          || cmp64(Cblocknum, bt.bnum) != 0) {
 bad:
          perr("ecode: %d", ecode);

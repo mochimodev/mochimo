@@ -111,7 +111,7 @@ int reset_chain(void)
 
    /* read block trailer of file and ensure block numbers match */
    path_join(fname, Bcdir, bcfname);
-   if (readtrailer(&bt, fname)) {
+   if (read_trailer(&bt, fname)) {
       perr("failed to read block trailer, %s", fname);
       return VERROR;
    } else if (cmp64(bt.bnum, bnum)) {

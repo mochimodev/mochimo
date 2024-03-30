@@ -166,8 +166,8 @@ int b_update(char *fname, int mode)
     */
    if (add64(Cblocknum, One, Cblocknum)) {
       restart("new blocknum overflow");
-   } else if (readtrailer(&bt, fname) != VEOK) {
-      restart("failed to readtrailer()");
+   } else if (read_trailer(&bt, fname) != VEOK) {
+      restart("failed to read_trailer()");
    }
    memcpy(Prevhash, Cblockhash, HASHLEN);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
@@ -219,8 +219,8 @@ int b_update(char *fname, int mode)
          restart("failed to neogen()");
       } else if (add64(Cblocknum, One, Cblocknum)) {
          restart("neogenesis blocknum overflow");
-      } else if (readtrailer(&bt, "ngblock.dat") != VEOK) {
-         restart("failed to readtrailer(ngblock.dat)");
+      } else if (read_trailer(&bt, "ngblock.dat") != VEOK) {
+         restart("failed to read_trailer(ngblock.dat)");
       }
       memcpy(Prevhash, Cblockhash, HASHLEN);
       memcpy(Cblockhash, bt.bhash, HASHLEN);
