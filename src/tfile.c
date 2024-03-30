@@ -36,15 +36,21 @@
    #define omp__parallel
 #endif
 
-/* Accumulate weight based on difficulty */
-void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
+/**
+ * Accumulate 256-bit weight based on difficulty
+ * @param weight Pointer to 256-bit weight value
+ * @param difficulty Difficulty value of accumulated weight
+ */
+void add_weight(word8 weight[32], word8 difficulty)
 {
-   static word32 trigger[2] = { WTRIGGER31, 0 };
    word8 add256[32] = { 0 };
 
-   /* trigger block shifts weight increment from linear to exponential */
-   if(bnum && cmp64(bnum, trigger) < 0) add256[0] = difficulty;
-   else add256[difficulty / 8] = 1 << (difficulty % 8);  /* 2 ** difficulty */
+   /* originally, chain weight calculation was split by v2.0 (V20TRIGGER);
+    * however, since chain weight is implicit and not technically part of
+    * the chain, we don't NEED to retain it's original behavior when we
+    * transition over a hard fork to the scale of v3.0 */
+
+   add256[difficulty / 8] = 1 << (difficulty % 8);
    multi_add(weight, add256, weight, 32);
 }  /* end add_weight() */
 
