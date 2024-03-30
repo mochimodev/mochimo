@@ -22,51 +22,19 @@
 
 /* external support */
 #include <string.h>
-#include "extthrd.h"
 #include "extmath.h"
 #include "extlib.h"
 #include "extio.h"
 
-#define INVALID_DIFF 256
-#define THREADS_MAX  64
-
-typedef struct {
-   volatile int tr;  /* thread function result -- set by thread */
-   BTRAILER bt;      /* blocktrailer for validation */
-} TF_VAL_THREAD_ARGS;
-
-ThreadProc thread_pow_val(void *arg)
-{
-   static word32 v24trigger[2] = { V24TRIGGER, 0 };
-   TF_VAL_THREAD_ARGS *argp = (TF_VAL_THREAD_ARGS *) arg;
-
-   /* Adding constants to skip validation on BoxingDay corrupt block
-    * provided the blockhash matches.  See "Boxing Day Anomaly" write
-    * up on the Wiki or on [ REDACTED ] for more details. */
-   static word32 boxingday[2] = { 0x52d3c, 0 };
-   static word8 boxdayhash[32] = {
-      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
-      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
-      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
-      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
-   };
-
-   /* v2.4 onwards uses peach, else trigg */
-   if (cmp64(argp->bt.bnum, v24trigger) > 0) {
-      /* Boxing Day Anomaly -- Bugfix */
-      if (cmp64(argp->bt.bnum, boxingday) == 0) {
-         if (memcmp(argp->bt.bhash, boxdayhash, 32) != 0) {
-            pdebug("Boxing Day Anomaly Bhash Failure");
-             argp->tr = 0x0101; /* fail */
-         } else argp->tr = 0x0001; /* pass */
-      } else
-      if (peach_check(&(argp->bt))) argp->tr = 0x0101; /* fail */
-      else argp->tr = 0x0001; /* pass */
-   } else if (trigg_check(&(argp->bt))) argp->tr = 0x0101; /* fail */
-   else argp->tr = 0x0001; /* pass */
-
-   Unthread;
-}
+/* parallel support */
+#ifdef _OPENMP
+   #include <omp.h>
+   #define omp__critical _Pragma("omp critical")
+   #define omp__parallel _Pragma("omp parallel")
+#else
+   #define omp__critical
+   #define omp__parallel
+#endif
 
 /* Accumulate weight based on difficulty */
 void add_weight(word8 *weight, word8 difficulty, word8 *bnum)
@@ -442,253 +410,6 @@ bail:
    return VERROR;  /* ignore contention */
 }  /* end checkproof() */
 
-/**
- * @brief Validate a Trailer file.
- *
- * Validates a Trailer file at @a fname and returns the Trailer
- * file block number and accumulated weight values to the
- * @a *bnum and @a weight pointers, respectively.
- * @param fname filename of the trailer file
- * @param bnum pointer to 64-bit block number value, or `NULL`
- * @param weight pointer to a 256-bit weight value, or `NULL`
- * @param weight_only when set non-zero, indicates a "weight only"
- * trailer file validation (where POW validation is not required)
- * @returns Integer representing the result of the tfile validation.
- * @retval VEOK Tfile is valid
- * @retval 1-10 Tfile is invalid
- * @retval 100-199 I/O errors
- * @retval 200+ (200 + errno)
- * @note Additional error details are logged with perr().
- */
-int tf_val(char *fname, void *bnum, void *weight, int weight_only)
-{
-   ThreadId tid[THREADS_MAX] = { 0 };
-   TF_VAL_THREAD_ARGS targp[THREADS_MAX] = { 0 };
-   int tlen, tidx, tactive, tres;
-   float percent;
-   time_t start;
-   FILE *fp;
-   BTRAILER bt = { 0 };
-   word32 difficulty = 0;
-   word32 time1 = 0;
-   word32 stime;
-   word8 prevhash[HASHLEN];
-   word8 highweight[HASHLEN];  /* return value */
-   word8 highblock[8];         /* return value */
-   long filelen;
-   unsigned endblock;
-   int i, ecode, gblock;
-   char genfile[100], bnumhex[17];
-   word32 tcount;
-   static word32 tottrigger[2] = { V23TRIGGER, 0 };
-   static word32 v24trigger[2] = { V24TRIGGER, 0 };
-
-   /* Adding constants to skip validation on BoxingDay corrupt block
-    * provided the blockhash matches.  See "Boxing Day Anomaly" write
-    * up on the Wiki or on [ REDACTED ] for more details. */
-   static word32 boxingday[2] = { 0x52d3c, 0 };
-   static word8 boxdayhash[32] = {
-      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
-      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
-      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
-      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
-   };
-
-   ecode = 100;                 /* I/O high error code */
-   tidx = tactive = 0;
-   memset(highblock, 0, 8);       /* start from genesis block */
-   memset(highweight, 0, HASHLEN);
-   /* set ideal thread count for pow validation */
-   tlen = weight_only ? 0 : cpu_cores();
-
-   pdebug("Entering tf_val()");
-   show("tfval");
-
-   sprintf(genfile, "%s/b0000000000000000.bc", Bcdir);
-   /* get trailer from our Genesis Block */
-   if(readtrailer(&bt, genfile) != VEOK) goto tfval_end;  /* error 100 */
-   memcpy(prevhash, bt.bhash, HASHLEN);
-
-   fp = fopen(fname, "rb");
-   if(!fp) {
-      perr("Cannot open %s", fname);
-      ecode = 101;
-      goto tfval_end;
-   }
-
-   fseek(fp, 0, SEEK_END);
-   filelen = ftell(fp);
-   if((filelen % sizeof(BTRAILER)) != 0) {
-      fclose(fp);
-      ecode = 102;
-      goto tfval_end;
-   } else endblock = (unsigned) (filelen / sizeof(BTRAILER));
-   fseek(fp, 0, SEEK_SET);
-
-   /* Validate every block trailer in tfile and compute weight. */
-   for(time(&start), gblock = 1, ecode = 0; Running; gblock = ecode = 0) {
-      if(fread(&bt, 1, sizeof(BTRAILER), fp) != sizeof(BTRAILER)) {
-         /* check for I/O error */
-         if (ferror(fp)) break;
-      }
-
-      if (tlen > 0) {
-         do {  /* check threads ready for join */
-            for (tidx = 0; tidx < tlen && tidx < THREADS_MAX; tidx++) {
-               if (tid[tidx] > 0 && targp[tidx].tr) {
-                  tres = thread_join(tid[tidx]);
-                  if (tres != VEOK) {
-                     perrno("failed to wait for thread");
-                  }  /* check thread status */
-                  if ((targp[tidx].tr >> 8) != VEOK) {
-                     bnum2hex(targp[tidx].bt.bnum, bnumhex);
-                     perr("(0x%s) failed on POW validation", bnumhex);
-                     /* wait for all threads to finish */
-                     for (i = 0; i < tlen; i++) {
-                        if (tid[i] == 0) continue;
-                        if (thread_cancel(tid[i]) != 0) {
-                           perrno("thread_cancel()");
-                        }
-                     }
-                     ecode = 9;
-                     break;
-                  }
-                  /* clear thread result/id, and reduce thread count */
-                  targp[tidx].tr = 0;
-                  tid[tidx] = 0;
-                  tactive--;
-               }
-            }
-            if (!Running || ecode) break;
-            /* wait for at least ONE (1) free thread, or all threads on EOF */
-         } while(tactive == tlen || (tactive && feof(fp)));
-      }
-
-      /* check for EOF or error */
-      if (feof(fp) || ecode) break;
-
-      if (!weight_only && get16(bt.bnum) == 0 && endblock) {
-         percent = 100.0 * get32(bt.bnum) / endblock;
-         plog("Validating Tfile %.2f%% (0x%" P32x ")",
-            percent, get32(bt.bnum));
-      }
-
-      tcount = get32(bt.tcount);
-
-      ecode++;
-      /* The Genesis Block is very special. 1 */
-      if(gblock) {
-         if(!iszero(&bt, (sizeof(BTRAILER) - HASHLEN))) break;
-         ecode++;  /* 2 */
-         if(memcmp(prevhash, bt.bhash, HASHLEN) != 0) break;
-         difficulty = 1;  /* difficulty of block one. */
-         goto next;
-      }
-      if(weight_only) goto skipval;
-
-      ecode = 3;
-      /* validate block trailer -- Mfee: 3 */
-      if(highblock[0] && tcount) {
-         if(cmp64(bt.mfee, Mfee) < 0) break;
-      } else if(!iszero(bt.mfee, 8)) break;  /* for NG block or P-block */
-
-      ecode++;  /* difficulty ecode = 4 */
-      if(get32(bt.difficulty) != difficulty) break;
-
-      ecode++;
-      /* check for early block time 5 */
-      stime = get32(bt.stime);
-      if(highblock[0]) {
-         if(stime <= time1) break;  /* unsigned time here */
-         ecode++;  /* future block time 6 */
-         if(stime > start && (stime - start) > BCONFREQ) break;
-      }
-      else if(stime != time1) break;  /* bad time for NG block */
-      ecode = 7;
-      /* bad block number 7 */
-      if(cmp64(highblock, bt.bnum) != 0) break;
-      ecode++;
-      /* bad previous hash 8 */
-      if(memcmp(prevhash, bt.phash, HASHLEN) != 0) break;
-      ecode++;
-      /* check enforced delay 9 */
-      if (get32(bt.bnum) > Trustblock) {
-         if(highblock[0] && tcount) {
-            if (tlen > 0) {  /* find free thread slot, allocate and continue */
-               for(tidx = 0; tidx < tlen && tidx < THREADS_MAX; tidx++) {
-                  if (!Running) break;
-                  if (tid[tidx]) continue;
-                  /* copy block trailer to thread arguments */
-                  memcpy(&(targp[tidx].bt), &bt, sizeof(bt));
-                  tres = thread_create(&tid[tidx], &thread_pow_val, &targp[tidx]);
-                  if (tres != VEOK) {
-                     tid[tidx--] = 0;
-                     if (Dynasleep) sleep(Dynasleep);
-                     perrno("failed to create thread");
-                  } else {
-                     tactive++;
-                     break;
-                  }
-               }
-            } else {
-               /* v2.4 onwards uses peach, else trigg */
-               if (cmp64(bt.bnum, v24trigger) > 0) {
-                  /* Boxing Day Anomaly -- Bugfix */
-                  if(cmp64(bt.bnum, boxingday) == 0) {
-                     if(memcmp(bt.bhash, boxdayhash, 32) != 0) {
-                        pdebug("Boxing Day Anomaly Bhash Failure");
-                        break;
-                     }
-                  } else
-                  /* check POW */
-                  if (peach_check(&bt)) break;
-               } else if(trigg_check(&bt)) break;
-            }
-         }
-      }
-      ecode = 10;
-      if(cmp64(highblock, tottrigger) > 0 &&
-        (highblock[0] != 0xfe && highblock[0] != 0xff && highblock[0] != 0)) {
-         if((word32) (stime - get32(bt.time0)) > BRIDGE) break;
-      }
-
-skipval:
-      /* update for next loop 11 */
-      time1 = get32(bt.stime);
-
-      /*
-       * Let the neo-genesis (not the 0xff) block change the
-       * difficulty for the next 0x01 block.
-       */
-      if(highblock[0] != 0xff) {
-         add_weight(highweight, difficulty, bt.bnum);
-         difficulty = set_difficulty(&bt);
-      }
-next:
-      /* set previous hash for next iteration */
-      memcpy(prevhash, bt.bhash, HASHLEN);
-      add64(highblock, One, highblock);  /* bnum in next trailer */
-   }  /* end for */
-   /* ensure all threads are finished */
-   if (tactive) {
-      /* wait for all threads to finish */
-      for (i = 0; i < tlen; i++) {
-         if (tid[i] == 0) continue;
-         if (thread_cancel(tid[i]) != 0) {
-            perrno("thread_cancel()");
-         }
-      }
-   }
-   sub64(highblock, One, bnum);     /* fix high block number */
-   memcpy(weight, highweight, HASHLEN);
-   fclose(fp);
-   pdebug("ecode = %d  bnum = 0x%s  weight = 0x...%x",
-      ecode, bnum2hex(highblock, bnumhex), highweight[0]);
-tfval_end:
-   return ecode;
-}  /* end tf_val() */
-
-
 int trim_tfile(void *highbnum)
 {
    FILE *fp, *fpout;
@@ -720,29 +441,30 @@ int trim_tfile(void *highbnum)
 }  /* end trim_tfile() */
 
 /**
- * Validate the Proof of Work of a Block Trailer.
+ * Validate the Proof-of-Work of a Block Trailer.
  * @param btp Pointer to Block Trailer to validate
  * @return (int) value representing validation result
  * @retval VERROR on POW validation error; check errno for details
  * @retval VEOK on success
 */
-int validate_pow(BTRAILER *btp)
+int validate_pow(const BTRAILER *bt)
 {
    const word32 peach_trigger[2] = { V24TRIGGER, 0 };
-   const word32 boxingday_bnum[2] = { 0x52d3c, 0 };
-   const word8 boxingday_hash[HASHLEN] = {
+   const word32 anomaly_bnum[2] = { 0x52d3c, 0 };
+   const word8 anomaly_hash[HASHLEN] = {
       0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
       0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
       0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
       0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
-   };  /* see "Boxing Day Anomaly" on [ REDACTED ] for more details. */
+      /* see "Boxing Day Anomaly" on [ REDACTED ] for details */
+   };
 
    /* v2.4.0 PoW uses Peach algo */
-   if (cmp64(btp->bnum, peach_trigger) > 0) {
-      if (peach_check(btp) == VEOK) return VEOK;
-      /* check Boxing Day Anomaly on PoW failure */
-      if (cmp64(btp->bnum, boxingday_bnum) == 0) {
-         if (memcmp(btp->bhash, boxingday_hash, HASHLEN) == 0) return VEOK;
+   if (cmp64(bt->bnum, peach_trigger) > 0) {
+      if (peach_check(bt) == VEOK) return VEOK;
+      /* check "Boxing Day Anomaly" on PoW failure */
+      if (cmp64(bt->bnum, anomaly_bnum) == 0) {
+         if (memcmp(bt->bhash, anomaly_hash, HASHLEN) == 0) return VEOK;
          /* anomaly validation failure */
          set_errno(EMCM_POWANOMALY);
          return VERROR;
@@ -753,7 +475,7 @@ int validate_pow(BTRAILER *btp)
    }
 
    /* pre-v2.4.0 PoW uses Trigg algo */
-   if (trigg_check(btp) == VEOK) return VEOK;
+   if (trigg_check(bt) == VEOK) return VEOK;
 
    /* trigg validation failure */
    set_errno(EMCM_POWTRIGG);
@@ -761,20 +483,15 @@ int validate_pow(BTRAILER *btp)
 }  /* end validate_pow() */
 
 /**
- * Validate a Block Trailer against a previous trailer.
- * @note This function does not validate the Proof of Work (PoW) field.
+ * @private
+ * Validate the Genesis Block Trailer.
  * @param bt Pointer to Block Trailer to validate
- * @param pbt Pointer to previous Block Trailer to validate against, or
- * NULL to validate a genesis-block trailer
  * @return (int) value representing operation result
  * @retval VERROR on validation error; check errno for details
  * @retval VEOK on success
- */
-int validate_trailer(BTRAILER *bt, BTRAILER *pbt)
+*/
+static int validate_genesis_trailer(const BTRAILER *bt)
 {
-   const word32 pseudo_trigger[2] = { V23TRIGGER, 0 };
-   /* ... v2.3.0 introduced the pseudo-block */
-   const word32 mfee[2] = { MFEE, 0 };
    const word8 genesis_hash[32] = {
       0x00, 0x17, 0x0c, 0x67, 0x11, 0xb9, 0xdc, 0x3c,
       0xa7, 0x46, 0xc4, 0x6c, 0xc2, 0x81, 0xbc, 0x69,
@@ -782,91 +499,355 @@ int validate_trailer(BTRAILER *bt, BTRAILER *pbt)
       0x97, 0xba, 0x06, 0x1e, 0xcc, 0xef, 0xde, 0x03
    };
 
-   time_t start;
-   word32 next_block[2], stime;
+   /* check block trailer data is empty (exc. block hash) */
+   if (!iszero(bt, sizeof(BTRAILER) - HASHLEN)) {
+      set_errno(EMCM_NZGEN);
+      return VERROR;
+   }
+   if (memcmp(bt->bhash, genesis_hash, HASHLEN) != 0) {
+      set_errno(EMCM_GENHASH);
+      return VERROR;
+   }
 
-   /* init */
-   time(&start);
+   /* genesis ok */
+   return VEOK;
+}  /* end validate_genesis_trailer() */
+
+/**
+ * Validate a Block Trailer against a previous Block Trailer.
+ * @note This function does not validate the Proof of Work (PoW) nonce.
+ * @param bt Pointer to Block Trailer to validate
+ * @param prev_bt Pointer to previous Block Trailer to validate against
+ * @return (int) value representing operation result
+ * @retval VERROR on validation error; check errno for details
+ * @retval VEOK on success
+ */
+int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
+{
+   word32 difficulty, stime;
+   word8 hash[HASHLEN];
+   word8 bnum[8];
 
    /* if previous Block Trailer NULL, perform genesis checks */
-   if (pbt == NULL) {
-      /* check block trailer data is empty (exc. block hash) */
-      if (!iszero(bt, sizeof(BTRAILER) - HASHLEN)) {
-         set_errno(EMCM_NZGEN);
-         return VERROR;
-      }
-      if (memcmp(bt->bhash, genesis_hash, HASHLEN) != 0) {
-         set_errno(EMCM_GENHASH);
-         return VERROR;
-      }
+   if (prev_bt == NULL) return validate_genesis_trailer(bt);
 
-      /* genesis ok */
-      return VEOK;
-   }
-
-   /* check Mfee NOT zero on normal block, else always zero */
-   if (bt->bnum[0] && get32(bt->tcount)) {
-      if (cmp64(bt->mfee, mfee) < 0) goto BAD_MFEE;
-   } else if(!iszero(bt->mfee, 8)) goto BAD_MFEE;
-
-   /* store solve time for multiple checks */
-   stime = get32(bt->stime);
-
-   /* check diff and block times */
-   if (bt->bnum[0]) {
-      /* check difficulty (non-NG blocks) */
-      if (get32(bt->difficulty) != set_difficulty(pbt)) goto BAD_DIFF;
-      /* check early solve time (non-NG blocks) */
-      if (stime <= get32(pbt->stime)) {
-         /* discern failure type */
-         if (stime == get32(pbt->stime)) goto BAD_STIME;
-         /* allow stime anomaly ONLY for the Epochalypse, Y2K38 */
-         if ((word32) (stime - get32(pbt->stime)) > BRIDGE) goto BAD_STIME;
-         /* reduce "start" time to 32-bit for future solve time check */
-         start &= (time_t) WORD32_C(0xffffffff);
-      }
-      /* check future solve time */
-      if (stime > start && (stime - start) > BCONFREQ) goto BAD_STIME;
-   } else {
-      /* check difficulty matches previous (NG blocks) */
-      if (get32(bt->difficulty) != get32(pbt->difficulty)) goto BAD_DIFF;
-      /* check solve time matches previous (NG blocks) */
-      if (stime != get32(pbt->stime)) goto BAD_STIME;
-   }
-   /* check for times of trouble...
-    * I can't figure out the "why" of this bnum complexity...
-    * so it remains, in a modified but functionally exact state... */
-   if (cmp64(bt->bnum, pseudo_trigger) > 0 /* && bt->bnum[0] != 0xfe && */
-      /* bt->bnum[0] != 0xff && bt->bnum[0] != 0 */) {
-      if (bt->bnum[0] > 0 && bt->bnum[0] < 0xfe) {
-         if ((word32) (stime - get32(bt->time0)) > BRIDGE) goto BAD_STIME;
-      }
+   /* check previous hash */
+   if (memcmp(prev_bt->bhash, bt->phash, HASHLEN) != 0) {
+      set_errno(EMCM_PHASH);
+      return VERROR;
    }
    /* check block number increment */
-   add64(pbt->bnum, ONE64, next_block);
-   if (cmp64(bt->bnum, next_block) != 0) {
+   if (add64(prev_bt->bnum, ONE64, bnum)) {
+      set_errno(EMCM_MATH64_OVERFLOW);
+      return VERROR;
+   }
+   if (cmp64(bt->bnum, bnum) != 0) {
       set_errno(EMCM_BNUM);
       return VERROR;
    }
-   /* check previous hash */
-   if (memcmp(pbt->bhash, bt->phash, HASHLEN) != 0){
-      set_errno(EMCM_PHASH);
-      return VERROR;
+
+   /* check mfee, tcount and nonce... */
+   if (bnum[0] == 0 || get32(bt->tcount) == 0) {
+      /* ... NEOGENESIS AND PSEUDOBLOCK */
+
+      /* check mfee, tcount and nonce are zero'd */
+      if (!iszero(bt->mfee, 8)) goto BAD_MFEE;
+      if (get32(bt->tcount) != 0) goto BAD_TCOUNT;
+      if (!iszero(bt->nonce, HASHLEN)) {
+         set_errno(EMCM_NONCE);
+         return VERROR;
+      }
+   } else {
+      /* ... STANDARD BLOCK ONLY */
+
+      /* check mfee not less than standard mining fee */
+      if (cmp64(bt->mfee, MFEE64) < 0) goto BAD_MFEE;
+      /* check tcount not zero */
+      if (get32(bt->tcount) == 0) goto BAD_TCOUNT;
+   }
+
+   /* obtain frequently dereferenced values */
+   difficulty = get32(bt->difficulty);
+   stime = get32(bt->stime);
+
+   /* check time0, difficulty, mroot and stime... */
+   if (bnum[0] > 0) {
+      if (get32(bt->tcount) == 0) {
+         /* ... PSEUDOBLOCK ONLY */
+
+         /* check stime is equal to (time0 + bridge) */
+         if (stime != (get32(bt->time0) + BRIDGE)) goto BAD_STIME;
+         /* check mroot is zero'd */
+         if (!iszero(bt->mroot, HASHLEN)) {
+            set_errno(EMCM_MROOT);
+            return VERROR;
+         }
+      }
+      /* ... STANDARD AND PSEUDOBLOCK */
+
+      /* check time0 is equal to previous stime and not equal to current */
+      if (get32(bt->time0) != get32(prev_bt->stime)) goto BAD_TIME0;
+      if (get32(bt->time0) != stime) goto BAD_STIME;
+      /* check difficulty is adjustment appropriately */
+      if (difficulty == next_difficulty(prev_bt)) goto BAD_DIFF;
+
+      /* check stime for times of trouble...
+       * originally, pseudoblock generation was prohibited on the block
+       * before a neogenesis block (0x...ff), and permitted in v2.4.1,
+       * which was not given an official "break point" for comparison;
+       * the last known (permitted) occurrence of a block exceeding the
+       * BRIDGE time was block number 0x1b6ff, and so it shall be used
+       */
+      if (cmp64(bt->bnum, CL64_32(0x1b6ff)) > 0 || (bt->bnum[0] != 0xff && \
+            cmp64(bt->bnum, CL64_32(V23TRIGGER)) > 0)) {
+         /* check block time is between 1 and BRIDGE seconds */
+         if ((word32) (stime - get32(bt->time0)) > BRIDGE) goto BAD_STIME;
+         /* ... word32 boundary handles an Epochalypse event */
+      }
+      /* check future solve time (with some leniency) */
+      if (difftime(stime, time(NULL)) > BCONFREQ) goto BAD_STIME;
+      /** @todo future solve time check expires on the Epochalypse (Y2K38)
+       * for 32-bit time_t systems and on it's second coming (Y2106) for
+       * 64-bit systems; considering most of us will be dead by the later,
+       * it is not a concern for the foreseeable future; none-the-less,
+       * perhaps this check should be moved out of scope and performed
+       * only on incoming blocks of a synchronized server (Insync == 1)
+       */
+   } else {
+      /* ... NEOGENESIS BLOCK ONLY */
+
+      /* check time0, difficulty and stime match previous */
+      if (get32(bt->time0) != get32(prev_bt->time0)) goto BAD_TIME0;
+      if (difficulty != get32(prev_bt->difficulty)) goto BAD_DIFF;
+      if (stime != get32(prev_bt->stime)) goto BAD_STIME;
+   }
+
+   /* check hash is valid for version 3.0 blocks */
+   if (cmp64(bt->bnum, (word32[2]) { V30TRIGGER }) > 0) {
+      sha256(bt, sizeof(BTRAILER) - HASHLEN, hash);
+      if (memcmp(hash, bt->bhash, HASHLEN) != 0) {
+         set_errno(EMCM_BHASH);
+         return VERROR;
+      }
    }
 
    /* trailer is valid */
    return VEOK;
 
-BAD_MFEE:
-   set_errno(EMCM_MFEE);
-   return VERROR;
-BAD_DIFF:
-   set_errno(EMCM_DIFF);
-   return VERROR;
-BAD_STIME:
-   set_errno(EMCM_STIME);
-   return VERROR;
+BAD_MFEE: set_errno(EMCM_MFEE); return VERROR;
+BAD_TCOUNT: set_errno(EMCM_TCOUNT); return VERROR;
+BAD_TIME0: set_errno(EMCM_TIME0); return VERROR;
+BAD_DIFF: set_errno(EMCM_DIFF); return VERROR;
+BAD_STIME: set_errno(EMCM_STIME); return VERROR;
 }  /* end validate_trailer() */
+
+/**
+ * Validate an opened Trailer file (Tfile).
+ * @note This function does not validate the Proof of Work (PoW) nonce.
+ * @param fp Open Tfile FILE pointer to validate
+ * @param bnum Pointer to place validated bnum (64-bit)
+ * @param weight Pointer to add validated weight (256-bit)
+ * @param trust Number of trailers to trust (skip)
+ * @return (int) value representing validation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int validate_tfile_fp(FILE *fp, word8 bnum[8], word8 weight[32], int trust)
+{
+   BTRAILER bt, prev_bt, *btp;
+   long long len, skip;
+   int ecode;
+
+   /* init */
+   btp = NULL;
+   ecode = VEOK;
+
+   /* seek to EOF and check length of Tfile */
+   fseek64(fp, 0LL, SEEK_END);
+   len = ftell64(fp);
+   if (len == (-1)) return VERROR;
+   if (len < (long long) sizeof(BTRAILER)) {
+      /* invalid Tfile operation on non-Tfile data */
+      set_errno(EMCM_FILEDATA);
+      return VERROR;
+   }
+   if (len % sizeof(BTRAILER) != 0) {
+      /* invalid Tfile operation on non-Tfile length */
+      set_errno(EMCM_FILELEN);
+      return VERROR;
+   }
+
+   /* skip trusted trailers */
+   rewind(fp);
+   if (trust > 0) {
+      /* check for overshoot */
+      skip = trust * sizeof(BTRAILER);
+      if (skip >= len) return VEOK;
+      /* backstep for previous trailer */
+      skip -= sizeof(BTRAILER);
+      if (skip > 0 && fseek64(fp, skip, SEEK_SET) != 0) return VERROR;
+      if (fread(&prev_bt, sizeof(BTRAILER), 1, fp) != 1) return VERROR;
+      btp = &prev_bt;
+   }
+
+   /* validate every block trailer against previous */
+   while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
+      /* validate trailer against it's previous */
+      ecode = validate_trailer(&bt, btp);
+      if (ecode != VEOK) return ecode;
+      /* update highest block number and cumulative chain weight */
+      if (bnum) put64(bnum, bt.bnum);
+      /* let the neo-genesis (not the 0x..ff) add weight to the chain. */
+      if (weight && bt.bnum[0] != 0xff) {
+         add_weight(weight, bt.difficulty[0]);
+      }
+      /* store block trailer as previous */
+      memcpy((btp = &prev_bt), &bt, sizeof(BTRAILER));
+   }
+   /* check file errors */
+   if (ferror(fp)) return VERROR;
+
+   return VEOK;
+}  /* end validate_tfile_fp() */
+
+/**
+ * Validate the Proof-of-Work of an opened Trailer file (Tfile).
+ * @param fp Open Tfile FILE pointer to validate
+ * @param trust Number of trailers to trust (skip)
+ * @return (int) value representing validation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int validate_tfile_pow_fp(FILE *fp, int trust)
+{
+   BTRAILER bt;
+   long long len, skip;
+   int ecode;
+
+   /* init */
+   ecode = VEOK;
+
+   /* seek to EOF for Tfile length */
+   fseek64(fp, 0LL, SEEK_END);
+   len = ftell64(fp);
+   if (len == (-1)) return VERROR;
+
+   /* skip trusted trailers */
+   rewind(fp);
+   if (trust > 0) {
+      /* check for overshoot and skip */
+      skip = trust * sizeof(BTRAILER);
+      if (skip >= len) return VEOK;
+      if (fseek64(fp, skip, SEEK_SET) != 0) return VERROR;
+   }
+
+   omp__parallel
+   {
+      while (ecode == VEOK) {
+         omp__critical
+         {
+            if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+               if (ferror(fp)) ecode = VERROR;
+            }
+         }
+         /* check errors out of critical scope  */
+         if (ecode != VEOK) continue;
+         /* validate trailer Proof-of-Work */
+         if (validate_pow(&bt) != VEOK) {
+            omp__critical
+            {
+               ecode = VERROR;
+            }
+         }
+      }
+   }
+
+   return ecode;
+}  /* end validate_tfile_pow_fp() */
+
+/**
+ * Validate the Proof-of-Work of a Trailer file (Tfile).
+ * @param tfile Filename of Tfile to validate
+ * @param trust Number of trailers to trust (skip)
+ * @return (int) value representing validation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int validate_tfile_pow(const char *tfile, int trust)
+{
+   FILE *fp;
+   int ecode;
+
+   /* open trailer file and validate */
+   fp = fopen(tfile, "rb");
+   if (fp == NULL) return VERROR;
+   ecode = validate_tfile_pow_fp(fp, trust);
+   fclose(fp);
+
+   return ecode;
+}  /* end validate_tfile_pow() */
+
+/**
+ * Validate a Trailer file (Tfile).
+ * @note This function does not validate the Proof of Work (PoW) nonce.
+ * @param tfile Filename of Tfile to validate
+ * @param bnum Pointer to place validated bnum (64-bit)
+ * @param weight Pointer to add validated weight (256-bit)
+ * @param trust Number of trailers to trust (skip)
+ * @return (int) value representing validation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int validate_tfile
+   (const char *tfile, word8 bnum[8], word8 weight[32], int trust)
+{
+   FILE *fp;
+   int ecode;
+
+   /* open trailer file and validate */
+   fp = fopen(tfile, "rb");
+   if (fp == NULL) return VERROR;
+   /** @todo (DO NOT REMOVE) implement Tfile integrity pre-check -Dig */
+   ecode = validate_tfile_fp(fp, bnum, weight, trust);
+   fclose(fp);
+
+   return ecode;
+}  /* end validate_tfile() */
+
+/**
+ * Get the weight of a Trailer file.
+ * @param tfile Filename of Tfile to get weight from
+ * @param bnum Pointer to bnum of last weight to add, or NULL for all
+ * @param weight Pointer to add weight to
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int weigh_tfile(const char *tfile, const word8 bnum[8], word8 weight[32])
+{
+   BTRAILER bt;
+   FILE *fp;
+
+   /* open Tfile for reading */
+   fp = fopen(tfile, "rb");
+   if (fp == NULL) return VERROR;
+
+   /* weigh every block trailer */
+   while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
+      /* Let the neo-genesis (not the 0x..ff) add weight to the chain. */
+      if (bt.bnum[0] != 0xff) add_weight(weight, bt.difficulty[0]);
+      /* break when we reach specified bnum */
+      if (bnum && cmp64(bnum, bt.bnum) <= 0) break;
+   }
+   /* check file errors and cleanup */
+   if (ferror(fp)) {
+      fclose(fp);
+      return VERROR;
+   }
+   fclose(fp);
+
+   return VEOK;
+}  /* end weigh_tfile() */
 
 /* end include guard */
 #endif
