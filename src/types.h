@@ -94,10 +94,18 @@
 
 /* 64-bit compound literal definitions */
 
-/** 64-bit compound literal (pointer) representing a value of One (1) */
-#define ONE64  (word8[8]) { 1 }
-/** 64-bit compound literal (pointer) representing a value of Zero (0) */
-#define ZERO64 (word8[8]) { 0 }
+/**
+ * Make a 64-bit compound literal from a 32-bit value.
+ * @param x 32-bit value to build
+ */
+#define CL64_32(x) ( (word8 *) ((word32[2]) { x }) )
+
+/* 64-bit compound literal (word8 *) representing the mining fee (MFEE) */
+#define MFEE64 ( (word8 *) ((word32[2]) { MFEE }) )
+/** 64-bit compound literal (word8 *) representing a value of One (1) */
+#define ONE64  ( (word8[8]) { 1 } )
+/** 64-bit compound literal (word8 *) representing a value of Zero (0) */
+#define ZERO64 ( (word8[8]) { 0 } )
 
 #define HASHLEN   32  /**< Digest length of core hashes - SHA256LEN */
 
