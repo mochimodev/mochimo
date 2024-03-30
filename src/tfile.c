@@ -185,30 +185,39 @@ void get_mreward(word8 reward[8], const word8 bnum[8])
 }  /* end get_mreward() */
 
 /**
- * Read Tfile data into a buffer.
+ * Read Trailers from a Tfile into a buffer.
  * @param buffer Pointer to buffer to read Tfile data into
  * @param bnum Start block number to read from Tfile
  * @param count Number of trailers to read from Tfile
+ * @param tfile Filename of Tfile to read from
  * @return (int) number of records read from Tfile, which may be less
- * than count if an error ocurrs. Check errno for details.
+ * than count if an error ocurrs; check errno for details
 */
-int read_tfile(void *buffer, void *bnum, int count, const char *tfname)
+size_t read_tfile
+   (void *buffer, const word8 bnum[8], size_t count, const char *tfile)
 {
    long long offset;
+   size_t read_count;
    FILE *fp;
 
-   fp = fopen(tfname, "rb");
+   /* open Tfile and read trailer from offset */
+   fp = fopen(tfile, "rb");
    if (fp == NULL) return VERROR;
+   /* seek to read offset for bnum */
    put64(&offset, bnum);
    offset *= sizeof(BTRAILER);
-   if (fseek64(fp, offset, SEEK_SET) != 0) {
-      fclose(fp);
-      return 0;
-   }
-   /* perform read into buffer */
-   count = fread(buffer, sizeof(BTRAILER), (size_t) count, fp);
+   if (fseek64(fp, offset, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   /* perform read into buffer and cleanup */
+   read_count = fread(buffer, sizeof(BTRAILER), (size_t) count, fp);
    fclose(fp);
-   return count;
+
+   return read_count;
+
+   /* cleanup / error handling */
+ERROR_CLEANUP:
+   fclose(fp);
+
+   return (-1);
 }  /* end read_tfile() */
 
 /**
