@@ -185,6 +185,41 @@ void get_mreward(word8 reward[8], const word8 bnum[8])
 }  /* end get_mreward() */
 
 /**
+ * Compute the Merkle Root of a list of hashes. Assumes HASHLEN byte hashes.
+ * @note This function is recursive with an integral depth of 1 + log2(n).
+ * @param hashlist Pointer to list of hashes
+ * @param count Number of hashes in list
+ * @param root Pointer to place Merkle Root hash
+ */
+void merkle_root(const word8 *hashlist, size_t count, word8 *root)
+{
+   word8 merkle[HASHLEN * 2];
+   word8 *splitlist;
+   size_t split;
+
+   switch (count) {
+      case 0: return;
+      case 1:
+         /* transfer hash to root */
+         memcpy(root, hashlist, HASHLEN);
+         return;
+      case 2:
+         /* hash items directly into root */
+         sha256(hashlist, HASHLEN * 2, root);
+         return;
+      default:
+         /* split list in half and recurse */
+         split = count / 2;
+         count = count - split;
+         splitlist = ((word8 *) hashlist) + (count * HASHLEN);
+         merkle_root(hashlist, count, merkle);
+         merkle_root(splitlist, split, merkle + HASHLEN);
+         /* hash merkle node hashes into root */
+         sha256(merkle, HASHLEN * 2, root);
+   }
+}  /* end merkle_root() */
+
+/**
  * Read Trailers from a Tfile into a buffer.
  * @param buffer Pointer to buffer to read Tfile data into
  * @param bnum Start block number to read from Tfile
