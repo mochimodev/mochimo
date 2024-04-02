@@ -19,7 +19,7 @@ extern "C" {
 
 int pseudo(const char *output);
 int neogen(const BTRAILER *bt, const char *lefile, const char *output);
-int b_con(const char *fname);
+int b_con(const char *output);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

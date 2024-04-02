@@ -50,76 +50,90 @@ static int txpos_compare(const void *va, const void *vb)
  * Generate a pseudo-block with bnum = Cblocknum + 1. Uses node state
  * (Cblockhash, Cblocknum, Time0, and Difficulty) to generate block data.
  * @param output Filename of output block (typically "pblock.dat")
- * @returns VEOK on success, else error code
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
 int pseudo(const char *output)
 {
    const word32 hdrlen = 4;
 
-   SHA256_CTX ctx;
    BTRAILER bt;
    FILE *fp;
 
    /* open pseudo-block file and write hdrlen */
    fp = fopen(output, "wb");
    if (fp == NULL) return VERROR;
-   if (fwrite(&hdrlen, 4, 1, fp) != 1) goto CLEANUP;
+   if (fwrite(&hdrlen, 4, 1, fp) != 1) goto ERROR_CLEANUP;
 
-   /* fill block trailer with appropriate pseudo-data */
-   memset(&bt, 0, sizeof(bt));
+   /* init block trailer (zero) and compute bnum */
+   memset(&bt, 0, sizeof(BTRAILER));
+   if (add64(Cblocknum, ONE64, bt.bnum)) {
+      set_errno(EMCM_MATH64_OVERFLOW);
+      goto ERROR_CLEANUP;
+   }
+
+   /* fill block trailer with remaining data */
    memcpy(bt.phash, Cblockhash, HASHLEN);
-   add64(Cblocknum, One, bt.bnum);
+   /* ... bt.bnum set earlier via add64() */
+   /* ... bt.mfee left zero'd (no transactions) */
+   /* ... bt.tcount left zero'd (no transactions) */
    put32(bt.time0, Time0);
    put32(bt.difficulty, Difficulty);
+   /* ... bt.mroot left zero'd (empty block) */
+   /* ... bt.nonce left zero'd (solve abandoned) */
    put32(bt.stime, Time0 + BRIDGE);
-
    /* compute pseudo-block hash directly into block trailer */
-   sha256_init(&ctx);
-   sha256_update(&ctx, &hdrlen, 4);
-   sha256_update(&ctx, &bt, sizeof(bt) - HASHLEN);
-   sha256_final(&ctx, bt.bhash);
+   sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
 
-   /* write block trailer to pseudo-block file */
-   if (fwrite(&bt, sizeof(bt), 1, fp) != 1) goto CLEANUP;
-
-   /* cleanup */
+   /* write block trailer to pseudo-block file and close */
+   if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) goto ERROR_CLEANUP;
    fclose(fp);
 
-   /* success */
    return VEOK;
 
    /* cleanup / error handling */
-CLEANUP:
+ERROR_CLEANUP:
    fclose(fp);
    remove(output);
+
    return VERROR;
 }  /* end pseudo() */
 
 /**
  * Generate a neogenesis block. Uses a block trailer (MUST BE 0x..ff) and
  * a ledger file as input to create a output neogenesis file (0x..00).
- * @param bt Pointer to block trailer data
+ * @param prev_bt Pointer to previous block trailer data
  * @param lefile Filename of ledger to convert to neogenesis block
  * @param output Filename of output block (typically "ngblock.dat")
- * @returns VEOK on success, else VERROR
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
-int neogen(const BTRAILER *bt, const char *lefile, const char *output)
+int neogen(const BTRAILER *prev_bt, const char *lefile, const char *output)
 {
-   SHA256_CTX bctx;     /* (entire) block hash */
-   BTRAILER bt_out;     /* output block trailers */
+   LENTRY le;           /* ledger entry */
+   BTRAILER bt;         /* block trailer */
    NGHEADER ngh;        /* neogenesis header data */
-   FILE *nfp, *lfp;
-   size_t count;        /* size counters */
+   FILE *fp, *lfp;
+   word8 *mtree;        /* malloc'd merkle tree */
+   size_t mcount;       /* merkle tree count */
+   size_t j;            /* loop counter */
    long long llen;      /* ledger length */
-   word8 buff[BUFSIZ];
 
-   /* calculate neogensis block number */
-   if (add64(bt->bnum, ONE64, bt_out.bnum)) {
+   /* init */
+   fp = lfp = NULL;
+   mtree = NULL;
+   mcount = 0;
+
+   /* init block trailer (zero) and compute bnum */
+   memset(&bt, 0, sizeof(BTRAILER));
+   if (add64(prev_bt->bnum, ONE64, bt.bnum)) {
       set_errno(EMCM_MATH64_OVERFLOW);
       return VERROR;
    }
    /* block number MUST be 0x...00 */
-   if (bt_out.bnum[0] != 0x00) {
+   if (bt.bnum[0] != 0x00) {
       set_errno(EMCM_BNUM);
       return VERROR;
    }
@@ -128,12 +142,17 @@ int neogen(const BTRAILER *bt, const char *lefile, const char *output)
    lfp = fopen(lefile, "rb");
    if (lfp == NULL) return VERROR;
    /* fseek() to compute ledger length and check */
-   if (fseek64(lfp, 0LL, SEEK_END) != 0) goto FAIL_LE;
+   if (fseek64(lfp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
    llen = ftell64(lfp);
-   if (llen == (-1)) goto FAIL_LE;
-   if (llen == 0 || (llen % sizeof(LENTRY)) != 0) {
+   if (llen == (-1)) goto ERROR_CLEANUP;
+   if (llen < (long long) sizeof(LENTRY)) {
+      /* unexpected ledger data */
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
+   } else if (llen % sizeof(LENTRY) != 0) {
+      /* unexpected ledger len */
       set_errno(EMCM_FILELEN);
-      goto FAIL_LE;
+      goto ERROR_CLEANUP;
    }
 
    /* build neogensis header data */
@@ -141,59 +160,69 @@ int neogen(const BTRAILER *bt, const char *lefile, const char *output)
    put64(ngh.lbytes, &llen);
 
    /* open neogenesis output file for writing */
-   nfp = fopen(output, "wb");
-   if (nfp == NULL) goto FAIL_LE;
+   fp = fopen(output, "wb");
+   if (fp == NULL) goto ERROR_CLEANUP;
    /* Begin the Neo-Genesis block by writing the header */
-   if (fwrite(&ngh, sizeof(NGHEADER), 1, nfp) != 1) goto FAIL_ALL;
+   if (fwrite(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto ERROR_CLEANUP;
 
-   /* initialize and begin block hash */
-   sha256_init(&bctx);
-   sha256_update(&bctx, &ngh, sizeof(NGHEADER));
+   /* get merkle tree count and malloc */
+   mcount = (size_t) llen / sizeof(LENTRY);
+   mtree = malloc(mcount * HASHLEN);
+   if (mtree == NULL) goto ERROR_CLEANUP;
+
+   /** @todo switch to a progressive merkle hash function that
+    * doesn't require the entire list to be in memory at once.
+    */
 
    /* Cue ledger.dat to beginning and copy it to neo-gen block
-    * header whilst hashing it into bctx.
+    * header whilst collecting merkle tree nodes.
     */
-   for (rewind(lfp); llen > 0; llen -= (long long) count) {
-      /* read ledger data from ledger file */
-      count = fread(buff, 1, BUFSIZ, lfp);
-      if (count < BUFSIZ) {
-         if (ferror(lfp)) goto FAIL_ALL;
-         /* for() SHOULD break at EOF... */
-         if (count <= 0) {
-            /* ... else, UNEXPECTED EOF */
-            set_errno(EMCM_EOF);
-            goto FAIL_ALL;
-         }
+   for (rewind(lfp), j = 0; j < mcount; j++) {
+      /* read individual ledger entries for processing */
+      if (fread(&le, sizeof(LENTRY), 1, lfp) != 1) {
+         /* check file error, else unexpected EOF */
+         if (ferror(lfp)) goto ERROR_CLEANUP;
+         set_errno(EMCM_EOF);
+         goto ERROR_CLEANUP;
       }
-      /* write to neogenesis file and update hash */
-      if (fwrite(buff, count, 1, nfp) != 1) goto FAIL_ALL;
-      sha256_update(&bctx, buff, count);
+      /* write to neogenesis file and update merkle list */
+      if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) goto ERROR_CLEANUP;
+      sha256(&le, sizeof(LENTRY), mtree + (j * HASHLEN));
    }
 
-   /* Fix-up block trailer and write to neogenesis-block */
-   memcpy(bt_out.phash, bt->bhash, HASHLEN);
-   put32(bt_out.stime, get32(bt->stime));
-   put32(bt_out.time0, get32(bt->time0));
-   put32(bt_out.difficulty, get32(bt->difficulty));
-   sha256_update(&bctx, &bt_out, sizeof(BTRAILER) - HASHLEN);
-   sha256_final(&bctx, bt_out.bhash);
-   if (fwrite(&bt_out, sizeof(BTRAILER), 1, nfp) != 1) {
-      goto FAIL_ALL;
+   /* fill block trailer with remaining data */
+   memcpy(bt.phash, prev_bt->bhash, HASHLEN);
+   /* ... bt.bnum set earlier via add64() */
+   /* ... bt.mfee left zero'd (no transactions) */
+   /* ... bt.tcount left zero'd (no transactions) */
+   put32(bt.time0, get32(prev_bt->time0));
+   put32(bt.difficulty, get32(prev_bt->difficulty));
+   merkle_root(mtree, mcount, bt.mroot);
+   /* ... bt.nonce left zero'd (not required) */
+   put32(bt.stime, get32(prev_bt->stime));
+   /* compute neogenesis block hash directly into block trailer */
+   sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
+
+   /* write block trailer to neogenesis block */
+   if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+      goto ERROR_CLEANUP;
    }
 
    /* cleanup */
-   fclose(nfp);
+   fclose(fp);
    fclose(lfp);
+   free(mtree);
 
-   /* success */
    return VEOK;
 
    /* cleanup / error handling */
-FAIL_ALL:
-   fclose(nfp);
-   remove(output);
-FAIL_LE:
-   fclose(lfp);
+ERROR_CLEANUP:
+   if (mtree) free(mtree);
+   if (lfp) fclose(lfp);
+   if (fp) {
+      fclose(fp);
+      remove(output);
+   }
 
    return VERROR;
 }  /* end neogen() */
@@ -202,22 +231,19 @@ FAIL_LE:
  * Construct a candidate block from "txclean.dat". Uses node state
  * (Cblocknum, Cblockhash, Mfee, Difficulty, Time0) for block data.
  * @param output Filename of output block (typically "cblock.dat")
- * 
- * @returns VEOK on success, or VERROR on error; check errno for details
- * 
- * @return (int) Mochimo return code
+ * @return (int) value representing operation result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
 int b_con(const char *output)
 {
-   SHA256_CTX mctx;        /* merkel array hash */
    TXQENTRY txc;           /* for holding transaction data */
    XDATA xdata;            /* for holding eXtended transaction data */
    BTRAILER bt;            /* block trailers are fixed length */
    BHEADER bh;             /* the minimal length block header */
    TXPOS *tx;              /* malloc'd transaction positions */
    FILE *fp, *fpout;       /* to read txclean file and write cblock */
+   word8 *mtree;           /* malloc'd merkle tree list */
    fpos_t pos;             /* file position offset indicator */
    long long offset;       /* file position offset value (ftell) */
    size_t len, tcount;     /* malloc'd space and transaction count */
@@ -226,6 +252,7 @@ int b_con(const char *output)
 
    /* init pointers */
    fpout = fp = NULL;
+   mtree = NULL;
    tx = NULL;
 
    /* get mining address */
@@ -236,20 +263,22 @@ int b_con(const char *output)
       return VERROR;
    }
 
+   /* BEGIN TRANSACTION SORT */
+
    /* open the clean TX queue (txclean.dat) and create a sorted index */
    fp = fopen("txclean.dat", "rb");
    if (fp == NULL) return VERROR;
 
-   /* obtain EOF offset */
+   /* obtain EOF offset and check */
    if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
    offset = ftell64(fp);
    if (offset == (-1)) goto ERROR_CLEANUP;
+   /* NOTE: transaction sizes can differ */
    if (offset == 0LL) {
       /* no transactions? */
       set_errno(EMCM_TX0);
       goto ERROR_CLEANUP;
-   }
-   if ((size_t) offset < sizeof(TXQENTRY)) {
+   } else if ((size_t) offset < sizeof(TXQENTRY)) {
       /* file contains unknown data */
       set_errno(EMCM_FILEDATA);
       goto ERROR_CLEANUP;
@@ -280,11 +309,14 @@ int b_con(const char *output)
    /* sort the txid reference array */
    qsort(tx, tcount, sizeof(TXPOS), txpos_compare);
 
+   /* BEGIN BLOCK CONSTRUCTION */
+
    /* open output for writing */
    fpout = fopen("cblock.tmp", "wb");
    if (fpout == NULL) goto ERROR_CLEANUP;
 
-   /* compute new block number */
+   /* init block trailer (zero) and compute bnum */
+   memset(&bt, 0, sizeof(BTRAILER));
    if (add64(Cblocknum, ONE64, bt.bnum)) {
       set_errno(EMCM_MATH64_OVERFLOW);
       goto ERROR_CLEANUP;
@@ -300,14 +332,21 @@ int b_con(const char *output)
       goto ERROR_CLEANUP;
    }
 
-   /* begin merkel array hash with mining address */
-   sha256_init(&mctx);
-   sha256_update(&mctx, bh.maddr, TXADDRLEN);
+   /* malloc merkle tree (+1 for header data) */
+   mtree = malloc((tcount + 1) * HASHLEN);
+   if (mtree == NULL) goto ERROR_CLEANUP;
+
+   /* begin merkel hash with mining address + reward */
+   sha256(bh.maddr /* + bh.mreward */, TXADDRLEN + 8, mtree);
+
+   /** @todo switch to a progressive merkle hash function that
+    * doesn't require the entire list to be in memory at once.
+    */
 
    /* read transactions from txclean.dat using sorted TXPOS array */
    for (j = 0; j < tcount; j++) {
-      /** @todo: duplicate transaction checks should really be done before
-       * we get here (i.e. when we are cleaning the queue, or validating)
+      /** @todo: duplicate transaction checks MAY be irrelevant here; but
+       * likely won't be a consideration once we switch to on-demand model
       */
       if (j > 0) {
          /* check previous transaction id for duplicates */
@@ -326,8 +365,8 @@ int b_con(const char *output)
          if (!ferror(fp)) set_errno(EMCM_EOF);
          goto ERROR_CLEANUP;
       }
-      /* add transaction id to merkel array */
-      sha256_update(&mctx, txc.tx_id, HASHLEN);
+      /* add transaction id to merkel tree */
+      memcpy(&mtree[(j + 1) * HASHLEN], txc.tx_id, HASHLEN);
       /* write transaction to block */
       if (tx_fwrite(&txc, &xdata, fpout) != 1) {
          goto ERROR_CLEANUP;
@@ -336,17 +375,16 @@ int b_con(const char *output)
 
    /* finalize block trailer data */
    memcpy(bt.phash, Cblockhash, HASHLEN);
-   /* ... bt.bnum assigned earlier */
+   /* ... bt.bnum set earlier via add64() */
    put64(bt.mfee, Mfee);
    put32(bt.tcount, tcount);
    put32(bt.time0, Time0);
    put32(bt.difficulty, Difficulty);
-   /* finalize merkel array hash straight into the trailer */
-   sha256_final(&mctx, bt.mroot);
-   /* remaining data is set zero (not known yet) */
-   memset(bt.nonce, 0, HASHLEN);
-   memset(bt.stime, 0, 4);
-   memset(bt.bhash, 0, HASHLEN);
+   /* compute merkel root hash straight into the trailer */
+   merkle_root(mtree, tcount + 1, bt.mroot);
+   /* ... bt.nonce left zero'd (not known) */
+   /* ... bt.stime left zero'd (not known) */
+   /* ... bt.bhash left zero'd (not known) */
 
    /* write trailer to file */
    if (fwrite(&bt, sizeof(BTRAILER), 1, fpout) != 1) {
@@ -356,6 +394,7 @@ int b_con(const char *output)
    /* cleanup */
    fclose(fpout);
    fclose(fp);
+   free(mtree);
    free(tx);
 
    /* move temporary output (*.tmp) to working output (*.dat) */
@@ -369,12 +408,13 @@ int b_con(const char *output)
 
    /* cleanup / error handling */
 ERROR_CLEANUP:
-   if (fpout != NULL) {
+   if (fpout) {
       fclose(fpout);
       remove("cblock.tmp");
    }
-   if (fp != NULL) fclose(fp);
-   if (tx != NULL) free(tx);
+   if (fp) fclose(fp);
+   if (mtree) free(mtree);
+   if (tx) free(tx);
 
    return VERROR;
 }  /* end b_con() */
