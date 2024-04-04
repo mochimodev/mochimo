@@ -519,7 +519,7 @@ static int validate_genesis_trailer(const BTRAILER *bt)
  */
 int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
 {
-   word32 difficulty, stime;
+   word32 difficulty, stime, time0;
    word8 hash[HASHLEN];
    word8 bnum[8];
 
@@ -565,41 +565,46 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
    /* obtain frequently dereferenced values */
    difficulty = get32(bt->difficulty);
    stime = get32(bt->stime);
+   time0 = get32(bt->time0);
 
    /* check time0, difficulty, mroot and stime... */
    if (bnum[0] > 0) {
       if (get32(bt->tcount) == 0) {
          /* ... PSEUDOBLOCK ONLY */
 
-         /* check stime is equal to (time0 + bridge) */
-         if (stime != (get32(bt->time0) + BRIDGE)) goto BAD_STIME;
+         /* check times of trouble... must equal BRIDGE seconds */
+         if ((word32) (stime - time0) != BRIDGE) goto BAD_STIME;
+         /* ... word32 boundary handles an Epochalypse event */
          /* check mroot is zero'd */
          if (!iszero(bt->mroot, HASHLEN)) {
             set_errno(EMCM_MROOT);
             return VERROR;
          }
+      } else {
+         /* ... STANDARD BLOCK ONLY */
+
+         /* check time0 is not equal to stime */
+         if (time0 == stime) goto BAD_STIME;
+         /* check stime for times of trouble...
+          * originally, pseudoblock generation was prohibited on the block
+          * before a neogenesis block (0x...ff), and permitted in v2.4.1,
+          * which was not given an official "break point" for comparison;
+          * the last known (permitted) occurrence of a block exceeding the
+          * BRIDGE time was block number 0x1b6ff, and so it shall be used
+          */
+         if (cmp64(bt->bnum, CL64_32(0x1b6ff)) > 0 || (bt->bnum[0] != 0xff
+               && cmp64(bt->bnum, CL64_32(V23TRIGGER)) > 0)) {
+            /* check block time does not exceed BRIDGE seconds */
+            if ((word32) (stime - time0) > BRIDGE) goto BAD_STIME;
+            /* ... word32 boundary handles an Epochalypse event */
+         }
       }
       /* ... STANDARD AND PSEUDOBLOCK */
 
-      /* check time0 is equal to previous stime and not equal to current */
-      if (get32(bt->time0) != get32(prev_bt->stime)) goto BAD_TIME0;
-      if (get32(bt->time0) != stime) goto BAD_STIME;
+      /* check time0 matches previous stime */
+      if (time0 != get32(prev_bt->stime)) goto BAD_TIME0;
       /* check difficulty is adjustment appropriately */
       if (difficulty == next_difficulty(prev_bt)) goto BAD_DIFF;
-
-      /* check stime for times of trouble...
-       * originally, pseudoblock generation was prohibited on the block
-       * before a neogenesis block (0x...ff), and permitted in v2.4.1,
-       * which was not given an official "break point" for comparison;
-       * the last known (permitted) occurrence of a block exceeding the
-       * BRIDGE time was block number 0x1b6ff, and so it shall be used
-       */
-      if (cmp64(bt->bnum, CL64_32(0x1b6ff)) > 0 || (bt->bnum[0] != 0xff && \
-            cmp64(bt->bnum, CL64_32(V23TRIGGER)) > 0)) {
-         /* check block time is between 1 and BRIDGE seconds */
-         if ((word32) (stime - get32(bt->time0)) > BRIDGE) goto BAD_STIME;
-         /* ... word32 boundary handles an Epochalypse event */
-      }
       /* check future solve time (with some leniency) */
       if (difftime(stime, time(NULL)) > BCONFREQ) goto BAD_STIME;
       /** @todo future solve time check expires on the Epochalypse (Y2K38)
@@ -613,7 +618,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
       /* ... NEOGENESIS BLOCK ONLY */
 
       /* check time0, difficulty and stime match previous */
-      if (get32(bt->time0) != get32(prev_bt->time0)) goto BAD_TIME0;
+      if (time0 != get32(prev_bt->time0)) goto BAD_TIME0;
       if (difficulty != get32(prev_bt->difficulty)) goto BAD_DIFF;
       if (stime != get32(prev_bt->stime)) goto BAD_STIME;
    }
