@@ -557,8 +557,9 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
 
       /* check mfee not less than standard mining fee */
       if (cmp64(bt->mfee, MFEE64) < 0) goto BAD_MFEE;
-      /* check tcount not zero */
+      /* check tcount is within approved range */
       if (get32(bt->tcount) == 0) goto BAD_TCOUNT;
+      if (get32(bt->tcount) > MAXBLTX) goto BAD_TCOUNT;
    }
 
    /* obtain frequently dereferenced values */
