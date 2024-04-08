@@ -45,120 +45,68 @@ static int fwrite_hashed(void *wots, const char *code, void *bal, FILE *fp)
 /**
  * Validate a pseudo-block against current node state. Uses node state
  * (Cblocknum, Cblockhash, Difficulty, Time0).
- * @returns VEOK on success, else error code
+ * @param pfile Filename of pseudo-block to validate
+ * @return (int) value representing operation result
+ * @retval VEBAD2 on malicious block; check errno for details
+ * @retval VEBAD on block format violation; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
 */
-int p_val(char *fname)
+int p_val(const char *pfile)
 {
-   BTRAILER bt;
-   SHA256_CTX ctx;
+   BTRAILER bt, tft;
    FILE *fp;
-   clock_t ticks;
-   long plen;
-   word32 hdrlen, bnum[2];
-   word8 hash[HASHLEN];
-
-   /* init */
-   ticks = clock();
-
-   pdebug("validating pseudo-block...");
+   long long len;
+   word32 hdrlen;
 
    /* open the pseudo-block to validate */
-   fp = fopen(fname, "rb");
-   if (fp == NULL) {
-      perrno("failed to fopen(%s)", fname);
-      return VERROR;
-   }
-   /* read and check regular fixed size block header */
-   if (fread(&hdrlen, 4, 1, fp) != 1) {
-      perr("failed to fread(hdrlen)");
-      goto CLEANUP;
-   } else if (hdrlen != 4) {
-      perr("bad hdrlen size: %" P32u, hdrlen);
-      goto CLEANUP_DROP;
+   fp = fopen(pfile, "rb");
+   if (fp == NULL) return VERROR;
+   /* read pseudo-block data and jumpt to EOF for file length */
+   if (fread(&hdrlen, 4, 1, fp) != 1) goto RDERR_CLEANUP;
+   if (hdrlen != 4) {
+      set_errno(EMCM_HDRLEN);
+      goto ERROR_CLEANUP;
    }
 
    /* fseek to check pseudo-block file length */
-   if (fseek(fp, 0, SEEK_END) != 0) {
-      perrno("failed to fseek(END)");
-      goto CLEANUP;
-   }
-   plen = ftell(fp);
-   if (plen == EOF) {
-      perrno("failed to ftell(fp)");
-      goto CLEANUP;
-   }
-   if (plen != sizeof(BTRAILER) + 4) {
-      perr("invalid pseudo-block length: %ld", plen);
-      goto CLEANUP;
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   len = ftell(fp);
+   if (len == (-1)) goto ERROR_CLEANUP;
+   if (len != sizeof(BTRAILER) + 4) {
+      set_errno(EMCM_FILELEN);
+      goto ERROR_CLEANUP;
    }
 
    /* read trailer */
-   if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
-      perrno("failed on fseek(END-BTRAILER)");
-      goto CLEANUP;
-   } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
-      perr("failed to fread(bt)");
-      goto CLEANUP;
-   }
+   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
+   /* cleanup (early) */
+   fclose(fp);
 
-   /* check zeros */
+   /* validate block trailer against tfile trailer */
+   if (read_trailer(&tft, "tfile.dat") != VEOK) return VERROR;
+   if (validate_trailer(&bt, &tft) != VEOK) return VEBAD2;
+
+   /* tcount cannot reliably be validated by (the current routines of)
+    * validate_trailer(), so we must ENSURE the validity of tcount here
+    */
    if (get32(bt.tcount) != 0) {
-      perr("bad tcount");
-      goto CLEANUP_DROP;
-   } else if (!iszero(bt.mroot, 32)) {
-      perr("bad merkel array");
-      goto CLEANUP_DROP;
-   } else if (!iszero(bt.nonce, 32)) {
-      perr("bad nonce");
-      goto CLEANUP_DROP;
+      set_errno(EMCM_TCOUNT);
+      return VEBAD2;
    }
-
-   /* check block num, hash, and difficulty */
-   add64(Cblocknum, One, bnum);
-   if (cmp64(bt.bnum, bnum) != 0) {
-      perr("bad block number");
-      goto CLEANUP_DROP;
-   } else if (memcmp(bt.phash, Cblockhash, HASHLEN) != 0) {
-      perr("previous block hash mismatch");
-      goto CLEANUP_DROP;
-   } else if (get32(bt.difficulty) != Difficulty) {
-      perr("bad difficulty");
-      goto CLEANUP_DROP;
-   }
-
-   /* check block times */
-   if (get32(bt.time0) != Time0) {
-      perr("bad start time (time0)");
-      goto CLEANUP_DROP;
-   } else if (get32(bt.stime) != Time0 + BRIDGE) {
-      perr("bad bridge time (stime)");
-      goto CLEANUP_DROP;
-   } else if (!iszero(bt.mfee, 8)) {
-      perr("bad mining fee");
-      goto CLEANUP_DROP;
-   }
-
-   /* compute and check block hash */
-   sha256_init(&ctx);
-   sha256_update(&ctx, &hdrlen, 4);
-   sha256_update(&ctx, &bt, sizeof(bt) - HASHLEN);
-   sha256_final(&ctx, hash);
-   if (memcmp(bt.bhash, hash, HASHLEN) != 0) {
-      perr("bad block hash");
-      goto CLEANUP_DROP;
-   }
-
-   pdebug("completed in %gs", diffclocktime(ticks));
 
    /* success */
    return VEOK;
 
    /* cleanup / error handling */
-CLEANUP_DROP:
+RDERR_CLEANUP:
+   if (!ferror(fp)) {
+      set_errno(EMCM_EOF);
+   }
+ERROR_CLEANUP:
    fclose(fp);
-   return VEBAD2;
-CLEANUP:
-   fclose(fp);
+
    return VERROR;
 }  /* end p_val() */
 
