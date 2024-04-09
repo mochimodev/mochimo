@@ -29,19 +29,6 @@
 #include "sha256.h"
 #include "extmath.h"
 
-static int fwrite_hashed(void *wots, const char *code, void *bal, FILE *fp)
-{
-   LTRAN lt;
-
-   /* build ledger transaction */
-   hash_wots_addr(lt.addr, wots);
-   memcpy(lt.trancode, code, 1);
-   memcpy(lt.amount, bal, 8);
-
-   /* queue and return result of single write operation */
-   return fwrite(&lt, sizeof(lt), 1, fp);
-}
-
 /**
  * Validate a pseudo-block against current node state. Uses node state
  * (Cblocknum, Cblockhash, Difficulty, Time0).
