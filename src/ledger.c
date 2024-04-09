@@ -26,7 +26,7 @@
 #include <errno.h>
 
 static FILE *Lefp;
-static word64 Nledger;
+static long long Nledger;
 word32 Sanctuary;
 word32 Lastday;
 
@@ -147,7 +147,7 @@ void le_close(void)
 */
 int le_find(word8 *addr, LENTRY *le, word16 len)
 {
-   word64 mid, hi, low;
+   long long mid, hi, low;
    int cond;
 
    if(Lefp == NULL) {
@@ -164,9 +164,8 @@ int le_find(word8 *addr, LENTRY *le, word16 len)
    hi = Nledger - 1;
 
    while(low <= hi) {
-      mid = (hi + low) / 2;
-      if(fseek(Lefp, mid * sizeof(LENTRY), SEEK_SET) != 0) break;
-      if(fread(le, 1, sizeof(LENTRY), Lefp) != sizeof(LENTRY)) break;
+      mid = ((hi + low) / 2) * sizeof(LENTRY);
+      if (fseek64(Lefp, mid, SEEK_SET) != 0) return 0;
       cond = memcmp(addr, le->addr, len);
       if(cond == 0) return 1;  /* found target addr */
       if(cond < 0) hi = mid - 1; else low = mid + 1;
