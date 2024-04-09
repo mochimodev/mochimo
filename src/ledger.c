@@ -81,21 +81,6 @@ static int lt_compare(const void *va, const void *vb)
    return memcmp(va, vb, TXADDRLEN + 1);
 }
 
-/**
- * Convert a WOTS+ address to a Hashed-based address. Copies tag data.
- * @param hash Pointer to destination hash-based address
- * @param wots Pointer to source WOTS+ address
- */
-void hash_wots_addr(void *hash, const void *wots)
-{
-   sha256(wots, TXSIGLEN, hash);
-   memcpy(
-      (unsigned char *) hash + (TXADDRLEN - TXTAGLEN),
-      (unsigned char *) wots + (TXWOTSLEN - TXTAGLEN),
-      TXTAGLEN
-   );
-}
-
 /* Open ledger "ledger.dat" */
 int le_open(const char *lefile)
 {
