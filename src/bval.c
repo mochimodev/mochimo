@@ -111,115 +111,159 @@ ERROR_CLEANUP:
 }  /* end p_val() */
 
 /**
- * Validate a WOTS+ neo-genesis block.
+ * Validate a neogenesis-block containing a hash-based ledger.
  * Checks ledger entries are in ascending sort.
  * Checks block hash matches calculated hash.
- * Checks block size matches neo-genesis format.
+ * Checks block size matches neogenesis format.
  * Checks block trailer matches Tfile entry.
  * Checks sum of amounts do not exceed "expected" rewards.
- * NOTE: Tfile should have been verified before neo-genesis validation.
- * @param fname Filename of neo-genesis file to validate
- * @param tfname Filename of Tfile to validate against
+ * NOTE: Tfile should have been verified before neogenesis validation.
+ * @param ngfile Filename of neogenesis block to validate
  * @param bnum Pointer to expected block number, or NULL to ignore
  * @return (int) value representing operation result
+ * @retval VEBAD2 on malicious block; check errno for details
  * @retval VEBAD on block format violation; check errno for details
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int ng_val(const char *fname, const char *tfname, void *bnum)
+int ng_val(const char *ngfile, const word8 bnum[8])
 {
-   LENTRY_W le, prev_le;
-   SHA256_CTX cctx;
+   LENTRY le;
+   NGHEADER ngh;
    BTRAILER bt, tft;
-   size_t remain, count;
-   word32 hdrlen, first;
-   word8 chash[HASHLEN];
+   long long len;
+   word64 lbytes;
+   size_t j, lcount;
+   word8 prev_addr[TXADDRLEN];
+   word8 mroot[HASHLEN];
    word8 amounts[8];
    word8 rewards[8];
+   word8 *mtree;
    FILE *fp;
+   int ecode;
+
+   /* init */
+   mtree = NULL;
 
    /* open file for validation */
-   fp = fopen(fname, "rb");
+   fp = fopen(ngfile, "rb");
    if (fp == NULL) return VERROR;
+   /* read block trailer (fp left at EOF) */
+   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
+   /* read EOF file offset as file length */
+   len = ftell64(fp);
+   if (len == (-1)) goto ERROR_CLEANUP;
+   /* read and check neogenesis header data */
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   if (fread(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+   if (get32(ngh.hdrlen) != sizeof(NGHEADER)) {
+      set_errno(EMCM_HDRLEN);
+      goto DROP_CLEANUP;
+   }
+   put64(&lbytes, ngh.lbytes);
+   if (lbytes < sizeof(LENTRY) || (lbytes % sizeof(LENTRY)) != 0) {
+      set_errno(EMCM_FILEDATA);
+      goto DROP_CLEANUP;
+   }
+   /* check file length against header data */
+   if (len != (long long) (sizeof(NGHEADER) + lbytes + sizeof(BTRAILER))) {
+      set_errno(EMCM_FILELEN);
+      goto DROP_CLEANUP;
+   }
 
-   /* read header length */
-   if (fread(&hdrlen, sizeof(hdrlen), 1, fp) != 1) goto FAIL_ERR;
+   /* ... fp is left at beginning of ledger entries ... */
 
-   /* check data from headerlen */
-   remain = hdrlen;
-   if (remain < (sizeof(hdrlen) + sizeof(le))) goto BAD_HDRLEN;
-   if ((remain % sizeof(le)) != sizeof(hdrlen)) goto BAD_HDRLEN;
+   /* validate block trailer against tfile trailer */
+   if (read_trailer(&tft, "tfile.dat") != VEOK) goto ERROR_CLEANUP;
+   if (validate_trailer(&bt, &tft) != VEOK) goto DROP_CLEANUP;
 
-   /* init and begin computed hash */
-   sha256_init(&cctx);
-   sha256_update(&cctx, &hdrlen, sizeof(hdrlen));
+   /* tcount cannot reliably be validated by (the current routines of)
+    * validate_trailer(), so we must ENSURE the validity of tcount here
+    */
+   if (get32(bt.tcount) != 0) {
+      set_errno(EMCM_TCOUNT);
+      goto DROP_CLEANUP;
+   }
+
+   /* additional bnum validation from calling parent...
+    * probably should be done in calling parent, but until routines
+    * focus on deduplication of file freads, probably best to stay here
+    */
+   if (bnum) {
+      if (cmp64(bt.bnum, bnum) != 0) {
+         set_errno(EMCM_BNUM);
+         goto DROP_CLEANUP;
+      }
+   }
+
+   /* malloc merkle tree */
+   lcount = lbytes / sizeof(LENTRY);
+   mtree = malloc(lcount * HASHLEN);
+   if (mtree == NULL) goto ERROR_CLEANUP;
 
    /* init amounts before summing */
    memset(amounts, 0, 8);
 
-   /* read remaining block data */
-   for (first = 1, remain -= sizeof(hdrlen); remain; remain -= sizeof(le)) {
-      /* perform read into ledger entry -- check read count */
-      if ((count = fread(&le, sizeof(le), 1, fp)) != 1) goto FAIL_IO;
+   /* read neogenesis ledger data... */
+   for (j = 0; j < lcount; j++) {
+      if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
       /* check ledger sort -- skip on first read */
-      if (first) first = 0;
-      else if (memcmp(le.addr, prev_le.addr, sizeof(le.addr)) <= 0) {
-         goto BAD_SORT;
+      if (j > 0 && memcmp(le.addr, prev_addr, TXADDRLEN) <= 0) {
+         set_errno(EMCM_LESORT);
+         goto DROP_CLEANUP;
       }
       /* update amounts sum, ensure no overflow */
-      if (add64(amounts, le.balance, amounts)) goto BAD_OVERFLOW;
-      /* update data from neogenesis */
-      memcpy(&prev_le, &le, sizeof(le));
-      sha256_update(&cctx, &le, sizeof(le));
-   }  /* end for() */
+      if (add64(amounts, le.balance, amounts)) {
+         set_errno(EMCM_MATH64_OVERFLOW);
+         goto DROP_CLEANUP;
+      }
+      /* hash ledger entry directly into merkel tree -- store prev addr */
+      sha256(&le, sizeof(LENTRY), mtree + (j * HASHLEN));
+      memcpy(prev_addr, le.addr, TXADDRLEN);
+   }
 
-   /* read block trailer and check block number (where supplied) */
-   if (fread(&bt, sizeof(bt), 1, fp) != 1) goto FAIL_IO;
-   else if (bnum && cmp64(bt.bnum, bnum) != 0) goto BAD_BNUM;
+   /* compute and validate Merkel Root */
+   merkle_root(mtree, lcount, mroot);
+   if (memcmp(bt.mroot, mroot, HASHLEN) != 0) {
+      set_errno(EMCM_MROOT);
+      goto DROP_CLEANUP;
+   }
 
-   /* add trailer data -(HASHLEN) to computed hash -- finalize */
-   sha256_update(&cctx, &bt, sizeof(bt) - HASHLEN);
-   sha256_final(&cctx, chash);
-
-   /* check block hash */
-   if (memcmp(chash, bt.bhash, HASHLEN) != 0) goto BAD_BHASH;
-
-   /* compare Neogenesis block trailer to Tfile trailer */
-   if (read_tfile(&tft, bt.bnum, 1, tfname) != 1) {
-      /* .. or the previous trailer where Tfile does not contain it */
-      if (read_trailer(&tft, tfname) != VEOK) goto FAIL_ERR;
-      if (validate_trailer(&bt, &tft) != VEOK) goto FAIL_ERR;
-   } else if (memcmp(&bt, &tft, sizeof(bt)) != 0) goto BAD_TRAILER;
+   /* cleanup */
+   free(mtree);
+   fclose(fp);
 
    /* check accurate sum of Tfile rewards against ledger amounts */
-   /* NOTE: get_tfile_rewards() cannot caluclate balance < MFEE supply loss,
-    * so we only check the Neogenesis amounts do not exceed expected */
-   if (get_tfile_rewards(tfname, rewards, bt.bnum) != VEOK) goto FAIL_ERR;
+   if (get_tfrewards("tfile.dat", rewards, bt.bnum) != VEOK) return VERROR;
+   /* ... get_tfile_rewards() cannot calculate supply burn where a
+    * balance is less than the transaction fee, so we only check the
+    * Neogenesis amounts do not exceed our expected rewards...
+    */
 
    /* check calculated rewards against ledger amounts */
-   if (cmp64(amounts, rewards) > 0) goto BAD_AMOUNTS;
+   if (cmp64(amounts, rewards) > 0) {
+      set_errno(EMCM_LESUM);
+      return VEBAD2;
+   }
 
-   /* neogenesis is valid */
-   fclose(fp);
    return VEOK;
 
-/* error handling */
-FAIL_IO:
-   if (feof(fp)) {
-      /* set_errno(EMCM_EOF); */
-      pdebug("ng_val(): EOF");
+   /* cleanup / error handling */
+RDERR_CLEANUP:
+   if (!ferror(fp)) {
+      set_errno(EMCM_EOF);
    }
-FAIL_ERR: fclose(fp); return VERROR;
-FAIL_BAD: fclose(fp); return VEBAD;
+ERROR_CLEANUP:
+   ecode = VERROR;
+   goto CLEANUP;
+DROP_CLEANUP:
+   ecode = VEBAD2;
+CLEANUP:
+   if (mtree) free(mtree);
+   fclose(fp);
 
-/* block format violation handling */
-BAD_AMOUNTS: set_errno(EMCM_LE_AMOUNTS_SUM); goto FAIL_BAD;
-BAD_BHASH: set_errno(EMCM_BHASH); goto FAIL_BAD;
-BAD_BNUM: set_errno(EMCM_BNUM); goto FAIL_BAD;
-BAD_HDRLEN: set_errno(EMCM_HDRLEN); goto FAIL_BAD;
-BAD_TRAILER: set_errno(EMCM_TRAILER); goto FAIL_BAD;
-BAD_OVERFLOW: set_errno(EMCM_LE_AMOUNTS_OVERFLOW); goto FAIL_BAD;
-BAD_SORT: set_errno(EMCM_LE_SORT); goto FAIL_BAD;
+   return ecode;
 }  /* end ng_val() */
 
 /**
