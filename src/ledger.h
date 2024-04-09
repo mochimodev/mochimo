@@ -21,14 +21,6 @@
    #define LEBUFSZ ( 1 << 26 ) /* 64M */
 #endif
 
-/**
- * Legacy ledger entry struct
-*/
-typedef struct {
-   word8 addr[TXWOTSLEN];    /* 2208 */
-   word8 balance[TXAMOUNT];  /* 8 */
-} LENTRY_W;
-
 /* global variables */
 extern word32 Sanctuary;
 extern word32 Lastday;
@@ -41,13 +33,13 @@ extern "C" {
 int addr_compare(const void * a, const void * b);
 int addr_tag_compare(const void * a, const void * b);
 int addr_tag_equal(const void * a, const void * b);
-void hash_wots_addr(void *hash, const void *wots);
-int le_open(char *ledger, char *fopenmode);
+void hash_wots_addr(const void *wots, void *hash);
+int le_open(const char *lefile);
 void le_close(void);
 int le_extract(const char *neogen_file, const char *ledger_file);
-int le_find(word8 *addr, LENTRY *le, word16 len);
+int le_find(const word8 *addr, LENTRY *le, word16 len);
 int le_renew(void);
-int le_update(const char *lefname, const char *ltfname);
+int le_update(const char *ltfname);
 int tag_compare(const void *a, const void *b);
 int tag_equal(const void *a, const void *b);
 
