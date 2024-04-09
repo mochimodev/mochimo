@@ -27,6 +27,7 @@
 
 static FILE *Lefp;
 static long long Nledger;
+static char Lefile[FILENAME_MAX];
 word32 Sanctuary;
 word32 Lastday;
 
@@ -96,33 +97,46 @@ void hash_wots_addr(void *hash, const void *wots)
 }
 
 /* Open ledger "ledger.dat" */
-int le_open(char *ledger, char *fopenmode)
+int le_open(const char *lefile)
 {
-   word64 offset;
+   FILE *fp;
+   long long offset;
 
    /* Already open? */
-   if(Lefp) return VEOK;
+   if (Lefp) {
+      if (strcmp(lefile, Lefile) == 0) return VEOK;
+      /* ... no, opening different ledger */
+   }
 
    /* open ledger and seek to EOF */
-   Lefp = fopen(ledger, fopenmode);
-   if (Lefp == NULL) return VERROR;
+   fp = fopen(lefile, "rb");
+   if (fp == NULL) return VERROR;
    if (fseek64(Lefp, 0LL, SEEK_END) != 0) {
-      le_close();
-      return VERROR;
+      goto ERROR_CLEANUP;
    }
 
    /* determine file size (via position) and check validity */
    offset = ftell64(Lefp);
-   if(offset < sizeof(LENTRY) || (offset % sizeof(LENTRY)) != 0) {
-      le_close();
-      set_errno(EMCM_FILELEN);
-      return VERROR;
+   if (offset == (-1)) goto ERROR_CLEANUP;
+   if ((size_t) offset < sizeof(LENTRY) || offset % sizeof(LENTRY) != 0) {
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
    }
 
-   /* set number of ledger entries */
+   /* replace existing ledger */
+   le_close();
+   Lefp = fp;
+   /* update static ledger unit values */
    Nledger = offset / sizeof(LENTRY);
+   strncpy(Lefile, lefile, sizeof(Lefile) - 1);
 
    return VEOK;
+
+   /* cleanup / error handling */
+ERROR_CLEANUP:
+   fclose(fp);
+
+   return VERROR;
 }  /* end le_open() */
 
 
@@ -150,8 +164,9 @@ int le_find(word8 *addr, LENTRY *le, word16 len)
    long long mid, hi, low;
    int cond;
 
-   if(Lefp == NULL) {
-      perr("use le_open() first!");
+   /* ledger must be open */
+   if (Lefp == NULL) {
+      set_errno(EMCM_LECLOSED);
       return 0;
    }
 
@@ -255,65 +270,67 @@ FAIL_NEO:
 */
 int le_renew(void)
 {
-   FILE *fp, *fpout;
+   FILE *fp;
    LENTRY le;
    word32 sanctuary[2];
 
+   /* ledger must be open */
+   if (Lefp == NULL) {
+      set_errno(EMCM_LECLOSED);
+      return VERROR;
+   }
+
    if(Sanctuary == 0) return VEOK;  /* success */
-   le_close();  /* make sure ledger.dat is closed */
    sanctuary[0] = Sanctuary;
    sanctuary[1] = 0;
 
    /* open ledger and replacement files */
-   fp = fopen("ledger.dat", "rb");
-   if (fp == NULL) return VERROR;
-   fpout = fopen("ledger.tmp", "wb");
-   if (fpout == NULL) goto FAIL_DAT;
+   fp = fopen("ledger.renew", "wb");
+   if (fp == NULL) goto ERROR_CLEANUP;
 
    /* renew the ledger per Carousal requirements */
-   for(;;) {
-      if (fread(&le, sizeof(le), 1, fp) != 1) {
-         if (ferror(fp)) goto FAIL_IO;
+   for(rewind(Lefp);;) {
+      if (fread(&le, sizeof(LENTRY), 1, Lefp) != 1) {
+         if (ferror(fp)) goto ERROR_CLEANUP;
          break;  /* EOF */
       }
       if(sub64(le.balance, sanctuary, le.balance)) continue;
       if(cmp64(le.balance, Mfee) <= 0) continue;
-      if(fwrite(&le, sizeof(le), 1, fpout) != 1) goto FAIL_IO;
+      if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) goto ERROR_CLEANUP;
    }
 
-   /* cleanup files -- swap ledger */
+   /* cleanup */
    fclose(fp);
-   fclose(fpout);
-   remove("ledger.dat");
-   if (rename("ledger.tmp", "ledger.dat") != 0) {
+
+   /* close / replace ledger */
+   le_close();
+   remove(Lefile);
+   if (rename("ledger.renew", Lefile) != 0) {
       return VERROR;
    }
 
-   /* success */
-   return VEOK;
+   /* return result of reopen ledger */
+   return le_open(Lefile);
 
    /* cleanup / error handling */
-FAIL_IO:
-   fclose(fpout);
-   remove("ledger.tmp");
-FAIL_DAT:
+ERROR_CLEANUP:
    fclose(fp);
+   remove("ledger.renew");
 
    return VERROR;
 }  /* end le_renew() */
 
 /**
- * Update a leadger file, @a lefname, by applying deltas from a ledger
- * transaction file, @a ltfname. Ledger file is kept sorted on addr.
+ * Update the ledger by applying deltas from a ledger transaction file.
  * Ledger transaction file is sorted by addr+code, '-' comes before 'A'.
- * @param lefname Filename of the Ledger file to update
+ * Ledger file is kept sorted on addr.
  * @param ltfname Filename of the Ledger transaction file containing deltas
  * @return (int) value representing the update result
  * @retval VEBAD2 on malicious; check errno for details
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int le_update(const char *lefname, const char *ltfname)
+int le_update(const char *ltfname)
 {
    LENTRY le, le_hold;        /* for ledger entry and ledger hold data */
    LTRAN lt;                  /* for ledger transaction data */
@@ -321,41 +338,39 @@ int le_update(const char *lefname, const char *ltfname)
    word8 le_prev[TXADDRLEN];     /* for ledger sequence check */
    word8 lt_prev[TXADDRLEN + 1]; /* for ltran sequence check */
    word8 hold, empty;
-   int compare;
-   char tmpfname[FILENAME_MAX];
+   int compare, ecode;
 
-   /* ensure ledger (global ref) is closed for update */
-   le_close();
-
-   /* sort the ledger transaction file */
-   if (filesort(ltfname, sizeof(LTRAN), LEBUFSZ, lt_compare) != 0) {
+   /* ledger must be open */
+   if (Lefp == NULL) {
+      set_errno(EMCM_LECLOSED);
       return VERROR;
    }
 
-   /* open ledger (local ref), ledger transactions */
-   lefp = fopen(lefname, "rb");
-   if (lefp == NULL) return VERROR;
+   /* sort the ledger transaction file */
+   ecode = filesort(ltfname, sizeof(LTRAN), LEBUFSZ, lt_compare);
+   if (ecode != 0) return VERROR;
+
+   /* init for error handling */
+   fp = ltfp = NULL;
+   lefp = Lefp;
+
+   /* fseek and read initial ledger entry */
+   if (fseek64(lefp, 0LL, SEEK_SET) != 0) return VERROR;
+   if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
+      if (!ferror(lefp)) set_errno(EMCM_EOF);
+      return VERROR;
+   }
+   /* open and read initial ledger transaction */
    ltfp = fopen(ltfname, "rb");
-   if (ltfp == NULL) goto FAIL_LE;
+   if (ltfp == NULL) return VERROR;
+   if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+      if (!ferror(ltfp)) set_errno(EMCM_EOF);
+      goto ERROR_CLEANUP;
+   }
 
    /* generate temporary filename and open as new ledger */
-   snprintf(tmpfname, sizeof(tmpfname), "le-%04x.tmp", rand16());
-   fp = fopen(tmpfname, "wb");
-   if (fp == NULL) goto FAIL_LE_LT;
-
-   /* read initial ledger entry and ledger transaction records */
-   if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
-      if (ferror(lefp)) goto FAIL_ALL;
-      /* EOF -- shouldn't happen, shouldn't matter */
-      fclose(lefp);
-      lefp = NULL;
-   }
-   if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
-      if (ferror(lefp)) goto FAIL_ALL;
-      /* EOF -- shouldn't happen, shouldn't matter */
-      fclose(ltfp);
-      ltfp = NULL;
-   }
+   fp = fopen("ledger.update", "wb");
+   if (fp == NULL) goto ERROR_CLEANUP;
 
    /* iterate through files while either files are NOT EOF */
    for (hold = 0, empty = 1; lefp != NULL || ltfp != NULL; ) {
@@ -368,11 +383,10 @@ int le_update(const char *lefname, const char *ltfname)
          /* if ledger entry compares AFTER ledger transaction, OR
           * if ledger entry file is EOF... */
          if (compare > 0 || lefp == NULL) {
-            /* the ONLY acceptable ledger transaction code here is an
-             * CREDIT ("A") code, else assume malicious intent */
+            /* assume malicious intent where non-CREDIT ('A') code here */
             if (lt.trancode[0] != 'A') {
                set_errno(EMCM_LTCREDIT);
-               goto FAIL_DROP;
+               goto DROP_CLEANUP;
             }
             /* hold ledger entry while associated file is open */
             if (lefp != NULL) {
@@ -389,7 +403,7 @@ int le_update(const char *lefname, const char *ltfname)
          /* while ledger entry compares EQUAL TO ledger transaction... */
          while (compare == 0) {
             /* apply ledger transaction */
-            switch ((char) lt.trancode[1]) {
+            switch (lt.trancode[0]) {
                case 'A':
                   /* transaction CREDIT operation */
                   if (add64(le.balance, lt.amount, le.balance)) {
@@ -401,21 +415,22 @@ int le_update(const char *lefname, const char *ltfname)
                   break;
                case '-':
                   /* transaction DEBIT operation */
+                  /* ... assume malicious intent where balance != amount */
                   if (cmp64(le.balance, lt.amount) != 0) {
                      set_errno(EMCM_LTDEBIT);
-                     goto FAIL_DROP;
+                     goto DROP_CLEANUP;
                   }
                   memset(le.balance, 0, sizeof(le.balance));
                   break;
                default:
                   /* invalid transaction operation */
                   set_errno(EMCM_LTCODE);
-                  goto FAIL_ALL;
+                  goto ERROR_CLEANUP;
             }
             /* read next ledger transaction */
             memcpy(lt_prev, lt.addr, TXADDRLEN + 1);
             if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
-               if (ferror(lefp)) goto FAIL_ALL;
+               if (ferror(ltfp)) goto ERROR_CLEANUP;
                /* EOF -- cleanup, break inner loop */
                fclose(ltfp);
                ltfp = NULL;
@@ -425,7 +440,7 @@ int le_update(const char *lefname, const char *ltfname)
             /* NOTE: sort check SHOULD include transaction code */
             if (memcmp(lt_prev, lt.addr, TXADDRLEN + 1) > 0) {
                set_errno(EMCM_LTSORT);
-               goto FAIL_ALL;
+               goto ERROR_CLEANUP;
             }
             /* recompare latest ledger transaction */
             compare = addr_compare(le.addr, lt.addr);
@@ -437,9 +452,9 @@ int le_update(const char *lefname, const char *ltfname)
       if (compare < 0 || ltfp == NULL) {
          /* if ledger entry balance > MFEE, write to output */
          if (cmp64(le.balance, Mfee) > 0) {
-            if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) {
-               goto FAIL_ALL;
-            } else empty = 0;
+            if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) goto ERROR_CLEANUP;
+            /* flag output not empty */
+            empty = 0;
          }
          /* if ledger entry file open... */
          if (lefp != NULL) {
@@ -452,16 +467,16 @@ int le_update(const char *lefname, const char *ltfname)
             /* read next ledger transaction, AND... */
             memcpy(le_prev, le.addr, TXADDRLEN);
             if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
-               if (ferror(lefp)) goto FAIL_ALL;
-               /* EOF -- cleanup */
-               fclose(lefp);
+               if (ferror(lefp)) goto ERROR_CLEANUP;
+               /* EOF -- DO NOT CLOSE, just decouple from Lefp */
+               /* fclose(lefp); */
                lefp = NULL;
                continue;
             }
             /* check sort -- MUST BE ascending, NO duplicates */
             if (memcmp(le_prev, le.addr, TXADDRLEN) >= 0) {
                set_errno(EMCM_LESORT);
-               goto FAIL_ALL;
+               goto ERROR_CLEANUP;
             }
          }  /* end  if (lefp != NULL) */
       }  /* end if (compare < 0... */
@@ -469,40 +484,34 @@ int le_update(const char *lefname, const char *ltfname)
    /* empty ledger check */
    if (empty) {
       set_errno(EMCM_LEEMPTY);
-      goto FAIL_ALL;
+      goto ERROR_CLEANUP;
    }
 
-   /* cleanup -- lefp/ltfp already closed */
+   /* cleanup -- ltfp already closed */
    fclose(fp);
 
-   /* finalize */
-   remove(lefname);
-   if (rename(tmpfname, lefname) != 0) return VERROR;
-   /* ... make copy of ledger transaction file */
-   snprintf(tmpfname, sizeof(tmpfname), "%s.last", ltfname);
-   remove(tmpfname);
-   if (rename(ltfname, tmpfname) != 0) return VERROR;
+   /* close / replace ledger */
+   le_close();
+   remove(Lefile);
+   if (rename("ledger.update", Lefile) != 0) return VERROR;
 
-   /* success */
-   return VEOK;
+   /* return result of reopen ledger */
+   return le_open(Lefile);
 
    /* cleanup / error handling */
-FAIL_DROP:
-   fclose(fp);
-   remove(tmpfname);
+ERROR_CLEANUP:
+   ecode = VERROR;
+   goto CLEANUP;
+DROP_CLEANUP:
+   ecode = VEBAD2;
+CLEANUP:
    if (ltfp) fclose(ltfp);
-   if (lefp) fclose(lefp);
+   if (fp) {
+      fclose(fp);
+      remove("ledger.update");
+   }
 
-   return VEBAD2;
-FAIL_ALL:
-   fclose(fp);
-   remove(tmpfname);
-FAIL_LE_LT:
-   if (ltfp) fclose(ltfp);
-FAIL_LE:
-   if (lefp) fclose(lefp);
-
-   return VERROR;
+   return ecode;
 }  /* end le_update() */
 
 /**
