@@ -81,7 +81,13 @@ static int lt_compare(const void *va, const void *vb)
    return memcmp(va, vb, TXADDRLEN + 1);
 }
 
-/* Open ledger "ledger.dat" */
+/**
+ * Open ledger file for internal operations. Ledger file is read-only.
+ * @param lefile Filename of the ledger file to open
+ * @return (int) value representing open result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
 int le_open(const char *lefile)
 {
    FILE *fp;
@@ -124,7 +130,10 @@ ERROR_CLEANUP:
    return VERROR;
 }  /* end le_open() */
 
-
+/**
+ * Close the internal ledger file. No operation if ledger was not opened
+ * with le_open().
+ */
 void le_close(void)
 {
    if(Lefp == NULL) return;
@@ -135,14 +144,16 @@ void le_close(void)
 
 /**
  * Binary search for ledger address. If found, le is filled with the found
- * ledger entry data. Hash-based addresses are derived from supplied WOTS+
- * addresses where an appropriate length parameter is provided.
+ * ledger entry data. Ledger must have been opened with le_open().
  * @param addr Address data to search for
  * @param le Pointer to place found ledger entry
  * @param len Length of address data to search
  * @return (int) value representing found result
  * @retval 0 on not found; check errno for details
  * @retval 1 on found; check le pointer for ledger data
+ * @exception errno=EMCM_LECLOSED if ledger is not open
+ * @exception errno=EINVAL if address or le is NULL, or len is zero
+ * @exception errno=0 if address is not found
 */
 int le_find(const word8 *addr, LENTRY *le, word16 len)
 {
@@ -257,7 +268,9 @@ ERROR_CLEANUP:
 }  /* end le_extract() */
 
 /**
- * Apply the Sanctuary Protocol to renew the ledger.
+ * Apply the Sanctuary Protocol to renew the ledger. Ledger file must have
+ * been opened with le_open(). If Sanctuary is zero, no operation is
+ * performed.
  * @return (int) value representing renew result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
@@ -317,8 +330,9 @@ ERROR_CLEANUP:
 /**
  * Update the ledger by applying deltas from a ledger transaction file.
  * Ledger transaction file is sorted by addr+code, '-' comes before 'A'.
- * Ledger file is kept sorted on addr.
- * @param ltfname Filename of the Ledger transaction file containing deltas
+ * Ledger file is kept sorted on addr. Ledger file must have been opened
+ * with le_open().
+ * @param ltfname Filename of the Ledger transaction (deltas) file
  * @return (int) value representing the update result
  * @retval VEBAD2 on malicious; check errno for details
  * @retval VERROR on error; check errno for details
