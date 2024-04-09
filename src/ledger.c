@@ -159,7 +159,7 @@ void le_close(void)
  * @retval 0 on not found; check errno for details
  * @retval 1 on found; check le pointer for ledger data
 */
-int le_find(word8 *addr, LENTRY *le, word16 len)
+int le_find(const word8 *addr, LENTRY *le, word16 len)
 {
    long long mid, hi, low;
    int cond;
@@ -170,8 +170,12 @@ int le_find(word8 *addr, LENTRY *le, word16 len)
       return 0;
    }
 
-   /* search length cannot be zero */
-   if (len == 0) return 0;
+   /* check address pointer and non-zero search length */
+   if (addr == NULL || le == NULL || len == 0) {
+      set_errno(EINVAL);
+      return 0;
+   }
+
    /* clamp search length to TXADDRLEN */
    if (len > TXADDRLEN) len = TXADDRLEN;
 
@@ -181,10 +185,17 @@ int le_find(word8 *addr, LENTRY *le, word16 len)
    while(low <= hi) {
       mid = ((hi + low) / 2) * sizeof(LENTRY);
       if (fseek64(Lefp, mid, SEEK_SET) != 0) return 0;
+      if (fread(le, sizeof(LENTRY), 1, Lefp) != 1) {
+         if (!ferror(Lefp)) set_errno(EMCM_EOF);
+         return 0;
+      }
       cond = memcmp(addr, le->addr, len);
       if(cond == 0) return 1;  /* found target addr */
       if(cond < 0) hi = mid - 1; else low = mid + 1;
    }  /* end while */
+
+   /* indicate successful operation in the absence of a result */
+   set_errno(0);
 
    return 0;  /* not found */
 }  /* end le_find() */
