@@ -179,6 +179,8 @@ enum mcm_errno_t {
    /* ledger entry related errors... */
    /** Overflow of ledger amounts */
    EMCM_LEOVERFLOW,
+   /** Ledger operation attempted while ledger is closed */
+   EMCM_LECLOSED,
    /** No records written to ledger file */
    EMCM_LEEMPTY,
    /** Ledger cannot be extracted from a non-NG block */

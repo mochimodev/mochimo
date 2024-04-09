@@ -355,6 +355,8 @@ const char *mcm_errno_text(int errnum)
       /* ledger entry related errors... */
       case EMCM_LEOVERFLOW:
          return "Overflow of ledger amounts";
+      case EMCM_LECLOSED:
+         return "Ledger operation attempted while ledger is closed";
       case EMCM_LEEMPTY:
          return "No records written to ledger file";
       case EMCM_LEEXTRACT:
