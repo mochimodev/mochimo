@@ -267,487 +267,289 @@ CLEANUP:
 }  /* end ng_val() */
 
 /**
- * Validate a blockchain file and rename to "vblock.dat" on success. Also
- * creates ledger transaction deltas file, "ltran.dat", on success. Uses
- * node state (Mfee, Difficulty, Time0, Cblocknum, Cblockhash) to verify
- * the blockchain file against.
- * @param fname Name of blockchain file to validate: "rblock.dat"
- * @returns VEOK on success, else VERROR
-*/
-int b_val(char *fname)
+ * Validate a transaction block file and create ledger transaction file.
+ * @param bcfile Filename of block file to validate
+ * @param ltfile Filename of ledger transactions file to write
+ * @return (int) value representing operation result
+ * @retval VEBAD2 on malicious block; check errno for details
+ * @retval VEBAD on invalid block; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int b_val(const char *bcfile, const char *ltfile)
 {
-   /* fork trigger blocks */
-   static word32 tot_trigger[2] = { V23TRIGGER, 0 };
-   static word32 v24_trigger[2] = { V24TRIGGER, 0 };
-   /* Adding constants to skip validation on BoxingDay corrupt block
-    * provided the blockhash matches.  See "Boxing Day Anomaly" write
-    * up on the Wiki or on [ REDACTED ] for more details. */
-   static word32 boxingday[2] = { 0x52d3c, 0 };
-   static char boxdayhash[32] = {
-      0x2f, 0xfa, 0xb9, 0xb9, 0x00, 0xe1, 0xbc, 0xa8,
-      0x25, 0x19, 0x20, 0xc2, 0xdd, 0xf0, 0x46, 0xb8,
-      0x07, 0x44, 0x2a, 0xbb, 0xfa, 0x5e, 0x94, 0x51,
-      0xb0, 0x60, 0x03, 0xcc, 0x82, 0x2d, 0xb1, 0x12
-   };
-
-   SHA256_CTX bctx, mctx;  /* (entire) block hash and merkel array */
-   LENTRY src_le;          /* source and change ledger entries */
    TXQENTRY tx;            /* Holds one transaction in the array */
+   XDATA xdata;
+   BTRAILER tft;           /* fixed length block trailer (tfile) */
    BTRAILER bt;            /* fixed length block trailer */
    BHEADER bh;             /* fixed length block header */
-   TXQENTRY txs;           /* for mtx sig check */
-   TXQENTRY *Q2, *qlimit;  /* tag mods */
-   TXQENTRY *qp1, *qp2;    /* tag mods */
-   MTX *mtx;
+   long long len, min;
+   size_t ltcount, ltidx, refidx;
+   void *ptr;
+   LTRAN *ltran;
+   word8 *mtree;
+   word8 *raddr;           /* reference address list of spent tags */
    FILE *fp, *ltfp;        /* input fname, output file ltran.tmp */
    word8 mroot[HASHLEN];   /* computed Merkel root */
-   word8 bhash[HASHLEN];   /* computed block hash */
-   word8 tx_id[HASHLEN];   /* hash of transaction and signature */
-   word8 prev_tx_id[HASHLEN]; /* to check sort */
-   word8 addr[TXWOTSLEN];     /* for mtx scan 4 */
-   word8 pk2[WOTSSIGBYTES];   /* for WOTS */
-   word8 msg[32];             /* for WOTS */
-   word32 rnd2[8];            /* for WOTS */
-   word32 bnum[2], stemp;
-   word32 mfees[2], mreward[2];
-   word32 total[2];        /* for 64-bit maths */
-   clock_t ticks;          /* for function execution time */
-   size_t len;             /* for malloc lengths */
-   word32 hdrlen, tcount;  /* header length and transaction count */
-   long blocklen;
-   unsigned int j;
-   int cond, count;
-   char addrhash[10];
+   word8 addr[TXADDRLEN];  /* for tag_find() */
+   word8 mreward[8];
+   word32 mdstlen, tcount; /* multi-destination and transaction count */
+   word32 j, k;            /* loop counters */
+   int ecode;
 
-   /* init */
-   ticks = clock();
-   memset(mfees, 0, sizeof(mfees));
+   /* init NULL for error handling */
+   mtree = raddr = NULL;
+   fp = ltfp = NULL;
+   ltran = NULL;
 
-   pdebug("validating blockchain file %s...", fname);
-
-   /* open ledger read-only */
-   if (le_open("ledger.dat", "rb") != VEOK) {
-      perrno("failed to le_open(ledger.dat)");
-      return VERROR;
-   }
-   /* create ledger transaction temp file */
-   ltfp = fopen("ltran.tmp", "wb");
-   if (ltfp == NULL) {
-      perrno("failed to fopen(ltran.tmp)");
-      return VERROR;
-   }
-   /* open the block to validate */
-   fp = fopen(fname, "rb");
-   if (fp == NULL) {
-      perrno("failed to fopen(%s)", fname);
-      goto CLEANUP_LT;
+   /* open block file and extract metadata */
+   fp = fopen(bcfile, "rb");
+   if (fp == NULL) goto ERROR_CLEANUP;
+   /* read block trailer (fp left at EOF) */
+   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) return VERROR;
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
+   /* read EOF file offset as file length */
+   len = ftell64(fp);
+   if (len == (-1)) return VERROR;
+   /* ensure file contains the minimum amount of data */
+   min = sizeof(BHEADER) + sizeof(TXQENTRY) + sizeof(BTRAILER);
+   if (len < min) {
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
    }
    /* read and check regular fixed size block header */
-   if (fread(&hdrlen, 4, 1, fp) != 1) {
-      perr("failed to fread(hdrlen)");
-      goto CLEANUP_BLK;
-   } else if (hdrlen != sizeof(BHEADER)) {
-      perr("bad hdrlen size: %" P32u, hdrlen);
-      goto CLEANUP_BLK_DROP;
+   if (fread(&bh, sizeof(BHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+   if (get32(bh.hdrlen) != sizeof(BHEADER)) {
+      set_errno(EMCM_HDRLEN);
+      goto DROP_CLEANUP;
    }
 
-   /* compute block file length */
-   if (fseek(fp, 0, SEEK_END) != 0) {
-      perrno("failed to fseek(END)");
-      goto CLEANUP_BLK;
+   /* ... fp is left at beginning of transactions ... */
+
+   /* check mining reward/address */
+   get_mreward(mreward, bt.bnum);
+   if (memcmp(bh.mreward, mreward, 8) != 0) {
+      set_errno(EMCM_MREWARD);
+      goto DROP_CLEANUP;
    }
-   blocklen = ftell(fp);
-   if (blocklen == EOF) {
-      perr("failed on ftell(fp)");
-      goto CLEANUP_BLK;
+   if (ADDR_HAS_TAG(bh.maddr)) {
+      set_errno(EMCM_MADDR);
+      goto DROP_CLEANUP;
    }
 
-   /* Read block trailer:
-    * Check phash, bnum,
-    * difficulty, Merkel Root, nonce, solve time, and block hash.
+   /* validate block trailer (incl. PoW) against tfile trailer */
+   if (read_trailer(&tft, "tfile.dat") != VEOK) goto ERROR_CLEANUP;
+   if (validate_trailer(&bt, &tft) != VEOK) goto DROP_CLEANUP;
+   if (validate_pow(&bt) != VEOK) goto DROP_CLEANUP;
+
+   /* tcount cannot reliably be validated by (the current routines of)
+    * validate_trailer(), so we must ENSURE the validity of tcount here
     */
-   if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
-      perrno("failed on fseek(-BTRAILER)");
-      goto CLEANUP_BLK;
-   } else if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
-      perr("failed on fread(bt)");
-      goto CLEANUP_BLK;
-   }
-   /* check block number */
-   add64(Cblocknum, One, bnum);
-   if (memcmp(bnum, bt.bnum, 8) != 0) {
-      pdebug("bad block number");
-      goto CLEANUP_BLK_BAD;
-   }
-   /* check block times */
-   stemp = get32(bt.stime);
-   if (stemp <= Time0) {
-      perr("early block time");
-      goto CLEANUP_BLK_DROP;
-   } else if (stemp > (time(NULL) + BCONFREQ)) {
-      perr("time travel?");
-      goto CLEANUP_BLK_DROP;
-   } else if (cmp64(bnum, tot_trigger) > 0 && Cblocknum[0] != 0xfe) {
-      if ((stemp - get32(bt.time0)) > BRIDGE) {
-         perr("invalid TOT trigger");
-         goto CLEANUP_BLK_DROP;
-      }
-   } else if (cmp64(bt.mfee, Mfee) < 0) {
-      perr("bad mining fee");
-      goto CLEANUP_BLK_DROP;
-   } else if (get32(bt.difficulty) != Difficulty) {
-      perr("difficulty mismatch");
-      goto CLEANUP_BLK_DROP;
-   }
-
-   /* check previous block hash */
-   if (memcmp(Cblockhash, bt.phash, HASHLEN) != 0) {
-      perr("previous block hash mismatch");
-      goto CLEANUP_BLK_DROP;
-   }
-   /* check transaction count */
    tcount = get32(bt.tcount);
    if (tcount == 0 || tcount > MAXBLTX) {
-      perr("bad tcount");
-      goto CLEANUP_BLK_DROP;
-   }
-   /* check total block length */
-   if ((hdrlen + sizeof(BTRAILER) + (tcount * sizeof(TXQENTRY)))
-         != (word32) blocklen) {
-      perr("invalid block length");
-      goto CLEANUP_BLK_DROP;
+      set_errno(EMCM_TCOUNT);
+      goto DROP_CLEANUP;
    }
 
-   /* check enforced delay, collect haiku from block */
-   if (cmp64(bnum, v24_trigger) > 0) {
-      /* Boxing Day Anomaly -- Bugfix */
-      if (cmp64(bt.bnum, boxingday) == 0) {
-         if (memcmp(bt.bhash, boxdayhash, 32) != 0) {
-            perr("bad boxingday anomaly bhash");
-            goto CLEANUP_BLK_DROP;
-         }
-      } else if (peach_check(&bt)) {
-         perr("bad Peach");
-         goto CLEANUP_BLK_DROP;
-      }
-   } else if (trigg_check(&bt)) {
-      perr("bad Trigg");
-      goto CLEANUP_BLK_DROP;
-   }
+   /* malloc merkle tree (+1 for miner) */
+   mtree = malloc((tcount + 1) * HASHLEN);
+   if (mtree == NULL) goto ERROR_CLEANUP;
 
-   /* Read block header */
-   if (fseek(fp, 0, SEEK_SET) != 0) {
-      perrno("failed on fseek(SET)");
-      goto CLEANUP_BLK;
-   } else if (fread(&bh, hdrlen, 1, fp) != 1) {
-      perr("failed on fread(bh)");
-      goto CLEANUP_BLK;
-   }
-   /* check mining reward/address */
-   get_mreward(mreward, bnum);
-   if (memcmp(bh.mreward, mreward, 8) != 0) {
-      perr("bad mining reward");
-      goto CLEANUP_BLK_DROP;
-   } else if (ADDR_HAS_TAG(bh.maddr)) {
-      perr("maddr has tag");
-      goto CLEANUP_BLK_DROP;
-   }
+   /* begin merkel hash with mining address + reward */
+   sha256(bh.maddr /* + bh.mreward */, TXADDRLEN + 8, mtree);
 
-   /* fp left at offset of Merkel Block Array--ready to fread() */
+   /* Any transactions to dst_tag's, where the dst_tag also exists as
+    * src_tag in another transaction within the same block, MUST have
+    * the dst_addr replaced with the chg_addr of the transaction from
+    * which the dst_tag was spent as a src_tag. This only applies to
+    * tagged addreses; untagged (mining) addresses are unaffected.
+    *
+    * Example (not dependant on order):
+    * TX#1: src(A) -> dst(B) -> chg(C);
+    * TX#2: src(D) -> dst(A) -> chg(E);
+    * ... TX#2's dst(A) needs to be changed to TX#1's chg(C);
+    *
+    * To address this issue without introducing multiple O(n^2) loops,
+    * we store the chg_addr of afflicted transactions in a list of
+    * reference addresses (*raddr). This list is then sorted by tag
+    * for binary searching, and used to modify destinations during
+    * the final (write) pass of ledger transaction creation.
+    *
+    * Addresses are place in the reference list on the following criterea:
+    * (src_addr) is a tagged address  AND  (src_tag) is equal to (chg_tag)
+    */
 
-   /* begin hashing contexts */
-   sha256_init(&bctx);   /* begin entire block hash */
-   sha256_update(&bctx, &bh, hdrlen);  /* ... with the header */
-   if (!NEWYEAR(bt.bnum)) sha256_init(&mctx); /* begin Merkel Array hash */
-   else memcpy(&mctx, &bctx, sizeof(mctx));  /* ... or copy bctx state */
-
-   /* temp TX tag processing queue */
-   Q2 = malloc((len = tcount * sizeof(TXQENTRY)));
-   if (Q2 == NULL) {
-      perr("failed to malloc(%zu) Q2", len);
-      goto CLEANUP_BLK;
-   }
+   /* ltran space is initially estimated (+1 for miner) */
+   ltcount = tcount * 3 + 1;
+   /* malloc space for ltran list (estimated) */
+   ltran = malloc(sizeof(LTRAN) * ltcount);
+   if (ltran == NULL) goto ERROR_CLEANUP;
+   /* malloc space for reference list (assumes worst case) */
+   raddr = malloc(TXADDRLEN * tcount);
+   if (raddr == NULL) goto ERROR_CLEANUP;
+   /* zero indexes */
+   ltidx = refidx = 0;
 
    /* Validate each transaction */
    for (j = 0; j < tcount; j++) {
-      if (j >= MAXBLTX) {
-         perr("too many transactions");
-         goto CLEANUP_TX;
+      /* read transaction data for validation */
+      if (tx_fread(&tx, &xdata, fp) != VEOK) goto ERROR_CLEANUP;
+
+      /* ... TRANSACTION PROCESSING ... */
+
+      /* check tx_id is sorted (skip first) -- mtree holds prev tx_id */
+      if (j > 0 && memcmp(tx.tx_id, mtree + (j * HASHLEN), HASHLEN) <= 0) {
+         set_errno(EMCM_TXSORT);
+         goto DROP_CLEANUP;
       }
-      if (fread(&tx, sizeof(TXQENTRY), 1, fp) != 1) {
-         perr("failed on fread(TX): TX#%" P32u, j);
-         goto CLEANUP_TX;
-      } else if (cmp64(tx.tx_fee, Mfee) < 0) {
-         perr("bad tx_fee: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      } else if (memcmp(tx.src_addr, tx.chg_addr, TXWOTSLEN) == 0) {
-         perr("(src == chg): TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      } else if (!TX_IS_MTX(&tx)) {
-         if (memcmp(tx.src_addr, tx.dst_addr, TXWOTSLEN) == 0) {
-            perr("(src == dst): TX#%" P32u, j);
-            goto CLEANUP_TX_DROP;
+      /* validate transaction */
+      ecode = tx_val(&tx, &xdata, bt.bnum);
+      if (ecode != VEOK) goto CLEANUP;
+
+      /* add transaction id to merkel tree (infer previous tx_id) */
+      memcpy(mtree, tx.tx_id, HASHLEN);
+
+      /* ... LTRAN PROCESSING ... */
+
+      /* save afflicted change address to reference list */
+      if (ADDR_HAS_TAG(tx.src_addr) &&
+            addr_tag_equal(tx.src_addr, tx.chg_addr)) {
+         memcpy(raddr + (refidx * TXADDRLEN), tx.chg_addr, TXADDRLEN);
+         refidx++;
+      }
+      /* ltran debit source address */
+      memcpy(ltran[ltidx].addr, tx.src_addr, TXADDRLEN);
+      ltran[ltidx].trancode[0] = '-';
+      add64(tx.send_total, tx.change_total, ltran[ltidx].amount);
+      add64(tx.tx_fee, ltran[ltidx].amount, ltran[ltidx].amount);
+      ltidx++;
+      /* check for eXtended TX type transaction */
+      if (!IS_XTX(&tx)) {
+         /* ltran credit destination address */
+         memcpy(ltran[ltidx].addr, tx.dst_addr, TXADDRLEN);
+         ltran[ltidx].trancode[0] = 'D';
+         /* ... 'D' is changed to 'A' in the final (write) pass */
+         put64(ltran[ltidx].amount, tx.send_total);
+         ltidx++;
+      } else if (XTX_TYPE(&tx) == XTX_MDST) {
+         /* handle Multi-destination Transaction */
+         mdstlen = XTX_COUNT(&tx) + 1;
+         if (mdstlen > 1) {
+            /* realloc space to account for additional destinations */
+            ltcount += mdstlen - 1;
+            ptr = realloc(ltran, sizeof(LTRAN) * ltcount);
+            if (ptr == NULL) goto ERROR_CLEANUP;
+            ltran = ptr;
          }
-      }
-
-      /* running block/merkel hash */
-      sha256_update(&bctx, &tx, sizeof(TXQENTRY));
-      sha256_update(&mctx, &tx, sizeof(TXQENTRY));
-      /* tx_id is hash of tx.src_addr */
-      sha256(tx.src_addr, TXWOTSLEN, tx_id);
-      if (memcmp(tx_id, tx.tx_id, HASHLEN) != 0) {
-         perr("bad tx_id: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      }
-
-      /* Check that tx_id is sorted. */
-      if (j != 0) {
-         cond = memcmp(tx_id, prev_tx_id, HASHLEN);
-         if (cond <= 0) {
-            if (cond == 0) {
-               perr("duplicate tx_id: TX#%" P32u, j);
-               goto CLEANUP_TX_DROP;
-            } else {
-               perr("unsorted tx_id: TX#%" P32u, j);
-               goto CLEANUP_TX_DROP;
+         /* iterate multi-destinations */
+         for (k = 0; k < mdstlen; k++) {
+            /* find address associated with tag */
+            memcpy(ADDR_TAG_PTR(addr), xdata.mdst[k].tag, TXTAGLEN);
+            if (tag_find(addr, addr, NULL, TXTAGLEN) != VEOK) {
+               set_errno(EMCM_LETAG);
+               goto ERROR_CLEANUP;
             }
+            /* ltran credit multi-destination address */
+            memcpy(ltran[ltidx].addr, addr, TXADDRLEN);
+            ltran[ltidx].trancode[0] = 'D';
+            /* ... 'D' is changed to 'A' in the final (write) pass */
+            put64(ltran[ltidx].amount, xdata.mdst[k].amount);
+            ltidx++;
          }
+      }  /* end else if (XTX_TYPE(&tx) == XTX_MDST) */
+      /* ltran credit change address */
+      memcpy(ltran[ltidx].addr, tx.chg_addr, TXADDRLEN);
+      ltran[ltidx].trancode[0] = 'A';
+      put64(ltran[ltidx].amount, tx.change_total);
+      ltidx++;
+      /* additionally, sum fees for miner credit */
+      if (add64(mreward, tx.tx_fee, mreward)) {
+         set_errno(EMCM_MFEES_OVERFLOW);
+         goto ERROR_CLEANUP;
       }
-      /* remember this tx_id for next time */
-      memcpy(prev_tx_id, tx_id, HASHLEN);
-
-      /* check WTOS signature */
-      if (TX_IS_MTX(&tx) && get32(Cblocknum) >= MTXTRIGGER) {
-         memcpy(&txs, &tx, sizeof(txs));
-         mtx = (MTX *) &txs;
-         /* mtx->zeros is always signed when zero */
-         memset(mtx->zeros, 0, MDST_NUM_DZEROS);
-         sha256(txs.src_addr, TXSIG_INLEN, msg);
-      } else sha256(tx.src_addr, TXSIG_INLEN, msg);
-      memcpy(rnd2, &tx.src_addr[TXSIGLEN + 32], 32);  /* copy WOTS addr[] */
-      wots_pk_from_sig(pk2, tx.tx_sig, msg, &tx.src_addr[TXSIGLEN], rnd2);
-      if (memcmp(pk2, tx.src_addr, TXSIGLEN) != 0) {
-         perr("WOTS signature failed: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      }
-
-      /* look up source address in ledger */
-      if (le_find(tx.src_addr, &src_le, TXWOTSLEN) == 0) {
-         hash2hex32(tx.src_addr, addrhash);
-         pdebug("error address %s...", addrhash);
-         perr("src_addr not in ledger: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      }
-
-      total[0] = total[1] = 0;
-      /* use add64() to check for carry out, total, and fees */
-      cond =  add64(tx.send_total, tx.change_total, total);
-      cond += add64(tx.tx_fee, total, total);
-      if (cond) {
-         perr("total overflow: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      } else if (cmp64(src_le.balance, total) != 0) {
-         perr("bad transaction total: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      } else if (add64(mfees, tx.tx_fee, mfees)) {
-         perr("mfees overflow: TX#%" P32u, j);
-         goto CLEANUP_TX;
-      }
-      /* check mtx/tag_valid */
-      if (!TX_IS_MTX(&tx)) {
-         if(tag_valid(tx.src_addr, tx.chg_addr, tx.dst_addr, bt.bnum)) {
-            perr("tag not valid: TX#%" P32u, j);
-            goto CLEANUP_TX_DROP;
-         }
-      } else if(mtx_val((MTX *) &tx, Mfee)) {
-         perr("bad mtx_val: TX#%" P32u, j);
-         goto CLEANUP_TX_DROP;
-      }
-
-      /* copy TX to tag queue */
-      memcpy(&Q2[j], &tx, sizeof(TXQENTRY));
    }  /* end for j */
 
-   /* finalize Merkel Root - phash, bnum, mfee, tcount, time0, difficulty */
-   if (NEWYEAR(bt.bnum)) sha256_update(&mctx, &bt, (HASHLEN+8+8+4+4+4));
-   sha256_final(&mctx, mroot);
+   /* transactions are variable length, so to check file length we must
+    * check the current offset (offset at which transactions end), plus
+    * the size of a block trailer is equal to the EOF offset
+    */
+   len = ftell64(fp);
+   if (len == (-1)) goto ERROR_CLEANUP;
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (ftell64(fp) != len + (long long) sizeof(BTRAILER)) {
+      set_errno(EMCM_FILELEN);
+      goto DROP_CLEANUP;
+   }
+
+   /* compute and validate Merkel Root (+1 for miner) */
+   merkle_root(mtree, tcount + 1, mroot);
    if (memcmp(bt.mroot, mroot, HASHLEN) != 0) {
-      perr("bad merkel root");
-      goto CLEANUP_TX_DROP;
+      set_errno(EMCM_MROOT);
+      goto DROP_CLEANUP;
    }
 
-   /* finalize block hash - Block trailer (- block hash) */
-   sha256_update(&bctx, &bt, sizeof(BTRAILER) - HASHLEN);
-   sha256_final(&bctx, bhash);
-   if (memcmp(bt.bhash, bhash, HASHLEN) != 0) {
-      perr("bad block hash");
-      goto CLEANUP_TX_DROP;
-   }
-
-   /* When spending from a tag, the address associated with said tag will
-    * change. Any transactions to dst_tags that are also spent from as
-    * src_tags within the same block, MUST have their dst_addr replaced
-    * with the chg_addr of said src_tag transactions. */
-
-   /* tag search  Begin ... */
-   qlimit = &Q2[tcount];
-   for(qp1 = Q2; qp1 < qlimit; qp1++) {
-      if(!ADDR_HAS_TAG(qp1->src_addr)
-         || memcmp(ADDR_TAG_PTR(qp1->src_addr), ADDR_TAG_PTR(qp1->chg_addr),
-                   TXTAGLEN) != 0) continue;
-      /* Step 2: Start another big-O n squared, nested loop here... */
-      for(qp2 = Q2; qp2 < qlimit; qp2++) {
-         if(qp1 == qp2) continue;  /* added -trg */
-         if(TX_IS_MTX(qp2)) continue;  /* skip multi-dst's for now */
-         /* if src1 == dst2, then copy chg1 to dst2 -- 32-bit for DSL -trg */
-         if(   *((word32 *) ADDR_TAG_PTR(qp1->src_addr))
-            == *((word32 *) ADDR_TAG_PTR(qp2->dst_addr))
-            && *((word32 *) (ADDR_TAG_PTR(qp1->src_addr) + 4))
-            == *((word32 *) (ADDR_TAG_PTR(qp2->dst_addr) + 4))
-            && *((word32 *) (ADDR_TAG_PTR(qp1->src_addr) + 8))
-            == *((word32 *) (ADDR_TAG_PTR(qp2->dst_addr) + 8)))
-                   memcpy(qp2->dst_addr, qp1->chg_addr, TXWOTSLEN);
-      }  /* end for qp2 */
-   }  /* end for qp1 */
-
-   /*
-    * Three times is the charm...
-    */
-   for(j = 0, qp1 = Q2; qp1 < qlimit; qp1++, j++) {
-      /* Re-do all the maths again... */
-      total[0] = total[1] = 0;
-      cond =  add64(qp1->send_total, qp1->change_total, total);
-      cond += add64(qp1->tx_fee, total, total);
-      if (cond) {
-         perr("scan3 total overflow");
-         goto CLEANUP_TX;
-      }
-
-      /* Write ledger transactions to ltran.tmp for all src and chg,
-       * but only non-mtx dst
-       * that will have to be sorted, read again, and applied by bup...
-       */
-      fwrite_hashed(qp1->src_addr, "-", total, ltfp);  /* debit src addr */
-      /* add to or create non-multi dst address */
-      if(!TX_IS_MTX(qp1) && !iszero(qp1->send_total, 8)) {
-         fwrite_hashed(qp1->dst_addr, "A", qp1->send_total, ltfp);
-      }
-      /* add to or create change address */
-      if(!iszero(qp1->change_total, 8)) {
-         fwrite_hashed(qp1->chg_addr, "A", qp1->change_total, ltfp);
-      }
-   }  /* end for j -- scan 3 */
-   if(j != tcount) {
-      perr("scan3 tcount mismatch: %" P32u, j);
-      goto CLEANUP_TX;
-   }
-
-   /* mtx tag search  Begin scan 4 ...
-    *
-    * Write out the multi-dst trans using tag scan logic @
-    * that more or less repeats the above big-O n-squared loops, and
-    * expands the tags, and copies addresses around.
-    */
-   for(qp1 = Q2; qp1 < qlimit; qp1++) {
-      if(!TX_IS_MTX(qp1)) continue;  /* only multi-dst's this time */
-      mtx = (MTX *) qp1;  /* poor man's union */
-      /* For each dst[] tag... */
-      for(j = 0; j < MDST_NUM_DST; j++) {
-         if(iszero(mtx->dst[j].tag, TXTAGLEN)) break; /* end of dst[] */
-         memcpy(ADDR_TAG_PTR(addr), mtx->dst[j].tag, TXTAGLEN);
-         /* If dst[j] tag not found, write money back to chg addr. */
-         if(tag_find(addr, addr, NULL, TXTAGLEN) != VEOK) {
-            count = fwrite_hashed(mtx->chg_addr, "A", mtx->dst[j].amount, ltfp);
-            if (count == 1) continue;  /* next dst[j] */
-            perr("bad I/O dst-->chg write");
-            goto CLEANUP_TX;
-         }
-         /* Start another big-O n-squared, nested loop here... scan 5 */
-         for(qp2 = Q2; qp2 < qlimit; qp2++) {
-            if(qp1 == qp2) continue;
-            /* if dst[j] tag == any other src addr tag and chg addr tag,
-             * copy other chg addr to dst[] addr.
-             */
-            if(!ADDR_HAS_TAG(qp2->src_addr)) continue;
-            if(memcmp(ADDR_TAG_PTR(qp2->src_addr),
-                      ADDR_TAG_PTR(qp2->chg_addr), TXTAGLEN) != 0)
-                         continue;
-            if(memcmp(ADDR_TAG_PTR(qp2->src_addr), ADDR_TAG_PTR(addr),
-                      TXTAGLEN) == 0) {
-                         memcpy(addr, qp2->chg_addr, TXWOTSLEN);
-                         break;
-            }
-         }  /* end for qp2 scan 5 */
-         /* write out the dst transaction */
-         count = fwrite_hashed(addr, "A", mtx->dst[j].amount, ltfp);
-         if (count != 1) {
-            perr("bad I/O scan 4");
-            goto CLEANUP_TX;
-         }
-      }  /* end for j */
-   }  /* end for qp1 */
-   /* end mtx scan 4 */
-
-   /* Create a transaction amount = mreward + mfees
-    * address = bh.maddr
-    */
-   if (add64(mfees, mreward, mfees)) {
-      perr("mfees overflow");
-      goto CLEANUP_TX;
-   }
    /* Make ledger tran to add to or create mining address.
     * '...Money from nothing...'
     */
-   count = fwrite_hashed(bh.maddr, "A", mfees, ltfp);
-   if (count != 1 || ferror(ltfp)) {
-      perr("ltfp IO error");
-      goto CLEANUP_TX;
-   } else {
-      hash2hex32(bh.maddr, addrhash);
-      pdebug("wrote reward (%08x%08x) to %s...",
-         mreward[1], mreward[0], addrhash);
+   memcpy(ltran[ltidx].addr, bh.maddr, TXADDRLEN);
+   ltran[ltidx].trancode[0] = 'A';
+   put64(ltran[ltidx].amount, mreward);
+   ltidx++;
+
+   /* sort reference address list by tag */
+   qsort(raddr, refidx, TXADDRLEN, addr_tag_compare);
+
+   /* open ltran file (if provided) */
+   ltfp = fopen(ltfile, "wb");
+   if (ltfp == NULL) goto ERROR_CLEANUP;
+   /* write ltrans to file, check zero value credits and references */
+   for (j = 0; j < ltidx; j++) {
+      /* skip zero value credits */
+      if (ltran[j].trancode[0] == 'A' || ltran[j].trancode[0] == 'D') {
+         if (iszero(ltran[j].amount, 8)) continue;
+      }
+      /* raddrect destinations of spent tags */
+      if (ltran[j].trancode[0] == 'D') {
+         ltran[j].trancode[0] = 'A';
+         /* replace with reference address if tag matches */
+         ptr = bsearch(ltran[j].addr, raddr, refidx, TXADDRLEN, addr_tag_compare);
+         if (ptr) memcpy(ltran[j].addr, ptr, TXADDRLEN);
+      }
+      /* write ltran entry -- sorted by le_update() */
+      if (fwrite(&ltran[j], sizeof(LTRAN), 1, ltfp) != 1) goto ERROR_CLEANUP;
    }
 
    /* cleanup */
-   free(Q2);
+   free(ltran);
+   free(raddr);
+   free(mtree);
    fclose(fp);
    fclose(ltfp);
-   /* promote ltran.tmp to *.dat file and rename blockchain file */
-   remove("ltran.dat");
-   if (rename("ltran.tmp", "ltran.dat") != 0) {
-      perr("failed to move ltran.tmp to ltran.dat");
-      remove("ltran.tmp");
-      return VERROR;
-   }
-
-   pdebug("%s validated in %gs", fname, diffclocktime(ticks));
 
    /* success */
    return VEOK;
 
-   /* failure / error handling */
-CLEANUP_TX_DROP:
-   free(Q2);
-CLEANUP_BLK_DROP:
-   fclose(fp);
-   fclose(ltfp);
-   remove("ltran.tmp");
-   /* epoch pinklist */
-   return VEBAD2;
-CLEANUP_BLK_BAD:
-   fclose(fp);
-   fclose(ltfp);
-   remove("ltran.tmp");
-   /* current pinklist */
-   return VEBAD;
-CLEANUP_TX:
-   free(Q2);
-CLEANUP_BLK:
-   fclose(fp);
-CLEANUP_LT:
-   fclose(ltfp);
-   remove("ltran.tmp");
-   return VERROR;
+   /* cleanup / error handling */
+RDERR_CLEANUP:
+   if (!ferror(fp)) {
+      set_errno(EMCM_EOF);
+   }
+ERROR_CLEANUP:
+   ecode = VERROR;
+   goto CLEANUP;
+DROP_CLEANUP:
+   ecode = VEBAD2;
+CLEANUP:
+   if (raddr) free(raddr);
+   if (ltran) free(ltran);
+   if (mtree) free(mtree);
+   if (fp) fclose(fp);
+   if (ltfp) {
+      fclose(ltfp);
+      remove(ltfile);
+   }
+
+   return ecode;
 }  /* end b_val() */
 
 /* end include guard */
