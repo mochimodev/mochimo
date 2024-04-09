@@ -18,9 +18,9 @@
 extern "C" {
 #endif
 
-int p_val(char *fname);
-int ng_val(const char *fname, const char *tfname, void *bnum);
-int b_val(char *fname);
+int p_val(const char *pfile);
+int ng_val(const char *ngfile, const word8 bnum[8]);
+int b_val(const char *bcfile, const char *ltfile);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
