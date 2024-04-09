@@ -202,59 +202,54 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
 
 /**
  * Extract a ledger from a neo-genesis block. Checks sort.
- * @param neogen_file Filename of the neo-genesis block
- * @param ledger_file Filename of the ledger
+ * @param ngfile Filename of the neo-genesis block
+ * @param lefile Filename of the ledger
  * @return (int) value representing extraction result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
 */
-int le_extract(const char *neogen_file, const char *ledger_file)
+int le_extract(const char *ngfile, const char *lefile)
 {
    LENTRY le;              /* buffer for Hashed ledger entries */
    NGHEADER ngh;           /* buffer for neo-genesis header */
    FILE *fp, *lfp;         /* FILE pointers */
    word8 paddr[TXADDRLEN]; /* ledger address sort check */
    word64 lbytes;
+   size_t j, lcount;
 
    /* open files */
-   fp = fopen(neogen_file, "rb");
+   fp = fopen(ngfile, "rb");
    if (fp == NULL) return VERROR;
-   lfp = fopen(ledger_file, "wb");
-   if (lfp == NULL) goto FAIL_NEO;
+   lfp = fopen(lefile, "wb");
+   if (lfp == NULL) {
+      fclose(fp);
+      return VERROR;
+   }
 
-   /* read/check neo-genesis hdrlen value */
-   if (fread(&ngh.hdrlen, sizeof(ngh.hdrlen), 1, fp) != 1) goto FAIL_IO;
-   if (get32(ngh.hdrlen) != sizeof(ngh)) {
+   /* read/check neo-genesis block header */
+   if (fread(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+   if (get32(ngh.hdrlen) != sizeof(NGHEADER)) {
       set_errno(EMCM_HDRLEN);
-      goto FAIL_IO;
+      goto ERROR_CLEANUP;
    }
-
-   /* read/check ledger size and alignment */
-   if (fread(&ngh.lbytes, sizeof(ngh.lbytes), 1, fp) != 1) goto FAIL_IO;
    put64(&lbytes, ngh.lbytes);
-   if (lbytes < sizeof(le) || lbytes % sizeof(le) != 0) {
-      set_errno(EMCM_LEEXTRACT);
-      goto FAIL_IO;
+   if (lbytes < sizeof(LENTRY) || lbytes % sizeof(LENTRY) != 0) {
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
    }
 
-   /* read/write first ledger entry */
-   if (fread(&le, sizeof(le), 1, fp) != 1) goto FAIL_IO;
-   if (fwrite(&le, sizeof(le), 1, lfp) != 1) goto FAIL_IO;
-   /* store entry for comparison */
-   memcpy(paddr, le.addr, sizeof(le.addr));
-
-   /* process remaining ledger from fp, copy it to lfp, check ledger sort */
-   for (lbytes -= sizeof(le); lbytes > 0; lbytes -= sizeof(le)) {
-      if (fread(&le, sizeof(le), 1, fp) != 1) goto FAIL_IO;
-      /* check ledger sort*/
-      if (addr_compare(le.addr, paddr) <= 0) {
+   /* process ledger data from fp, check sort, write to lfp */
+   for (lcount = lbytes / sizeof(LENTRY), j = 0; j < lcount; j++) {
+      if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
+      /* check ledger sort */
+      if (j > 0 && addr_compare(le.addr, paddr) <= 0) {
          set_errno(EMCM_LESORT);
-         goto FAIL_IO;
+         goto ERROR_CLEANUP;
       }
       /* store entry for comparison */
       memcpy(paddr, le.addr, sizeof(le.addr));
       /* write hashed ledger entries to ledger file */
-      if (fwrite(&le, sizeof(le), 1, lfp) != 1) goto FAIL_IO;
+      if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
    }  /* end for() */
 
    /* close files */
@@ -265,9 +260,12 @@ int le_extract(const char *neogen_file, const char *ledger_file)
    return VEOK;
 
    /* cleanup / error handling */
-FAIL_IO:
+RDERR_CLEANUP:
+   if (!ferror(fp)) {
+      set_errno(EMCM_EOF);
+   }
+ERROR_CLEANUP:
    fclose(lfp);
-FAIL_NEO:
    fclose(fp);
 
    return VERROR;
