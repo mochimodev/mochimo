@@ -118,13 +118,26 @@
 #endif
 
 /**
- * Mochimo error number types
+ * Mochimo error number type. This is a signed integer type (by force).
 */
 enum mcm_errno_t {
-   /* Force integer enum for compatibility with POSIX standard errno */
-   EMCMFORCEINTEGER = -0x7fffffff - 1,
-   /* initialize errors well above any existing POSIX errno */
-   EMCMFIRST = 0x8000,
+   /* The intent of enum mcm_errno_t interoperability with POSIX errno.
+    *
+    * C99 7.5/2; errno expands to a modifiable lvalue of type int.
+    * C99 6.7.2.2/3-4; enum identifiers are declared constants of type int;
+    * enum type is implementation-defined, but shall be capable of
+    * representing the values of all the members of the enumeration.
+    * "... ruh roh raggy ..."
+    *
+    * GCC seems to declare enum types as unsigned integers by default.
+    * Along comes a wise guy... declares "enum mcm_error_t" variable...
+    * encounters check for negative... and the compiler starts wailing.
+    *
+    * Therefore; force enum type int (signed) and call it a day.
+    */
+   EMCM__FORCEINT = -0x7fffffff - 1,
+   /* initialize above any existing errno (IBM has some at 20k -_-) */
+   EMCM__INIT = 0x6000,
 
    /* core relateed errors... */
    /** Unspecified 64-bit math overflow */
