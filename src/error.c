@@ -313,6 +313,42 @@ char *mcm_strerror(int errnum, char *buf, size_t bufsz)
 }  /* end mcm_strerror() */
 
 /**
+ * Get a textual name of a Mochimo error code.
+ * All Mochimo error codes will return a name representing the @a errnum.
+ * All other error codes, either of standard C errno, or an "alternate"
+ * errno handled by the extended-c module, return "UNREGISTERED_ERROR".
+ * @param errnum Value of the error number to get name
+ * @param buf Pointer to a buffer to place the textual description
+ * @param bufsz Size of the buffer
+ * @return (char *) containing a textual name of error
+ */
+char *mcm_strerrorname(int errnum, char *buf, size_t bufsz)
+{
+   const char *cp = "INTERNAL_ERROR";
+
+   /* check if error is one of Mochimo's... */
+   switch (errnum) {
+   /* "EMCM__NAME" is provided to "EMCM__TABLE" for extraction of Mochimo
+    * error IDs as case values and re-interpretted as textual names.
+    */
+#define EMCM__NAME(_, NAME) case NAME: cp = #NAME; break;
+      EMCM__TABLE(EMCM__NAME)
+
+   #ifdef _GNU_SOURCE
+      default:
+         /* ... if NOT, use (GNU only) strerrorname_np */
+         cp = strerrorname_np(errnum);
+         if (cp == NULL) cp = "UNKNOWN_ERROR";
+   #endif
+   }  /* end switch (errnum) */
+
+   /* "copy" to buf (snprintf ensures termination) */
+   snprintf(buf, bufsz, "%s", cp);
+
+   return buf;
+}  /* end mcm_strerrorname() */
+
+/**
  * Get the number of errors printed.
  * @returns Number of errors
 */

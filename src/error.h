@@ -459,6 +459,7 @@ char *op2str(unsigned op);
 char *ve2str(int ve);
 char *path_join_count(char path[FILENAME_MAX], int count, ...);
 char *mcm_strerror(int errnum, char *buf, size_t bufsz);
+char *mcm_strerrorname(int errnum, char *buf, size_t bufsz);
 unsigned int perrcount(void);
 unsigned int plogcount(void);
 void plogx(int ll, const char *func, int line, const char *fmt, ...);
