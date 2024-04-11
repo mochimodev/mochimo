@@ -70,35 +70,35 @@
  * @param ... arguments you would normally pass to printf()
 */
 #define palert(...) \
-   plogx(PLOG_ALERT, __FUNCTION__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_ALERT, __func__, __LINE__, __VA_ARGS__)
 
 /**
  * Print an error level log, with description of @a errnum.
  * @param ... arguments you would normally pass to printf()
 */
 #define perrno(...) \
-   plogx(PLOG_ERRNO, __FUNCTION__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_ERRNO, __func__, __LINE__, __VA_ARGS__)
 
 /**
  * Print an error level log.
  * @param ... arguments you would normally pass to printf()
 */
 #define perr(...) \
-   plogx(PLOG_ERROR, __FUNCTION__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_ERROR, __func__, __LINE__, __VA_ARGS__)
 
 /**
  * Print a warning level log.
  * @param ... arguments you would normally pass to printf()
 */
 #define pwarn(...) \
-   plogx(PLOG_WARN, __FUNCTION__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_WARN, __func__, __LINE__, __VA_ARGS__)
 
 /**
  * Print an information level log.
  * @param ... arguments you would normally pass to printf()
 */
 #define plog(...) \
-   plogx(PLOG_INFO, __FUNCTION__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_INFO, __func__, __LINE__, __VA_ARGS__)
 
 #ifndef NDEBUG
    /**
@@ -106,7 +106,7 @@
     * @param ... arguments you would normally pass to printf()
    */
    #define pdebug(...) \
-      plogx(PLOG_DEBUG, __FUNCTION__, __LINE__, __VA_ARGS__)
+      plogx(PLOG_DEBUG, __func__, __LINE__, __VA_ARGS__)
 
 #else
    /* To avoid (potential) compiler warnings about unused variables,
