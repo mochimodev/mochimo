@@ -282,219 +282,6 @@ char *path_join_count(char path[FILENAME_MAX], int count, ...)
 
 /**
  * Get a textual description of an error code.
- * The error code may be an error of the Mochimo API, or the C API.
- * @param errnum Value of the error number to get description for
- * @return (const char *) representing textual description of a
- * Mochimo ecosystem error, or NULL if none is available;
-*/
-const char *mcm_errno_text(int errnum)
-{
-   switch (errnum) {
-      /* core relateed errors... */
-      case EMCM_MATH64_OVERFLOW:
-         return "Unspecified 64-bit math overflow";
-      case EMCM_MATH64_UNDERFLOW:
-         return "Unspecified 64-bit math underflow";
-
-      /* file related errors... */
-      case EMCM_EOF:
-         return "Unexpected end-of-file";
-      case EMCM_FILECOUNT:
-         return "Unexpected number of items in file";
-      case EMCM_FILEDATA:
-         return "Unexpected file data";
-      case EMCM_FILELEN:
-         return "Unexpected length of file";
-      case EMCM_SORTLEN:
-         return "Unexpected file length during sort";
-
-      /* block related errors... */
-      case EMCM_BHASH:
-         return "Bad block hash";
-      case EMCM_BNUM:
-         return "Bad block number";
-      case EMCM_DIFF:
-         return "Bad difficulty";
-      case EMCM_GENHASH:
-         return "Bad Genesis hash";
-      case EMCM_HDRLEN:
-         return "Bad header length";
-      case EMCM_MADDR:
-         return "Bad miner address";
-      case EMCM_MFEE:
-         return "Bad miner fee";
-      case EMCM_MFEES_OVERFLOW:
-         return "Overflow of miner fees";
-      case EMCM_MREWARD:
-         return "Bad miner reward";
-      case EMCM_MREWARDS_OVERFLOW:
-         return "Overflow of miner rewards";
-      case EMCM_MROOT:
-         return "Bad merkle root";
-      case EMCM_NONCE:
-         return "Bad nonce";
-      case EMCM_NZGEN:
-         return "Non-zero Genesis data";
-      case EMCM_PHASH:
-         return "Bad (previous) block hash";
-      case EMCM_PTIME:
-         return "Bad TOT time";
-      case EMCM_STIME:
-         return "Bad solve time";
-      case EMCM_TCOUNT:
-         return "Bad TX count";
-      case EMCM_TIME0:
-         return "Bad start time";
-      case EMCM_TLRLEN:
-         return "Bad trailer length";
-      case EMCM_TMAX:
-         return "Too many transactions";
-      case EMCM_TRAILER:
-         return "Bad trailer data";
-
-      /* ledger entry related errors... */
-      case EMCM_LEOVERFLOW:
-         return "Overflow of ledger amounts";
-      case EMCM_LECLOSED:
-         return "Ledger operation attempted while ledger is closed";
-      case EMCM_LEEMPTY:
-         return "No records written to ledger file";
-      case EMCM_LEEXTRACT:
-         return "Ledger cannot be extracted from a non-NG block";
-      case EMCM_LESORT:
-         return "Bad ledger sort";
-      case EMCM_LESUM:
-         return "Bad sum of ledger amounts";
-      case EMCM_LETAG:
-         return "Bad tag reference to ledger entry";
-
-      /* ledger transaction related errors... */
-      case EMCM_LTCODE:
-         return "Bad ledger transaction code";
-      case EMCM_LTCREDIT:
-         return "Unexpected ledger transaction code for ledger entry creation";
-      case EMCM_LTDEBIT:
-         return "Ledger transaction debit, does not match ledger entry balance";
-      case EMCM_LTSORT:
-         return "Bad ledger transactions sort";
-
-      /* network related errors... */
-      case EMCM_OPCODE:
-         return "Unhandled operation code";
-      case EMCM_OPHELLO:
-         return "Missing OP_HELLO packet";
-      case EMCM_OPHELLOACK:
-         return "Missing OP_HELLO_ACK packet";
-      case EMCM_OPNVAL:
-         return "Invalid operation code";
-      case EMCM_OPRECV:
-         return "Received unexpected operation code";
-      case EMCM_PKTCRC:
-         return "Invalid CRC16 packet hash";
-      case EMCM_PKTIDS:
-         return "Unexpected packet identification";
-      case EMCM_PKTNACK:
-         return "Unexpected negative acknowledgement";
-      case EMCM_PKTNET:
-         return "Incompatible packet network";
-      case EMCM_PKTOPCODE:
-         return "Invalid packet opcode";
-      case EMCM_PKTTLR:
-         return "Invalid packet trailer";
-
-      /* POW related errors... */
-      case EMCM_POWTRIGG:
-         return "Bad PoW (Trigg)";
-      case EMCM_POWPEACH:
-         return "Bad PoW (Peach)";
-      case EMCM_POWANOMALY:
-         return "Bad PoW Anomaly (bugfix)";
-
-      /* transaction related errors... */
-      case EMCM_TX0:
-         return "No transactions to handle";
-      case EMCM_TXADRS:
-         return "Invalid address scheme data";
-      case EMCM_TXBTL:
-         return "Transaction block-to-live out of range";
-      case EMCM_TXCHGEXISTS:
-         return "Change address is not in Ledger";
-      case EMCM_TXCHGNOLE:
-         return "Change address is not in Ledger";
-      case EMCM_TXCHGNOTAG:
-         return "Change address is not Tagged";
-      case EMCM_TXCHGTAGDUP:
-         return "Duplicate change address tag";
-      case EMCM_TXDSTNOLE:
-         return "Destination address is not in Ledger";
-      case EMCM_TXDSTNOTAG:
-         return "Destination address is not Tagged";
-      case EMCM_TXFEE:
-         return "Fee is invalid";
-      case EMCM_TXFEE_OVERFLOW:
-         return "Overflow of transaction feees";
-      case EMCM_TXID:
-         return "Bad transaction ID";
-      case EMCM_TXIDDUP:
-         return "Duplicate transaction ID";
-      case EMCM_TXINVAL:
-         return "Invalid transaction";
-      case EMCM_TXOVERFLOW:
-         return "Overflow of transaction amounts";
-      case EMCM_TXSORT:
-         return "Bad transaction sort";
-      case EMCM_TXCHG:
-         return "Source address is change address";
-      case EMCM_TXDSA:
-         return "Invalid Digital Signature Algorithm";
-      case EMCM_TXDST:
-         return "Source address is destination address";
-      case EMCM_TXNONCE:
-         return "Invalid transaction nonce";
-      case EMCM_TXSRCDUP:
-         return "Duplicate transaction source address";
-      case EMCM_TXSRCLE:
-         return "Source address is not in Ledger";
-      case EMCM_TXSRCNOTAG:
-         return "Source address is not Tagged";
-      case EMCM_TXTAGCHG:
-         return "Invalid Tag activation (change address already exists)";
-      case EMCM_TXTAGSRC:
-         return "Invalid Tag activation (source address is tagged)";
-      case EMCM_TXTOTAL:
-         return "Transaction total does not match ledger balance";
-      case EMCM_TXWOTS:
-         return "WOTS+ signature invalid";
-
-      /* eXtended transaction related errors... */
-      case EMCM_XTXCHGTOTAL:
-         return "eXtended TX change total is less than fee";
-      case EMCM_XTXDSTAMOUNT:
-         return "eXtended TX destination amount is zero";
-      case EMCM_XTXFEES:
-         return "eXtended TX fee does not match tally";
-      case EMCM_XTXREF:
-         return "Invalid reference format in eXtended Transaction";
-      case EMCM_XTXSENDTOTAL:
-         return "eXtended TX send total is zero";
-      case EMCM_XTXSRCNOTAG:
-         return "eXtended TX source is not tagged";
-      case EMCM_XTXTAGMATCH:
-         return "eXtended TX destination tag matches source tag";
-      case EMCM_XTXTAGMISMATCH:
-         return "eXtended TX source tag does not match change tag";
-      case EMCM_XTXTAGNOLE:
-         return "eXtended TX destination tag is not in Ledger";
-      case EMCM_XTXTOTALS:
-         return "eXtended TX total does not match tally";
-      case EMCM_XTXUNDEF:
-         return "eXtended TX type is not defined";
-      default: return NULL;
-   }  /* end switch (errnum) */
-}  /* end mcm_errno_text() */
-
-/**
- * Get a textual description of an error code.
  * The error code may be a standard C errno, a Mochimo errno,
  * or an "alternate" errno handled by the extended-c module.
  * @param errnum Value of the error number to get description for
@@ -506,13 +293,22 @@ char *mcm_strerror(int errnum, char *buf, size_t bufsz)
 {
    const char *cp;
 
-   /* check if error originates from the Mochimo ecosystem */
-   cp = mcm_errno_text(errnum);
-   /* if it DOES NOT, use extended-c strerror_ext() */
-   if (cp == NULL) return strerror_ext(errnum, buf, bufsz);
-   /* copy error description and ensure buf is nul-terminated */
-   strncpy(buf, cp, bufsz);
-   buf[bufsz - 1] = '\0';
+   /* check if error is one of Mochimo's... */
+   switch (errnum) {
+   /* "EMCM__DESC" is provided to "EMCM__TABLE" for extraction of Mochimo
+    * error IDs and descriptions as case values and results, respectively.
+    */
+#define EMCM__DESC(DESC, ID) case ID: cp = DESC; break;
+      EMCM__TABLE(EMCM__DESC)
+
+      default:
+         /* ... if NOT, rely on strerror_ext() */
+         return strerror_ext(errnum, buf, bufsz);
+   }  /* end switch (errnum) */
+
+   /* "copy" to buf (snprintf ensures termination) */
+   snprintf(buf, bufsz, "%s", cp);
+
    return buf;
 }  /* end mcm_strerror() */
 
