@@ -115,11 +115,8 @@
 
 #endif
 
-/**
- * @private
- * Table of Mochimo error descriptions, and (documented) names.
- * @param fn The function to apply to each piece of information
- * @note Our insanity is directly proportional to the number of errors and
+/* Table of Mochimo error descriptions, and (documented) names.
+ * NOTE: Our insanity is directly proportional to the number of errors and
  * associated trivial information we must implement raised to the power of
  * the number of places we have to repeat such information in our codebase.
  * These MACROs serve as arguably unpleasant but necessary boilerplate to

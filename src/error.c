@@ -280,16 +280,8 @@ char *path_join_count(char path[FILENAME_MAX], int count, ...)
    return path;
 }
 
-/**
- * Get a textual description of an error code.
- * The error code may be a standard C errno, a Mochimo errno,
- * or an "alternate" errno handled by the extended-c module.
- * @param errnum Value of the error number to get description for
- * @param buf Pointer to a buffer to place the textual description
- * @param bufsz Size of the buffer
- * @return (char *) containing a textual description of error
-*/
-char *mcm_strerror(int errnum, char *buf, size_t bufsz)
+/* inline helper to avoid error description spam in the documentation */
+static inline char *mcm__strerror(int errnum, char *buf, size_t bufsz)
 {
    const char *cp;
 
@@ -310,19 +302,24 @@ char *mcm_strerror(int errnum, char *buf, size_t bufsz)
    snprintf(buf, bufsz, "%s", cp);
 
    return buf;
-}  /* end mcm_strerror() */
+}  /* end mcm__strerror() */
 
 /**
- * Get a textual name of a Mochimo error code.
- * All Mochimo error codes will return a name representing the @a errnum.
- * All other error codes, either of standard C errno, or an "alternate"
- * errno handled by the extended-c module, return "UNREGISTERED_ERROR".
- * @param errnum Value of the error number to get name
+ * Get a textual description of an error code.
+ * The error code may be a standard C errno, a Mochimo errno,
+ * or an "alternate" errno handled by the extended-c module.
+ * @param errnum Value of the error number to get description for
  * @param buf Pointer to a buffer to place the textual description
  * @param bufsz Size of the buffer
- * @return (char *) containing a textual name of error
- */
-char *mcm_strerrorname(int errnum, char *buf, size_t bufsz)
+ * @return (char *) containing a textual description of error
+*/
+char *mcm_strerror(int errnum, char *buf, size_t bufsz)
+{
+   return mcm__strerror(errnum, buf, bufsz);
+}  /* end mcm_strerror() */
+
+/* inline helper to avoid error description spam in the documentation */
+static inline char *mcm__strerrorname(int errnum, char *buf, size_t bufsz)
 {
    const char *cp = "INTERNAL_ERROR";
 
@@ -346,6 +343,21 @@ char *mcm_strerrorname(int errnum, char *buf, size_t bufsz)
    snprintf(buf, bufsz, "%s", cp);
 
    return buf;
+}  /* end mcm__strerrorname() */
+
+/**
+ * Get a textual name of a Mochimo error code.
+ * All Mochimo error codes will return a name representing the @a errnum.
+ * All other error codes, either of standard C errno, or an "alternate"
+ * errno handled by the extended-c module, return "UNREGISTERED_ERROR".
+ * @param errnum Value of the error number to get name
+ * @param buf Pointer to a buffer to place the textual description
+ * @param bufsz Size of the buffer
+ * @return (char *) containing a textual name of error
+ */
+char *mcm_strerrorname(int errnum, char *buf, size_t bufsz)
+{
+   return mcm_strerrorname(errnum, buf, bufsz);
 }  /* end mcm_strerrorname() */
 
 /**
