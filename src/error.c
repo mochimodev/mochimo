@@ -52,9 +52,9 @@ int argument(char *argv, char *chk1, char *chk2)
    vp = strchr(argv, '=');
    if (vp) *vp = '\0';
    /* check argv for match */
-   if (argv != NULL && *argv) {
-      if (chk1 != NULL && strcmp(argv, chk1) == 0) result = 1;
-      else if (chk2 != NULL && strcmp(argv, chk2) == 0) result = 1;
+   if (argv && *argv) {
+      if (chk1 && strcmp(argv, chk1) == 0) result = 1;
+      else if (chk2 && strcmp(argv, chk2) == 0) result = 1;
    }
    /* replace value identifier */
    if (vp) *vp = '=';
