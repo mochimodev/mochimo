@@ -85,6 +85,7 @@ int b_update(char *fname, int mode)
    char fpath[FILENAME_MAX], *solvestr;
    char bcfname[21];
    char bhash[10];
+   char *bcfile_clean;
    FILE *fp;
 
    /* init */
@@ -119,10 +120,13 @@ int b_update(char *fname, int mode)
          solvestr = "Pushed";
       }
       /* perform block validation, update and tx queue clean... */
-      /* ... NOTE: le_update() closes server ledger reference */
-      ecode = b_val(fname);
-      if (ecode == VEOK) ecode = le_update("ledger.dat", "ltran.dat");
-      /* ... NOTE: transaction queues should be combined before clean */
+      ecode = b_val(fname, "ltran.dat");
+      if (ecode == VEOK) {
+         ecode = le_update("ltran.dat");
+         if (ecode != VEOK) perrno("ledger update FAILURE");
+      } else perrno("block -> ltran.dat validation FAILURE");
+
+      /* combine transaction queues before a clean */
       if (fexists("txq1.dat")) {
          system("cat txq1.dat >>txclean.dat 2>/dev/null");
          remove("txq1.dat");
@@ -131,16 +135,12 @@ int b_update(char *fname, int mode)
       }
       /* clean the transaction queue, with the block and the ledger.
        * clean with blockchain file only occurs on successful update.
-       * NOTE: txclean() opens server ledger reference.
        */
-      if (txclean("txclean.dat", ecode == VEOK ? fname : NULL) != VEOK) {
+      bcfile_clean = (ecode == VEOK) ? fname : NULL;
+      if (txclean("txclean.dat", bcfile_clean) != VEOK) {
          perrno("txclean failure");
          pwarn("forcing clean...");
          remove("txclean.dat");
-      }
-      /* (re)open the ledger, regardless of above results */
-      if (le_open("ledger.dat", "rb") != VEOK) {
-         restart("failed to reopen ledger after update");
       }
       /* check chain ecode result */
       if (ecode != VEOK) {
@@ -153,7 +153,7 @@ int b_update(char *fname, int mode)
          return VERROR;
       }
    } else if (p_val(fname) != VEOK) {
-      perr("failed to validate pseudo-block");
+      perrno("pseudoblock validation FAILURE");
       return VERROR;
    }
 
@@ -171,7 +171,7 @@ int b_update(char *fname, int mode)
    }
    memcpy(Prevhash, Cblockhash, HASHLEN);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
-   add_weight(Weight, bt.difficulty[0], bt.bnum);
+   add_weight(Weight, bt.difficulty[0]);
    /* Update block difficulty */
    Difficulty = next_difficulty(&bt);
    Time0 = get32(bt.stime);
@@ -246,10 +246,6 @@ int b_update(char *fname, int mode)
          if (txclean("txclean.dat", NULL) != VEOK) {
             pwarn("forcing clean TX queue...");
             remove("txclean.dat");
-         }
-         /* (re)open the ledger, regardless of above results */
-         if (le_open("ledger.dat", "rb") != VEOK) {
-            restart("failed to reopen ledger after update");
          }
       }
       /* print block update */
