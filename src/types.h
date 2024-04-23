@@ -214,12 +214,6 @@
 #define C_LOGGING       16
 
 /**
- * Capability bit for nodes using variable PDU protocol.
- * NOTE: implied for protocol version 5 onwards
-*/
-#define C_VPDU          32
-
-/**
  * "Null" operation code. Not actively used by the node, but can indicate a
  * lack of socket initialization during packet transmission.
 */

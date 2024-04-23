@@ -32,7 +32,6 @@ typedef struct {
    word16 port;         // unused... */
    word16 id1, id2;     /* from tx handshake */
    char id[32];         /* "0.0.0.0 AB~EF" - for logging identification */
-   int c_vpdu;          /* variable PDU capability flag */
    pid_t pid;           /* process id of child -- zero if empty slot */
    SOCKET sd;
 } NODE;

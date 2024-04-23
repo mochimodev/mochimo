@@ -120,52 +120,49 @@ int child_status(NODE *np, pid_t pid, int status)
    return 1;  /* error if child caught signal */
 }  /* end child_status() */
 
+/* inline helper function for checking sock_recv/send return + Running */
+static inline int sock__check(int *ecode, const char *name, const char *id)
+{
+   if (*ecode != VEOK) {
+      if (*ecode == VETIMEOUT) {
+         pdebug("%s(%s): connection timed out", name, id);
+         Ntimeouts++;
+      } else {
+         pdebug("%s(%s): aborting", name, id);
+         Nsenderrs++;
+      }
+   } else if (!Running) {
+      pdebug("%s(%s): local shutdown", name, id);
+      *ecode = VERROR;
+   } else *ecode = VEOK;
+
+   return *ecode;
+}
+
 /**
  * Receive next packet from NODE *np.
  * SOCKET np->sd is already set non-blocking.
  * Returns: VEOK (0) = good, else error code. */
 int recv_tx(NODE *np, double timeout)
 {
-   int ecode, stage, len;
+   int ecode, len;
    TX *tx;
 
    /* init recv_tx() */
    tx = &(np->tx);
 
-   /* iterate the stages of recv */
-   for (stage = 0; stage < 3; stage++) {
-      /* running check */
-      if (!Running) {
-         pdebug("recv_tx(%s): local shutdown", np->id);
-         return VERROR;
-      }
-      /* recv tx packet in stages */
-      switch (stage) {
-         case 0: /* recv() header */
-            ecode = sock_recv(np->sd, tx->version, TXHDRLEN, 0, timeout);
-            break;
-         case 1: /* recv() buffer (size depends on VPDU) */
-            len = np->c_vpdu ? (int) get16(tx->len) : TRANLEN;
-            ecode = sock_recv(np->sd, tx->buffer, len, 0, timeout);
-            break;
-         case 2: /* recv() trailer */
-            ecode = sock_recv(np->sd, tx->crc16, TXTLRLEN, 0, timeout);
-            break;
-         default: /* internal error */
-            ecode = VERROR;
-      }
-      /* check for errors after each recv */
-      if (ecode != VEOK) {
-         if (ecode == VETIMEOUT) {
-            pdebug("recv_tx(%s): connection timed out", np->id);
-            Ntimeouts++;
-         } else {
-            pdebug("recv_tx(%s): aborting", np->id);
-            Nsenderrs++;
-         }
-         return ecode;
-      }
-   }  /* end for(stage... */
+   /* recv PDU header for buffer length */
+   len = (int) (tx->buffer - tx);
+   ecode = sock_recv(np->sd, tx, len, 0, timeout);
+   if (sock__check(&ecode, "recv_tx", np->id) != VEOK) return ecode;
+
+   /* recv buffer length + PDU trailer */
+   len = (int) get16(tx->len);
+   ecode = sock_recv(np->sd, tx->buffer, len + 4, 0, timeout);
+   if (sock__check(&ecode, "recv_tx", np->id) != VEOK) return ecode;
+
+   /* shift crc16 and trailer to correct position in TX struct */
+   memmove(tx->crc16, tx->buffer + len, 4);
 
    /* compute crc16 checksum and verify packet integrity */
    if (get16(tx->crc16) != crc16(tx, TXHDRLEN + len)) {
@@ -197,9 +194,6 @@ int recv_tx(NODE *np, double timeout)
          return VEBAD;
       }
    }
-
-   /* flag node c_vpdu in PVERSION 5 OR if flagged compatible */
-   np->c_vpdu = tx->version[0] >= 5 || (tx->version[1] & C_VPDU);
 
    /* packet recv'd */
    Nrecvs++;
@@ -237,17 +231,12 @@ int recv_file(NODE *np, char *fname)
          break;
       }
       len = get16(tx->len);
-      if (!np->c_vpdu && len > TRANLEN) {
-         pdebug("(%s, %s) *** oversized TX", np->id, fname);
-         break;
-      }
-      if (len && fwrite(TRANBUFF(tx), len, 1, fp) != 1) {
+      if (len && fwrite(tx->buffer, len, 1, fp) != 1) {
          pdebug("(%s, %s) *** I/O error", np->id, fname);
          break;
       }
-      /* check EOF - depends on VPDU */
-      if ((np->c_vpdu && len < sizeof(tx->buffer)) ||
-            (!np->c_vpdu && len < TRANLEN)) {
+      /* check EOF */
+      if (len < sizeof(tx->buffer)) {
          fclose(fp);
          pdebug("(%s, %s) EOF", np->id, fname);
          return VEOK;
@@ -266,7 +255,7 @@ int recv_file(NODE *np, char *fname)
  * Returns VEOK on success, else VERROR. */
 int send_tx(NODE *np, double timeout)
 {
-   int ecode, stage, len;
+   int ecode, len;
    TX *tx;
 
    /* init send_tx() */
@@ -274,7 +263,7 @@ int send_tx(NODE *np, double timeout)
 
    /* fill tx packet with relevant information... */
    tx->version[0] = PVERSION;
-   tx->version[1] = Cbits | C_VPDU;
+   tx->version[1] = Cbits;
    put16(tx->network, TXNETWORK);
    put16(tx->trailer, TXEOT);
    put16(tx->id1, np->id1);
@@ -287,68 +276,17 @@ int send_tx(NODE *np, double timeout)
       memcpy(tx->weight, Weight, HASHLEN);
    }
 
-   /* store (actual) packet buffer length for CRC hash */
-   len = (int) get16(np->tx.len);
+   /* send PDU header and buffer length */
+   len = (int) get16(np->tx.len) + (tx->buffer - tx);
+   ecode = sock_send(np->sd, tx, len, 0, timeout);
+   if (sock__check(&ecode, "send_tx", np->id) != VEOK) return ecode;
 
-   /************************************/
-   /* PROTOCOL VERSION 4 COMPATIBILITY */
+   /* compute packet crc16 checksum -- use length from previous step */
+   put16(tx->crc16, crc16(tx, len));
 
-   /* check for VPDU capability */
-   if (!np->c_vpdu) {
-      /* protocol version 4 uses a fixed length PDU */
-      len = TRANLEN;
-      /* opcode specific checks */
-      switch (get16(np->tx.opcode)) {
-         /* for initial compatibility, set len param to fixed length PDU */
-         case OP_HELLO:
-            put16(np->tx.len, TRANLEN);
-            break;
-         /* some opcodes MUST BE ZERO, else be excluded from peerlists */
-         case OP_TX: /* fallthrough */
-         case OP_FOUND: /* fallthrough */
-         case OP_GET_IPL: /* fallthrough */
-         case OP_GET_TFILE:
-            put16(np->tx.len, 0);
-            break;
-      }
-   }
-
-   /* END PROTOCOL VERSION 4 COMPATIBILITY */
-   /****************************************/
-
-   /* compute packet crc16 checksum */
-   put16(tx->crc16, crc16(tx, TXHDRLEN + len));
-
-   /* iterate the stages of send */
-   for (stage = 1; stage < 3; stage++) {
-      /* running check */
-      if (!Running) {
-         pdebug("send_tx(%s): local shutdown", np->id);
-         return VERROR;
-      }
-      /* send tx packet in stages */
-      switch (stage) {
-         case 1: /* send() header+buffer (buffer size depends on VPDU) */
-            ecode = sock_send(np->sd, tx, TXHDRLEN + len, 0, timeout);
-            break;
-         case 2: /* send() trailer */
-            ecode = sock_send(np->sd, tx->crc16, TXTLRLEN, 0, timeout);
-            break;
-         default: /* internal error */
-            ecode = VERROR;
-      }
-      /* check for errors after each send */
-      if (ecode != VEOK) {
-         if (ecode == VETIMEOUT) {
-            pdebug("send_tx(%s): connection timed out", np->id);
-            Ntimeouts++;
-         } else {
-            pdebug("send_tx(%s): aborting", np->id);
-            Nsenderrs++;
-         }
-         return ecode;
-      }
-   }  /* end for(stage... */
+   /* send PDU trailer */
+   ecode = sock_send(np->sd, tx->crc16, 4, 0, timeout);
+   if (sock__check(&ecode, "send_tx", np->id) != VEOK) return ecode;
 
    /* packet sent */
    Nsends++;
@@ -371,16 +309,13 @@ int send_file(NODE *np, char *fname)
 {
    char dummy[FILENAME_MAX];
    char bcfname[22];
-   char name[128];
    size_t count;
    int ecode;
-   word16 len;
    FILE *fp;
    TX *tx;
 
    /* init send_file() */
    tx = &(np->tx);
-   len = np->c_vpdu ? sizeof(tx->buffer) : TRANLEN;
    if (fname == NULL) {
       bnum2fname(tx->blocknum, bcfname);
       fname = path_join(dummy, Bcdir, bcfname);
@@ -391,16 +326,13 @@ int send_file(NODE *np, char *fname)
    fp = fopen(fname, "rb");
    if (fp == NULL) {
       pdebug("(%s, %s) cannot send file", np->id, fname);
-      /* send unable to deliver request acknowledgement */
-      put16(tx->opcode, OP_NACK);
-      send_tx(np, STD_TIMEOUT);
       return VERROR;
    }
    /* read and send packets */
    do {
       /* read file data and break on error */
-      count = fread(tx->buffer, 1, len, fp);
-      if (count != len && ferror(fp)) {
+      count = fread(tx->buffer, 1, sizeof(tx->buffer), fp);
+      if (count != sizeof(tx->buffer) && ferror(fp)) {
          perr("(%s, %s) *** I/O error", np->id, fname);
          ecode = VERROR;
          break;
@@ -408,7 +340,7 @@ int send_file(NODE *np, char *fname)
       /* send file data and break on EOF */
       put16(tx->len, (word16) count);
       ecode = send_op(np, OP_SEND_FILE);
-      if (count != len) {
+      if (count != sizeof(tx->buffer)) {
          pdebug("(%s, %s) EOF", np->id, fname);
          break;
       }
