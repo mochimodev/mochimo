@@ -56,6 +56,7 @@ int recv_tx(NODE *np, double timeout);
 int recv_file(NODE *np, char *fname);
 int send_tx(NODE *np, double timeout);
 int send_op(NODE *np, int opcode);
+int send_nack(NODE *np, int errnum);
 int send_file(NODE *np, char *fname);
 int send_balance(NODE *np);
 int send_ipl(NODE *np);

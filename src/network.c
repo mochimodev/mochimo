@@ -301,6 +301,42 @@ int send_op(NODE *np, int opcode)
 }
 
 /**
+ * Send a Negative Acknowledgment (NACK) to a NODE, involving an error.
+ * The NACK is prepared with detailed information about an error number.
+ * The NACK error buffer is formatted as follows:
+ *    [8 byte value][32 byte name][variable length description]
+ * The first 8 bytes of space is currently reserved as a reference value;
+ * perhaps a block number, multi-destination transaction number, etc.
+ * The next 32 bytes contains the error name (null terminated); unchanging
+ * string names, used by clients to determine the next appropriate action.
+ * Any remaining bytes contains the error description (null terminated); for
+ * developer debugging or additional helpful client information.
+ * @param np Pointer to NODE
+ * @param errnum Value of error number
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int send_nack(NODE *np, int errnum)
+{
+   char *error = (char *) np->tx.buffer;
+
+   /* set necessary zero fill */
+   memset(error, 0, 8 + 32);
+   /* providing the value of an error number is somewhat useless as it can
+    * change between systems and updates, but is placed here as example */
+   put32(error, (word32) errnum);
+   /* derive error name from errnum (e.g. "EMCM_MADDR") */
+   mcm_strerrorname(errnum, error + 8, 32);
+   /* derive error description from errnum (e.g. "Bad miner address") */
+   mcm_strerror(errnum, error + 8 + 32, 256);
+
+   /* check length of description and send NACK */
+   put16(np->tx.len, 8 + 32 + strlen(error + 40) + 1);
+   return send_op(np, OP_NACK);
+}  /* end send_nack() */
+
+/**
  * Send packets to NODE *np, and write to file, fname.
  * SOCKET np->sd is set non-blocking, ready to recv data.
  * Set fname NULL send np->tx.blocknum request.
