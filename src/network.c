@@ -526,6 +526,7 @@ int send_found(void)
    char bnumhex[17];
    int ecode, count, len, i;
    TX tx;
+   word8 bnum[8];
 
    if (Found_pid) {
       pdebug("send_found() is already running -- rerun it.");
@@ -564,7 +565,9 @@ bad:
 
    pdebug("send_found(0x%s)", bnum2hex(Cblocknum, bnumhex));
 
-   count = loadproof(&tx);  /* get proof from tfile.dat */
+   /* get proof from tfile.dat */
+   if (sub64(Cblocknum, CL64_32(NTFTX), bnum)) memset(bnum, 0, 8);
+   count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
 
    /* build peerlist with Rplist (shuffled) and Tplist */
    memset(plist, 0, sizeof(plist));
@@ -1022,10 +1025,11 @@ int scan_network
 int refresh_ipl(void)
 {
    NODE node;
-   int j;
+   int j, count;
    word32 ip, *ipp;
    word16 len;
    TX tx;
+   word8 bnum[8];
 
    for(j = ip = 0; j < 1000 && ip == 0; j++)
       ip = Rplist[rand16() % RPLISTLEN];
@@ -1042,10 +1046,16 @@ int refresh_ipl(void)
    } else goto FAIL;
    /* Check peer's chain weight against ours. */
    if(cmp256(node.tx.weight, Weight) < 0) {
+      /* get proof from tfile.dat */
+      memset(tx.buffer, 0, sizeof(tx.buffer));
+      if (sub64(Cblocknum, CL64_32(NTFTX), bnum)) memset(bnum, 0, 8);
+      count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
       /* Send found message to low weight peer */
-      loadproof(&tx);  /* get proof from tfile.dat */
+      memset(tx.buffer, 0, sizeof(tx.buffer));
+      if (read_tfile(tx.buffer, Cblocknum, 54, "tfile.dat") == 0) goto FAIL;
       if(callserver(&node, ip) != VEOK) goto FAIL;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
+      put16(node.tx.len, (word16) count * sizeof(BTRAILER));
       send_op(&node, OP_FOUND);
       sock_close(node.sd);
    }
