@@ -422,11 +422,11 @@ int send_balance(NODE *np)
  */
 int send_ipl(NODE *np)
 {
-   int count = RPLISTLEN < 32 ? RPLISTLEN : 32;
+   int count = RPLISTLEN;
 
-   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   if (count > 32) count = 32;
    /* copy recent peer list to TX */
-   memcpy(TRANBUFF(&np->tx), Rplist, sizeof(word32) * count);
+   memcpy(np->tx.buffer, Rplist, sizeof(word32) * count);
    put16(np->tx.len, sizeof(word32) * count);
    return send_op(np, OP_SEND_IPL);  /* send ip list */
 }
@@ -445,7 +445,7 @@ int send_hash(NODE *np)
    if (read_trailer(&bt, fname) != VEOK) return VERROR;
    memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy hash of tx.blocknum to TX */
-   memcpy(TRANBUFF(&np->tx), bt.bhash, HASHLEN);
+   memcpy(np->tx.buffer, bt.bhash, HASHLEN);
    put16(np->tx.len, HASHLEN);
    return send_op(np, OP_HASH);  /* send back to peer */
 }  /* end send_hash() */
@@ -477,11 +477,10 @@ int send_tf(NODE *np)
 
 int send_identify(NODE *np)
 {
-   memset(TRANBUFF(&np->tx), 0, TRANLEN);
    /* copy recent peer list to TX */
-   sprintf((char *) TRANBUFF(&np->tx), "Sanctuary=%u,Lastday=%u,Mfee=%u",
+   sprintf((char *) np->tx.buffer, "Sanctuary=%u,Lastday=%u,Mfee=%u",
            Sanctuary, Lastday, Myfee[0]);
-   put16(np->tx.len, (word16) strlen((char *) TRANBUFF(&np->tx)));
+   put16(np->tx.len, (word16) strlen((char *) np->tx.buffer));
    return send_op(np, OP_IDENTIFY);
 }
 
@@ -764,7 +763,7 @@ int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash)
       return VERROR;
    }
    /* pass blockhash on success, if not NULL */
-   if (blockhash) memcpy(blockhash, TRANBUFF(tx), HASHLEN);
+   if (blockhash) memcpy(blockhash, tx->buffer, HASHLEN);
 
    /* success */
    return VEOK;
@@ -958,7 +957,7 @@ int scan_network
             if ((tharg[j].join >> 8) == VEOK) {
                /* get ip list from TX */
                len = get16(tharg[j].tx.len);
-               ipp = (word32 *) TRANBUFF(&tharg[j].tx);
+               ipp = (word32 *) tharg[j].tx.buffer;
                for( ; len > 0; ipp++, len -= 4) {
                   if (*ipp == 0) continue;
                   if (Rplist[RPLISTLEN - 1]) break;
@@ -1032,7 +1031,7 @@ int refresh_ipl(void)
    if (get_ipl(&node, ip) == VEOK) {
       /* add iplist to recent peers */
       len = get16(node.tx.len);
-      ipp = (word32 *) TRANBUFF(&node.tx);
+      ipp = (word32 *) node.tx.buffer;
       for( ; len > 0; ipp++, len -= 4) {
          if (*ipp == 0) continue;
          if (Rplist[RPLISTLEN - 1]) break;
