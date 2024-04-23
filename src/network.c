@@ -442,8 +442,10 @@ int send_hash(NODE *np)
 
    bnum2fname(np->tx.blocknum, bcfname);
    path_join(fname, Bcdir, bcfname);
-   if (read_trailer(&bt, fname) != VEOK) return VERROR;
-   memset(TRANBUFF(&np->tx), 0, TRANLEN);
+   if (read_trailer(&bt, fname) != VEOK) {
+      send_nack(np, errno);
+      return VERROR;
+   }
    /* copy hash of tx.blocknum to TX */
    memcpy(np->tx.buffer, bt.bhash, HASHLEN);
    put16(np->tx.len, HASHLEN);
