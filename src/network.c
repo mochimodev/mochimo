@@ -405,20 +405,13 @@ int send_balance(NODE *np)
    word16 len;
 
    len = get16(np->tx.len);
-   memset(np->tx.send_total, 0, 8);
-   memset(np->tx.change_total, 0, 8);
-   /* check for old OP_BALANCE Request with ZEROED Tag */
-   if(len == 0 && ((word8 *) (np->tx.src_addr))[2196] == 0x00) {
-     len = TXWOTSLEN - 12;
-   }
+
    /* look up source address in ledger */
-   if(le_find(np->tx.src_addr, &le, len) == TRUE) {
-     put64(np->tx.send_total, le.balance);
-     put64(np->tx.change_total, One); /* indicate address was found */
-     memcpy(np->tx.src_addr, le.addr, TXWOTSLEN); /* return found address */
-   }
-   put16(np->tx.len, TRANLEN);
-   send_op(np, OP_SEND_BAL);
+   if (le_find(np->tx.buffer, &le, len)) {
+      memcpy(np->tx.buffer, &le, sizeof(LENTRY));
+      put16(np->tx.len, sizeof(LENTRY));
+      send_op(np, OP_SEND_BAL);
+   } else send_nack(np, errno);
 
    Nbalance++;
    return 0;  /* success */
