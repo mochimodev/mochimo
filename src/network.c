@@ -845,11 +845,6 @@ int gettx(NODE *np, SOCKET sd)
          return 1;
       }
       case OP_TX: {
-         if (txcheck(tx->src_addr) != VEOK) {
-            pdebug("got dup src_addr");
-            Ndups++;
-            return 1;
-         }
          Nlogins++;  /* raw TX in */
          status = process_tx(np);
          if (status > 2) goto bad1;
