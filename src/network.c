@@ -500,24 +500,18 @@ int send_identify(NODE *np)
 */
 int send_resolve(NODE *np)
 {
-   word8 foundaddr[TXWOTSLEN];
-   static word8 zeros[8];
-   word8 balance[TXAMOUNT];
-   int status, ecode = VERROR;
+   LENTRY le;
+   word16 len;
 
-   put64(np->tx.send_total, zeros);
-   put64(np->tx.change_total, zeros);
+   len = get16(np->tx.len);
    /* find tag in leger.dat */
-   status = tag_find(np->tx.dst_addr, foundaddr, balance, get16(np->tx.len));
-   if(status == VEOK) {
-      memcpy(np->tx.dst_addr, foundaddr, TXWOTSLEN);
-      memcpy(np->tx.change_total, balance, TXAMOUNT);
-      put64(np->tx.send_total, One);
-      ecode = VEOK;
-   }
-   put16(np->tx.len, TRANLEN);
-   send_op(np, OP_RESOLVE);
-   return ecode;
+   if (tag_find(np->tx.buffer, le.addr, le.balance, len)) {
+      memcpy(np->tx.buffer, &le, sizeof(LENTRY));
+      put16(np->tx.len, sizeof(LENTRY));
+      send_op(np, OP_RESOLVE);
+   } else send_nack(np, errno);
+
+   return VEOK;
 }  /* end send_resolve() */
 
 /* Creates child to send OP_FOUND to all recent peers */
