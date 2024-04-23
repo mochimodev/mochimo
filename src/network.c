@@ -838,20 +838,25 @@ int gettx(NODE *np, SOCKET sd)
    /* check simple responses */
    switch (opcode) {
       case OP_GET_IPL: {
-         send_ipl(np);
-         if (get16(np->tx.len) == 0) {  /* do not add wallets */
+         /* only add those that "optin" */
+         if (tx->version[1] & C_OPTIN) {
             addrecent(np->ip);
          }
+         send_ipl(np);
          return 1;
       }
       case OP_TX: {
          Nlogins++;  /* raw TX in */
          status = process_tx(np);
-         if (status > 2) goto bad1;
-         if (status > 1) goto bad2;
-         if (get16(np->tx.len) == 0) {  /* do not add wallets */
+         if (status != VEOK) {
+            send_nack(np, errno);
+            if (status == VEBAD2) goto bad1;
+            if (status == VEBAD) goto bad2;
+         } else if (tx->version[1] & C_OPTIN) {
+            /* only add those that "optin" with a successful op */
             addrecent(np->ip);
          }
+
          return 1;
       }
       case OP_FOUND: {
