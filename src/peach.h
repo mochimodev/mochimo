@@ -115,9 +115,9 @@
 extern "C" {
 #endif
 
-int peach_checkhash(BTRAILER *bt, word8 diff, void *out);
-int peach_init(BTRAILER *bt);
-int peach_solve(BTRAILER *bt, word8 diff, void *out);
+int peach_checkhash(const BTRAILER *bt, word8 diff, void *out);
+int peach_init(const BTRAILER *bt);
+int peach_solve(const BTRAILER *bt, word8 diff, void *out);
 
 /* CUDA functions */
 #ifdef CUDA

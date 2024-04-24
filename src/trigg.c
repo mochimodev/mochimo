@@ -618,7 +618,7 @@ void *trigg_generate_fast(void *out)
  * @param nonce Pointer to tokenized haiku (nonce) to expand
  * @param haiku Pointer to character array to place expanded haiku
 */
-char *trigg_expand(void *nonce, void *haiku)
+char *trigg_expand(const void *nonce, void *haiku)
 {
    word8 *np, *bp, *bpe, *wp;
    int i;
@@ -653,7 +653,7 @@ char *trigg_expand(void *nonce, void *haiku)
  * @param diff Difficulty to evaluate hash against
  * @returns VEOK if passed, else VERROR on fail
 */
-int trigg_eval(void *hash, word8 diff)
+int trigg_eval(const void *hash, word8 diff)
 {
    word8 *bp, n;
 
@@ -677,7 +677,7 @@ int trigg_eval(void *hash, word8 diff)
  * @param nonce Pointer to tokenized haiku (nonce) to check
  * @returns VEOK on correct syntax, else VERROR if incorrect
 */
-int trigg_syntax(void *nonce)
+int trigg_syntax(const void *nonce)
 {
    word32 sf[MAXH], *fp;
    word8 *np;
@@ -712,7 +712,7 @@ int trigg_syntax(void *nonce)
  * @param out Pointer to byte array to place the final hash (if non-NULL)
  * @returns Hash evaluation result as; VEOK on success, else VERROR
 */
-int trigg_checkhash(BTRAILER *bt, word8 diff, void *out)
+int trigg_checkhash(const BTRAILER *bt, word8 diff, void *out)
 {
    SHA256_CTX ictx;
    word8 haiku[HAIKUCHARLEN], hash[SHA256LEN];
@@ -745,7 +745,7 @@ int trigg_checkhash(BTRAILER *bt, word8 diff, void *out)
  * @param out Pointer to byte array to place nonce (on solve)
  * @returns VEOK on success, else VERROR
 */
-int trigg_solve(BTRAILER *bt, word8 diff, void *out)
+int trigg_solve(const BTRAILER *bt, word8 diff, void *out)
 {
    word8 haiku[256];
    word8 hash[SHA256LEN];

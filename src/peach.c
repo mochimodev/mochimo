@@ -235,7 +235,7 @@ static void peach_nighthash(void *in, size_t inlen, word32 index,
  * @param phash Previous block hash for use in tile generation
  * @param out Pointer to location to place generated tile
 */
-static void peach_generate(word32 index, void *phash, word8 *out)
+static void peach_generate(word32 index, const void *phash, word8 *out)
 {
    int i;
 
@@ -259,7 +259,8 @@ static void peach_generate(word32 index, void *phash, word8 *out)
  * @param out Pointer to location to place generated tile
  * @returns Pointer to (previously) generated tile data
 */
-static inline word8 *peach_gencache(word32 index, void *phash, word8 *out)
+static inline word8 *peach_gencache
+   (word32 index, const void *phash, word8 *out)
 {
 #ifdef ENABLE_CPU_PEACH_CACHE
    /* return cache or redirect out to correct map tile */
@@ -289,7 +290,7 @@ static inline word8 *peach_gencache(word32 index, void *phash, word8 *out)
  * @param tilep Pointer to tile data at @a index
  * @returns 32-bit unsigned index of next tile
 */
-static void peach_jump(word32 *index, word8 *nonce, word8 *tilep)
+static void peach_jump(word32 *index, const word8 *nonce, word8 *tilep)
 {
    word8 seed[PEACHJUMPLEN];
    word32 dhash[SHA256LEN / 4];
@@ -315,7 +316,7 @@ static void peach_jump(word32 *index, word8 *nonce, word8 *tilep)
  * @param out Pointer to location to place final hash, if non-null
  * @returns VEOK on success, else VERROR
 */
-int peach_checkhash(BTRAILER *bt, word8 diff, void *out)
+int peach_checkhash(const BTRAILER *bt, word8 diff, void *out)
 {
    SHA256_CTX ictx;
    word8 hash[SHA256LEN], tile[PEACHTILELEN];
@@ -355,7 +356,7 @@ int peach_checkhash(BTRAILER *bt, word8 diff, void *out)
  * @param bt Pointer to block trailer to initialize for work
  * @returns VEOK
 */
-int peach_init(BTRAILER *bt)
+int peach_init(const BTRAILER *bt)
 {
 #ifdef ENABLE_CPU_PEACH_CACHE
    word8 hashphash[SHA256LEN];
@@ -390,7 +391,7 @@ int peach_init(BTRAILER *bt)
  * @param out Pointer to location to place nonce on solve
  * @returns VEOK on solve, else VERROR
 */
-int peach_solve(BTRAILER *bt, word8 diff, void *out)
+int peach_solve(const BTRAILER *bt, word8 diff, void *out)
 {
    static const size_t SHA256_CTX_SIZE = sizeof(SHA256_CTX);
 

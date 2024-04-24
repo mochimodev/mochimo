@@ -101,11 +101,11 @@ extern "C" {
 
 void *trigg_generate(void *out);
 void *trigg_generate_fast(void *out);
-char *trigg_expand(void *nonce, void *haiku);
-int trigg_eval(void *hash, word8 diff);
-int trigg_syntax(void *nonce);
-int trigg_checkhash(BTRAILER *bt, word8 diff, void *out);
-int trigg_solve(BTRAILER *bt, word8 diff, void *out);
+char *trigg_expand(const void *nonce, void *haiku);
+int trigg_eval(const void *hash, word8 diff);
+int trigg_syntax(const void *nonce);
+int trigg_checkhash(const BTRAILER *bt, word8 diff, void *out);
+int trigg_solve(const BTRAILER *bt, word8 diff, void *out);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
