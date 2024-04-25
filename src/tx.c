@@ -703,7 +703,7 @@ int txclean(const char *txfname, const char *bcfname)
    char tmpfname[FILENAME_MAX];
 
    /* ensure ledger is open (required) */
-   if (le_open("ledger.dat", "rb") != VEOK) {
+   if (le_open("ledger.dat") != VEOK) {
       perr("failed to le_open(ledger.dat)");
       return VERROR;
    }

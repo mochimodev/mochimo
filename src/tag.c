@@ -27,22 +27,6 @@ word8 *Tagidx;    /* array of all 12-word8 tags in ledger order */
 word32 Ntagidx;   /* number of tags in Tagidx[] */
 
 /**
- * @private
- * Efficient 12-byte Address Tag comparison.
- * @param a Pointer to tag
- * @param b Pointer to tag
- * @returns 1 if tags are equal, else 0
-*/
-static inline int tag_equal(word8 *a, word8 *b)
-{
-   return (
-      *((word32 *) a) == *((word32 *) b)
-      && *((word32 *) (a + 4)) == *((word32 *) (b + 4))
-      && *((word32 *) (a + 8)) == *((word32 *) (b + 8))
-   );
-}
-
-/**
  * Clear the global tag index.
  * Free's memory allocated to Tagidx and sets Ntagidx to 0.
 */
@@ -249,22 +233,22 @@ int tag_find(word8 *addr, word8 *foundaddr, word8 *balance, size_t len)
             goto FAIL_IO;
          } else fclose(fp);
          /* copy address/balance to available pointers */
-         if (foundaddr != NULL) memcpy(foundaddr, le.addr, TXWOTSLEN);
+         if (foundaddr != NULL) memcpy(foundaddr, le.addr, TXADDRLEN);
          if (balance != NULL) memcpy(balance, le.balance, TXAMOUNT);
       }  /* end if (foundaddr... || balance... */
-      /* success -- tag found */
-      return VEOK;
+      /* tag found */
+      return 1;
    }
 
-   /* success -- tag not found */
-   return VERROR;
+   /* tag not found */
+   return 0;
 
    /* failure / error handling */
 FAIL_IO:
    fclose(fp);
 FAIL:
    tag_free();
-   return VERROR;
+   return 0;
 }  /* end tag_find() */
 
 /**
@@ -281,7 +265,7 @@ FAIL:
 */
 int tag_valid(word8 *src_addr, word8 *chg_addr, word8 *dst_addr, word8 *bnum)
 {
-   static word32 tagval_trigger[2] = { RTRIGGER31, 0 };  /* For v2.0 */
+   static word32 tagval_trigger[2] = { V20TRIGGER, 0 };  /* For v2.0 */
    LENTRY le;
 
    if (bnum == NULL || cmp64(bnum, tagval_trigger) >= 0) {

@@ -14,9 +14,7 @@
 
 /* internal support */
 #include "types.h"
-#include "trigg.h"
 #include "tfile.h"
-#include "peach.h"
 #include "network.h"
 #include "ledger.h"
 #include "global.h"
@@ -385,7 +383,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if (!Running) resign("gettfile exiting");
 
    show("tfval");  /* validate tfile */
-   if (tf_val("tfile.dat", bnum, weight, 0)) return VERROR;
+   if (validate_tfile("tfile.dat", bnum, weight, 0)) return VERROR;
    else pdebug("tfile.dat is valid.");
    if (cmp256(weight, highweight) >= 0 && cmp64(bnum, highbnum) >= 0) {
       pdebug("tfile.dat matches advertised bnum and weight.");
@@ -429,11 +427,11 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    show("setdiff");  /* setup difficulty, based on [neo]genesis block */
    if(reset_chain() != VEOK) restart("setdiff reset");
-   le_open("ledger.dat", "rb");
+   le_open("ledger.dat");
 
    show("checkneo");  /* check neo-genesis hash against Cblockhash */
    if(!iszero(bnum, 8)) {  /* Cblockhash was set by reset_chain() */
-      result = ng_val(fname, "tfile.dat", bnum);
+      result = ng_val(fname, bnum);
       if(result != 0) {
          plog("Bad NG block! ecode: %d", result);
          remove(fname);
@@ -458,7 +456,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    /* Re-compute Weight[].
     * Check tf_val() set bnum to high block number on chain */
-   tf_val("tfile.dat", bnum, weight, 1);
+   weigh_tfile("tfile.dat", bnum, weight);
    memcpy(Weight, weight, HASHLEN);
    if(cmp64(bnum, Cblocknum) != 0) {
       perr("block number mismatch!");  /* should not happen */
@@ -519,8 +517,9 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
    /* Compute first previous NG block */
-   put64(lastneo, Cblocknum);
-   put32(lastneo, (get32(lastneo) & 0xffffff00) - 256);
+   if (sub64(lastneo, AEON64, lastneo)) {
+      memset(lastneo, 0, 8);
+   } else lastneo[0] = 0;
    bnum2fname(lastneo, bcfname);
    pdebug("Identified first previous NG block as %s", bcfname);
 
@@ -549,7 +548,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
       pdebug("failed!  reset_chain() failed!");
       goto badsyncup;
    }
-   le_open("ledger.dat", "rb");
+   le_open("ledger.dat");
 
    pdebug("Split point is block %s", bnum2hex(sblock, NULL));
    add64(lastneo, One, bnum);
@@ -593,7 +592,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    system("cp split/b0000000000000000.bc bc");
    system("rm split/*");
    /* re-compute tfile weight */
-   if(tf_val("tfile.dat", bnum, tfweight, 1)) {
+   if(weigh_tfile("tfile.dat", bnum, tfweight)) {
       plog("tf_val() error");
    } else plog("syncup() is good!");
    memcpy(Weight, tfweight, HASHLEN);
@@ -610,7 +609,7 @@ badsyncup:
    system("mv split/* bc");
    reset_chain();  /* reset Difficulty and others */
    memcpy(Weight, saveweight, HASHLEN);
-   le_open("ledger.dat", "rb");
+   le_open("ledger.dat");
    Insyncup = 0;
    return VEOK;
 }  /* end syncup() */
@@ -680,7 +679,7 @@ int contention(NODE *np)
       prev_bt = &((BTRAILER *) tx->buffer)[j - 1];
       /* ... validate their trailer proof (incl. PoW), and add weight */
       if (validate_trailer(bt, prev_bt) != VEOK) return 0;
-      if (get32(bt->tcount) && peach_check(bt) != VEOK) return 0;
+      if (get32(bt->tcount) && validate_pow(bt) != VEOK) return 0;
       add_weight(weight, bt->difficulty[0]);
       /* ... check for splitblock */
       if (splitblock == 0) {
