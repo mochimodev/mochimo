@@ -614,14 +614,14 @@ int txqe_val(TXQENTRY *txe, XDATA *xdata, word8 bnum[8])
    /* check block number matches nonce */
    if (cmp64(txe->tx_nonce, bnum) != 0) {
       set_errno(EMCM_TXNONCE);
-      return VEBAD;
+      return VEBAD2;
    }
 
    /* check transaction ID hash is correct */
    tx_hash(txe, xdata, 1, hash);
    if (memcmp(txe->tx_id, hash, HASHLEN) != 0) {
       set_errno(EMCM_TXID);
-      return VEBAD;
+      return VEBAD2;
    }
 
    /* return result of transaction data validation */
