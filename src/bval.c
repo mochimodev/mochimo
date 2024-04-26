@@ -390,7 +390,7 @@ int b_val(const char *bcfile, const char *ltfile)
          goto DROP_CLEANUP;
       }
       /* validate transaction */
-      ecode = tx_val(&tx, &xdata, bt.bnum);
+      ecode = txqe_val(&tx, &xdata, bt.bnum);
       if (ecode != VEOK) goto CLEANUP;
 
       /* add transaction id to merkel tree (infer previous tx_id) */

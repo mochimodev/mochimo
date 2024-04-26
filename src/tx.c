@@ -432,7 +432,8 @@ static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
 }  /* end xtx_mdst_val() */
 
 /**
- * Validate a Hashed transaction. Requires an open ledger.
+ * Validate transaction data, as if received directly from a wallet.
+ * DOES NOT validate tx_nonce or tx_id. Requires an open ledger.
  * @param txe Pointer to transaction entry to validate
  * @param xdata Pointer to eXtended Data to validate
  * @param bnum Pointer to block number to validate against
@@ -442,7 +443,7 @@ static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int tx_val(TXQENTRY *txe, XDATA *xdata, word8 *bnum)
+int tx_val(TXQENTRY *txe, XDATA *xdata, word8 bnum[8])
 {
    LENTRY le;
    word8 message[HASHLEN];    /* for signature validation */
@@ -455,7 +456,7 @@ int tx_val(TXQENTRY *txe, XDATA *xdata, word8 *bnum)
    /* only non-zero block-to-live values are checked */
    if (!iszero(txe->tx_btl, 8)) {
       /* prepare block-to-live upper bound */
-      if (add64(bnum, (word16[4]) { 0x100 }, total)) {
+      if (add64(bnum, CL64_32(0x100), total)) {
          set_errno(EMCM_MATH64_OVERFLOW);
          return VERROR;
       }
@@ -464,11 +465,6 @@ int tx_val(TXQENTRY *txe, XDATA *xdata, word8 *bnum)
          set_errno(EMCM_TXBTL);
          return VEBAD;
       }
-   }
-   /* check block number matches nonce */
-   if (cmp64(txe->tx_nonce, bnum) != 0) {
-      set_errno(EMCM_TXNONCE);
-      return VEBAD;
    }
 
    /* validate src != chg */
@@ -599,6 +595,38 @@ int tx_val(TXQENTRY *txe, XDATA *xdata, word8 *bnum)
    /* transaction is valid */
    return VEOK;
 }  /* end tx_val() */
+
+/**
+ * Validate transaction entry, as stored on chain. Requires an open ledger.
+ * @param txe Pointer to transaction entry to validate
+ * @param xdata Pointer to eXtended Data to validate
+ * @param bnum Pointer to block number to validate against
+ * @return (int) value representing validation result
+ * @retval VEBAD2 on invalid signature; check errno for details
+ * @retval VEBAD on bad transaction data; check errno for details
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int txqe_val(TXQENTRY *txe, XDATA *xdata, word8 bnum[8])
+{
+   word8 hash[HASHLEN];
+
+   /* check block number matches nonce */
+   if (cmp64(txe->tx_nonce, bnum) != 0) {
+      set_errno(EMCM_TXNONCE);
+      return VEBAD;
+   }
+
+   /* check transaction ID hash is correct */
+   tx_hash(txe, xdata, 1, hash);
+   if (memcmp(txe->tx_id, hash, HASHLEN) != 0) {
+      set_errno(EMCM_TXID);
+      return VEBAD;
+   }
+
+   /* return result of transaction data validation */
+   return tx_val(txqe, xdata, bnum);
+}  /* end txqe_val() */
 
 /**
  * Search txq1.dat and txclean.dat for conflicts with the src_addr or
@@ -784,16 +812,16 @@ int txclean(const char *txfname, const char *bcfname)
    tfp = fopen(tmpfname, "wb");
    if (tfp == NULL) goto FAIL_FP_MEM_BFP;
 
+   /* end of file check on Merkle Block (bfp) in the following loop
+    * depends on the block trailer being shorter than a TXQENTRY !
+    */
+   STATIC_ASSERT(sizeof(BTRAILER) < sizeof(TXQENTRY), BT_not_lt_TXQE);
+
    /* Remove TX_ID's from clean TX queue that are in the new block.
     * Remove remaining invalidated (per ledger) transactions.
     * Merkel Array in new block is sorted on TX_ID (checked in bval).
     * Clean queue, txclean.dat, is sorted by reference array above.
-    *
-    * NOTE: end of file check on Merkel Block (bfp) depends on block
-    *       trailer being shorter than a TXQENTRY !
-    *       STATIC_ASSERT() prevents this.
     */
-   STATIC_ASSERT(sizeof(BTRAILER) >= sizeof(TXQENTRY), "LOOP EOF CHECK");
    for (cond = j = nout = 0; j < actual; j++) {
       if (bfp != NULL) {
          do {
@@ -821,7 +849,10 @@ int txclean(const char *txfname, const char *bcfname)
       /* if (re)validation fails, skip... */
       /** @todo: replace tx_val with less wasteful tx_reval process */
       if (tx_val(&txc, &xdata, Cblocknum) != VEOK) continue;
-      /* ... else; write clean (valid) transaction to output */
+      /* update nonce and transaction id */
+      put64(txe.tx_nonce, Cblocknum);
+      tx_hash(txe, xdata, 1, txe.tx_id);
+      /* write clean (valid) transaction to output */
       if (tx_fwrite(&txc, &xdata, tfp) != VEOK) goto FAIL_ALL;
       nout++;
    }  /* end for() */
@@ -1033,14 +1064,12 @@ int process_tx(NODE *np)
       return ecode;
    }
 
-   /* nonce must be applied before validation */
-   put64(txe.tx_nonce, Cblocknum);
-
    /* Validate addresses, fee, signature, source balance, and total. */
    evilness = tx_val(&txe, &xdata, Cblocknum);
    if(evilness) return evilness;
 
-   /* update transaction hash */
+   /* update nonce and transaction id */
+   put64(txe.tx_nonce, Cblocknum);
    tx_hash(&txe, &xdata, 1, txe.tx_id);
 
    fp = fopen("txq1.dat", "ab");
