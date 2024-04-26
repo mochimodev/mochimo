@@ -29,20 +29,23 @@
 #define VA_SHIFT(...) VA_SELECT(__VA_ARGS__)
 #define VA_COUNT(...) VA_SHIFT(__VA_ARGS__, VA_NUMBER)
 
-/* define UNUSED Declaration Macro */
-#ifndef UNUSED_DECL
-   /* ... suppresses compiler warnings about unused declarations */
-   #if __GNUC__ > 3 || (__GNUC__ == 3 && (__GNUC_MINOR__ >= 4 || \
-         (__GNUC_MINOR__ == 3 && !defined(__cplusplus))))
-      /* gcc-3.3+ OR g++-3.4+ */
-      #define UNUSED_DECL __attribute__((unused))
-   #else
-      #define UNUSED_DECL /* nothing */
-   #endif
+/* Mochimo declaration MACROs; compiler specific */
+#if defined(__GNUC__) || defined(__clang__)
+   #define MCM_DECL_ALIGNED(X) __attribute__((aligned(X)))
+   #define MCM_DECL_DEPRECATED __attribute__((deprecated))
+   #define MCM_DECL_UNUSED __attribute__((unused))
+#elif defined(_MSC_VER)
+   #define MCM_DECL_ALIGNED(X) __declspec(align(X))
+   #define MCM_DECL_DEPRECATED __declspec(deprecated)
+   #define MCM_DECL_UNUSED
+#else
+   #define MCM_DECL_ALIGNED(X)
+   #define MCM_DECL_DEPRECATED
+   #define MCM_DECL_UNUSED
 #endif
 
 /* STATIC ASSERTION MACRO, for compile time assertion. */
-#define STATIC_ASSERT(EXPR, MSG) UNUSED_DECL static char \
+#define STATIC_ASSERT(EXPR, MSG) MCM_DECL_UNUSED static char \
    STATIC_ASSERTION_FAILURE__##MSG[(2*(!!(EXPR)))-1]
 
 /* print log levels */
@@ -410,7 +413,7 @@
  * Mochimo error number type. This is a signed integer type (by force).
 */
 enum mcm_errno_t {
-   /* The intent of enum mcm_errno_t interoperability with POSIX errno.
+   /* The intent of enum mcm_errno_t is interoperability with POSIX errno.
     *
     * C99 7.5/2; errno expands to a modifiable lvalue of type int.
     * C99 6.7.2.2/3-4; enum identifiers are declared constants of type int;
