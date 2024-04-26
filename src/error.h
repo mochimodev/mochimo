@@ -57,10 +57,10 @@
 #define PLOG_DEBUG 5
 
 /**
- * Write a file path into a buffer by joining multiple strings together
- * with the PATH_SEP.
- * @param buf Pointer to a buffer to write to
- * @param bufsz Size of buffer to write to, in bytes
+ * Write a file path into a buffer by joining multiple strings together.
+ * Assumes path is a buffer of at least FILENAME_MAX bytes in length.
+ * Uses "\\" to separate paths in Windows, otherwise uses "/".
+ * @param path Pointer to a buffer to write to
  * @param ... Strings to join together
 */
 #define path_join(path, ...) \

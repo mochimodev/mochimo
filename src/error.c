@@ -34,6 +34,15 @@ static int Logtime;
 
 #endif
 
+/* set default "preferred path separator" per OS */
+#ifndef PREFERRED_PATH_SEP
+   #ifdef _WIN32
+      #define PREFERRED_PATH_SEP  "\\"
+   #else
+      #define PREFERRED_PATH_SEP  "/"
+   #endif
+#endif
+
 /**
  * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.
  * Compatible with values separated by " " or "=".<br/>
@@ -271,7 +280,7 @@ char *path_join_count(char path[FILENAME_MAX], int count, ...)
       next = va_arg(args, char *);
       if (next == NULL || *next == '\0') continue;
       if (*path != '\0') {
-         strncat(path, PATH_SEP, FILENAME_MAX - strlen(path) - 1);
+         strncat(path, PREFERRED_PATH_SEP, FILENAME_MAX - strlen(path) - 1);
       }
       strncat(path, next, FILENAME_MAX - strlen(path) - 1);
    }
