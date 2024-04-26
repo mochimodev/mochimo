@@ -517,7 +517,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
    /* Compute first previous NG block */
-   if (sub64(lastneo, AEON64, lastneo)) {
+   if (sub64(lastneo, CL64_32(0x100), lastneo)) {
       memset(lastneo, 0, 8);
    } else lastneo[0] = 0;
    bnum2fname(lastneo, bcfname);
