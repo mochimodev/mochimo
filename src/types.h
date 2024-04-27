@@ -1,12 +1,10 @@
 /**
  * @file types.h
  * @brief Mochimo Definitions and Structures
- * @details Provides basic definitions for integer return values (VEOK,
- * VERROR, etc.), operation codes, network and transaction protocol
- * constants, buffer access definitions, and compatibility bits. Also
- * provides struture definitions for a TX packet, TXQENTRY, BHEADER,
- * BTRAILER, LENTRY, LTRAN, MDST and MTX.
- * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * @details Provides basic definitions for operation codes, network
+ * and transaction protocol constants, buffer access definitions,
+ * compatibility bits and various structures.
+ * @copyright Adequate Systems LLC, 2018-2024. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
@@ -15,15 +13,18 @@
 #define MOCHIMO_TYPES_H
 
 
+/* internal support */
+#include "error.h"
+
 /* external support */
-#include <time.h>
-#include "extio.h"
 #include "extint.h"
+#include <stdio.h>
+#include <time.h>
 
 /* ---------------- BEGIN CONFIGURABLE DEFINITIONS --------------------- */
 
 /* Version checking */
-#define PVERSION      4      /* protocol version number (short) */
+#define PVERSION     5        /* protocol version number (short) */
 
 /* Adjustable Parameters */
 #define MAXNODES     37       /**< maximum number of connected nodes */
@@ -89,6 +90,13 @@
 #define VERROR       1     /**< General error status */
 #define VEBAD        2     /**< Client was bad status */
 #define VEBAD2       3     /**< Client was naughty status */
+/* NOTE: when unsure if VEBAD or VEBAD2 is more appropriate, think about
+ * chain splits. For example, if block validation failed on ledger balance
+ * mismatch, it's possible the transactions between chains differ resulting
+ * in different ledgers, so we use VEBAD. In a similar example, if block
+ * validation failed on block hash mismatch, differing chains do not affect
+ * the process used to hash a block, so we use VEBAD2.
+ */
 
 /* network/transmission definitions */
 #define PORT1     2095     /**< Default TCP listening port for network */
@@ -143,13 +151,11 @@
 #define XTX_MEMO   0x02
 
 /* Historic Compatibility Break Points */
-#define DTRIGGER31 17185   /* for v2.0 new set_difficulty() */
-#define WTRIGGER31 17185   /* for v2.0 new add_weight() */
-#define RTRIGGER31 17185   /* for v2.0 new get_mreward() */
-#define FIXTRIGGER 17697   /* for v2.0 difficulty patch */
-#define V23TRIGGER 54321   /* for v2.3 pseudoblocks */
-#define V24TRIGGER 0x12851 /* for v2.4 new FPGA Tough algo */
-#define MTXTRIGGER 133333  /* MTX flag activation block */
+#define V20TRIGGER 0x4321  /* v2.0 open source (adjust diff, reward) */
+#define V2001PATCH 0x4521  /* v2.0.1 difficulty patch */
+#define V23TRIGGER 0xd431  /* v2.3 pseudoblocks */
+#define V24TRIGGER 0x12851 /* v2.4 FPGA-Tough PoW algo */
+#define V30TRIGGER 0x9ffff /* v3.0 blockchain reboot */
 #define BRIDGE     949     /* Trouble time -- Edit for testing */
 
 /* break point trigger detection MACROs */
@@ -252,11 +258,9 @@
 #define OP_BUSY         9
 
 /**
- * No acknowledged operation code. Indicates that a Node acknowledges the
- * request but is unable to respond with meaningful data.
- * @note It should NOT be assumed that a Node will always respond with
- * OP_NACK when it cannot respond. A node may also just close a connection
- * if it cannot respond. Because reasons...
+ * NACK, or Negative Acknowledgement, indicates that an operation was
+ * received but was not processed successfully or was rejected.
+ * The reason for the NACK should be included in the buffer.
 */
 #define OP_NACK         10
 
@@ -425,7 +429,10 @@ typedef struct {
    /* transaction data (These fields are order dependent) */
    word8 src_addr[TXADDRLEN];     /* 44 */
    word8 dst_addr[TXADDRLEN];
-/* XTXDATA xdata; */              /* size varies -- see above */
+/* union {
+      MDST mdst[256];
+      ... add eXtended Transaction data types here
+   } xdata; */                    /* size varies -- see dst_addr docs */
    word8 chg_addr[TXADDRLEN];
    word8 send_total[TXAMOUNT];    /* 8 */
    word8 change_total[TXAMOUNT];
@@ -442,8 +449,8 @@ typedef struct {
 
 /**
  * Network transmission packet Multi-byte numbers are little-endian.
- * Structure is checked on start-up for byte-alignment.
- * HASHLEN is checked to be 32.
+ * @todo reconsider struct name to avoid conflict with Block Transaction
+ * data; maybe PDU for Protocol Data Unit...
  */
 typedef struct {
    word8 version[2];  /* { PVERSION, Cbits }  */
@@ -458,6 +465,7 @@ typedef struct {
    word8 weight[32];       /* sum of block difficulties (or TX ip map) */
    word8 len[2];  /* length of data in transaction buffer for I/O op's */
    word8 buffer[WORD16_MAX];  /* packet buffer */
+MCM_DECL_ALIGNED(4) /* (re)align crc16 to 4 byte boundary */
    word8 crc16[2];
    word8 trailer[2];  /* 0xcd, 0xab */
 } TX;
@@ -485,22 +493,19 @@ typedef struct {
    /* array of tcount TXQENTRY's here... */
 } BHEADER;
 
-
 /* The block trailer at end of block file */
 typedef struct {
    word8 phash[HASHLEN];    /* previous block hash (32) */
    word8 bnum[8];           /* this block number */
    word8 mfee[8];           /* minimum transaction fee */
    word8 tcount[4];         /* transaction count */
-   word8 time0[4];          /* to compute next difficulty */
+   word8 time0[4];         /* to compute next difficulty */
    word8 difficulty[4];
-   word8 mroot[HASHLEN];  /* hash of all TXQENTRY's */
-   word8 nonce[HASHLEN];
-   word8 stime[4];        /* unsigned start time GMT seconds */
-   word8 bhash[HASHLEN];  /* hash of all block less bhash[] */
+   word8 mroot[HASHLEN];   /* merkle hash of block contents */
+   word8 nonce[HASHLEN];   /* solving nonce of standard blocks */
+   word8 stime[4];         /* time of solve in seconds since the Epoch */
+   word8 bhash[HASHLEN];   /* hash of block trailer less bhash[] */
 } BTRAILER;
-#define BTSIZE (32+8+8+4+4+4+32+32+4+32)
-
 
 /**
  * Hash-based ledger entry struct
@@ -508,8 +513,6 @@ typedef struct {
 typedef struct {
    word8 addr[TXADDRLEN];     /* ledger entry address (incl. tag) */
    word8 balance[TXAMOUNT];   /* ledger entry balance */
-   word8 zcf_dst[TXTAGLEN];   /* ZCF destination lock */
-   word8 zcf_ttl[8];          /* ZCF expiration (time-to-live) */
 } LENTRY;
 
 /* ledger transaction ltran.tmp, el.al. */
