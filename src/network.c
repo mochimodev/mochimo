@@ -152,7 +152,7 @@ int recv_tx(NODE *np, double timeout)
    tx = &(np->tx);
 
    /* recv PDU header for buffer length */
-   len = (int) (tx->buffer - tx);
+   len = (int) (tx->buffer - (word8 *) tx);
    ecode = sock_recv(np->sd, tx, len, 0, timeout);
    if (sock__check(&ecode, "recv_tx", np->id) != VEOK) return ecode;
 
@@ -277,7 +277,7 @@ int send_tx(NODE *np, double timeout)
    }
 
    /* send PDU header and buffer length */
-   len = (int) get16(np->tx.len) + (tx->buffer - tx);
+   len = (int) get16(np->tx.len) + (tx->buffer - (word8 *) tx);
    ecode = sock_send(np->sd, tx, len, 0, timeout);
    if (sock__check(&ecode, "send_tx", np->id) != VEOK) return ecode;
 
