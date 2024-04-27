@@ -625,7 +625,7 @@ int txqe_val(TXQENTRY *txe, XDATA *xdata, word8 bnum[8])
    }
 
    /* return result of transaction data validation */
-   return tx_val(txqe, xdata, bnum);
+   return tx_val(txe, xdata, bnum);
 }  /* end txqe_val() */
 
 /**
@@ -850,8 +850,8 @@ int txclean(const char *txfname, const char *bcfname)
       /** @todo: replace tx_val with less wasteful tx_reval process */
       if (tx_val(&txc, &xdata, Cblocknum) != VEOK) continue;
       /* update nonce and transaction id */
-      put64(txe.tx_nonce, Cblocknum);
-      tx_hash(txe, xdata, 1, txe.tx_id);
+      put64(txc.tx_nonce, Cblocknum);
+      tx_hash(&txc, &xdata, 1, txe.tx_id);
       /* write clean (valid) transaction to output */
       if (tx_fwrite(&txc, &xdata, tfp) != VEOK) goto FAIL_ALL;
       nout++;
