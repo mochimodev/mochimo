@@ -20,7 +20,6 @@
 extern int Nonline;         /* number of pid's in Nodes[]                */
 extern word32 Quorum;       /* Number of peers in get_eon() gang[MAXQUORUM] */
 extern word32 Trustblock;   /* trust block validity up to this block     */
-extern word32 Hps;          /* haiku per second from miner.c hps.dat     */
 extern word32 Dynasleep;    /* sleep usec. per loop if Nonline < 1       */
 extern word32 Trace;        /* non-zero plog()  trace log                */
 extern word32 Nbalance;     /* total balances sent                       */
@@ -31,7 +30,6 @@ extern word32 Ntimeouts;    /* total client timeouts                     */
 extern word32 Nrec;         /* total TX received                         */
 extern word32 Ngen;         /* total number of main loop iterations      */
 extern word32 Ndups;        /* number of dup TX's received               */
-extern word32 Nsolved;      /* number of blocks solved by miner          */
 extern word32 Nupdated;     /* number of blocks updated                  */
 extern word32 Eon;          /* Eons since boot                           */
 extern word32 Txcount;      /* transactions in txq1.dat                  */
@@ -54,7 +52,6 @@ extern word8 Cbits;         /* 8 capability bits */
 extern word8 Safemode;      /* Safe mode enable */
 extern word8 Ininit;        /* non-zero when init() runs */
 extern word8 Insyncup;      /* non-zero when syncup() runs */
-extern word8 Nominer;       /* Do not start miner if true -n */
 extern word8 Betabait;      /* betabait() display */
 extern word32 Watchdog;     /* enable watchdog timeout -wN */
 
@@ -77,7 +74,6 @@ extern word8 Weight[HASHLEN];
 extern pid_t Bcon_pid;              /* bcon process id */
 extern word8 Bcbnum[8];           /* Cblocknum at time of execl bcon */
 extern pid_t Found_pid;
-extern pid_t Mpid;               /* miner */
 extern pid_t Mqpid;              /* mirror() */
 extern int Mqcount;              /* count of mq.dat records */
 
@@ -92,7 +88,6 @@ void kill_services_exit(int ecode);
 char *show(char *state);
 int stop_bcon(void);
 int stop_found(void);
-int stop_miner(void);
 void stop_mirror(void);
 int read_global(void);
 int write_global(void);

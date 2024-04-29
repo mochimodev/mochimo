@@ -14,8 +14,6 @@
 #define MOCHIMO_C
 
 
-#define GPUMAX 64
-
 /* define EXEC_NAME and GIT_VERSION (if not defined) */
 #ifndef GIT_VERSION
    #define GIT_VERSION
@@ -142,42 +140,32 @@ int print_stats(void)
    printf("   txq1 count:      %u\n", Txcount);
    printf("   Balances sent:   %u\n", Nbalance);
    printf("   Sends blocked:   %u\n", Nsenderrs);
-   printf("   Blocks solved:   %u\n", Nsolved);
    printf("   Blocks updated:  %u\n\n", Nupdated);
 
    printf("Current block: 0x%s\n", bnum2hex(Cblocknum, NULL));
    printf("Weight:        0x...%s\n", bnum2hex(Weight, NULL));
-   printf("Difficulty:    %d  %s\n", Difficulty,
-      Mpid ? "solving..." : "waiting for tx...");
+   printf("Difficulty:    %d\n", Difficulty);
+
    return 0;
 } /* end print_stats() */
 
 /* short stat display */
 void betabait(void)
 {
-   word32 hps; /* haiku per second from miner.c hps.dat */
-
-   if(read_data(&hps, sizeof(hps), "hps.dat") == sizeof(hps))
-      Hps = hps;
-
    printf(     "Status:\n\n"
                "   Aeon:          %u\n"
                "   Generation:    %u\n"
                "   Online:        %u\n"
                "   TX recvd:        %u\n"
                "   Balances sent:   %u\n"
-               "   Blocks solved:   %u\n"
                "   Blocks updated:  %u\n"
-               "   Haiku/second:    %u %s\n"
                "\n",
 
                 Eon, Ngen,
-                Nonline,  Nrec, Nbalance, Nsolved, Nupdated,
-                (word32) Hps, Hps ? "" : "(calculated after 2 TXs/updates)"
+                Nonline,  Nrec, Nbalance, Nupdated
    );
    printf("Current block: 0x%s\n"
-          "Difficulty:    %d  %s\n\n", bnum2hex(Cblocknum, NULL),
-          Difficulty, Mpid ? "solving..." : "waiting for TX...");
+          "Difficulty:    %d\n\n", bnum2hex(Cblocknum, NULL), Difficulty);
 } /* end betabait() */
 
 
@@ -228,13 +216,6 @@ void monitor(void)
          printf("Pinklisted:\n");
          print_ipl(Epinklist, RPLISTLEN);
          continue;
-      } else if (strcmp(buff, "m") == 0) {   /* mining mode */
-         printf("Enable mining (Y/n) [%s]? ", Nominer ? "n" : "Y");
-         /* additional input required */
-         if (*tgets(buff, 80)) {
-            if (strcmp(buff, "Y") == 0) Nominer = 0;
-            else Nominer = 1;
-         }
       } else if (*buff == '\0') {   /* ENTER to continue server */
          Monitor = runmode;
          printf("In server() loop...\n");
@@ -252,184 +233,12 @@ void monitor(void)
              "ol      set log level (output)\n"
              "o       toggle log file\n"
              "p       display peer lists\n"
-             "m       set mining mode\n"
              "si      toggle single step mode\n"
              "st      display system status\n"
              "?       this message\n\n" );
 
    }  /* end command loop */
 }  /* end monitor() */
-
-/* miner blockin blockout -- child process */
-int miner(char *blockin, char *blockout)
-{
-#ifdef CUDA
-   DEVICE_CTX GPU[GPUMAX] = { 0 };
-   DEVICE_CTX *CudaGPUs = NULL;
-   int num_cuda_gpus = 0;
-   int m;
-
-#endif
-   BTRAILER bt, btout;
-   SHA256_CTX bctx;
-   FILE *fp;
-   time_t start, prev;
-   word32 n;
-   char phaiku[256];
-
-   show("solving");
-
-   /* pre-checks */
-   if (!fexists(blockin)) {
-      perr("missing blockin %s", blockin);
-      goto FAIL;
-   }
-
-   /* init */
-   memset(&btout, 0, sizeof(btout));
-   time(&start);
-   time(&prev);
-   n = 0;
-
-#ifdef CUDA
-      CudaGPUs = GPU;
-      num_cuda_gpus = peach_init_cuda(CudaGPUs, GPUMAX);
-      pdebug("Cuda Devices = %d", num_cuda_gpus);
-
-#endif
-
-   /* begin miner loop */
-   while (Running) {
-      /* read candidate block file and bctx */
-      if (read_data(&bctx, sizeof(bctx), "bctx.dat") != sizeof(bctx)) {
-         perr("failed to read_data(bctx)");
-         goto FAIL;
-      } else if (read_trailer(&bt, blockin) != VEOK) {
-         perr("failed to read %s trailer", blockin);
-         goto FAIL;
-      }
-      /* remove miner files */
-      remove("bctx.dat");
-      remove("miner.tmp");
-      /* copy blockin to miner.tmp to perform current work */
-      if (fcopy(blockin, "miner.tmp") != 0) {
-         perr("failed to copy %s to miner.tmp", blockin);
-         goto FAIL;
-      }
-
-
-         pdebug("solving block: 0x%s", bnum2hex(bt.bnum, NULL));
-#ifdef CUDA
-         for (m = 0, n = 0; Running; m++, usleep(Dynasleep)) {
-            if (m >= num_cuda_gpus) m = 0;
-
-#else
-         for (peach_init(&bt); Running; n++) {
-
-#endif
-            /* check time every 256 iterations -- or always if -DCUDA */
-            if ((n & 0xff) == 0) {
-               /* check for new bctx.dat file every second */
-               if (difftime(time(NULL), prev)) {
-                  time(&prev);
-                  /* on new bctx, break inner loop for efficient restart */
-                  if (fexists("bctx.dat")) break;
-               }
-            }
-
-#ifdef CUDA
-            /* perform solve work -- cpu */
-            if (peach_solve_cuda(&CudaGPUs[m], &bt, 0, &btout) == VEOK) {
-               memcpy(bt.nonce, btout.nonce, HASHLEN);
-
-#else
-            /* perform solve work -- cpu */
-            if (peach_solve(&bt, bt.difficulty[0], btout.nonce) == VEOK) {
-
-#endif
-               /* double check solve is valid */
-               if (peach_check(&bt) != VEOK) {
-                  memset(&btout, 0, sizeof(btout));
-                  perr("invalid solve!\n");
-                  goto FAIL;
-               } else {
-                  /* solve is valid */
-                  show("solved");
-                  trigg_expand(bt.nonce, phaiku);
-                  if (!Bgflag) printf("\nSOLVED!!!\n\n%s\n", phaiku);
-                  /* ensure solve time is valid */
-                  while (Running) {
-                     if (difftime(time(NULL), get32(bt.time0)) > 0) break;
-                     pwarn("early solve! Check system clock...");
-                     sleep(1);
-                  }
-                  /* put solve time in trailer */
-                  put32(bt.stime, time(NULL));
-                  /* add nonce and stime to bctx; put hash in trailer */
-                  sha256_update(&bctx, bt.nonce, HASHLEN + 4);
-                  sha256_final(&bctx, bt.bhash);
-                  /* write trailer to miner.tmp */
-                  fp = fopen("miner.tmp", "r+b");
-                  if (fp == NULL) {
-                     perr("cannot re-open miner.tmp");
-                     goto FAIL;
-                  } else if (fseek(fp, -(sizeof(bt)), SEEK_END) != 0) {
-                     perr("fseek(bt) on miner.tmp");
-                     goto FAIL_FP;
-                  } else if (fwrite(&bt, sizeof(bt), 1, fp) != 1) {
-                     perr("fwrite(bt) on miner.tmp");
-                     goto FAIL_FP;
-                  } else fclose(fp);
-                  /* move mblock.tmp to blockout */
-                  remove(blockout);
-                  if (rename("miner.tmp", blockout) != 0) {
-                     perr("cannot rename miner.tmp");
-                     goto FAIL;
-                  }
-                  /* final log */
-                  pdebug("miner: solved 0x%s", bnum2hex(bt.bnum, NULL));
-                  Running = 0;
-               }  /* end if (peach_check(&bt)... else... */
-            }  /* end if (peach_solve(&bt, diff, bt.nonce)... */
-         }  /* end for (peach_init(&bt)... */
-
-
-      /* record hps */
-#ifdef CUDA
-      for (Hps = 0, m = 0; m < num_cuda_gpus; m++) {
-         Hps += (word32)
-            (CudaGPUs[m].total_work / difftime(time(NULL), start));
-      }
-#else
-      Hps = n / (word32) difftime(time(NULL), start);
-#endif
-      write_data(&Hps, sizeof(Hps), "hps.dat");
-   }  /* end while(Running) */
-
-   /* finish -- gracefully */
-   return VEOK;
-
-   /* failure -- cleanup/error handling */
-FAIL_FP:
-   fclose(fp);
-FAIL:
-
-   return VERROR;
-}  /* end miner() */
-
-/* Start the miner as a child process */
-int start_miner(void)
-{
-   pid_t pid;
-
-   if(Mpid) return VEOK;
-   pid = fork();
-   if(pid < 0) return VERROR;
-   if(pid) { Mpid = pid; return VEOK; }  /* parent */
-   /* child */
-   miner("cblock.dat", "mblock.dat");
-   exit(0);
-}  /* end start_miner() */
 
 /**
  * Initialize the server/client from any state
@@ -633,7 +442,7 @@ int server(int reuse_addr)
    static time_t Ltime;
    static time_t Stime;    /* status display update time */
    static time_t nsd_time;  /* event timers */
-   static time_t bctime, mwtime, mqtime, sftime, vtime;
+   static time_t bctime, mqtime, sftime, vtime;
    static time_t ipltime;
    static SOCKET lsd, nsd;
    static NODE *np, node;
@@ -641,7 +450,6 @@ int server(int reuse_addr)
    static int status;   /* child return status */
    static pid_t pid;    /* child pid */
    static int lfd;      /* for lock() */
-   static word32 hps;  /* same as Hps in monitor.c */
    static word16 opcode;
    char fname[FILENAME_MAX];
 
@@ -649,7 +457,6 @@ int server(int reuse_addr)
    Ltime = time(NULL);      /* real time GMT in seconds */
    Stime = Ltime + 10;      /* status display time */
    bctime = Ltime + 30;     /* block constructor time */
-   mwtime = Ltime + 6;
    mqtime = Ltime + 5;      /* mirror() time */
    Utime = Ltime;           /* for watchdog timer */
    Watchdog = WATCHTIME + (rand16() % 600);
@@ -727,7 +534,6 @@ int server(int reuse_addr)
                /* exit services */
                stop_bcon();
                stop_found();
-               stop_miner();
                /* update recv'd block */
                if(b_update("rblock.dat", 0) == VEOK) {
                   send_found();  /* start send_found() child */
@@ -868,15 +674,14 @@ int server(int reuse_addr)
        * Take care of business...
        */
 
-      /* Check miner */
+      /* Check mined (push) blocks */
       if(Blockfound == 0 && fexists("mblock.dat")) {
          Blockfound = 1;
          if(cmp64(Cblocknum, Bcbnum) == 0) {
             /* exit services */
             stop_bcon();
             stop_found();
-            stop_miner();
-            /* We solved a block! Update... */
+            /* We found a pushed block! Update... */
             if (b_update("mblock.dat", 1) == VEOK) {
                send_found();  /* start send_found() child */
                Stime = Ltime + 20;  /* hold status display */
@@ -895,7 +700,6 @@ int server(int reuse_addr)
             /* exit services */
             stop_bcon();
             stop_found();
-            stop_miner();
             /* update pseudoblock */
             if (b_update("pblock.dat", 2) != VEOK) {
                restart("Failed to update pseudo-block");
@@ -904,7 +708,7 @@ int server(int reuse_addr)
       } else {
          if (Txcount >= TXQUEBIG) bctime = Ltime;
          if (Bcon_pid == 0 && Blockfound == 0 && Ltime >= bctime &&
-            (Txcount > 0 || (Mpid == 0 && fexistsnz("txclean.dat")))) {
+            (Txcount > 0 || fexistsnz("txclean.dat"))) {
             pdebug("spawning bcon with %d more transactions", Txcount);
             /* append txq1.dat to txclean.dat */
             system("cat txq1.dat >>txclean.dat 2>/dev/null");
@@ -930,18 +734,7 @@ int server(int reuse_addr)
          pid = waitpid(Bcon_pid, &status, WNOHANG);
          if(pid > 0) {
             Bcon_pid = 0;  /* pid not zero means she is done. */
-            if(!Nominer) {
-               start_miner();  /* start or re-start miner */
-            }
          }
-      }
-      /* bcon sequence will wait on miner if Txcount > 0,
-       * else...
-       */
-      if(Mpid && Ltime >= mwtime) {
-         pid = waitpid(Mpid, &status, WNOHANG);
-         if(pid > 0) Mpid = 0;  /* Miner exited. */
-         mwtime = Ltime + 120;
       }
 
       /* Start mirror()? */
@@ -969,8 +762,6 @@ int server(int reuse_addr)
        * Display system statistics
        */
       if(Ltime >= Stime) {
-         if(read_data(&hps, sizeof(hps), "hps.dat") == sizeof(hps))
-            Hps = hps;
          if(Betabait && Bgflag == 0) betabait();
          Stime = Ltime + STATUSFREQ;
       }
@@ -1086,7 +877,6 @@ int usage(void)
       "   -S         Safe mode\n"
       "   -F         Filter private IP's\n"  /* v.28 */
       "   -P         Allow pushed mblocks\n"
-      "   -n         Do not solve blocks\n"
       "   -Mn        set transaction fee to n\n"
       "   -Sanctuary=N,Lastday\n"
       "   -Tn        set Trustblock to n for tfval() speedup\n"
@@ -1189,9 +979,6 @@ int main(int argc, char **argv)
             }
             setploglevel((k = atoi(&argv[j][2])));
             break;
-         case 'n':  /* disable miner */
-            Nominer = 1;
-            break;
          case 'P':  /* enabled cblock push */
             Allowpush = 1;
             Cbits |= C_PUSH;
@@ -1285,7 +1072,6 @@ EOA:  /* end of arguments */
          /* shutdown sockets */
          sock_cleanup();
          /* stop services */
-         stop_miner();
          stop_mirror();
          stop_found();
          stop_bcon();

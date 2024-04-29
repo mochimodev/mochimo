@@ -25,7 +25,6 @@
 int Nonline;         /* number of pid's in Nodes[]                */
 word32 Quorum = 4;   /* Number of peers in get_eon() gang[MAXQUORUM] */
 word32 Trustblock;   /* trust block validity up to this block     */
-word32 Hps;          /* haiku per second from miner.c hps.dat     */
 word32 Dynasleep;    /* sleep usec. per loop if Nonline < 1       */
 word32 Trace;        /* non-zero plog()  trace log                */
 word32 Nbalance;     /* total balances sent                       */
@@ -36,7 +35,6 @@ word32 Ntimeouts;    /* total client timeouts                     */
 word32 Nrec;         /* total TX received                         */
 word32 Ngen;         /* total number of main loop iterations      */
 word32 Ndups;        /* number of dup TX's received               */
-word32 Nsolved;      /* number of blocks solved by miner          */
 word32 Nupdated;     /* number of blocks updated                  */
 word32 Eon;          /* Eons since boot                           */
 word32 Txcount;      /* transactions in txq1.dat                  */
@@ -59,7 +57,6 @@ word8 Cbits = CBITS; /* 8 capability bits */
 word8 Safemode;      /* Safe mode enable */
 word8 Ininit;        /* non-zero when init() runs */
 word8 Insyncup;      /* non-zero when syncup() runs */
-word8 Nominer;       /* Do not start miner if true -n */
 word8 Betabait;      /* betabait() display */
 word32 Watchdog;     /* enable watchdog timeout -wN */
 
@@ -82,7 +79,6 @@ word8 Weight[HASHLEN];
 pid_t Bcon_pid;         /* bcon process id */
 word8 Bcbnum[8];        /* Cblocknum at time of execl bcon */
 pid_t Found_pid;
-pid_t Mpid;             /* miner */
 pid_t Mqpid;            /* mirror() */
 int Mqcount;            /* count of mq.dat records */
 
@@ -97,7 +93,6 @@ void kill_services_exit(int ecode)
    if (Found_pid) kill(Found_pid, SIGTERM);
    if (Bcon_pid) kill(Bcon_pid, SIGTERM);
    if (Mqpid) kill(Mqpid, SIGTERM);
-   if (Mpid) kill(Mpid, SIGTERM);
    sock_cleanup();
    Running = 0;
    while (waitpid(-1, NULL, 0) != -1);
@@ -136,24 +131,6 @@ int stop_found(void)
       kill(Found_pid, SIGTERM);
       waitpid(Found_pid, &status, 0);
       Found_pid = 0;
-   }
-
-   return status;
-}
-
-/* kill the miner child */
-int stop_miner(void)
-{
-   int status = VETIMEOUT;
-
-   if (Mpid) {
-      pdebug("   Waiting for miner to exit");
-      kill(Mpid, SIGTERM);
-      waitpid(Mpid, &status, 0);
-      /* remove miner files */
-      remove("miner.tmp");
-      remove("bctx.dat");
-      Mpid = 0;
    }
 
    return status;

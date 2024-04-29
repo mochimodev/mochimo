@@ -57,11 +57,6 @@ void print_bup(BTRAILER *bt, char *solvestr)
    /* print block identification */
    hash2hex32(bt->bhash, hash);
    plog("%s-block: 0x%" P32x " #%s...", solvestr, bnum, hash);
-   /* print miner data if enabled */
-   if (!Ininit && !Insyncup && !Nominer) {
-      read_data(&Hps, sizeof(Hps), "hps.dat");
-      printf("Solved: %" P32u "  Hps: %" P32u "\n", Nsolved, Hps);
-   }
 }  /* end print_bup() */
 
 /**
@@ -191,11 +186,6 @@ int b_update(char *fname, int mode)
       restart("failed to write_global()");
    } else if (Ininit == 0) {
       if (Insyncup == 0) {
-         if (mode == 1 && solvestr == NULL) {  /* not "pushed" */
-            solvestr = "Solved";
-            Nsolved++;  /* our block */
-            write_data(&Nsolved, 4, "solved.dat");
-         }
          Nupdated++;  /* block update counter */
       } else solvestr = "Synced";
       Utime = time(NULL);  /* update time for watchdog */
