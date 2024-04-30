@@ -89,8 +89,6 @@ char *show(char *state);
 int stop_bcon(void);
 int stop_found(void);
 void stop_mirror(void);
-int read_global(void);
-int write_global(void);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

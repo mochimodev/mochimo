@@ -182,9 +182,7 @@ int b_update(char *fname, int mode)
 
    /* update server data */
    remove("cblock.dat");
-   if (write_global() != VEOK) {
-      restart("failed to write_global()");
-   } else if (Ininit == 0) {
+   if (Ininit == 0) {
       if (Insyncup == 0) {
          Nupdated++;  /* block update counter */
       } else solvestr = "Synced";

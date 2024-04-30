@@ -424,7 +424,6 @@ int init(void)
       plog("Resync failure: try again...\n\n");
    }
 
-   write_global();
    txclean("txclean.dat", NULL);
    Ininit = 0;
 
