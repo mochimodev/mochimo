@@ -833,6 +833,9 @@ int weigh_tfile(const char *tfile, const word8 bnum[8], word8 weight[32])
    fp = fopen(tfile, "rb");
    if (fp == NULL) return VERROR;
 
+   /* zero weight before weighing a whole file */
+   memset(weight, 0, 32);
+
    /* weigh every block trailer */
    while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
       /* Let the neo-genesis (not the 0x..ff) add weight to the chain. */
