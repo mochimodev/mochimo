@@ -161,9 +161,17 @@ int ng_val(const char *ngfile, const word8 bnum[8])
 
    /* ... fp is left at beginning of ledger entries ... */
 
-   /* validate block trailer against tfile trailer */
-   if (read_trailer(&tft, "tfile.dat") != VEOK) goto ERROR_CLEANUP;
-   if (validate_trailer(&bt, &tft) != VEOK) goto DROP_CLEANUP;
+   /* compare block trailer against tfile trailer */
+   if (read_tfile(&tft, bt.bnum, 1, "tfile.dat") != 1) {
+      if (errno != EMCM_EOF) goto ERROR_CLEANUP;
+      /* ... we don't have the trailer, validate against last trailer */
+      if (read_trailer(&tft, "tfile.dat") != VEOK) goto ERROR_CLEANUP;
+      if (validate_trailer(&bt, &tft) != VEOK) goto DROP_CLEANUP;
+      /* ... else compare tfile trailer against block trailer */
+   } else if (memcmp(&tft, &bt, sizeof(BTRAILER)) != 0) {
+      set_errno(EMCM_TRAILER);
+      goto DROP_CLEANUP;
+   }
 
    /* tcount cannot reliably be validated by (the current routines of)
     * validate_trailer(), so we must ENSURE the validity of tcount here
