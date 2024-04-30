@@ -950,7 +950,6 @@ int main(int argc, char **argv)
             if (*cp == '\0') goto EOA;  /* -- end of args */
             else if (strcmp("help", cp) == 0) exit(usage());
             else if (strcmp("reuse-addr", cp) == 0) reuse_addr = 1;
-            else if (strcmp("testnet", cp) == 0) exit(testnet());
             else if (strcmp("veronica", cp) == 0) exit(veronica());
             else perr("Unknown argument, %s", argv[j]);
             break;
