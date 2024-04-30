@@ -27,7 +27,6 @@
 #include <sys/types.h>
 #include <string.h>
 #include <signal.h>
-#include <dirent.h>
 #include "extthrd.h"
 #include "extmath.h"
 #include "extlib.h"
@@ -66,89 +65,61 @@ ThreadProc thread_get_block(void *arg)
 }
 
 /**
- * Reset chain data from local directory.
- * Find last block in `Bcdir` directory, and set Cblocknum, Eon,
- * Time0, Difficulty, Cblockhash and Prevhash from block trailer.
- * @return VEOK on success, else VERROR.
+ * Reset chain data from Tfile. Deletes blockchain files above the last
+ * Tfile entry, and logs warnings for missing blockchain files. Sets:
+ *    Cblocknum, Eon, Time0, Difficulty, Cblock/Prevhash, and Weight.
+ * @returns (int) value representing operation success
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
  */
 int reset_chain(void)
 {
    BTRAILER bt;
-   word32 bnum[2], bchk[2];
-   struct dirent *ep;
-   DIR *dp;
-   char *ext;
+   word8 bnum[8];
    char fname[FILENAME_MAX];
    char bcfname[FILENAME_MAX];
 
-   *fname = '\0';
-   *bcfname = '\0';
-
-   /* find highest named blockchain file in Bcdir */
-   dp = opendir(Bcdir);
-   if (dp == NULL) {
-      perrno("failed to open Bcdir...");
-      return VERROR;
-   } else while((ep = readdir(dp))) {
-      /* ensure valid blockchain file format (strlen("b*.bc") == 20) */
-      if (ep->d_name[0] != 'b' || strlen(ep->d_name) != 20) continue;
-      if ((ext = strrchr(ep->d_name, '.')) == NULL) continue;
-      if (strncmp(ext, ".bc", FILENAME_MAX) != 0) continue;
-      /* check if filename compares greater */
-      if (strncmp(ep->d_name, bcfname, FILENAME_MAX) > 0) {
-         /* ensure filename hexadecimal is exposed */
-         if (sscanf(ep->d_name, "b%08x%08x", &bchk[1], &bchk[0]) == 2) {
-            /* strncpy() MAY NOT result in null-terminated copy */
-            strncpy(bcfname, ep->d_name, FILENAME_MAX);
-            bcfname[FILENAME_MAX - 1] = '\0';
-            put64(bnum, bchk);
+   /* obtain latest block trailer from Tfile */
+   if (read_trailer(&bt, "tfile.dat") != VEOK) return VERROR;
+   /* check blockchain files -- delete overrun */
+   for (put64(bnum, bt.bnum); ; add64(bnum, ONE64, bnum)) {
+      bnum2fname(bnum, bcfname);
+      path_join(fname, Bcdir, bcfname);
+      if (cmp64(bnum, bt.bnum) == 0) {
+         /* check we have the latest block from Tfile */
+         if (!fexists(fname)) {
+            perrno("missing blockchain file %s", fname);
+            return VERROR;
+         }
+      } else {
+         /* delete blockchain files above Tfile */
+         if (!fexists(fname)) break;
+         if (remove(fname) != 0) {
+            perrno("failed to remove %s", fname);
+            return VERROR;
          }
       }
-   }
-   closedir(dp);
-
-   /* read block trailer of file and ensure block numbers match */
-   path_join(fname, Bcdir, bcfname);
-   if (read_trailer(&bt, fname)) {
-      perr("failed to read block trailer, %s", fname);
-      return VERROR;
-   } else if (cmp64(bt.bnum, bnum)) {
-      perr("%s bnum mismatch!", fname);
-      return VERROR;
-   }
+   }  /* end for() */
 
    /* initialize chain data from block trailer */
-   put64(Cblocknum, bnum);
-   Eon = get32(bnum) >> 8;
+   put64(Cblocknum, bt.bnum);
+   Eon = get32(bt.bnum) >> 8;
    Time0 = get32(bt.stime);
    Difficulty = next_difficulty(&bt);
    memcpy(Prevhash, bt.phash, HASHLEN);
    memcpy(Cblockhash, bt.bhash, HASHLEN);
 
+   /* Re-compute Weight[] -- check double bnum */
+   if (weigh_tfile("tfile.dat", bnum, Weight) != VEOK) {
+      perrno("weight_tfile() FAILURE");
+      return VERROR;
+   } else if (cmp64(bnum, Cblocknum) != 0) {
+      perr("block number mismatch!");
+      return VERROR;
+   }
+
    return VEOK;
 }  /* end reset_chain() */
-
-/* Delete all blocks above bc/matchblock.
- * Returns number of blocks deleted.
- */
-int delete_blocks(void *matchblock)
-{
-   int j;
-   word8 bnum[8];
-   char fname[FILENAME_MAX];
-   char bcfname[21];
-
-   put64(bnum, matchblock);
-   if(iszero(bnum,8)) add64(bnum, One, bnum);
-   for(j = 0; ; j++) {
-      bnum2fname(bnum, bcfname);
-      path_join(fname, Bcdir, bcfname);
-      if (remove(fname) != 0) break;
-      add64(bnum, One, bnum);
-   }
-   return j;
-}
-
 
 /* Extract Genesis Block to ledger.dat */
 int extract_gen(char *lfile)
@@ -255,7 +226,6 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    static word8 num256[8] = { 0, 1, };
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN];
-   int result;
 
    show("gettfile");  /* get tfile */
    pdebug("fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
@@ -280,13 +250,10 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if (!(*quorum)) restart("tfval no quorum");
    if (!Running) resign("tfval exiting");
 
-   show("getneo");  /* get neo-genesis block */
    /* determine starting neo-genesis block */
    put64(bnum, highbnum); bnum[0] = 0;
    if (sub64(bnum, num256, bnum)) memset(bnum, 0, 8);
    pdebug("neo-genesis block 0x%s", bnum2hex(bnum, NULL));
-   /* clean bc/ directory of block >= ngnum */
-   delete_blocks(bnum);
    /* trim the tfile back to the neo-genesis block and close the ledger */
    if (trim_tfile("tfile.dat", bnum) != VEOK) restart("getneo tfile_trim()");  /* panic */
    le_close();  /* close ledger, we're gonna grab a new one... */
@@ -294,8 +261,16 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if(!iszero(bnum, 8)) {  /* ... no need to download genesis block */
       plog("downloading neo-genesis block 0x%s", bnum2hex(bnum, NULL));
       while(Running && *quorum) {
+         show("getneo");
          remove("ngblock.dat");
-         if(get_file(*quorum, bnum, "ngblock.dat") == VEOK) break;
+         if (get_file(*quorum, bnum, "ngblock.dat") == VEOK) {
+            show("checkneo");
+            /* validate neogenesis block */
+            if (ng_val("ngblock.dat", bnum) != VEOK) {
+               perrno("Bad NG block");
+               remove("ngblock.dat");
+            } else break;
+         }
          /* remove quorum member, and try again */
          remove32(*quorum, quorum, *qidx, qidx);
       }
@@ -318,16 +293,6 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if(reset_chain() != VEOK) restart("setdiff reset");
    le_open("ledger.dat");
 
-   show("checkneo");  /* check neo-genesis hash against Cblockhash */
-   if(!iszero(bnum, 8)) {  /* Cblockhash was set by reset_chain() */
-      result = ng_val(fname, bnum);
-      if(result != 0) {
-         plog("Bad NG block! ecode: %d", result);
-         remove(fname);
-         return VERROR;
-      }
-   }
-
    /* get blockchain */
    if (catchup(quorum, *qidx) != VEOK) {
       plog("catchup() encountered an error, restarting...");
@@ -342,17 +307,6 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    }
 
    if(!Running) resign("quorum update");
-
-   /* Re-compute Weight[].
-    * Check tf_val() set bnum to high block number on chain */
-   weigh_tfile("tfile.dat", bnum, weight);
-   memcpy(Weight, weight, HASHLEN);
-   if(cmp64(bnum, Cblocknum) != 0) {
-      perr("block number mismatch!");  /* should not happen */
-      restart("tfval_last error");
-   }
-
-   pdebug("re-computed Weight = 0x...%x", Weight[0]);
    plog("\nVeronica says, 'You're done!'");
 
    /* Done! */
@@ -368,7 +322,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
  */
 int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 {
-   word8 bnum[8], tfweight[HASHLEN], saveweight[HASHLEN];
+   word8 bnum[8], tfweight[HASHLEN];
    word8 lastneo[8], sblock[8];
    char buff[256], bcfname[21];
    int j;
@@ -401,7 +355,6 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    system("cp tfile.dat split");
    system("cp ledger.dat split");
    system("mv bc/*.bc split");
-   memcpy(saveweight, Weight, HASHLEN);
 
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
@@ -497,7 +450,6 @@ badsyncup:
    system("rm *.bc bc/*");
    system("mv split/* bc");
    reset_chain();  /* reset Difficulty and others */
-   memcpy(Weight, saveweight, HASHLEN);
    le_open("ledger.dat");
    Insyncup = 0;
    return VEOK;

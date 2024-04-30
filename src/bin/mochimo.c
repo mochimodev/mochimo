@@ -250,10 +250,9 @@ int init(void)
    word32 peer, qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
    word8 netweight[32], netbnum[8]; //, bnum[8];
-   /* BTRAILER bt; */
+   BTRAILER bt;
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
    int result, status, attempts, count;
-   word8 highblock[8];
 
    /* init */
    show("init");
@@ -284,26 +283,19 @@ int init(void)
          } else pwarn("using maddr.MAT (the founder's mining address)");
       }
    }
-   /* restore core chain files if any do not exist */
-   snprintf(fname, FILENAME_MAX, "%s/b0000000000000000.bc", Bcdir);
+   /* initialize genesis block filename */
+   path_join(fname, Bcdir, "b0000000000000000.bc");
+   /* (try) restore core chain files if any do not exist */
    if (!fexists("tfile.dat") || !fexists(fname)) {
-      pdebug("Core chain files compromised, attempting restoration...");
-      if (fcopy("../genblock.bc", fname) != VEOK) {
-         perr("Failed to restore %s from ../genblock.bc", fname);
-         return VERROR;
-      } else if (fcopy("../tfile.dat", "tfile.dat") != VEOK) {
-         perr("Failed to restore tfile.dat from ../tfile.dat");
+      pdebug("Restore core chain files...");
+      if (!fexists("genblock.bc") || fcopy("genblock.bc", fname) != VEOK) {
+         perrno("Genesis block restoration FAILURE");
          return VERROR;
       }
-   }
-   /* open ledger or extract from genesis block */
-   if (!fexists("ledger.dat") || le_open("ledger.dat", "rb") != VEOK) {
-      pdebug("Extracting ledger from ../genblock.bc ...");
-      if (le_extract("../genblock.bc", "ledger.dat") != VEOK) {
-         perr("Failed to extract ledger from ../genblock.bc");
-         return VERROR;
-      } else if (le_open("ledger.dat", "rb") != VEOK) { /* try again */
-         perr("Failed to open ledger.dat");
+      remove("tfile.dat");
+      if (read_trailer(&bt, fname) != VEOK || \
+            append_tfile(&bt, 1, "tfile.dat") != VEOK) {
+         perrno("Tfile restoration FAILURE");
          return VERROR;
       }
    }
@@ -311,17 +303,7 @@ int init(void)
    plog("Init chain...");
    /* Find the last block in bc/ and reset Time0, and Difficulty */
    if (reset_chain() != VEOK) {
-      perr("reset_chain() failed");
-      return VERROR;
-   }
-   /* validate our own tfile.dat to compute Weight */
-   if (tf_val("tfile.dat", highblock, Weight, 1)) {
-      perr("bad tfile.dat -- resync");
-      memset(Cblocknum, 0, 8);  /* flag resync */
-   } else if (cmp64(Cblocknum, highblock)) {
-      pdebug("%d %d", get32(Cblocknum), get32(highblock));
-      pdebug("0x...%s", weight2hex(Weight, weighthex));
-      perr("tfile mismatch -- resync");
+      perrno("reset_chain() FAILURE");
       memset(Cblocknum, 0, 8);  /* flag resync */
    } else if (!iszero(Cblocknum, 8)) {
       plog(" - 0x%s 0x%s", bnum2hex(Cblocknum, bnumhex),
