@@ -232,7 +232,7 @@ size_t read_tfile
    (void *buffer, const word8 bnum[8], size_t count, const char *tfile)
 {
    long long offset;
-   size_t read_count;
+   size_t n = 0;
    FILE *fp;
 
    /* open Tfile and read trailer from offset */
@@ -241,18 +241,15 @@ size_t read_tfile
    /* seek to read offset for bnum */
    put64(&offset, bnum);
    offset *= sizeof(BTRAILER);
-   if (fseek64(fp, offset, SEEK_SET) != 0) goto ERROR_CLEANUP;
-   /* perform read into buffer and cleanup */
-   read_count = fread(buffer, sizeof(BTRAILER), (size_t) count, fp);
+   if (fseek64(fp, offset, SEEK_SET) == 0) {
+      /* perform read into buffer and cleanup -- check for EOF */
+      n = fread(buffer, sizeof(BTRAILER), (size_t) count, fp);
+      if (n != count && !ferror(fp)) set_errno(EMCM_EOF);
+   }
+
    fclose(fp);
 
-   return read_count;
-
-   /* cleanup / error handling */
-ERROR_CLEANUP:
-   fclose(fp);
-
-   return (-1);
+   return n;
 }  /* end read_tfile() */
 
 /**
