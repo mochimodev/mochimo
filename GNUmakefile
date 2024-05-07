@@ -95,26 +95,12 @@ NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
 .PHONY: help all allcuda clean cleanall coverage docs library report \
 	sublibraries test version
 
-help: # default rule prints help information
-	@echo ""
-	@echo "Usage:  make [options] [FLAGS=FLAGVALUES]"
-	@echo "   make               prints this usage information"
-	@echo "   make all           build all object files"
-	@echo "   make allcuda       build all CUDA object files"
-	@echo "   make clean         removes build directory and files"
-	@echo "   make cleanall      removes (all) build directories and files"
-	@echo "   make coverage      build test coverage file"
-	@echo "   make docs          build documentation files"
-	@echo "   make report        build html report from test coverage"
-	@echo "   make library       build a library file containing all objects"
-	@echo "   make sublibraries  build all library files (incl. submodules)"
-	@echo "   make test          build and run tests"
-	@echo "   make test-*        build and run sub tests matching *"
-	@echo "   make variable-*    show the value of a variable matching *"
-	@echo "   make version       show the git repository version string"
-	@echo ""
+# default rule calls help and informs of help-dev
+_: # help as dependency DOES NOT inform of missing help rule
+	@make help --no-print-directory
+	@echo "Run 'make help-dev' for developer usage information."
 
-# build "all" base objects; redirect (DEFAULT RULE)
+# build "all" base objects
 all: $(OBJECTS)
 
 # build all CUDA object files; redirect
@@ -138,6 +124,33 @@ docs:
 	@doxygen <( cat .github/docs/config; \
 	 echo "PROJECT_NAME=$(MODULE)" | tr '[:lower:]' '[:upper:]'; \
 	 echo "PROJECT_NUMBER=$(GITVERSION)" )
+
+# developer help information
+help-dev:
+	@echo ""
+	@echo "Usage:  make [options] [targets]"
+	@echo "Options:"
+	@echo "   ... see 'make --help' for make specific options"
+	@echo "   CFLAGS='<flags>' for additional compiler flags"
+	@echo "   LFLAGS='<flags>' for additional linker flags"
+	@echo "   NVCFLAGS='<flags>' for additional NVIDIA compiler flags"
+	@echo "Targets (developer):"
+	@echo "   make [_]         redirects to 'help' and suggests 'help-dev'"
+	@echo "   make all         build all object files"
+	@echo "   make clean       remove build directory"
+	@echo "   make cleanall    remove build directory (incl. submodules)"
+	@echo "   make coverage    build test coverage file"
+	@echo "   make docs        build documentation files"
+	@echo "   make help-dev    prints this developer usage information"
+	@echo "   make library     build a library file containing all objects"
+	@echo "   make report      build html report from test coverage"
+	@echo "   make sublibs     build all library files (incl. submodules)"
+	@echo "   make test        build and run (all) tests"
+	@echo "   make test-*      build and run tests matching *"
+	@echo "   make update      update current repository and submodules"
+	@echo "   make variable-*  show the value of a variable matching *"
+	@echo "   make version     show the git repository version string"
+	@echo ""
 
 # build library file; redirect
 library: $(MODLIB)
