@@ -15,7 +15,17 @@
  * under the CC0 1.0 Universal Public Domain Dedication. For more
  * information on that license, please refer to
  * <http://creativecommons.org/publicdomain/zero/1.0/>
- * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ *
+ * Constants inlined from the reference implementation:
+ * ```
+ # PARAMSN = 32
+ # W = 16
+ # LOGW = 4
+ # LEN2 = 3
+ # LEN1 = 8 * PARAMSN / LOGW = 64
+ # LEN = LEN1 + LEN2 = 67
+ # ```
+ * @copyright Adequate Systems LLC, 2018-2024. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
@@ -26,14 +36,9 @@
 
 #include "extint.h"  /* for word types */
 
-/* Wots specific paramters */
-#define PARAMSN      32
-#define WOTSW        16
-#define WOTSLOGW     4
-#define WOTSLEN2     3
-#define WOTSLEN1     (8 * PARAMSN / WOTSLOGW)
-#define WOTSLEN      (WOTSLEN1 + WOTSLEN2)
-#define WOTSSIGBYTES (WOTSLEN * PARAMSN)
+/* WOTS+ parameters */
+#define WOTSSIGBYTES 2144
+#define WOTSADDRLEN  2208
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
