@@ -32,30 +32,6 @@ static void prf(word8 *out, const word8 in[32], const word8 *key)
 
 /**
  * @private
- * We assume the left half is in in[0]...in[n-1]
- */
-static void thash_f(word8 *out, const word8 *in, const word8 *pub_seed, word32 addr[8]) {
-    word8 buf[96] = {0}, bitmask[32], addr_as_bytes[32];
-    unsigned long to_bytes;
-
-    for (int i = 0; i < 2; i++) {
-        addr[7] = i; /* from spec "set_key_and_mask" */
-        for (int j = 0; j < 8; j++) { /* convert addr longs to bytes */
-            to_bytes = addr[j];
-            for (int k = 3; k >= 0; k--) { /* as big-endian bytes */
-                addr_as_bytes[j * 4 + k] = to_bytes & 0xff;
-                to_bytes >>= 8;
-            }
-        }
-        if (i == 0) prf(buf + 32, addr_as_bytes, pub_seed);
-        else prf(bitmask, addr_as_bytes, pub_seed);
-    }
-    for (int i = 0; i < 32; i++) buf[64 + i] = in[i] ^ bitmask[i];
-    sha256(buf, 96, out);
-}
-
-/**
- * @private
  * Helper method for pseudorandom key generation.
  * Expands an n-byte array into a len*n byte array using the `prf` function.
  */
@@ -82,14 +58,32 @@ static void expand_seed(word8 *outseeds, const word8 *inseed)
  * Interprets in as start-th value of the chain.
  * addr has to contain the address of the chain.
  */
-static void gen_chain(word8 *out, const word8 *in,
-                      unsigned int start, unsigned int steps,
-                      const word8 *pub_seed, word32 addr[8])
+static void gen_chain(word8 *out, const word8 *in, word32 start,
+    word32 steps, const word8 *pub_seed, word32 addr[8])
 {
+    word8 bitmask[32], addr_as_bytes[32];
+    word8 buf[96] = { 0 }; /* ref spec XMSS_HASH_PADDING_F=0  */
+    unsigned long to_bytes;
+
     /* Iterate 'steps' calls to the hash function. */
-    for (word32 i = start; i < (start+steps) && i < 16; i++, in = out) {
-        addr[6] = i; /* from spec: set_hash_addr */
-        thash_f(out, in, pub_seed, addr);
+    while ((steps--) > 0 && start < 16) {
+        addr[6] = start++; /* from spec: set_hash_addr */
+        for (int i = 0; i < 2; i++) { /* from spec: thash_f()... */
+            addr[7] = i; /* from spec "set_key_and_mask" */
+            for (int j = 0; j < 8; j++) { /* convert addr longs to bytes */
+                to_bytes = addr[j];
+                for (int k = 3; k >= 0; k--) { /* as big-endian bytes */
+                    addr_as_bytes[j * 4 + k] = to_bytes & 0xff;
+                    to_bytes >>= 8;
+                }
+            }
+            if (i == 0) prf(buf + 32, addr_as_bytes, pub_seed);
+            else prf(bitmask, addr_as_bytes, pub_seed);
+        }  /* end from spec: thash_f() */
+        for (int i = 0; i < 32; i++) buf[64 + i] = in[i] ^ bitmask[i];
+        sha256(buf, 96, out);
+        /* set input source to out pointer after first pass */
+        in = out;
     }
 }  /* end gen_chain() */
 
