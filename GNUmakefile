@@ -82,8 +82,10 @@ LIBFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES)) \
 	$(if $(CUDEF),-lcudart -lnvidia-ml -lstdc++,) -lm
 
 # compiler/linker flag macros
-LDFLAGS:= $(addprefix -L,$(LIBDIRS)) -Wl,-\( $(LIBFLAGS) -Wl,-\) -pthread
-CCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Werror -Wall -Wextra -MMD -MP
+CCWARNS:= -Wall -Wextra -Wpedantic -Werror
+CXFLAGS:= -fopenmp # -fopenmp typically links with -pthreads
+LDFLAGS:= $(addprefix -L,$(LIBDIRS)) -Wl,-\( $(LIBFLAGS) -Wl,-\) $(CXFLAGS)
+CCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) $(CCWARNS) -MMD -MP $(CXFLAGS)
 NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
 
 ## ^^ END CONFIGURATION ^^
