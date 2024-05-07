@@ -1,7 +1,7 @@
 /**
  * @private
  * @headerfile wots.h <wots.h>
- * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
+ * @copyright Adequate Systems LLC, 2018-2024. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
 
@@ -11,17 +11,21 @@
 
 
 #include "wots.h"
+
+/* external support */
 #include "sha256.h" /* for core_hash hook */
 
 /**
- * @private
+ * Pseudo Random (generator) Function provided by the WOTS+ reference spec.
  * Computes PRF(key, in), for a key of 32 bytes, and a 32-byte input.
+ * @param out Pointer to byte array to store output
+ * @param in Pointer to 32-byte input
+ * @param key Pointer to 32-byte key
  */
-static void prf(word8 *out, const word8 in[32], const word8 *key)
+void prf(word8 *out, const word8 in[32], const word8 *key)
 {
     SHA256_CTX ctx;
-    word8 pad[32] = { 0, [31] = 3 };
-    /* ... initialized with XMSS_HASH_PADDING_PRF=3 from ref spec */
+    word8 pad[32] = { 0, [31] = 3 }; /* ref spec XMSS_HASH_PADDING_PRF=3 */
 
     sha256_init(&ctx);
     sha256_update(&ctx, pad, 32);
@@ -92,7 +96,8 @@ static void gen_chain(word8 *out, const word8 *in, word32 start,
  * Split each byte from the input array into two 4-bit segments, storing the 
  * higher 4 bits first in the output array (little endian order). 
  */
-static void base_w(int *output, const int out_len, const word8 *input) {
+static void base_w(int *output, const int out_len, const word8 *input)
+{
     int in = 0;
     for (int i = 0; i < out_len; i++) {
         if (i % 2 == 0) output[i] = (input[in] >> 4) % 16; /* evens */
@@ -104,7 +109,8 @@ static void base_w(int *output, const int out_len, const word8 *input) {
  * @private
  * Computes the WOTS+ checksum over a message (in base_w).
 */
-static void wots_checksum(int *csum_base_w, const int *msg_base_w) {
+static void wots_checksum(int *csum_base_w, const int *msg_base_w)
+{
     int csum = 0;
     word8 csum_bytes[2];
 
@@ -127,8 +133,8 @@ static void wots_checksum(int *csum_base_w, const int *msg_base_w) {
  * @param addr Pointer to copy of addr portion of public key
  * @warning The @a addr parameter is modified by this function.
 */
-void wots_pkgen(word8 *pk, const word8 *seed,
-                const word8 *pub_seed, word32 addr[8])
+void wots_pkgen(word8 *pk, const word8 *seed, const word8 *pub_seed,
+    word32 addr[8])
 {
     /* The WOTS+ private key is derived from the seed. */
     expand_seed(pk, seed);
@@ -150,11 +156,10 @@ void wots_pkgen(word8 *pk, const word8 *seed,
  * @param addr Pointer to copy of addr portion of public key
  * @warning The @a addr parameter is modified by this function.
 */
-void wots_sign(word8 *sig, const word8 *msg,
-               const word8 *seed, const word8 *pub_seed,
-               word32 addr[8])
+void wots_sign(word8 *sig, const word8 *msg, const word8 *seed,
+    const word8 *pub_seed, word32 addr[8])
 {
-    int lengths[WOTSLEN];
+    int lengths[67];
 
     base_w(lengths, 64, msg);
     wots_checksum(lengths + 64, lengths);
@@ -178,11 +183,10 @@ void wots_sign(word8 *sig, const word8 *msg,
  * @param addr Pointer to copy of addr portion of public key
  * @warning The @a addr parameter is modified by this function.
 */
-void wots_pk_from_sig(word8 *pk,
-                      const word8 *sig, const word8 *msg,
-                      const word8 *pub_seed, word32 addr[8])
+void wots_pk_from_sig(word8 *pk, const word8 *sig, const word8 *msg,
+    const word8 *pub_seed, word32 addr[8])
 {
-    int lengths[WOTSLEN];
+    int lengths[67];
 
     base_w(lengths, 64, msg);
     wots_checksum(lengths + 64, lengths);
