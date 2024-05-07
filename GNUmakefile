@@ -118,12 +118,15 @@ cleanall: clean
 # build test coverage (requires lcov); redirect
 coverage: $(COVERAGE)
 
-# build documentation files under docs/ (requires doxygen)
+# build documentation files (requires doxygen)
 docs:
 	@mkdir -p docs
-	@doxygen <( cat .github/docs/config; \
-	 echo "PROJECT_NAME=$(MODULE)" | tr '[:lower:]' '[:upper:]'; \
-	 echo "PROJECT_NUMBER=$(GITVERSION)" )
+	@cp .github/docs/config docs/config
+	@echo 'PROJECT_NAME = "$(MODULE)"' | \
+	 tr '[:lower:]' '[:upper:]' >>docs/config
+	@echo 'PROJECT_NUMBER = "$(GITVERSION)"' >>docs/config
+	-doxygen docs/config
+	rm docs/config
 
 # developer help information
 help-dev:
