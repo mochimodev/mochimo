@@ -17,14 +17,14 @@
  * <http://creativecommons.org/publicdomain/zero/1.0/>
  *
  * Constants inlined from the reference implementation:
- * ```
- # PARAMSN = 32
- # W = 16
- # LOGW = 4
- # LEN2 = 3
- # LEN1 = 8 * PARAMSN / LOGW = 64
- # LEN = LEN1 + LEN2 = 67
- # ```
+ * @code
+ * PARAMSN = 32
+ * W = 16
+ * LOGW = 4
+ * LEN2 = 3
+ * LEN1 = 8 * PARAMSN / LOGW = 64
+ * LEN = LEN1 + LEN2 = 67
+ * @endcode
  * @copyright Adequate Systems LLC, 2018-2024. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
 */
@@ -45,12 +45,13 @@
 extern "C" {
 #endif
 
-void wots_sign(word8 *sig, const word8 *msg, const word8 *seed,
-               const word8 *pub_seed, word32 addr[8]);
+void prf(word8 *out, const word8 in[32], const word8 *key);
 void wots_pkgen(word8 *pk, const word8 *seed, const word8 *pub_seed,
-               word32 addr[8]);
+   word32 addr[8]);
+void wots_sign(word8 *sig, const word8 *msg, const word8 *seed,
+   const word8 *pub_seed, word32 addr[8]);
 void wots_pk_from_sig(word8 *pk, const word8 *sig, const word8 *msg,
-                      const word8 *pub_seed, word32 addr[8]);
+   const word8 *pub_seed, word32 addr[8]);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
