@@ -12,7 +12,6 @@
 
 #include "wots.h"
 #include "sha256.h" /* for core_hash hook */
-#include <string.h> /* for memory handling */
 
 /**
  * @private
@@ -20,12 +19,15 @@
  */
 static void prf(word8 *out, const word8 in[32], const word8 *key)
 {
-    word8 buf2[96] = {0};
+    SHA256_CTX ctx;
+    word8 pad[32] = { 0, [31] = 3 };
+    /* ... initialized with XMSS_HASH_PADDING_PRF=3 from ref spec */
 
-    buf2[31] = 3;
-    memcpy(buf2 + 32, key, 32);
-    memcpy(buf2 + 64, in, 32);
-    sha256(buf2, 96, out);
+    sha256_init(&ctx);
+    sha256_update(&ctx, pad, 32);
+    sha256_update(&ctx, key, 32);
+    sha256_update(&ctx, in, 32);
+    sha256_final(&ctx, out);
 }  /* end prf() */
 
 /**
@@ -84,13 +86,10 @@ static void gen_chain(word8 *out, const word8 *in,
                       unsigned int start, unsigned int steps,
                       const word8 *pub_seed, word32 addr[8])
 {
-    /* Initialize out with the value at position 'start'. */
-    memcpy(out, in, 32);
-
     /* Iterate 'steps' calls to the hash function. */
-    for (word32 i = start; i < (start+steps) && i < 16; i++) {
+    for (word32 i = start; i < (start+steps) && i < 16; i++, in = out) {
         addr[6] = i; /* from spec: set_hash_addr */
-        thash_f(out, out, pub_seed, addr);
+        thash_f(out, in, pub_seed, addr);
     }
 }  /* end gen_chain() */
 
