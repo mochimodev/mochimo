@@ -1,7 +1,7 @@
 
 ##
 # GNUmakefile - C/C++ makefile for GNU Make
-# Copyright 2021-2022 Adequate Systems, LLC. All Rights Reserved.
+# Copyright 2021-2024 Adequate Systems, LLC. All Rights Reserved.
 #
 
 #####################
@@ -92,8 +92,8 @@ NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
 ##########################
 
 .SUFFIXES: # disable rules predefined by MAKE
-.PHONY: help all allcuda clean cleanall coverage docs library report \
-	sublibraries test version
+.PHONY: _ all clean cleanall coverage docs help-dev library report \
+	sublibs test update version help
 
 # default rule calls help and informs of help-dev
 _: # help as dependency DOES NOT inform of missing help rule
@@ -102,10 +102,6 @@ _: # help as dependency DOES NOT inform of missing help rule
 
 # build "all" base objects
 all: $(OBJECTS)
-
-# build all CUDA object files; redirect
-allcuda:
-	@make $(CUOBJS) "CFLAGS=-DCUDA $(CFLAGS)" --no-print-directory
 
 # remove build directory and files
 clean:
@@ -163,7 +159,7 @@ report: $(COVERAGE)
 	genhtml $(COVERAGE) --output-directory $(BUILDDIR)
 
 # initialize and build build submodule libraries; redirect
-sublibraries: $(SUBLIBS)
+sublibs: $(SUBLIBS)
 
 # build and run specific tests matching pattern
 test-%: $(SUBLIBS) $(MODLIB)
@@ -187,6 +183,11 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 	 echo -e "[ PASSED ] $$(($(words $(TESTNAMES))-FAILS)) tests passed."; \
 	 echo -e "[ FAILED ] $$FAILS tests failed.\n"; \
 	 exit $$FAILS
+
+# update git repository (incl. submodule)
+update:
+	git pull --recurse-submodules
+	@! git merge --abort 2>/dev/null
 
 # echo the value of a variable matching pattern
 variable-%:
