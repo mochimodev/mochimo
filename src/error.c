@@ -21,10 +21,10 @@
 #include "extstring.h"
 
 /* Initialize default runtime configuration */
+static FILE *Logfile;
 static unsigned int Nerrs;
 static unsigned int Nlogs;
 static int Loglevel = PLOG_INFO;
-static int Logfunc;
 static int Logtime;
 
 /* Windows compatibility */
@@ -390,12 +390,12 @@ unsigned int plogcount(void)
 /**
  * Print a log to screen.
  * @param ll level of log to be printed
- * @param func function name where log occurrred
+ * @param file file name where log occurrred
  * @param line line number where log occurrred
  * @param fmt A string format (or message) to log
  * @param ... Variable arguments supporting @a fmt
 */
-void plogx(int ll, const char *func, int line, const char *fmt, ...)
+void plogx(int ll, const char *file, int line, const char *fmt, ...)
 {
    time_t t;
    struct tm dt;
@@ -404,36 +404,43 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...)
    int ecode;
    char error[64];
    char timestamp[28];
+   char *filename;
 
    /* ignore empty format and higher log levels */
    if (fmt == NULL || fmt[0] == 0 || Loglevel < ll) return;
 
-   /* determine appropriate stream and save errno */
-   stream = (ll < PLOG_WARN) ? stderr : stdout;
+   /* store errno for later */
    ecode = errno;
 
    /* THREADSAFE atomic lock would start here... */
 
-   /* print timestamp */
-   if (Logtime) {
+   /* check for specified output file... */
+   if (Logfile) {
+      /* ... and print timestamp for specific log file */
       time(&t);
       localtime_r(&t, &dt);
       strftime(timestamp, sizeof(timestamp), "[%F %T%z] ", &dt);
-      fprintf(stream, "%s ", timestamp);
-   }
-   /* print prefix */
+      fprintf(Logfile, "%s ", timestamp);
+      stream = Logfile;
+      /* ... otherwise, set stream appropriately */
+   } else stream = (ll <= PLOG_ERROR) ? stderr : stdout;
+
+   /* print log type prefix */
    switch (ll) {
-      case PLOG_ALERT: fprintf(stream, "CRITICAL!!! "); break;
+      case PLOG_ALERT: fprintf(stream, "!!!!!"); break;
       case PLOG_ERRNO: /* fallthrough */
-      case PLOG_ERROR: fprintf(stream, "ERROR! "); break;
-      case PLOG_WARN: fprintf(stream, "Warning... "); break;
-      case PLOG_DEBUG: fprintf(stream, "DEBUG "); break;
+      case PLOG_ERROR: fprintf(stream, "ERROR"); break;
+      case PLOG_WARN:  fprintf(stream, "Warn... "); break;
+      case PLOG_DEBUG: fprintf(stream, "DEBUG"); break;
    }
-   /* print function reference (always on DEBUG) */
-   if (Logfunc || ll == PLOG_DEBUG) {
-      fprintf(stream, "<%s:%d> ", func, line);
+   /* print file reference on error or debug type logs */
+   if (ll <= PLOG_ERROR || ll == PLOG_DEBUG) {
+      /* __FILE__ MAY contain a filepath */
+      filename = strrchr(file, PREFERRED_PATH_SEP[0]);
+      if (filename) filename++; else filename = (char *) file;
+      fprintf(stream, "[%s:%d] ", filename, line);
    }
-   /* print information */
+   /* print log information */
    va_start(args, fmt);
    vfprintf(stream, fmt, args);
    va_end(args);
@@ -453,13 +460,9 @@ void plogx(int ll, const char *func, int line, const char *fmt, ...)
    /* THREADSAFE atomic lock would end here... */
 }  /* end plogx() */
 
-/**
- * Set logging function references.
- * @param ll Value to set option (boolean)
-*/
-void setplogfunctions(int val)
+void setplogfile(FILE* fp)
 {
-   Logfunc = val;
+   Logfile = fp;
 }
 
 /**

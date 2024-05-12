@@ -71,35 +71,35 @@
  * @param ... arguments you would normally pass to printf()
 */
 #define palert(...) \
-   plogx(PLOG_ALERT, __func__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_ALERT, __FILE__, __LINE__, __VA_ARGS__)
 
 /**
  * Print an error level log, with description of @a errnum.
  * @param ... arguments you would normally pass to printf()
 */
 #define perrno(...) \
-   plogx(PLOG_ERRNO, __func__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_ERRNO, __FILE__, __LINE__, __VA_ARGS__)
 
 /**
  * Print an error level log.
  * @param ... arguments you would normally pass to printf()
 */
 #define perr(...) \
-   plogx(PLOG_ERROR, __func__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_ERROR, __FILE__, __LINE__, __VA_ARGS__)
 
 /**
  * Print a warning level log.
  * @param ... arguments you would normally pass to printf()
 */
 #define pwarn(...) \
-   plogx(PLOG_WARN, __func__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_WARN, __FILE__, __LINE__, __VA_ARGS__)
 
 /**
  * Print an information level log.
  * @param ... arguments you would normally pass to printf()
 */
 #define plog(...) \
-   plogx(PLOG_INFO, __func__, __LINE__, __VA_ARGS__)
+   plogx(PLOG_INFO, __FILE__, __LINE__, __VA_ARGS__)
 
 #ifndef NDEBUG
    /**
@@ -107,7 +107,7 @@
     * @param ... arguments you would normally pass to printf()
    */
    #define pdebug(...) \
-      plogx(PLOG_DEBUG, __func__, __LINE__, __VA_ARGS__)
+      plogx(PLOG_DEBUG, __FILE__, __LINE__, __VA_ARGS__)
 
 #else
    /* To avoid (potential) compiler warnings about unused variables,
@@ -125,6 +125,7 @@
  * These MACROs serve as arguably unpleasant but necessary boilerplate to
  * avoid such a demise of sanity. C Gods, please forgive me...
  */
+
 #define EMCM__TABLE(fn) \
 /* math errors... */ \
    fn("Unspecified 64-bit math overflow", \
@@ -461,7 +462,7 @@ char *mcm_strerrorname(int errnum, char *buf, size_t bufsz);
 unsigned int perrcount(void);
 unsigned int plogcount(void);
 void plogx(int ll, const char *func, int line, const char *fmt, ...);
-void setplogfunctions(int val);
+void setplogfile(FILE *fp);
 void setploglevel(int ll);
 void setplogtime(int val);
 char *weight2hex(word8 weight[32], char hex[65]);
