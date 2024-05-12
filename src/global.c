@@ -45,7 +45,7 @@ word8 Exportflag;    /* enable database export: #ifdef BX_MYSQL   */
 word8 Errorlog;      /* non-zero to log errors to "error.log"     */
 word8 Monitor;       /* set non-zero by ctrlc() to enter monitor  */
 word8 Bgflag;        /* ignore ctrl-c Monitor and no term output  */
-volatile word8 Running;       /* non-zero when server is online            */
+word8 Running = 1;   /* non-zero when server is online            */
 
 char *Statusarg;     /* Statusarg->"message_string" shows on ps */
 char *Bcdir = BCDIR; /* block chain directory */
