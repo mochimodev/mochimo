@@ -70,7 +70,7 @@ int append_tfile(const BTRAILER *bt, size_t count, const char *tfile)
 
    fp = fopen(tfile, "ab");
    if (fp == NULL) return VERROR;
-   write_count = fwrite(&bt, sizeof(BTRAILER), count, fp);
+   write_count = fwrite(bt, sizeof(BTRAILER), count, fp);
    fclose(fp);
 
    if (write_count != count) {
