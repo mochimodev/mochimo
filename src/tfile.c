@@ -268,7 +268,7 @@ int read_trailer(BTRAILER *bt, const char *file)
    /* open file and read Trailer */
    fp = fopen(file, "rb");
    if (fp == NULL) return VERROR;
-   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END)) goto ERROR_CLEANUP;
+   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
    if (fread(bt, sizeof(BTRAILER), 1, fp) != 1) {
       if (ferror(fp)) goto ERROR_CLEANUP;
    }
@@ -601,7 +601,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
       /* check time0 matches previous stime */
       if (time0 != get32(prev_bt->stime)) goto BAD_TIME0;
       /* check difficulty is adjustment appropriately */
-      if (difficulty == next_difficulty(prev_bt)) goto BAD_DIFF;
+      if (difficulty != next_difficulty(prev_bt)) goto BAD_DIFF;
       /* check future solve time (with some leniency) */
       if (difftime(stime, time(NULL)) > BCONFREQ) goto BAD_STIME;
       /** @todo future solve time check expires on the Epochalypse (Y2K38)
