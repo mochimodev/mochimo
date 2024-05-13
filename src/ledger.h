@@ -33,7 +33,6 @@ extern "C" {
 int addr_compare(const void * a, const void * b);
 int addr_tag_compare(const void * a, const void * b);
 int addr_tag_equal(const void * a, const void * b);
-void hash_wots_addr(const void *wots, void *hash);
 int le_open(const char *lefile);
 void le_close(void);
 int le_extract(const char *neogen_file, const char *ledger_file);

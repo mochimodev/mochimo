@@ -102,12 +102,12 @@ int le_open(const char *lefile)
    /* open ledger and seek to EOF */
    fp = fopen(lefile, "rb");
    if (fp == NULL) return VERROR;
-   if (fseek64(Lefp, 0LL, SEEK_END) != 0) {
+   if (fseek64(fp, 0LL, SEEK_END) != 0) {
       goto ERROR_CLEANUP;
    }
 
    /* determine file size (via position) and check validity */
-   offset = ftell64(Lefp);
+   offset = ftell64(fp);
    if (offset == (-1)) goto ERROR_CLEANUP;
    if ((size_t) offset < sizeof(LENTRY) || offset % sizeof(LENTRY) != 0) {
       set_errno(EMCM_FILEDATA);
