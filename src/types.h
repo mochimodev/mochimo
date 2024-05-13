@@ -129,19 +129,22 @@
 /* Address and Tag definitions */
 
 /** Offset, in bytes, at which a tag begins within an address */
-#define TAGOFFSET          ( TXADDRLEN - TXTAGLEN )
-#define ADDR_TAG_PTR(addr) ( ((word8 *) (addr)) + TAGOFFSET )
+#define ADDR_TAG_OFF       ( TXADDRLEN - TXTAGLEN )
+#define ADDR_TAG_PTR(addr) ( ((word8 *) (addr)) + ADDR_TAG_OFF )
 #define ADDR_HAS_TAG(addr) \
    ( *(ADDR_TAG_PTR(addr)) && *(ADDR_TAG_PTR(addr)) != 0x42 )
+
+#define WOTS_TAG_OFF       ( TXWOTSLEN - TXTAGLEN )
+#define WOTS_TAG_PTR(wots) ( ((word8 *) (wots)) + WOTS_TAG_OFF )
 
 /* eXtended Transaction (XTX) definitions */
 
 /** Conditional test for an eXtended Transaction */
-#define IS_XTX(tx)      ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET] == 0 )
+#define IS_XTX(tx)      ( ((TXQENTRY *)(tx))->dst_addr[ADDR_TAG_OFF] == 0 )
 /** Type code (word8) for an eXtended Transaction */
-#define XTX_TYPE(tx)    ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 1] )
+#define XTX_TYPE(tx)    ( ((TXQENTRY *)(tx))->dst_addr[ADDR_TAG_OFF + 1] )
 /** eXtended Data count (not length) for an eXtended Transaction */
-#define XTX_COUNT(tx)   ( ((TXQENTRY *)(tx))->dst_addr[TAGOFFSET + 2] )
+#define XTX_COUNT(tx)   ( ((TXQENTRY *)(tx))->dst_addr[ADDR_TAG_OFF + 2] )
 
 /** Invalid Transaction type */
 #define XTX_NONE   0x00
