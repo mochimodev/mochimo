@@ -395,7 +395,7 @@ int trim_tfile(const char* tfile, const word8 highbnum[8])
    BTRAILER bt;
    long long seek;
 
-   fp = fopen(tfile, "rb");
+   fp = fopen(tfile, "r+b");
    if (fp == NULL) return VERROR;
 
    /* determine seek position */
