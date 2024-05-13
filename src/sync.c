@@ -1,6 +1,6 @@
 /**
  * @private
- * @file sync.c
+ * @headerfile sync.h <sync.h>
  * @copyright © Adequate Systems LLC, 2018-2021. All Rights Reserved.
  * <br />For more information, please refer to ../LICENSE
 */
@@ -113,23 +113,10 @@ int reset_chain(void)
    if (weigh_tfile("tfile.dat", bnum, Weight) != VEOK) {
       perrno("weight_tfile() FAILURE");
       return VERROR;
-   } else if (cmp64(bnum, Cblocknum) != 0) {
-      perr("block number mismatch!");
-      return VERROR;
    }
 
    return VEOK;
 }  /* end reset_chain() */
-
-/* Extract Genesis Block to ledger.dat */
-int extract_gen(char *lfile)
-{
-   char fname[FILENAME_MAX];
-
-   path_join(fname, Bcdir, "b0000000000000000.bc");
-   /* extract the ledger from our Genesis Block */
-   return le_extract(fname, lfile);
-}
 
 /**
  * Catch up by getting blocks from peers in plist[count].
@@ -223,9 +210,15 @@ int catchup(word32 plist[], word32 count)
  * Returns VEOK on success, else restarts. */
 int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 {
-   static word8 num256[8] = { 0, 1, };
+   const word32 v3bnum_trigger[2] = { V30TRIGGER };
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN];
+
+   /* resync from quorum bnum must be higher than V30TRIGGER */
+   if (cmp64(highbnum, v3bnum_trigger) <= 0) {
+      perr("V30TRIGGER bnum not met, cannot resync");
+      return VERROR;
+   }
 
    show("gettfile");  /* get tfile */
    pdebug("fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
@@ -250,9 +243,13 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if (!(*quorum)) restart("tfval no quorum");
    if (!Running) resign("tfval exiting");
 
-   /* determine starting neo-genesis block */
+   /* determine starting neo-genesis block -- bump to V30TRIGGER */
    put64(bnum, highbnum); bnum[0] = 0;
-   if (sub64(bnum, num256, bnum)) memset(bnum, 0, 8);
+   if (sub64(bnum, CL64_32(0x100), bnum)) memset(bnum, 0, 8);
+   if (cmp64(bnum, v3bnum_trigger) <= 0) {
+      pwarn("bumping neo-genesis block to V30TRIGGER");
+      put64(bnum, v3bnum_trigger);
+   }
    pdebug("neo-genesis block 0x%s", bnum2hex(bnum, NULL));
    /* trim the tfile back to the neo-genesis block and close the ledger */
    if (trim_tfile("tfile.dat", bnum) != VEOK) restart("getneo tfile_trim()");  /* panic */
@@ -287,7 +284,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       if(le_extract(fname, "ledger.dat") != VEOK) {
          restart("getneo ledger extraction");
       }  /* ... or from genesis block */
-   } else extract_gen("ledger.dat");
+   } /* else extract_gen("ledger.dat"); */
 
    show("setdiff");  /* setup difficulty, based on [neo]genesis block */
    if(reset_chain() != VEOK) restart("setdiff reset");
