@@ -1,4 +1,4 @@
-# Fallback nodes in US, Asia & Europe
-node.usc.mochimo.org
-node.sgp.mochimo.org
-node.deu.mochimo.org
+# Core Mochimo nodes in US, Asia & Europe
+v3.usc.mochimo.org
+v3.sgp.mochimo.org
+v3.deu.mochimo.org
