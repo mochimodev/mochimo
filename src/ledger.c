@@ -206,12 +206,17 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
 */
 int le_extract(const char *ngfile, const char *lefile)
 {
+   struct LENTRY_W {
+      word8 addr[TXWOTSLEN];
+      word8 balance[8];
+   } lew;                  /* buffer for WOTS+ ledger entries */
    LENTRY le;              /* buffer for Hashed ledger entries */
    NGHEADER ngh;           /* buffer for neo-genesis header */
    FILE *fp, *lfp;         /* FILE pointers */
    word8 paddr[TXADDRLEN]; /* ledger address sort check */
    word64 lbytes;
    size_t j, lcount;
+   word32 hdrlen;
 
    /* open files */
    fp = fopen(ngfile, "rb");
@@ -221,36 +226,76 @@ int le_extract(const char *ngfile, const char *lefile)
       fclose(fp);
       return VERROR;
    }
-
-   /* read/check neo-genesis block header */
-   if (fread(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
-   if (get32(ngh.hdrlen) != sizeof(NGHEADER)) {
-      set_errno(EMCM_HDRLEN);
-      goto ERROR_CLEANUP;
-   }
-   put64(&lbytes, ngh.lbytes);
-   if (lbytes < sizeof(LENTRY) || lbytes % sizeof(LENTRY) != 0) {
-      set_errno(EMCM_FILEDATA);
-      goto ERROR_CLEANUP;
-   }
-
-   /* process ledger data from fp, check sort, write to lfp */
-   for (lcount = lbytes / sizeof(LENTRY), j = 0; j < lcount; j++) {
-      if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
-      /* check ledger sort */
-      if (j > 0 && addr_compare(le.addr, paddr) <= 0) {
-         set_errno(EMCM_LESORT);
+   /* read hdrlen and determine NGHEADER or LEGACY processing */
+   if (fread(&hdrlen, 4, 1, fp) != 1) goto RDERR_CLEANUP;
+   if (hdrlen == sizeof(NGHEADER)) {
+      pdebug("Processing NGHEADER neo-genesis block...\n");
+      /* read/check neo-genesis block header */
+      if (fseek64(fp, 0LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
+      if (fread(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+      if (get32(ngh.hdrlen) != sizeof(NGHEADER)) {
+         set_errno(EMCM_HDRLEN);
          goto ERROR_CLEANUP;
       }
-      /* store entry for comparison */
-      memcpy(paddr, le.addr, sizeof(le.addr));
-      /* write hashed ledger entries to ledger file */
-      if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
-   }  /* end for() */
-
-   /* close files */
-   fclose(lfp);
-   fclose(fp);
+      put64(&lbytes, ngh.lbytes);
+      if (lbytes < sizeof(LENTRY) || lbytes % sizeof(LENTRY) != 0) {
+         set_errno(EMCM_FILEDATA);
+         goto ERROR_CLEANUP;
+      }
+      /* process ledger data from fp, check sort, write to lfp */
+      for (lcount = lbytes / sizeof(LENTRY), j = 0; j < lcount; j++) {
+         if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
+         /* check ledger sort */
+         if (j > 0 && addr_compare(le.addr, paddr) <= 0) {
+            set_errno(EMCM_LESORT);
+            goto ERROR_CLEANUP;
+         }
+         /* store entry for comparison */
+         memcpy(paddr, le.addr, sizeof(le.addr));
+         /* write hashed ledger entries to ledger file */
+         if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
+      }  /* end for() */
+      /* close files */
+      fclose(lfp);
+      fclose(fp);
+   } else {
+      hdrlen -= 4;
+      if (hdrlen % sizeof(struct LENTRY_W) == 0) {
+         pdebug("Processing LEGACY neo-genesis block...\n");
+         /* LEGACY (NEO)GENESIS BLOCK PROCESSING... */
+         word8 waddr[TXWOTSLEN]; /* ledger address sort check */
+         /* process ledger data from fp, check sort, write to lfp */
+         lcount = hdrlen / sizeof(struct LENTRY_W);
+         for (j = 0; j < lcount; j++) {
+            if (fread(&lew, sizeof(struct LENTRY_W), 1, fp) != 1) {
+               goto RDERR_CLEANUP;
+            }
+            /* check ledger sort */
+            if (j > 0 && memcmp(lew.addr, waddr, TXWOTSLEN) <= 0) {
+               set_errno(EMCM_LESORT);
+               goto ERROR_CLEANUP;
+            }
+            /* store entry for comparison */
+            memcpy(waddr, lew.addr, TXWOTSLEN);
+            /* convert WOTS+ to hash -- copy tag and balance */
+            sha256(lew.addr, TXSIGLEN, le.addr);
+            memcpy(ADDR_TAG_PTR(le.addr), WOTS_TAG_PTR(lew.addr), TXTAGLEN);
+            put64(le.balance, lew.balance);
+            /* write hashed ledger entries to ledger file */
+            if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
+         }  /* end for() */
+         /* close files */
+         fclose(lfp);
+         fclose(fp);
+         /* sort the resulting ledger file */
+         if (filesort(lefile, sizeof(LENTRY), LEBUFSZ, addr_compare) != 0) {
+            return VERROR;
+         }
+      } else {
+         set_errno(EMCM_HDRLEN);
+         goto ERROR_CLEANUP;
+      }
+   }
 
    /* ledger extracted */
    return VEOK;
