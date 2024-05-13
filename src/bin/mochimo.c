@@ -637,13 +637,9 @@ int server(int reuse_addr)
             }
          }  /* end if OP_FOUND child */
          else if(opcode == OP_GET_BLOCK || opcode == OP_GET_TFILE) {
-            if (status == 0) {
-               /* NODEs should use appropriate capability bit */
-               if ((np->c_vpdu && ~(np->tx.version[1] & C_WALLET)) ||
-                     (!np->c_vpdu && get16(np->tx.len) == 0)) {
-                  /* identified as NOT a wallet, add to peers */
-                  addrecent(np->ip);
-               }
+            /* only add those that "optin" with a successful op */
+            if (status == 0 && np->tx.version[1] & C_OPTIN) {
+               addrecent(np->ip);
             }
          }
       }  /* end for check Node[] zombies */
