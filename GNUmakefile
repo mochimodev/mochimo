@@ -211,7 +211,7 @@ $(MODLIB): $(OBJECTS)
 	ar rcs $(MODLIB) $(OBJECTS)
 
 # build submodule libraries, within associated directories
-$(SUBLIBS): %:
+$(SUBLIBS): %: $(INCLUDEDIRS)
 	@make library -C $(INCLUDEDIR)/$(word 2,$(subst /, ,$@))
 
 # build coverage file, within out directory
