@@ -121,6 +121,7 @@ docs:
 	@echo 'PROJECT_NAME = "$(MODULE)"' | \
 	 tr '[:lower:]' '[:upper:]' >>docs/config
 	@echo 'PROJECT_NUMBER = "$(GITVERSION)"' >>docs/config
+	@echo 'EXPAND_AS_DEFINED = EMCM__TABLE EMCM__ENUM' >>docs/config
 	-doxygen docs/config
 	rm docs/config
 
@@ -201,44 +202,36 @@ version:
 # vv RECIPE CONFIGURATION vv
 
 # include custom recipe configurations here
+help:
+	@echo ""
+	@echo "Usage:  make [targets]"
+	@echo "Targets:"
+	@echo "   make miner       build miner binary and install in bin/"
+	@echo "   make mochimo     build mochimo binary and install in bin/"
+	@echo ""
 
-install-cudaminer:
-	@echo && echo "Checking Build..."
-	@make miner CFLAGS=-DCUDA --no-print-directory
-	@echo && echo "Installing (Cuda) Miner..."
-	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/miner $(BINDIR)/
-	@echo "Ensuring permissions..."
-	@chmod +x $(BINDIR)/miner
-	@echo && echo "Mochimo (Cuda) Miner Installed!"
-	@echo
-
-install-mochimo:
-	@echo && echo "Checking Build..."
-	@make mochimo --no-print-directory
-	@echo && echo "Installing Mochimo Server..."
-	@mkdir -p $(BINDIR)/ && cp $(BUILDDIR)/bin/mochimo $(BINDIR)/
-	@echo "Installing support files..."
-	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
-	@echo "Ensuring permissions..."
-	@chmod +x $(BINDIR)/*-external.sh
-	@chmod +x $(BINDIR)/gomochi
-	@chmod +x $(BINDIR)/mochimo
-	@echo && echo "Mochimo Server Installed!"
-	@echo
-
-miner: $(BUILDDIR)/bin/miner
+miner:
+	@make $(BUILDDIR)/bin/miner CFLAGS=-DCUDA --no-print-directory
+	@chmod +x $(BUILDDIR)/bin/miner
+	@cp $(BUILDDIR)/bin/miner $(BINDIR)/
 
 mochimo: $(BUILDDIR)/bin/mochimo
+	@chmod +x $(BUILDDIR)/bin/mochimo
+	@chmod +x $(SOURCEDIR)/_init/gomochi
+	@chmod +x $(SOURCEDIR)/_init/*-external.sh
+	@mkdir -p $(BINDIR)/d/bc
+	@mkdir -p $(BINDIR)/d/split
+	@cp $(BUILDDIR)/bin/mochimo $(BINDIR)/
+	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
 
-uninstall:
-	@echo "Removing support files..."
-	@rm $(patsubst $(SOURCEDIR)/_init/%,$(BINDIR)/%, \
-		$(wildcard $(SOURCEDIR)/_init/*)) 2>/dev/null || :
-	@echo "Removing binaries..."
-	@rm $(addprefix $(BINDIR)/,mochimo miner) 2>/dev/null || :
-	@echo && echo "Uninstall complete!" && echo
-	@echo "NOTE: remove build files with: \`make clean\`"
-	@echo "NOTE: remove the working directly within bin/, manually"
+package-%:
+	@make cleanall --no-print-directory
+	@mkdir $* # bail if exists
+	@cp -r .github include src CHANGELOG.md GNUmakefile LICENSE.md $*/
+	@rm -r $*/.github/docs $*/.github/media 2>/dev/null
+	@rm -r $(addprefix $*/,$(wildcard $(INCLUDEDIR)/**/.git*)) 2>/dev/null
+	@rm -r $(addprefix $*/,$(wildcard $(INCLUDEDIR)/**/docs)) 2>/dev/null
+	@sed -i 's/<no-ver>/$*/g' $*/GNUmakefile
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
