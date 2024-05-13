@@ -40,7 +40,7 @@ extern word8 Exportflag;    /* enable database export: #ifdef BX_MYSQL   */
 extern word8 Errorlog;      /* non-zero to log errors to "error.log"     */
 extern word8 Monitor;       /* set non-zero by ctrlc() to enter monitor  */
 extern word8 Bgflag;        /* ignore ctrl-c Monitor and no term output  */
-extern volatile word8 Running;       /* non-zero when server is online            */
+extern word8 Running;       /* non-zero when server is online            */
 
 extern char *Statusarg;     /* Statusarg->"message_string" shows on ps */
 extern char *Bcdir;         /* block chain directory */
