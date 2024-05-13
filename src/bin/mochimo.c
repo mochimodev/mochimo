@@ -991,26 +991,28 @@ int main(int argc, char **argv)
 {
    static char *cp;
    static int k, j;
-   static word8 endian[] = { 0x34, 0x12 };
    int reuse_addr = 0;
    char hostname[64];
    int v3reboot;
 
    set_print_level(PLEVEL_LOG);
 
-   /* sanity checks -- for undesired structure padding */
-   if (sizeof(word32) != 4) {
-      resign("word32 should be 4 bytes");
-   /*else if (sizeof(TX) != TXBUFFLEN) {
-      resign("struct size error TX != TXBUFFLEN");
-   }*/ else if (sizeof(LTRAN) != (TXWOTSLEN + 1 + TXAMOUNT)) {
-      resign("struct size error: LTRAN != (TXWOTSLEN + 1 + TXAMOUNT)");
-   } else if (sizeof(BTRAILER) != BTSIZE) {
-      resign("struct size error: BTRAILER != BTSIZE");
-   } else if (sizeof(MTX) != sizeof(TXQENTRY)) {
-      resign("struct size error: MTX != TXQENTRY");
-   } else if (get16(endian) != 0x1234) {
-      resign("little-endian machine required for this build.");
+   /* sanity checks are executed in isolation */
+   {
+      /* static asserts checked at compile time */
+      STATIC_ASSERT(sizeof(word32) == 4, word32_size);
+      STATIC_ASSERT(sizeof(MDST) == 20, MDST_struct_size);
+      STATIC_ASSERT(sizeof(TXQENTRY) == 2412, TXQENTRY_struct_size);
+      STATIC_ASSERT(sizeof(NGHEADER) == 12, NGHEADER_struct_size);
+      STATIC_ASSERT(sizeof(BHEADER) == 56, BHEADER_struct_size);
+      STATIC_ASSERT(sizeof(BTRAILER) == 160, BTRAILER_struct_size);
+      STATIC_ASSERT(sizeof(LENTRY) == 52, LENTRY_struct_size);
+      STATIC_ASSERT(sizeof(LTRAN) == 53, LTRAN_struct_size);
+      /* ensure little endian architecture */
+      if (get16((word8[2]) { 0x34, 0x12 }) != 0x1234u) {
+         perr("incompatible endian type");
+         return EXIT_FAILURE;
+      }
    }
 
    /* pre-init */
