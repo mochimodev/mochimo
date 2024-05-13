@@ -158,7 +158,7 @@
 #define V2001PATCH 0x4521  /* v2.0.1 difficulty patch */
 #define V23TRIGGER 0xd431  /* v2.3 pseudoblocks */
 #define V24TRIGGER 0x12851 /* v2.4 FPGA-Tough PoW algo */
-#define V30TRIGGER 0x9ffff /* v3.0 blockchain reboot */
+MCM_DECL_UNUSED static word32 V30TRIGGER = 0x9ffff; /* v3.0 blockchain reboot */
 #define BRIDGE     949     /* Trouble time -- Edit for testing */
 
 /* break point trigger detection MACROs */
