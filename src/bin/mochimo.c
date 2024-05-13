@@ -895,6 +895,22 @@ int server(int reuse_addr)
    return 0;
 } /* end server() */
 
+/* print (and more importantly, log) server host information */
+void phostinfo(void)
+{
+   char hostname[64];
+   char addrname[18];
+
+   /* get local machine name and IP address */
+   gethostname(hostname, sizeof(hostname));
+   gethostip(addrname, sizeof(addrname));
+   /* print (and log) host information */
+   plog("Network Host Information...");
+   plog("  Machine name: %s", *hostname ? hostname : "unknown");
+   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
+   printf("\n");
+}
+
 /**
  * Segmentation fault handler.
  * @note compile with "-g -rdynamic" for readable backtrace
@@ -973,18 +989,22 @@ int usage(void)
       "   -Mn        set transaction fee to n\n"
       "   -Sanctuary=N,Lastday\n"
       "   -Tn        set Trustblock to n for tfval() speedup\n"
-      "   --reuse-addr\n"
-      "        enable listening server socket option SO_REUSEADDR\n"
-   );
+      "\n"
+      "\n\nOPTIONS (advanced):"
+      "\n   --reuse-addr"
+      "\n       enable listening server socket option SO_REUSEADDR"
 #ifdef BX_MYSQL
-   printf("   -X         Export to MySQL database on block update\n");
+      "\n   -X         Export to MySQL database on block update"
 #endif
-   printf("\n");
+      "\n   -v3, --v3-reboot=<file>"
+      "\n       enable version 3 REBOOT mode for <file>"
+      "\n\n"
+   );
 
    return VEOK;
 }  /* end usage() */
 
-/* 
+/*
  * Initialise data and call the server.
  */
 int main(int argc, char **argv)
@@ -1015,14 +1035,12 @@ int main(int argc, char **argv)
       }
    }
 
-   /* pre-init */
-   Ininit = 1;
-   Running = 1;
+   /* logging setup */
+   setploglevel(PLOG_DEBUG);
    /* Ignore all signals. */
-   for(j = 0; j <= 23; j++) {
-      signal(j, SIG_IGN);
-   }
-   signal(SIGINT, ctrlc);     /* then install ctrl-C handler */
+   for (j = 0; j <= 23; j++) signal(j, SIG_IGN);
+   /*signal(SIGINT, ctrlc);*/ /* then install ctrl-C handler */
+   signal(SIGINT, sigterm);   /* ...and ctrl-C termination */
    signal(SIGTERM, sigterm);  /* ...and software termination */
    signal(SIGSEGV, segfault); /* segmentation fault handler */
 #ifndef _WIN32
@@ -1032,6 +1050,7 @@ int main(int argc, char **argv)
    /* improve random generators */
    srand16fast(time(NULL) ^ getpid());
    srand16(time(NULL), 0, 123456789 ^ getpid());
+   srand32(time(NULL) ^ 123456789 ^ getpid());
    /* enable socket support */
    sock_startup();
 
@@ -1173,19 +1192,12 @@ EOA:  /* end of arguments */
 
    /* print (and log) copyright and version information */
    plog(EXEC_NAME ", built " __DATE__ " " __TIME__);
-   plog("Copyright (c) 2018-2023 Adequate Systems, LLC.  All Rights Reserved.");
+   plog("Copyright (c) 2024 Adequate Systems, LLC.  All Rights Reserved.");
    plog("See the License Agreement at the links below:");
    plog("   https://mochimo.org/license.pdf (PDF version)");
    plog("   https://mochimo.org/license (TEXT version)");
    printf("\n");
-   /* get local machine name and IP address */
-   gethostname(hostname, sizeof(hostname));
-   gethostip(addrname, sizeof(addrname));
-   /* print (and log) host information */
-   plog("Network Host Information...");
-   plog("  Machine name: %s", *hostname ? hostname : "unknown");
-   plog("  IPv4 address: %s", *addrname ? addrname : "0.0.0.0");
-   printf("\n");
+   phostinfo();
    sleep(3);
 
    /* perform init and start server */
@@ -1204,7 +1216,7 @@ EOA:  /* end of arguments */
       }
    }
 
-   return 0;
+   return EXIT_SUCCESS;
 }  /* end main() */
 
 /* end include guard */
