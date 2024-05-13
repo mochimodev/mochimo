@@ -989,13 +989,13 @@ int usage(void)
  */
 int main(int argc, char **argv)
 {
-   static char *cp;
-   static int k, j;
-   int reuse_addr = 0;
-   char hostname[64];
-   int v3reboot;
+   char *argp;          /* argument pointer (for argv) */
+   unsigned long argu;  /* argument unsigned value */
 
-   set_print_level(PLEVEL_LOG);
+   int reuse_addr;
+   int v3reboot;
+   char *cp;
+   int j;
 
    /* sanity checks are executed in isolation */
    {
@@ -1036,17 +1036,45 @@ int main(int argc, char **argv)
    sock_startup();
 
    /* local init */
+   reuse_addr = 0;
    v3reboot = 0;
 
    /* Parse command line arguments. */
+   pdebug("... skipping 0th argument (program name): %s", argv[0]);
    for (j = 1; Running && j < argc; j++) {
-      if(argv[j][0] != '-') return usage();
+      pdebug("... parsing argument: %s", argv[j]);
+      /* ADVANCED OPTIONS */
+      if (argv[j][0] == '-') {
+         if (argument(argv[j], NULL, "--reuse-addr")) {
+            /* set reuse_addr option and continue */
+            reuse_addr = 1;
+            continue;
+         }
+         if (argument(argv[j], "-v3", "--v3-trigger")) {
+            argp = argvalue(&j, argc, argv);
+            if (argp == NULL) {
+               perr("missing argument value");
+               return EXIT_FAILURE;
+            }
+            pdebug("    argument value: %s", argp);
+            /* obtain trigger value -- auto-detect base-n */
+            argu = strtoul(argp, NULL, 0);
+            if (argu == 0 || errno == ERANGE) {
+               perr("invalid argument value \"%s\"", argp);
+               return EXIT_FAILURE;
+            }
+            /* set v3.0 trigger block and continue */
+            V30TRIGGER = argu - 1;
+            v3reboot = 1;
+            continue;
+         }
+      } else return usage();
+      /* legacy argument parsing */
       switch(argv[j][1]) {
          case '-':  /* advanced commands */
             cp = &argv[j][2];
             if (*cp == '\0') goto EOA;  /* -- end of args */
             else if (strcmp("help", cp) == 0) exit(usage());
-            else if (strcmp("reuse-addr", cp) == 0) reuse_addr = 1;
             else if (strcmp("veronica", cp) == 0) exit(veronica());
             else perr("Unknown argument, %s", argv[j]);
             break;
@@ -1072,7 +1100,7 @@ int main(int argc, char **argv)
                perr("missing log level value\n");
                exit(usage());
             }
-            setploglevel((k = atoi(&argv[j][2])));
+            setploglevel(atoi(&argv[j][2]));
             break;
          case 'P':  /* enabled cblock push */
             Allowpush = 1;
