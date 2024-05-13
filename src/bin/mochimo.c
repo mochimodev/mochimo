@@ -247,7 +247,7 @@ int init(void)
 {
    /* static word8 FortyEight[8] = { 48, }; */
    char fname[FILENAME_MAX], weighthex[65], bnumhex[17];
-   word32 peer, qlen, quorum[MAXQUORUM];
+   word32 qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
    word8 netweight[32], netbnum[8]; //, bnum[8];
    BTRAILER bt;
@@ -310,17 +310,18 @@ int init(void)
          weight2hex(Weight, weighthex));
    }
 
+   plog("Init peers...");
+   /* initialize peer lists */
+   count = read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
+   if (count > 0) plog(" - added %" P32u " pinklisted peers", count);
+   count = read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
+   if (count > 0) plog(" - added %" P32u " trusted peers", count);
+   count = read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
+   count += read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
+   if (count > 0) plog(" - added %" P32u " recent peers", count);
+
    /* scan entire network of peers */
    while (Running) {
-      /* reset peers, download start peers, initialize peer lists */
-      plog("Init peers...");
-      count = read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
-      if (count > 0) plog(" - added %" P32u " pinklisted peers", count);
-      count = read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
-      if (count > 0) plog(" - added %" P32u " trusted peers", count);
-      count = read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
-      count += read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
-      if (count > 0) plog(" - added %" P32u " recent peers", count);
       /* ensure recent peers list is shuffled */
       shuffle32(Rplist, RPLISTLEN);
       /* scan network for quorum and highest hash/weight/bnum */
@@ -331,8 +332,12 @@ int init(void)
       if (qlen == 0) break; /* all alone... */
       else if (qlen < Quorum) {  /* insufficient quorum */
          plog("Insufficient quorum, try again...");
-         /* without considering the expansion of acceptable
-          * quorum size, infinite loop is possible... */
+         /* pinklist peers to avoid infinite loop of network spam */
+         while (*quorum) {
+            /* use epinklist for purge after init */
+            epinklist(*quorum);
+            remove32(*quorum, quorum, MAXQUORUM, &qlen);
+         }
          continue;
       } else shuffle32(quorum, qlen);
       if (!iszero(Cblocknum, 8)) {  /* we've got a chain */
@@ -360,10 +365,10 @@ int init(void)
             break;  /* we're in sync, finish */
          }
          /* have we fallen behind or split from the chain? */
-         while (Running && (peer = *quorum)) {  /* use quorum to check... */
+         while (Running && *quorum) {  /* use quorum to check... */
             if (status == VEOK) {  /* chain status not yet known... */
                plog("Checking blockchain alignment...");
-               if (get_hash(&node, peer, Cblocknum, peerhash) == VEOK) {
+               if (get_hash(&node, *quorum, Cblocknum, peerhash) == VEOK) {
                   if (memcmp(Cblockhash, peerhash, HASHLEN)) {
                      status = VEBAD; /* 2319! Foreign entity (block) */
                   } else status = VERROR;  /* we're just behind */
@@ -391,7 +396,7 @@ int init(void)
                } */
                break;
             }
-            remove32(peer, quorum, MAXQUORUM, &qlen);
+            remove32(*quorum, quorum, MAXQUORUM, &qlen);
          }  /* ... did we catch up? */
          if (cmp256(Weight, netweight) >= 0) {
             if (cmp64(Cblocknum, netbnum) >= 0) break;
@@ -407,6 +412,7 @@ int init(void)
    }
 
    txclean("txclean.dat", NULL);
+   purge_epoch();
    Ininit = 0;
 
    return Running ? VEOK : VERROR;
