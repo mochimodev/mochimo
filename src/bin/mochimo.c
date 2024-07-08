@@ -535,7 +535,7 @@ int server(int reuse_addr)
    static time_t Ltime;
    static time_t Stime;    /* status display update time */
    static time_t nsd_time;  /* event timers */
-   static time_t bctime, mqtime, sftime, vtime;
+   static time_t bctime, mtime, mqtime, sftime, vtime;
    static time_t ipltime;
    static SOCKET lsd, nsd;
    static NODE *np, node;
@@ -545,6 +545,10 @@ int server(int reuse_addr)
    static int lfd;      /* for lock() */
    static word16 opcode;
    char fname[FILENAME_MAX];
+
+   /* passive mining stuff */
+   BTRAILER bt;
+   FILE *fp;
 
    /* Initialise event timers */
    Ltime = time(NULL);      /* real time GMT in seconds */
@@ -823,6 +827,44 @@ int server(int reuse_addr)
          pid = waitpid(Bcon_pid, &status, WNOHANG);
          if(pid > 0) {
             Bcon_pid = 0;  /* pid not zero means she is done. */
+            /* check cblock and prepare passive mining */
+            if (fexistsnz("cblock.dat")) {
+               /* make isolated copy, read trailer and init */
+               if (fcopy("cblock.dat", "mblock.tmp") != 0) {
+                  perrno("fcopy() FAILURE");
+               } else if (read_trailer(&bt, "mblock.dat") != VEOK) {
+                  perrno("read_trailer() FAILURE");
+                  remove("cblock.dat");
+               } else peach_init(&bt);
+            }
+         }
+      } else if (mtime != Ltime && fexistsnz("cblock.dat")) {
+         mtime = Ltime;
+         /* perform passive mining once every second */
+         if (peach_solve(&bt, bt.difficulty[0], bt.nonce) == VEOK) {
+            /* record solve time and hash block trailer */
+            put32(bt.stime, (word32) time(NULL));
+            sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
+            /* rewrite block trailer to disk */
+            fp = fopen("cblock.dat", "r+b");
+            if (fp == NULL) {
+               perrno("fopen() FAILURE");
+            } else if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) {
+               perrno("fseek64() FAILURE");
+               fclose(fp);
+            } else if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+               perrno("fwrite() FAILURE");
+               fclose(fp);
+            } else {
+               fclose(fp);
+               /* check for and trigger mined block update */
+               if (fexists("mblock.dat")) {
+                  remove("mblock.tmp");
+               } else {
+                  rename("mblock.tmp", "mblock.dat");
+                  ftouch("cblock.lck");
+               }
+            }
          }
       }
 
