@@ -19,8 +19,8 @@
 #include "exttime.h"
 
 /** Static initializer for a SERVER context struct. */
-#define SERVER_INITIALIZER \
-   { .mutex = MUTEX_INITIALIZER, .sd = INVALID_SOCKET, 0 }
+#define SERVER_INITIALIZER { .mutex = MUTEX_INITIALIZER, \
+   .cnd = CONDITION_INITIALIZER, .sd = INVALID_SOCKET, 0 }
 
 /** Network connection handler struct. */
 typedef struct connection {
@@ -63,8 +63,10 @@ typedef struct server {
    void (*on_io)(CONNECTION *cp);
 
    Mutex mutex;   /**< lock for connections list */
+   Condition cnd; /**< condition for external signalling */
    DLLIST queue;  /**< connections being passed INTO the server */
    int shutdown;  /**< flag indicating the server to shutdown */
+   int backlog;   /**< maximum number of pending (and queued) connections */
    SOCKET sd;     /**< server file descriptor */
 } SERVER;
 
@@ -74,7 +76,8 @@ extern "C" {
 #endif
 
 int server_queue(SERVER *sp, void *data, struct sockaddr *addrp);
-int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog);
+int server_shutdown(SERVER *sp, int seconds);
+int server_start(SERVER *sp, struct sockaddr *addrp, socklen_t len);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

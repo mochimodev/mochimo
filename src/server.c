@@ -56,6 +56,22 @@ static inline int server__cleanup(SERVER *sp, DLNODE *np, DLLIST *lp)
    return 0;
 }  /* end server__cleanup() */
 
+static inline void server__flag_end(SERVER *sp)
+{
+   /* flag shutdown end (no cleanup) */
+   sp->shutdown = 2;
+   /* alert server of state change */
+   condition_broadcast(&(sp->cnd));
+}  /* end server__flag_end */
+
+static inline void server__flag_shutdown(SERVER *sp)
+{
+   /* flag server for shutdown */
+   sp->shutdown = 1;
+   /* alert server of state change */
+   condition_broadcast(&(sp->cnd));
+}  /* end server__flag_shutdown */
+
 /*
 static void server__name(SERVER *sp, struct sockaddr *addrp, socklen_t len)
 {
@@ -89,9 +105,16 @@ int server_queue(SERVER *sp, void *data, struct sockaddr *addrp)
    SOCKET sd;
    int ecode;
 
-   /* check server */
+   /* check server and shutdown flag */
    if (sp == NULL) {
       set_errno(EINVAL);
+      return SOCKET_ERROR;
+   } else if (sp->shutdown) {
+#ifdef _WIN32
+      set_alterrno(WSAESHUTDOWN);
+#else
+      set_errno(ESHUTDOWN);
+#endif
       return SOCKET_ERROR;
    }
 
@@ -128,7 +151,10 @@ int server_queue(SERVER *sp, void *data, struct sockaddr *addrp)
       if (mutex_unlock(&(sp->mutex)) != 0) {
          goto DEADLOCK_CLEANUP;
       }
+      goto ERROR_CLEANUP;
    }
+   /* signal server of new work */
+   condition_broadcast(&(sp->cnd));
    /* unlock exclusive hold on queue */
    if (mutex_unlock(&(sp->mutex)) != 0) {
       goto DEADLOCK_CLEANUP;
@@ -138,7 +164,7 @@ int server_queue(SERVER *sp, void *data, struct sockaddr *addrp)
 
    /* cleanup / error handling */
 DEADLOCK_CLEANUP:
-   sp->shutdown = 1;
+   server__flag_end(sp);
 ERROR_CLEANUP:
    server__cleanup(sp, np, NULL);
 
@@ -146,38 +172,94 @@ ERROR_CLEANUP:
 }  /* end server_queue() */
 
 /**
- * Start a server on a provided socket.
+ * Trigger (and optionally wait for) server to shutdown and release
+ * all server resources.
+ * @param sp Server structure pointer
+ * @param seconds Timeout in seconds to wait for server to shutdown
+ * @return 0 on successful shutdown, or SOCKET_ERROR on error.
+ * Check errno for details.
+ */
+int server_shutdown(SERVER *sp, int seconds)
+{
+   int waited = 0;
+
+   /* check function parameter */
+   if (sp == NULL) {
+      set_errno(EINVAL);
+      return SOCKET_ERROR;
+   }
+
+   /* (wait for) acquire exclusive lock */
+   if (mutex_lock(&(sp->mutex)) != 0) {
+      return SOCKET_ERROR;
+   }
+
+   /* flag shutdown if not already */
+   if (sp->shutdown == 0) {
+      /* execute shutdown signal */
+      server__flag_shutdown(sp);
+   }
+
+   /* wait for server to shutdown */
+   for (waited = 0; waited < seconds && sp->shutdown != 2; waited++) {
+      /* wait for a signal (or timeout) to continue processing */
+      if (condition_timedwait(&(sp->cnd), &(sp->mutex), 1000) != 0) {
+         if (errno != CONDITION_TIMEOUT) break;
+      }  /* ... spurious wakeup? */
+   }  /* ... check shutdown value */
+
+   /* release exclusive lock */
+   if (mutex_unlock(&(sp->mutex)) != 0) {
+      /* execute fatal signal */
+      server__flag_end(sp);
+      return SOCKET_ERROR;
+   }
+
+   /* check time waited */
+   if (waited > 0 && waited >= seconds) {
+      if (sp->shutdown != 2) {
+         set_errno(ETIMEDOUT);
+         return SOCKET_ERROR;
+      }
+   }
+
+   return 0;
+}  /* end server_shutdown() */
+
+/**
+ * Start a server on a provided with provided parameters. Runs until
+ * shutdown signal, either by internal failure or via server_shutdown().
+ * Use in alternate thread or process to avoid blocking.
  * @param sp Server structure pointer
  * @param sd Socket descriptor to use for listening
  * @param addr Socket address struct for binding
- * @param backlog Maximum number of pending connections
  * @return 0 on successful server completion, or non-zero on error.
  * Check errno for details.
  * @example
  * @code
- * SERVER server = SERVER_INITIALIZER;
+ * SERVER node_server = SERVER_INITIALIZER;
  * struct sockaddr_in addr;
  * socklen_t len;
  *
- * server.fd = socket(AF_INET, SOCK_STREAM, 0);
- * if (server.fd == INVALID_SOCKET) return EXIT_FAILURE;
- * server.logger = log_handler;
- * server.on_accept = assign_data;
- * server.on_cleanup = cleanup_data;
- * server.on_io = io_processor;
+ * node_server.sd = socket(AF_INET, SOCK_STREAM, 0);
+ * if (node_server.sd == INVALID_SOCKET) return EXIT_FAILURE;
+ * node_server.backlog = 1024;
+ * node_server.logger = log_handler;
+ * node_server.on_accept = assign_data;
+ * node_server.on_cleanup = cleanup_data;
+ * node_server.on_io = io_processor;
  *
  * addr.sin_addr.s_addr = htonl(INADDR_ANY);
  * addr.sin_family = AF_INET;
- * addr.sin_port = htons(12345);
+ * addr.sin_port = htons(2095);
  *
  * len = (socklen_t) sizeof(addr);
  *
- * server(&server, &addr, len, 1024);
+ * server_start(&node_server, &addr, len);
  *
  * @endcode
- * ... server() runs until it receives a shutdown signal, or fails.
  */
-int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog)
+int server_start(SERVER *sp, struct sockaddr *addrp, socklen_t len)
 {
 #define SERVER__LOG(SP, E, MSG) { if ((SP)->logger) (SP)->logger(E, MSG); }
 
@@ -197,11 +279,6 @@ int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog)
    int ready;                    /* poll() return value */
    int ecode;                    /* error code */
 
-   /* request winsock dll version 2.2 */
-   if (wsa_startup(2, 2) != 0) {
-      return SOCKET_ERROR;
-   }
-
    /* (try) bind address with listening socket */
    while (bind(sp->sd, addrp, len) != 0) {
       ecode = socket_errno;
@@ -218,12 +295,12 @@ int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog)
    len = sizeof(struct sockaddr_storage);
    /* set socket non-blocking and start listening */
    if (set_nonblocking(sp->sd) != 0) goto SHUTDOWN;
-   if (listen(sp->sd, backlog) != 0) goto SHUTDOWN;
+   if (listen(sp->sd, sp->backlog) != 0) goto SHUTDOWN;
 
    /* loop while no shutdown trigger -- update currtime time */
    while (!sp->shutdown) {
       /* accept incoming connections -- balance backlog */
-      while (queue.count < backlog) {
+      while (queue.count < sp->backlog) {
          /* prepare connection and containing list node */
          if (anp == NULL) {
             anp = dlnode_create(sizeof(CONNECTION));
@@ -269,7 +346,7 @@ int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog)
          /* reset dynamic sleep on accept */
          dynasleep = 0;
          anp = NULL;
-      }  /* end while (queue.count < backlog... */
+      }  /* end while (queue.count < sp->backlog... */
 
       /* ensure space in pollfd array */
       for (nfds = (nfds_t) queue.count; nfds > fdlen; nfds /= 3) {
@@ -305,9 +382,8 @@ int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog)
          fds[nfds++] = cp->pollfd;
       }  /* end for (nfds = 0, np = hnp ... */
 
-      /* sleep or poll() with timeout */
-      if (nfds == 0) millisleep(dynasleep);
-      else if (nfds > 0) {
+      /* poll() (w/ dynamic timeout) */
+      if (nfds > 0) {
          /* poll fds for ready sockets -- limit dynamic sleep */
          ready = poll(fds, nfds, dynasleep);
          if (dynasleep < 250) dynasleep++;
@@ -341,43 +417,56 @@ int server(SERVER *sp, struct sockaddr *addrp, socklen_t len, int backlog)
 
       /* try (NON-BLOCKING) exclusive link server queue to local queue */
       if (mutex_trylock(&(sp->mutex)) == 0) {
-         if (dllist_append(&(sp->queue), &queue) != 0) goto FATAL;
+         /* if there was no work, schleepy time... */
+         if (nfds == 0 && dynasleep > 0) {
+            /* wait for a signal (or timeout) to continue processing */
+            if (condition_timedwait(&(sp->cnd), &(sp->mutex), dynasleep)) {
+               if (errno != CONDITION_TIMEOUT) goto FATAL;
+            }  /* ... spurious wakeups irrelevent */
+         }
+         /* check incoming queue count... */
+         if (sp->queue.count > 0) {
+            /* ... and transfer contents to local processing queue */
+            if (dllist_append(&(sp->queue), &queue) != 0) goto FATAL;
+         }
+         /* release exclusive server lock */
          if (mutex_unlock(&(sp->mutex)) != 0) goto FATAL;
       }  /* end if (mutex_trylock... */
    }  /* end while (!sp->shutdown) */
+   /* check shutdown value for "fatal" trigger */
+   if (sp->shutdown == 2) goto FATAL;
 
 SHUTDOWN:
    SERVER__LOG(sp, errno, "recv'd shutdown signal");
-   /* set shutdown */
-   sp->shutdown = 1;
    /* close listening socket */
    if (sp->sd != INVALID_SOCKET) closesocket(sp->sd);
    /* free internally allocated or held resources */
+   if (fds) free(fds);
    if (server__cleanup(sp, anp, NULL) != 0) goto FATAL;
    while (( np = queue.next )) {
       if (server__cleanup(sp, np, &queue) != 0) goto FATAL;
    }
-
-#ifdef _WIN32
-   /* Windows exclusive cleanup */
-   wsa_cleanup();
-
-#endif
+   /* acquire exclusive lock for incoming resources */
+   if (mutex_lock(&(sp->mutex)) != 0) goto FATAL;
+   /* free incoming queued resources */
+   while (( np = sp->queue.next )) {
+      if (server__cleanup(sp, np, &(sp->queue)) != 0) goto FATAL;
+   }
+   /* flag end of server */
+   server__flag_end(sp);
+   /* release exclusive lock */
+   if (mutex_unlock(&(sp->mutex)) != 0) goto FATAL;
 
    return 0;
 
 FATAL:
    SERVER__LOG(sp, errno, "FATAL SERVER ERROR!!!");
-   /* kill server on fatal */
-   sp->shutdown = 1;
-
-   /* winsock cleanup */
-   wsa_cleanup();
-
-   return SOCKET_ERROR;
+   /* abort the whole process to avoid (potential) deadlock */
+   SERVER__LOG(sp, 0, "Unrecoverable error, aborting...");
+   abort();
 
 #undef SERVER__LOG
-}  /* end server() */
+}  /* end server_start() */
 
 /* end include guard */
 #endif
