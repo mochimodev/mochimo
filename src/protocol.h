@@ -29,6 +29,12 @@
 
 #endif
 
+#ifdef STD_TIMEOUT
+   #define PROTOCOL_TIMEOUT   STD_TIMEOUT
+#else
+   #define PROTOCOL_TIMEOUT   3
+#endif
+
 #define NODEPEER(np) ( (np)->addr.sin_addr.s_addr )
 
 /** Protocol Data Unit struct */
@@ -88,7 +94,7 @@ void node_destroy(NODE *np);
 void node_prepare(NODE *np, word16 opcode);
 int node_recv(CONNECTION *cp);
 int node_send(CONNECTION *cp);
-static int node_tranceive__incoming(CONNECTION *cp);
+int node_tranceive__incoming(CONNECTION *cp);
 int node_tranceive__outgoing(CONNECTION *cp);
 int node_tranceive(CONNECTION *cp);
 

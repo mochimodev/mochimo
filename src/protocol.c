@@ -280,7 +280,7 @@ int node_recv(CONNECTION *cp)
       np->status = node__check(count);
       if (np->status != VEOK) return np->status;
       /* update timeout and count bytes */
-      cp->to = time(NULL) + STD_TIMEOUT;
+      cp->to = time(NULL) + PROTOCOL_TIMEOUT;
       np->bytes += count;
    }  /* end for (n... */
 
@@ -293,7 +293,7 @@ int node_recv(CONNECTION *cp)
          np->status = node__check(count);
          if (np->status != VEOK) return np->status;
          /* update timeout and count bytes */
-         cp->to = time(NULL) + STD_TIMEOUT;
+         cp->to = time(NULL) + PROTOCOL_TIMEOUT;
          np->bytes += count;
       }  /* end for (n... */
    }
@@ -304,7 +304,7 @@ int node_recv(CONNECTION *cp)
       np->status = node__check(count);
       if (np->status != VEOK) return np->status;
       /* update timeout and count bytes */
-      cp->to = time(NULL) + STD_TIMEOUT;
+      cp->to = time(NULL) + PROTOCOL_TIMEOUT;
       np->bytes += count;
    }  /* end for (n... */
 
@@ -365,7 +365,7 @@ int node_send(CONNECTION *cp)
       np->status = node__check(count);
       if (np->status != VEOK) return np->status;
       /* update timeout and count bytes */
-      cp->to = time(NULL) + STD_TIMEOUT;
+      cp->to = time(NULL) + PROTOCOL_TIMEOUT;
       np->bytes += count;
    }  /* end for (n... */
 
@@ -375,7 +375,7 @@ int node_send(CONNECTION *cp)
       np->status = node__check(count);
       if (np->status != VEOK) return np->status;
       /* update timeout and count bytes */
-      cp->to = time(NULL) + STD_TIMEOUT;
+      cp->to = time(NULL) + PROTOCOL_TIMEOUT;
       np->bytes += count;
    }  /* end for (n... */
 
@@ -401,7 +401,7 @@ int node_send(CONNECTION *cp)
  * @exception errno=EMCMOPCODE Unexpected operation code
  * @exception errno=EMCMOPRECV Received unexpected operation code
 */
-static int node_tranceive__incoming(CONNECTION *cp)
+int node_tranceive__incoming(CONNECTION *cp)
 {
    NODE *np = (NODE *) cp->data;
 
