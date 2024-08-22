@@ -19,8 +19,8 @@
 #include "exttime.h"
 
 /** Static initializer for a SERVER context struct. */
-#define SERVER_INITIALIZER { .mutex = MUTEX_INITIALIZER, \
-   .cnd = CONDITION_INITIALIZER, .sd = INVALID_SOCKET, 0 }
+#define SERVER_INITIALIZER { 0, .mutex = MUTEX_INITIALIZER, \
+   .cnd = CONDITION_INITIALIZER, .sd = INVALID_SOCKET }
 
 /** Network connection handler struct. */
 typedef struct connection {
