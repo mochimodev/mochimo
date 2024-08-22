@@ -446,7 +446,7 @@ enum mcm_errno_t {
 extern "C" {
 #endif
 
-int argument(char *argv, char *chk1, char *chk2);
+int argument(char *argv, const char *chk1, const char *chk2);
 char *argvalue(int *idx, int argc, char *argv[]);
 char *bnum2fname(word8 bnum[8], char fname[21]);
 char *bnum2hex(word8 bnum[8], char hex[17]);

@@ -43,6 +43,11 @@ static int Logtime;
    #endif
 #endif
 
+#ifndef MIN
+   #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#endif
+
 /**
  * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.
  * Compatible with values separated by " " or "=".<br/>
@@ -52,23 +57,21 @@ static int Logtime;
  * @param chk2 Second option to check against @a argv
  * @returns 1 if either options match argument, else 0 for no match.
 */
-int argument(char *argv, char *chk1, char *chk2)
+int argument(char *argv, const char *chk1, const char *chk2)
 {
-   int result = 0;
-   char *vp;
+   size_t len;
 
-   /* remove value identifier, temporarily */
-   vp = strchr(argv, '=');
-   if (vp) *vp = '\0';
-   /* check argv for match */
-   if (argv && *argv) {
-      if (chk1 && strcmp(argv, chk1) == 0) result = 1;
-      else if (chk2 && strcmp(argv, chk2) == 0) result = 1;
-   }
-   /* replace value identifier */
-   if (vp) *vp = '=';
+   /* check argument input array */
+   if (argv == NULL || *argv == '\0') return 0;
 
-   return result;
+   /* ignore value separation character '=' */
+   len = strcspn(argv, "=");
+
+   /* check for a match in either check options */
+   if (chk1 && strncmp(argv, chk1, MIN(len, strlen(chk1))) == 0) return 1;
+   if (chk2 && strncmp(argv, chk2, MIN(len, strlen(chk2))) == 0) return 1;
+
+   return 0;
 }  /* end argument() */
 
 /**
@@ -82,18 +85,19 @@ int argument(char *argv, char *chk1, char *chk2)
 */
 char *argvalue(int *idx, int argc, char *argv[])
 {
-   char *vp = NULL;
+   char *vp;
 
-   /* check index */
+   /* check index count */
    if (*idx >= argc) return NULL;
-   /* scan for value identifier */
+   /* return characters proceeding '=' ... */
    vp = strchr(argv[*idx], '=');
-   if (vp) vp++;
-   else if (++(*idx) < argc && argv[*idx][0] != '-') {
-      vp = argv[*idx];
-   } else --(*idx);
+   if (vp) return ++vp;
+   /* ... or next available argument */
+   if ((*idx + 1) < argc) {
+      return vp = argv[++(*idx)];
+   }
 
-   return vp;
+   return NULL;
 }  /* end argvalue() */
 
 /**
