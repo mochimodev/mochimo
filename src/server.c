@@ -142,7 +142,7 @@ int server_queue(SERVER *sp, void *data, struct sockaddr *addrp)
    cp->pollfd.fd = sd;
    cp->pollfd.events = POLLOUT;
    cp->to = time(NULL) + DEFAULT_TIMEOUT;
-   cp->data = data;
+   cp->data = NULL;
 
    /* (BLOCKING) lock and add node to server queue */
    if (mutex_lock(&(sp->mutex)) != 0) goto ERROR_CLEANUP;
@@ -159,6 +159,9 @@ int server_queue(SERVER *sp, void *data, struct sockaddr *addrp)
    if (mutex_unlock(&(sp->mutex)) != 0) {
       goto DEADLOCK_CLEANUP;
    }
+
+   /* ONLY pass the data on successful queue operation */
+   cp->data = data;
 
    return 0;
 
