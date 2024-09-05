@@ -22,6 +22,13 @@
 #define SERVER_INITIALIZER { 0, .mutex = MUTEX_INITIALIZER, \
    .cnd = CONDITION_INITIALIZER, .sd = INVALID_SOCKET }
 
+/* IOWAIT indicates a connection "waiting" for I/O to become available on
+ * the socket, typically returned from the "on_io" server event function
+ */
+#ifndef IOWAIT
+   #define IOWAIT -2
+#endif
+
 /** Network connection handler struct. */
 typedef struct connection {
    struct pollfd pollfd;   /* file descriptor and events */
@@ -54,13 +61,18 @@ typedef struct server {
     * Called when a connection is ready for cleanup.
     * Auxiliary data should be handled by this event function.
     * @param cp Pointer to a CONNECTION
+    * @return 0 to have the server cleanup the CONNECTION, or non-zero to
+    * have the server skip CONNECTION cleanup to later resume network I/O
     */
-   void (*on_cleanup)(CONNECTION *cp);
+   int (*on_cleanup)(CONNECTION *cp);
    /**
     * Called when a connection is ready for I/O, as indicated by pollfd.
     * @param cp Pointer to a CONNECTION
+    * @return -2 to indicate the connection is waiting for network I/O.
+    * POLL events should also be set to represent the desired I/O operation.
+    * All other values will be interpreted as no longer waiting for I/O.
     */
-   void (*on_io)(CONNECTION *cp);
+   int (*on_io)(CONNECTION *cp);
 
    Mutex mutex;   /**< lock for connections list */
    Condition cnd; /**< condition for external signalling */

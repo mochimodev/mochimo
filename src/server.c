@@ -30,7 +30,7 @@ static inline void server__cleanup_connection(SERVER *sp, CONNECTION *cp)
 {
    if (cp == NULL) return;
    /* execute additional cleanup routines */
-   if (sp->on_cleanup) sp->on_cleanup(cp);
+   if (sp->on_cleanup && sp->on_cleanup(cp) == 0) return;
    /* cleanup and deallocate connection resources */
    if (cp->pollfd.fd != INVALID_SOCKET) closesocket(cp->pollfd.fd);
    if (cp->data) free(cp->data);
@@ -403,8 +403,7 @@ int server_start(SERVER *sp, struct sockaddr *addrp, socklen_t len)
                cp->pollfd.revents = fds[fdi].revents;
                /* trigger io event function on io event */
                if (fds[fdi].revents & (POLLIN | POLLOUT)) {
-                  if (sp->on_io) sp->on_io(cp);
-                  if (cp->pollfd.fd == INVALID_SOCKET) {
+                  if (sp->on_io && sp->on_io(cp) != IOWAIT) {
                      if (server__cleanup(sp, np, &queue) != 0) goto FATAL;
                   }
                   continue;
