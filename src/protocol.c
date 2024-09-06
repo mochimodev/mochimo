@@ -451,7 +451,6 @@ LOOPBACK:
       case OP_TX: /* fallthrough */
       case OP_FOUND: {
          /* no further network operations */
-         cp->pollfd.events = 0;
          break;
       }
 
@@ -462,11 +461,14 @@ LOOPBACK:
       case OP_BALANCE: /* fallthrough */
       case OP_HASH: /* fallthrough */
       case OP_TF: {
-         /* check available source data */
+         /* response data required to proceed... */
          if (np->fp == NULL && np->mp == NULL) {
-            /* source data required for response */
-            np->status = VEWAITING;
-            cp->pollfd.events = 0;
+            np->status = VEOK;
+            /* ... VEOK indicates no further network operations which, at
+             * least in this case, allows the server to pass the CONNECTION
+             * to the designated cleanup function for processing before
+             * being returned to the server to finish network operations
+             */
             break;
          }
       }  /* fallthrough */
@@ -548,7 +550,6 @@ int node_tranceive__outgoing(CONNECTION *cp)
          if (node_send(cp) != VEOK) break;
          /* end connection for broadcast operations */
          if (np->opreq == OP_TX || np->opreq == OP_FOUND) {
-            cp->pollfd.events = 0;
             np->status = VEOK;
             break;
          }
@@ -662,7 +663,7 @@ int node_tranceive(CONNECTION *cp)
    /* ... otherwise, the request is incoming */
    else node_tranceive__incoming(cp);
 
-   /* set poll idle, if not waiting for more data */
+   /* set poll idle, if not waiting for more data... */
    if (np->status != VEWAITING) cp->pollfd.events = 0;
 
    /* increment stat counters */
