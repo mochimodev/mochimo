@@ -89,6 +89,7 @@ extern word8 Cbits;
 extern "C" {
 #endif
 
+struct sockaddr_in ipv4_addr(word32 ip, word16 port);
 int node_accept(CONNECTION *cp, struct sockaddr *addrp, socklen_t len);
 NODE *node_create(struct sockaddr *addrp, socklen_t len);
 void node_destroy(NODE *np);

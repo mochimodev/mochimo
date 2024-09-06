@@ -73,6 +73,24 @@ static inline void node__close_connection(CONNECTION *cp)
 }
 
 /**
+ * Create an IPv4 sockaddr struct for a given IP and port.
+ * @param ip 32-bit IP address
+ * @param port 16-bit port number
+ * @return sockaddr_in struct for the given IP and port
+ */
+struct sockaddr_in ipv4_addr(word32 ip, word16 port)
+{
+   struct sockaddr_in addr;
+
+   memset(&addr, 0, sizeof(addr));
+   addr.sin_family = AF_INET;
+   addr.sin_addr.s_addr = ip;
+   addr.sin_port = htons(port);
+
+   return addr;
+}
+
+/**
  * Create auxiliary CONNECTION data for an incoming NODE connection.
  * @param cp Pointer to incoming CONNECTION
  * @param addrp Pointer to a sockaddr struct making the connection
@@ -171,12 +189,10 @@ void node_prepare(NODE *np, word16 opcode)
 {
    PDU *pdu = &(np->pdu);
    size_t len = 0;
-   int errnum;
 
    /* determine buffer protocol */
    switch (opcode) {
       case OP_NACK: {
-         errnum = errno;
          /* OP_NACK includes detailed error information.
           * The OP_NACK buffer format:
           *    [8 byte value][32 byte error][variable length description]
@@ -191,11 +207,11 @@ void node_prepare(NODE *np, word16 opcode)
          /* error number is an arguably useless system dependant value,
           * but is used as example filler for now...
           */
-         put32(pdu->buffer, (word32) errnum);
-         /* MCM errnum name (e.g. "EMCM_MADDR") */
-         mcm_strerrorname(errnum, (char *) pdu->buffer + 8, 32);
-         /* MCM errnum description (e.g. "Bad miner address") */
-         mcm_strerror(errnum, (char *) pdu->buffer + 8 + 32, 256);
+         put32(pdu->buffer, (word32) np->errnum);
+         /* MCM errno name (e.g. "EMCM_MADDR") */
+         mcm_strerrorname(np->errnum, (char *) pdu->buffer + 8, 32);
+         /* MCM errno description (e.g. "Bad miner address") */
+         mcm_strerror(np->errnum, (char *) pdu->buffer + 8 + 32, 256);
          /* get total length of NACK */
          len = 8 + 32 + strlen((char *) pdu->buffer + 40) + 1;
          put16(pdu->len, (word16) len);
@@ -212,6 +228,7 @@ void node_prepare(NODE *np, word16 opcode)
             put16(pdu->len, (word16) len);
             if (len < sizeof(pdu->buffer)) {
                if (ferror(np->fp)) {
+                  np->errnum = errno;
                   node_prepare(np, OP_NACK);
                   return;
                }
