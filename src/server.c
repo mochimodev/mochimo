@@ -173,6 +173,58 @@ ERROR_CLEANUP:
 }  /* end server_queue() */
 
 /**
+ * Requeue an existing connection for the server to process.
+ * @param sp Server structure pointer
+ * @param cp Connection structure pointer
+ * @return 0 on successful queue, or SOCKET_ERROR on error.
+ * Check errno for details.
+ */
+int server_requeue(SERVER *sp, CONNECTION *cp)
+{
+   DLNODE *np;
+   int ecode;
+
+   /* check server and shutdown flag */
+   if (sp == NULL) {
+      set_errno(EINVAL);
+      return SOCKET_ERROR;
+   } else if (sp->shutdown) {
+#ifdef _WIN32
+      set_alterrno(WSAESHUTDOWN);
+#else
+      set_errno(ESHUTDOWN);
+#endif
+      return SOCKET_ERROR;
+   }
+
+   /* create connection for server work */
+   np = dlnode_create(0);
+   if (np == NULL) return SOCKET_ERROR;
+
+   /* (BLOCKING) lock and add node to server queue */
+   if (mutex_lock(&(sp->mutex)) != 0) goto ERROR_CLEANUP;
+   /* add node to server queue */
+   if (dlnode_append(np, &(sp->queue)) != 0) {
+      SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
+      goto ERROR_CLEANUP;
+   }
+   /* pass CONNECTION on successful queue */
+   np->data = cp;
+   /* signal server of new work */
+   condition_broadcast(&(sp->cnd));
+   /* unlock exclusive hold on queue */
+   SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
+
+   return 0;
+
+   /* cleanup / error handling */
+ERROR_CLEANUP:
+   server__cleanup(sp, np, NULL);
+
+   return SOCKET_ERROR;
+}  /* end server_queue() */
+
+/**
  * Trigger (and optionally wait for) server to shutdown and release
  * all server resources.
  * @param sp Server structure pointer
