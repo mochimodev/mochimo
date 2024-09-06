@@ -66,6 +66,7 @@ typedef struct {
    word16 oplast; /* last operation code (fully) recv'd or sent */
    word16 opreq;  /* operation request (OUTGOING CONNECTIONS) */
    word8 bnum[8]; /* reference blocknum (OUTGOING CONNECTIONS) */
+   int errnum;    /* latest error number */
    int status;    /* latest status result */
    int bytes;     /* PDU bytes recv'd or sent */
    struct sockaddr_in addr; /* remote IPv4 address */

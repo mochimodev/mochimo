@@ -665,6 +665,8 @@ int node_tranceive(CONNECTION *cp)
 
    /* set poll idle, if not waiting for more data... */
    if (np->status != VEWAITING) cp->pollfd.events = 0;
+   /* ... else, if NOT succesfull, an error has occurred */
+   else if (np->status != VEOK) np->errnum = errno;
 
    /* increment stat counters */
    if (np->status == VETIMEOUT) Ntimeouts++;
