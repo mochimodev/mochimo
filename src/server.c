@@ -23,6 +23,19 @@
 
 #endif
 
+/* define MACRO server logger */
+#define SERVER__LOG(SP, E, MSG) { if ((SP)->logger) (SP)->logger(E, MSG); }
+
+/* define MACRO abort() procedure on mutex_unlock() failure */
+#define SERVER__MUTEX_UNLOCK_OR_ABORT(SP) \
+   do { \
+      if (mutex_unlock(&((SP)->mutex)) != 0) { \
+         SERVER__LOG(sp, errno, "FATAL SERVER MUTEX UNLOCK ERROR"); \
+         SERVER__LOG(sp, 0, "Unrecoverable // Aborting..."); \
+         abort(); \
+      } \
+   } while (0)
+
 /* default timeout for incoming connections */
 #define DEFAULT_TIMEOUT 1
 
@@ -55,14 +68,6 @@ static inline int server__cleanup(SERVER *sp, DLNODE *np, DLLIST *lp)
 
    return 0;
 }  /* end server__cleanup() */
-
-static inline void server__flag_end(SERVER *sp)
-{
-   /* flag shutdown end (no cleanup) */
-   sp->shutdown = 2;
-   /* alert server of state change */
-   condition_broadcast(&(sp->cnd));
-}  /* end server__flag_end */
 
 static inline void server__flag_shutdown(SERVER *sp)
 {
@@ -148,26 +153,19 @@ int server_queue(SERVER *sp, void *data, struct sockaddr *addrp)
    if (mutex_lock(&(sp->mutex)) != 0) goto ERROR_CLEANUP;
    /* add node to server queue */
    if (dlnode_append(np, &(sp->queue)) != 0) {
-      if (mutex_unlock(&(sp->mutex)) != 0) {
-         goto DEADLOCK_CLEANUP;
-      }
+      SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
       goto ERROR_CLEANUP;
    }
+   /* pass data on successful queue */
+   cp->data = data;
    /* signal server of new work */
    condition_broadcast(&(sp->cnd));
    /* unlock exclusive hold on queue */
-   if (mutex_unlock(&(sp->mutex)) != 0) {
-      goto DEADLOCK_CLEANUP;
-   }
-
-   /* ONLY pass the data on successful queue operation */
-   cp->data = data;
+   SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
 
    return 0;
 
    /* cleanup / error handling */
-DEADLOCK_CLEANUP:
-   server__flag_end(sp);
 ERROR_CLEANUP:
    server__cleanup(sp, np, NULL);
 
@@ -212,11 +210,7 @@ int server_shutdown(SERVER *sp, int seconds)
    }  /* ... check shutdown value */
 
    /* release exclusive lock */
-   if (mutex_unlock(&(sp->mutex)) != 0) {
-      /* execute fatal signal */
-      server__flag_end(sp);
-      return SOCKET_ERROR;
-   }
+   SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
 
    /* check time waited */
    if (waited > 0 && waited >= seconds) {
@@ -264,8 +258,6 @@ int server_shutdown(SERVER *sp, int seconds)
  */
 int server_start(SERVER *sp, struct sockaddr *addrp, socklen_t len)
 {
-#define SERVER__LOG(SP, E, MSG) { if ((SP)->logger) (SP)->logger(E, MSG); }
-
    struct sockaddr_storage addr; /* socket address store for accept() */
    void *ptr = NULL;             /* generic pointer */
    CONNECTION *cp = NULL;        /* connection pointer */
@@ -432,7 +424,7 @@ int server_start(SERVER *sp, struct sockaddr *addrp, socklen_t len)
             if (dllist_append(&(sp->queue), &queue) != 0) goto FATAL;
          }
          /* release exclusive server lock */
-         if (mutex_unlock(&(sp->mutex)) != 0) goto FATAL;
+         SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
       }  /* end if (mutex_trylock... */
    }  /* end while (!sp->shutdown) */
    /* check shutdown value for "fatal" trigger */
@@ -454,21 +446,21 @@ SHUTDOWN:
    while (( np = sp->queue.next )) {
       if (server__cleanup(sp, np, &(sp->queue)) != 0) goto FATAL;
    }
-   /* flag end of server */
-   server__flag_end(sp);
    /* release exclusive lock */
-   if (mutex_unlock(&(sp->mutex)) != 0) goto FATAL;
+   SERVER__MUTEX_UNLOCK_OR_ABORT(sp);
 
    return 0;
 
 FATAL:
-   SERVER__LOG(sp, errno, "FATAL SERVER ERROR!!!");
-   /* abort the whole process to avoid (potential) deadlock */
-   SERVER__LOG(sp, 0, "Unrecoverable error, aborting...");
+   /* rebort unrecoverable and abort() to avoid (potential) deadlock */
+   SERVER__LOG(sp, errno, "FATAL SERVER ERROR");
+   SERVER__LOG(sp, 0, "Unrecoverable // Aborting...");
    abort();
-
-#undef SERVER__LOG
 }  /* end server_start() */
+
+/* cleanup internal MACROs */
+#undef SERVER__MUTEX_UNLOCK_OR_ABORT
+#undef SERVER__LOG
 
 /* end include guard */
 #endif
