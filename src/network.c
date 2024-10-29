@@ -518,7 +518,7 @@ int send_resolve(NODE *np)
 /* Creates child to send OP_FOUND to all recent peers */
 int send_found(void)
 {
-   word32 plist[RPLISTLEN + TPLISTLEN];
+   word32 plist[RPLISTLEN];
    NODE node;
    BTRAILER bt;
    char fname[FILENAME_MAX];
@@ -564,16 +564,16 @@ bad:
    }  /* end if NG block v.23 */
 
    pdebug("send_found(0x%s)", bnum2hex(Cblocknum, bnumhex));
+   pdebug("...weight(0x%s)", weight2hex(Weight, NULL));
 
-   /* get proof from tfile.dat */
-   if (sub64(Cblocknum, CL64_32(NTFTX), bnum)) memset(bnum, 0, 8);
+   /* get proof from tfile.dat (!!! (NTFTX - 1) ) */
+   if (sub64(Cblocknum, CL64_32(NTFTX - 1), bnum)) memset(bnum, 0, 8);
    count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
 
-   /* build peerlist with Rplist (shuffled) and Tplist */
+   /* build peerlist with Rplist (shuffled) */
    memset(plist, 0, sizeof(plist));
    shufflenz(Rplist, sizeof(*Rplist), RPLISTLEN);
-   len = loadpeers(plist, RPLISTLEN + TPLISTLEN, Rplist, RPLISTLEN);
-   len += loadpeers(&plist[len], RPLISTLEN + TPLISTLEN - len, Tplist, TPLISTLEN);
+   len = loadpeers(plist, RPLISTLEN, Rplist, RPLISTLEN);
 
    /* Send found message to peerlist */
    for(i = 0; i < len && Running; i++) {

@@ -355,6 +355,16 @@ int past_weight(const char *tfile, const word8 bnum[8], word8 weight[32])
    seek = seek * sizeof(BTRAILER);
    /* seek to position of desired weight */
    if (fseek64(fp, seek, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   /* verify we are in the right place */
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+      if (ferror(fp)) goto ERROR_CLEANUP;
+      /* Unexpected EOF if not error */
+      set_errno(EMCM_EOF);
+      goto ERROR_CLEANUP;
+   } else if (cmp64(bt.bnum, bnum) != 0) {
+      set_errno(EMCM_BNUM);
+      goto ERROR_CLEANUP;
+   }
 
    /* weigh every block trailer to EOF */
    while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
@@ -589,8 +599,8 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
           * the last known (permitted) occurrence of a block exceeding the
           * BRIDGE time was block number 0x1b6ff, and so it shall be used
           */
-         if (cmp64(bt->bnum, CL64_32(0x1b6ff)) > 0 || (bt->bnum[0] != 0xff
-               && cmp64(bt->bnum, CL64_32(V23TRIGGER)) > 0)) {
+         if (cmp64(bnum, CL64_32(0x1b6ff)) > 0 || (bnum[0] != 0xff
+               && cmp64(bnum, CL64_32(V23TRIGGER)) > 0)) {
             /* check block time does not exceed BRIDGE seconds */
             if ((word32) (stime - time0) > BRIDGE) goto BAD_STIME;
             /* ... word32 boundary handles an Epochalypse event */
@@ -598,8 +608,6 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
       }
       /* ... STANDARD AND PSEUDOBLOCK */
 
-      /* check time0 matches previous stime */
-      if (time0 != get32(prev_bt->stime)) goto BAD_TIME0;
       /* check difficulty is adjustment appropriately */
       if (difficulty != next_difficulty(prev_bt)) goto BAD_DIFF;
       /* check future solve time (with some leniency) */
@@ -622,6 +630,10 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
 
    /* check hash is valid for version 3.0 blocks */
    if (cmp64(bt->bnum, CL64_32(V30TRIGGER)) > 0) {
+      if (bnum[0] > 0) {
+         /* check time0 matches previous stime */
+         if (time0 != get32(prev_bt->stime)) goto BAD_TIME0;
+      }
       sha256(bt, sizeof(BTRAILER) - HASHLEN, hash);
       if (memcmp(hash, bt->bhash, HASHLEN) != 0) {
          set_errno(EMCM_BHASH);
@@ -805,7 +817,9 @@ int validate_tfile
    /* open trailer file and validate */
    fp = fopen(tfile, "rb");
    if (fp == NULL) return VERROR;
-   /** @todo (DO NOT REMOVE) implement Tfile integrity pre-check -Dig */
+   /** @todo (DO NOT REMOVE) implement Tfile integrity pre-check to
+    * verify the integrity of the Tfile up to v3.0 (sha256) -Dig
+    */
    ecode = validate_tfile_fp(fp, bnum, weight, trust);
    fclose(fp);
 

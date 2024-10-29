@@ -16,12 +16,7 @@
 #define addrecent(ip)   addpeer(ip, Rplist, RPLISTLEN, &Rplistidx)
 
 /* global variables */
-extern char *Coreipfname;
-extern char *Epinkipfname;
-extern char *Recentipfname;
-extern char *Trustedipfname;
 extern word32 Rplist[RPLISTLEN], Rplistidx;
-extern word32 Tplist[TPLISTLEN], Tplistidx;
 extern word32 Cpinklist[CPINKLEN], Cpinkidx;
 extern word32 Lpinklist[LPINKLEN], Lpinkidx;
 extern word32 Epinklist[EPINKLEN], Epinkidx;

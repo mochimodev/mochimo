@@ -313,6 +313,7 @@ int b_val(const char *bcfile, const char *ltfile)
       goto ERROR_CLEANUP;
    }
    /* read and check regular fixed size block header */
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) return VERROR;
    if (fread(&bh, sizeof(BHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
    if (get32(bh.hdrlen) != sizeof(BHEADER)) {
       set_errno(EMCM_HDRLEN);
@@ -388,7 +389,7 @@ int b_val(const char *bcfile, const char *ltfile)
    /* Validate each transaction */
    for (j = 0; j < tcount; j++) {
       /* read transaction data for validation */
-      if (tx_fread(&tx, &xdata, fp) != VEOK) goto ERROR_CLEANUP;
+      if (tx_fread(&tx, &xdata, fp) != VEOK) goto RDERR_CLEANUP;
 
       /* ... TRANSACTION PROCESSING ... */
 
@@ -402,7 +403,7 @@ int b_val(const char *bcfile, const char *ltfile)
       if (ecode != VEOK) goto CLEANUP;
 
       /* add transaction id to merkel tree (infer previous tx_id) */
-      memcpy(mtree, tx.tx_id, HASHLEN);
+      memcpy(&mtree[(j + 1) * HASHLEN], tx.tx_id, HASHLEN);
 
       /* ... LTRAN PROCESSING ... */
 

@@ -345,17 +345,6 @@ int b_con(const char *output)
 
    /* read transactions from txclean.dat using sorted TXPOS array */
    for (j = 0; j < tcount; j++) {
-      /** @todo: duplicate transaction checks MAY be irrelevant here; but
-       * likely won't be a consideration once we switch to on-demand model
-      */
-      if (j > 0) {
-         /* check previous transaction id for duplicates */
-         if (memcmp(tx[j].id, tx[j-1].id, HASHLEN) == 0) {
-         /* pwarn("duplicate transaction in clean queue"); */
-            /* ignore duplicate transaction */
-            continue;
-         }
-      }
       /* seek to transaction position */
       if (fsetpos(fp, &tx[j].pos) != 0) {
          goto ERROR_CLEANUP;
@@ -368,7 +357,7 @@ int b_con(const char *output)
       /* add transaction id to merkel tree */
       memcpy(&mtree[(j + 1) * HASHLEN], txc.tx_id, HASHLEN);
       /* write transaction to block */
-      if (tx_fwrite(&txc, &xdata, fpout) != 1) {
+      if (tx_fwrite(&txc, &xdata, fpout) != VEOK) {
          goto ERROR_CLEANUP;
       }
    }  /* end for() */

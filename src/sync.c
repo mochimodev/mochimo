@@ -235,8 +235,20 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if (!Running) resign("gettfile exiting");
 
    show("tfval");  /* validate tfile */
-   if (validate_tfile("tfile.dat", bnum, weight, 0)) return VERROR;
-   else pdebug("tfile.dat is valid.");
+   pdebug("validating tfile...");
+   if (validate_tfile("tfile.dat", bnum, weight, 0) != VEOK) {
+      remove("tfile.dat.fail");
+      rename("tfile.dat", "tfile.dat.fail");
+      perrno("validate_tfile(tfile.dat, 0x%s, 0x%s, 0) FAILURE",
+         bnum2hex(bnum, NULL), weight2hex(weight, NULL));
+      return VERROR;
+   } else if (validate_tfile_pow("tfile.dat", 0) != VEOK) {
+      remove("tfile.pow.fail");
+      rename("tfile.dat", "tfile.pow.fail");
+      perrno("validate_tfile_pow(tfile.dat, 0) FAILURE");
+      return VERROR;
+   }
+   pdebug("tfile.dat is valid");
    if (cmp256(weight, highweight) >= 0 && cmp64(bnum, highbnum) >= 0) {
       pdebug("tfile.dat matches advertised bnum and weight.");
    } else return VERROR;
@@ -294,6 +306,20 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if (catchup(quorum, *qidx) != VEOK) {
       plog("catchup() encountered an error, restarting...");
       restart("catchup error");
+   }
+
+   /* verify chain catchup */
+   if (cmp64(Cblocknum, highbnum) < 0) {
+      perr("chain catchup did not meet advertised bnum");
+      pdebug(" highbnum 0x%s", bnum2hex(highbnum, NULL));
+      pdebug("Cblocknum 0x%s", bnum2hex(Cblocknum, NULL));
+      return VERROR;
+   }
+   if (cmp64(Cblocknum, highbnum) < 0) {
+      perr("chain catchup did not meet advertised weight");
+      pdebug("highweight 0x%s", weight2hex(highweight, NULL));
+      pdebug("    Weight 0x%s", weight2hex(Weight, NULL));
+      return VERROR;
    }
 
    /* Post-sync hook for external SQL database export */
@@ -355,6 +381,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
+   put64(lastneo, sblock);
    /* Compute first previous NG block */
    if (sub64(lastneo, CL64_32(0x100), lastneo)) {
       memset(lastneo, 0, 8);
@@ -396,7 +423,8 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
       pdebug("Copying split/%s to spblock.tmp", bcfname);
       sprintf(buff, "cp split/%s spblock.tmp", bcfname);
       system(buff);
-      if(b_update("spblock.tmp", 1) != VEOK) {
+      /* use auto-mode update (0) */
+      if(b_update("spblock.tmp", 0) != VEOK) {
          pdebug("failed to update our own block.");
          goto badsyncup;
       }
@@ -468,13 +496,17 @@ int contention(NODE *np)
    pdebug("IP: %s", ntoa(&np->ip, NULL));
 
    tx = &np->tx;
+   splitblock = 0;
    /* ignore low weight */
    if(cmp256(tx->weight, Weight) <= 0) {
-      pdebug("Ignoring low weight");
+      pdebug("Ignore insufficient weight");
+      pdebug("...tx->weight(0x%s)", weight2hex(tx->weight, NULL));
+      pdebug("...Weight(0x%s)", weight2hex(Weight, NULL));
       return 0;
    }
    /* ignore NG blocks */
    if(tx->cblock[0] == 0) {
+      pdebug("Epinklisted %s...", ntoa(&np->ip, NULL));
       epinklist(np->ip);
       return 0;
    }
@@ -485,6 +517,7 @@ int contention(NODE *np)
    }
 
    /* Try to do a simple catchup() of more than 1 block on our own chain. */
+   pdebug("Trying simple catchup()");
    j = get32(tx->cblock) - get32(Cblocknum);
    if(j > 1 && j <= NTFTX) {
         bt = (BTRAILER *) tx->buffer;  /* top of tx proof array */
@@ -492,47 +525,78 @@ int contention(NODE *np)
         if(memcmp(Cblockhash, bt[NTFTX - j].phash, HASHLEN) == 0) {
            result = catchup(&np->ip, 1);
            if(result == VEOK) goto done;  /* we updated */
-           if(result == VEBAD) return 0;  /* EVIL: ignore bad bval2() */
+           if(result == VEBAD) {
+            perrno("catchup() VEBAD");
+            return 0;  /* EVIL: ignore bad bval2() */
+           }
         }
    }
    /* Catchup failed so check the tx proof and chain weight. */
 
    /* check existance of, and that we've received enough proof */
    if (cmp64(tx->cblock, CL64_32(NTFTX)) < 0) return 0;
-   if ((get16(tx->len) / sizeof(BTRAILER)) < NTFTX) return 0;
+   if ((get16(tx->len) / sizeof(BTRAILER)) < NTFTX) {
+      pdebug("not enough proof provided");
+      return 0;
+   }
 
    bt = (BTRAILER *) tx->buffer;
 
    /* read our Tfile data and compare their low trailer -- MUST MATCH */
-   if (read_tfile(our_bt, bt->bnum, NTFTX, "tfile.dat") <= 0) return 0;
-   if (memcmp(bt, our_bt, sizeof(BTRAILER)) != 0) return 0;
+   if (read_tfile(our_bt, bt->bnum, NTFTX, "tfile.dat") <= 0) {
+      perrno("read_tfile() FAILURE");
+      return 0;
+   }
+   if (memcmp(bt, our_bt, sizeof(BTRAILER)) != 0) {
+      pdebug("Trailer mismatch");
+      return 0;
+   }
 
    /* compute previous weight for add_weight() */
    memcpy(weight, Weight, 32);
-   if (past_weight("tfile.dat", bt->bnum, weight) != VEOK) return 0;
+   if (past_weight("tfile.dat", bt->bnum, weight) != VEOK) {
+      perrno("past weight failure");
+      return 0;
+   }
 
    /* scan trailer array... */
+   pdebug("scanning trailer array...");
    for (j = 1; j < NTFTX; j++) {
       bt = &((BTRAILER *) tx->buffer)[j];
       prev_bt = &((BTRAILER *) tx->buffer)[j - 1];
       /* ... validate their trailer proof (incl. PoW), and add weight */
-      if (validate_trailer(bt, prev_bt) != VEOK) return 0;
-      if (get32(bt->tcount) && validate_pow(bt) != VEOK) return 0;
+      if (validate_trailer(bt, prev_bt) != VEOK) {
+         pdebug("trailer validation failure");
+         return 0;
+      }
+      if (get32(bt->tcount) && validate_pow(bt) != VEOK) {
+         pdebug("pow validation failure");
+         return 0;
+      }
       add_weight(weight, bt->difficulty[0]);
-      /* ... check for splitblock */
+      /* ... check for splitblock, first non-matching BTRAILER */
       if (splitblock == 0) {
-         if (memcmp(bt, &(our_bt[j]), sizeof(BTRAILER)) == 0) {
+         if (memcmp(bt, &(our_bt[j]), sizeof(BTRAILER)) != 0) {
             splitblock = get32(bt->bnum);
          }
       }
    }
 
    /* check weight weight is as advertised and non-zero splitblock */
-   if (memcmp(weight, tx->weight, 32) != 0) return 0;
-   if (splitblock == 0) return 0;
+   if (splitblock == 0) {
+      pdebug("splitblock not found");
+      return 0;
+   }
+   if (memcmp(weight, tx->weight, 32) != 0) {
+      pdebug("advertised weight mismatch failure");
+      return 0;
+   }
 
    /* Proof is good so try to re-sync to peer */
-   if(syncup(splitblock, tx->cblock, np->ip) != VEOK) return 0;
+   if(syncup(splitblock, tx->cblock, np->ip) != VEOK)  {
+      pdebug("syncup() failure");
+      return 0;
+   }
 done:
    /* send_found on good catchup or syncup */
    send_found();  /* start send_found() child */

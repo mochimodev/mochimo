@@ -25,6 +25,12 @@
 #include "extlib.h"
 #include <errno.h>
 
+/* LEGACY WOTS+ ledger entry struct */
+typedef struct {
+   word8 addr[TXWOTSLEN];
+   word8 balance[8];
+} LENTRY_W;
+
 static FILE *Lefp;
 static long long Nledger;
 static char Lefile[FILENAME_MAX];
@@ -43,6 +49,13 @@ word32 Lastday;
 int addr_compare(const void *a, const void *b)
 {
    return memcmp(a, b, TXADDRLEN);
+}
+
+void addr_convert(const word8 *wots, word8 *addr)
+{
+   /* convert WOTS+ to hash -- copy tag and balance */
+   sha256(wots, TXSIGLEN, addr);
+   memcpy(ADDR_TAG_PTR(addr), WOTS_TAG_PTR(wots), TXTAGLEN);
 }
 
 /**
@@ -179,8 +192,8 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
    hi = Nledger - 1;
 
    while(low <= hi) {
-      mid = ((hi + low) / 2) * sizeof(LENTRY);
-      if (fseek64(Lefp, mid, SEEK_SET) != 0) return 0;
+      mid = (hi + low) / 2;
+      if (fseek64(Lefp, mid * sizeof(LENTRY), SEEK_SET) != 0) return 0;
       if (fread(le, sizeof(LENTRY), 1, Lefp) != 1) {
          if (!ferror(Lefp)) set_errno(EMCM_EOF);
          return 0;
@@ -206,10 +219,7 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
 */
 int le_extract(const char *ngfile, const char *lefile)
 {
-   struct LENTRY_W {
-      word8 addr[TXWOTSLEN];
-      word8 balance[8];
-   } lew;                  /* buffer for WOTS+ ledger entries */
+   LENTRY_W lew;           /* buffer for WOTS+ ledger entries */
    LENTRY le;              /* buffer for Hashed ledger entries */
    NGHEADER ngh;           /* buffer for neo-genesis header */
    FILE *fp, *lfp;         /* FILE pointers */
@@ -260,14 +270,14 @@ int le_extract(const char *ngfile, const char *lefile)
       fclose(fp);
    } else {
       hdrlen -= 4;
-      if (hdrlen % sizeof(struct LENTRY_W) == 0) {
+      if (hdrlen % sizeof(LENTRY_W) == 0) {
          pdebug("Processing LEGACY neo-genesis block...\n");
          /* LEGACY (NEO)GENESIS BLOCK PROCESSING... */
          word8 waddr[TXWOTSLEN]; /* ledger address sort check */
          /* process ledger data from fp, check sort, write to lfp */
-         lcount = hdrlen / sizeof(struct LENTRY_W);
+         lcount = hdrlen / sizeof(LENTRY_W);
          for (j = 0; j < lcount; j++) {
-            if (fread(&lew, sizeof(struct LENTRY_W), 1, fp) != 1) {
+            if (fread(&lew, sizeof(LENTRY_W), 1, fp) != 1) {
                goto RDERR_CLEANUP;
             }
             /* check ledger sort */
@@ -278,8 +288,7 @@ int le_extract(const char *ngfile, const char *lefile)
             /* store entry for comparison */
             memcpy(waddr, lew.addr, TXWOTSLEN);
             /* convert WOTS+ to hash -- copy tag and balance */
-            sha256(lew.addr, TXSIGLEN, le.addr);
-            memcpy(ADDR_TAG_PTR(le.addr), WOTS_TAG_PTR(lew.addr), TXTAGLEN);
+            addr_convert(lew.addr, le.addr);
             put64(le.balance, lew.balance);
             /* write hashed ledger entries to ledger file */
             if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;

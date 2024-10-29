@@ -366,7 +366,7 @@ static inline char *mcm__strerrorname(int errnum, char *buf, size_t bufsz)
  */
 char *mcm_strerrorname(int errnum, char *buf, size_t bufsz)
 {
-   return mcm_strerrorname(errnum, buf, bufsz);
+   return mcm__strerrorname(errnum, buf, bufsz);
 }  /* end mcm_strerrorname() */
 
 /**

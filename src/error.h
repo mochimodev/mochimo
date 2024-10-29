@@ -333,7 +333,7 @@
    fn("Duplicate transaction ID", \
    /** Duplicate transaction ID */ \
       EMCM_TXIDDUP) \
-   fn("nvalid transaction", \
+   fn("Invalid transaction", \
    /* Invalid transaction */ \
       EMCM_TXINVAL) \
    fn("Overflow of transaction amounts", \

@@ -31,6 +31,7 @@ extern "C" {
 #endif
 
 int addr_compare(const void * a, const void * b);
+void addr_convert(const word8 *wots, word8 *addr);
 int addr_tag_compare(const void * a, const void * b);
 int addr_tag_equal(const void * a, const void * b);
 int le_open(const char *lefile);

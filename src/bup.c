@@ -33,9 +33,11 @@
 
 void print_bup(BTRAILER *bt, char *solvestr)
 {
+   const char *bsdd_haiku_tail = " \b-- ";
    word32 bnum, btxs, btime, bdiff;
    char haiku[256], *haiku1, *haiku2, *haiku3;
    char hash[10];
+   char *cp;
 
    /* prepare block stats */
    bnum = get32(bt->bnum);
@@ -49,7 +51,10 @@ void print_bup(BTRAILER *bt, char *solvestr)
       haiku1 = strtok(haiku, "\n");
       haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
       haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-      printf("\n/)  %s\n(=:  %s\n\\)    %s\n", haiku1, haiku2, haiku3);
+      /* remove backspace char -- causes issues in journalctl logs */
+      cp = strstr(haiku2, bsdd_haiku_tail);
+      if (cp != NULL) memmove(cp, cp + 2, 4);
+      printf("\n/) %s\n(=: %s\n\\)   %s\n", haiku1, haiku2, haiku3);
       /* print block update and details */
       plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
          btime, bdiff, btxs);
@@ -85,6 +90,7 @@ int b_update(char *fname, int mode)
 
    /* init */
    solvestr = NULL;
+   bcfile_clean = NULL;
 
    pdebug("updating block...");
 
@@ -119,37 +125,24 @@ int b_update(char *fname, int mode)
       if (ecode == VEOK) {
          ecode = le_update("ltran.dat");
          if (ecode != VEOK) perrno("ledger update FAILURE");
+         else bcfile_clean = fname;
+         /* ... txclean() with block file only occurs on success */
       } else perrno("block -> ltran.dat validation FAILURE");
+   } else {
+      ecode = p_val(fname);
+      if (ecode != VEOK) perrno("pseudoblock validation FAILURE");
+      /* ... nothing to update within pseudoblocks */
+   }
 
-      /* combine transaction queues before a clean */
-      if (fexists("txq1.dat")) {
-         system("cat txq1.dat >>txclean.dat 2>/dev/null");
-         remove("txq1.dat");
-         /* txq1.dat is empty now */
-         Txcount = 0;
+   /* check ecode result of block validation and update */
+   if (ecode != VEOK) {
+      pdebug("(validate -> update) failure");
+      if (mode != 0) {
+         rename(fname, "mblock.dat.fail");
+         rename("ltran.dat.last", "ltran.dat.fail");
+         remove("mblock.dat");
       }
-      /* clean the transaction queue, with the block and the ledger.
-       * clean with blockchain file only occurs on successful update.
-       */
-      bcfile_clean = (ecode == VEOK) ? fname : NULL;
-      if (txclean("txclean.dat", bcfile_clean) != VEOK) {
-         perrno("txclean failure");
-         pwarn("forcing clean...");
-         remove("txclean.dat");
-      }
-      /* check chain ecode result */
-      if (ecode != VEOK) {
-         pdebug("(validate -> update) failure");
-         if (mode != 0) {
-            rename(fname, "mblock.dat.fail");
-            rename("ltran.dat.last", "ltran.dat.fail");
-            remove("mblock.dat");
-         }
-         return VERROR;
-      }
-   } else if (p_val(fname) != VEOK) {
-      perrno("pseudoblock validation FAILURE");
-      return VERROR;
+      goto CLEANUP;
    }
 
    /* Everything below this line has to succeed, or else
@@ -178,7 +171,7 @@ int b_update(char *fname, int mode)
    } else if (rename(fname, fpath) != 0) {
       perrno("failed on rename() %s to %s", fname, fpath);
       restart("failed to accept block");
-   }
+   } else if (bcfile_clean) bcfile_clean = fpath;
 
    /* update server data */
    remove("cblock.dat");
@@ -252,7 +245,35 @@ int b_update(char *fname, int mode)
       system("../update-external.sh");
    }
 
-   return VEOK;
+CLEANUP:
+   /* NOTE: txclean() should occur on ALL update results, both as a form
+    * of removing any issues withe txclean.dat AND to update tx_nonce
+    */
+
+   /* combine transaction queues before a clean */
+   if (fexists("txq1.dat")) {
+      system("cat txq1.dat >>txclean.dat 2>/dev/null");
+      remove("txq1.dat");
+      /* txq1.dat is empty now */
+      Txcount = 0;
+   }
+
+   /* reconstruct candidate block if transactions exist in "clean" queue */
+   if (fexistsnz("txclean.dat")) {
+      if (txclean("txclean.dat", bcfile_clean) != VEOK) {
+         perrno("post-update txclean() FAILURE");
+         pwarn("txclean.dat integrity unknown, deleting...");
+         remove("txclean.dat");
+      }
+      /* check txclean.dat contains transactions */
+      if (fexistsnz("txclean.dat")) {
+         if (b_con("txclean.dat") != VEOK) {
+            perrno("post-update b_con() FAILURE");
+         }
+      }
+   }
+
+   return ecode;
 }  /* end b_update() */
 
 /* end include guard */

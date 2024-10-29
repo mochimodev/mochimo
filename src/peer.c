@@ -20,22 +20,20 @@
 #include "extlib.h"
 #include "extinet.h"
 
-/* default peer list filenames */
-char *Coreipfname = "coreip.lst";
-char *Epinkipfname = "epink.lst";
-char *Recentipfname = "recent.lst";
-char *Trustedipfname = "trusted.lst";
-
-word32 Rplist[RPLISTLEN], Rplistidx;  /* Recent peer list */
-word32 Tplist[TPLISTLEN], Tplistidx;  /* Trusted peer list - preserved */
+/* Recent peers list */
+word32 Rplist[RPLISTLEN] = {0};
+word32 Rplistidx = 0;  /* Recent peer list */
 
 /* pink lists of EVIL IP addresses read in from disk */
-word32 Cpinklist[CPINKLEN], Cpinkidx;
-word32 Lpinklist[LPINKLEN], Lpinkidx;
-word32 Epinklist[EPINKLEN], Epinkidx;
+word32 Cpinklist[CPINKLEN] = {0};
+word32 Cpinkidx = 0;
+word32 Lpinklist[LPINKLEN] = {0};
+word32 Lpinkidx = 0;
+word32 Epinklist[EPINKLEN] = {0};
+word32 Epinkidx = 0;
 
-word8 Nopinklist;  /* disable pinklist IP's when set */
-word8 Noprivate;     /* filter out private IP's when set v.28 */
+word8 Nopinklist = 0;  /* disable pinklist IP's when set */
+word8 Noprivate = 0;   /* filter out private IP's when set v.28 */
 
 /**
  * Search a list[] of 32-bit unsigned integers for a non-zero value.

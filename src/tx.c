@@ -850,8 +850,8 @@ int txclean(const char *txfname, const char *bcfname)
       /** @todo: replace tx_val with less wasteful tx_reval process */
       if (tx_val(&txc, &xdata, Cblocknum) != VEOK) continue;
       /* update nonce and transaction id */
-      put64(txc.tx_nonce, Cblocknum);
-      tx_hash(&txc, &xdata, 1, txe.tx_id);
+      add64(Cblocknum, ONE64, txc.tx_nonce);
+      tx_hash(&txc, &xdata, 1, txc.tx_id);
       /* write clean (valid) transaction to output */
       if (tx_fwrite(&txc, &xdata, tfp) != VEOK) goto FAIL_ALL;
       nout++;
@@ -963,8 +963,9 @@ pid_t mgc(word32 ip)
       }
       if(callserver(&node, ip) != VEOK) break;
       memcpy(node.tx.buffer, mtx.buffer, sizeof(mtx.buffer));
-      /* copy ip address map to outgoing TX */
+      /* copy buffer length and ip address map to outgoing TX */
       memcpy(node.tx.weight, mtx.weight, 32);
+      put16(node.tx.len, get16(mtx.len));
       send_op(&node, OP_TX);
       sock_close(node.sd);
    }  /* end while Running */
@@ -977,7 +978,7 @@ pid_t mgc(word32 ip)
  */
 pid_t mirror(void)
 {
-   pid_t pid, peer[RPLISTLEN + TPLISTLEN];
+   pid_t pid, peer[RPLISTLEN];
    int j, len;
    word8 busy;
 
@@ -995,10 +996,6 @@ pid_t mirror(void)
    for (j = len = 0; j < RPLISTLEN; j++) {
       if (Rplist[j] == 0) continue;
       peer[len++] = mgc(Rplist[j]);  /* grandchild */
-   }
-   for (j = 0; j < TPLISTLEN; j++) {
-      if (Tplist[j] == 0) continue;
-      peer[len++] = mgc(Tplist[j]);  /* grandchild */
    }
    pdebug("prepared %d mgc()...", len);
 
@@ -1069,7 +1066,7 @@ int process_tx(NODE *np)
    if(evilness) return evilness;
 
    /* update nonce and transaction id */
-   put64(txe.tx_nonce, Cblocknum);
+   add64(Cblocknum, ONE64, txe.tx_nonce);
    tx_hash(&txe, &xdata, 1, txe.tx_id);
 
    fp = fopen("txq1.dat", "ab");
