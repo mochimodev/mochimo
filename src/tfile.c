@@ -29,12 +29,10 @@
 /* parallel support */
 #ifdef _OPENMP
    #include <omp.h>
-   #define omp__critical _Pragma("omp critical")
-   #define omp__parallel _Pragma("omp parallel")
-#else
-   #define omp__critical
-   #define omp__parallel
 #endif
+
+/** Global shutdown flag for long running functions of tfile.h */
+word8 TfileShutdown = 0;
 
 /**
  * Accumulate 256-bit weight based on difficulty
@@ -732,7 +730,7 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
 {
    BTRAILER bt;
    long long len, skip;
-   int ecode;
+   int ecode, errnum;
 
    /* init */
    ecode = VEOK;
@@ -751,26 +749,45 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
       if (fseek64(fp, skip, SEEK_SET) != 0) return VERROR;
    }
 
-   omp__parallel
+#ifdef _OPENMP
+   #pragma omp parallel private(bt)
+#endif
    {
-      while (ecode == VEOK) {
-         omp__critical
+      while (!TfileShutdown && ecode == VEOK) {
+      #ifdef _OPENMP
+         #pragma omp critical
+      #endif
          {
             if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
-               if (ferror(fp)) ecode = VERROR;
+               ecode = VEWAITING;
+               if (ferror(fp)) {
+                  errnum = errno;
+                  ecode = VERROR;
+               }
             }
          }
-         /* check errors out of critical scope  */
+         /* check for end of file */
          if (ecode != VEOK) continue;
+         /* check for parameters not requiring PoW validation */
+         if (bt.bnum[0] == 0 || get32(bt.tcount) == 0) continue;
          /* validate trailer Proof-of-Work */
          if (validate_pow(&bt) != VEOK) {
-            omp__critical
+         #ifdef _OPENMP
+            #pragma omp critical
+         #endif
             {
+               errnum = errno;
                ecode = VERROR;
+               pdebug("PoW verification FAILURE on block %08x%08x",
+                  get32(bt.bnum + 4), get32(bt.bnum));
             }
          }
       }
    }
+
+   /* ensure errno integrity through parallel processing */
+   if (ecode == VEWAITING) ecode = VEOK;
+   if (ecode != VEOK) set_errno(errnum);
 
    return ecode;
 }  /* end validate_tfile_pow_fp() */
