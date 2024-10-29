@@ -210,6 +210,18 @@ help:
 	@echo "   make mochimo     build mochimo binary and install in bin/"
 	@echo ""
 
+install:
+	@systemctl stop mochimo.service
+	@mkdir -p /opt/mochimo/
+	@cp -r $(BINDIR)/* /opt/mochimo/
+	@chown -R mcm:mcm /opt/mochimo/
+	@getent passwd mcm > /dev/null || \
+	 useradd --no-create-home --system --shell /usr/sbin/nologin mcm
+	@cp .github/systemd/mochimo.service /etc/systemd/system/
+	@systemctl enable mochimo.service
+	@systemctl start mochimo.service
+	@echo "Mochimo installed. Use 'journalctl -u mochimo -f' to view logs."
+
 miner:
 	@make $(BUILDDIR)/bin/miner CFLAGS=-DCUDA --no-print-directory
 	@chmod +x $(BUILDDIR)/bin/miner
@@ -232,6 +244,14 @@ package-%:
 	@rm -r $(addprefix $*/,$(wildcard $(INCLUDEDIR)/**/.git*)) 2>/dev/null
 	@rm -r $(addprefix $*/,$(wildcard $(INCLUDEDIR)/**/docs)) 2>/dev/null
 	@sed -i 's/<no-ver>/$*/g' $*/GNUmakefile
+
+uninstall:
+	@systemctl stop mochimo.service
+	@systemctl disable mochimo.service
+	@rm /etc/systemd/system/mochimo.service
+	@rm -r /opt/mochimo/
+	@userdel mcm
+	@echo "Mochimo uninstalled."
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
