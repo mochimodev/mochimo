@@ -542,6 +542,7 @@ int init(void)
 int server(int reuse_addr)
 {
    /* real time of current server loop - set by server() */
+   static word8 Lblock[8];
    static time_t Ltime;
    static time_t Stime;    /* status display update time */
    static time_t nsd_time;  /* event timers */
@@ -809,24 +810,40 @@ int server(int reuse_addr)
             } else Stime = Ltime + 20;  /* hold status display */
          }
       } else {
+         /* block constructor time trigger checks */
+         if (bctime < (Time0 + BCONFREQ)) bctime = Time0 + BCONFREQ;
          if (Txcount >= TXQUEBIG) bctime = Ltime;
-         if (Bcon_pid == 0 && Blockfound == 0 && Ltime >= bctime &&
-            (Txcount > 0 || fexistsnz("txclean.dat"))) {
-            pdebug("spawning bcon with %d more transactions", Txcount);
-            /* append txq1.dat to txclean.dat */
-            system("cat txq1.dat >>txclean.dat 2>/dev/null");
-            remove("txq1.dat");
-            Txcount = 0;  /* txq1.dat is empty now */
-            put64(Bcbnum, Cblocknum);  /* save current block number */
-            Bcon_pid = fork();
-            if (Bcon_pid == -1) {
-               perr("Cannot fork() for b_con()");
-               Bcon_pid = 0;
-            } else if (Bcon_pid == 0) {
-               /* in child */
-               exit(b_con("cblock.dat"));
+
+         if (Blockfound == 0 && Ltime >= bctime) {
+            /* check conditions for Transaction Bot processor */
+            if (tx_bot_is_active() && cmp64(Lblock, Cblocknum) != 0) {
+               if (tx_bot_process() == VEOK) {
+                  /* update block number and Txbot data */
+                  put64(Lblock, Cblocknum);
+               }
             }
-            bctime = Ltime + BCONFREQ;
+            /* check conditions for Transaction Queue processor */
+            if (Bcon_pid == 0 && Txcount > 0) {
+               pdebug("spawning bcon with %d more transactions", Txcount);
+               /* append txq1.dat to txclean.dat */
+               system("cat txq1.dat >>txclean.dat 2>/dev/null");
+               remove("txq1.dat");
+               Txcount = 0;  /* txq1.dat is empty now */
+               put64(Bcbnum, Cblocknum);  /* save current block number */
+               Bcon_pid = fork();
+               if (Bcon_pid == -1) {
+                  perr("Cannot fork() for b_con()");
+                  Bcon_pid = 0;
+               } else if (Bcon_pid == 0) {
+                  /* in child */
+                  if (b_con("cblock.dat") != VEOK) {
+                     perrno("b_con() FAILURE");
+                     exit(1);  /* child exits */
+                  }
+                  exit(0);  /* child exits */
+               }
+               bctime = Ltime + BCONFREQ;
+            }
          }
       }
 
@@ -840,11 +857,8 @@ int server(int reuse_addr)
             /* check cblock and prepare passive mining */
             if (fexistsnz("cblock.dat")) {
                /* make isolated copy, read trailer and init */
-               if (fcopy("cblock.dat", "mblock.tmp") != 0) {
-                  perrno("fcopy() FAILURE");
-               } else if (read_trailer(&bt, "mblock.dat") != VEOK) {
+               if (read_trailer(&bt, "cblock.dat") != VEOK) {
                   perrno("read_trailer() FAILURE");
-                  remove("cblock.dat");
                } else peach_init(&bt);
             }
          }
@@ -868,10 +882,8 @@ int server(int reuse_addr)
             } else {
                fclose(fp);
                /* check for and trigger mined block update */
-               if (fexists("mblock.dat")) {
-                  remove("mblock.tmp");
-               } else {
-                  rename("mblock.tmp", "mblock.dat");
+               if (!fexists("mblock.dat")) {
+                  rename("cblock.dat", "mblock.dat");
                   ftouch("cblock.lck");
                }
             }
@@ -1081,8 +1093,6 @@ int main(int argc, char **argv)
       }
    }
 
-   /* setup failsafe */
-   atexit(shutdown_all);
    /* logging setup */
    setploglevel(PLOG_DEBUG);
    /* Ignore all signals. */
@@ -1115,6 +1125,16 @@ int main(int argc, char **argv)
          if (argument(argv[j], NULL, "--reuse-addr")) {
             /* set reuse_addr option and continue */
             reuse_addr = 1;
+            continue;
+         }
+         if (argument(argv[j], NULL, "--tx-bot")) {
+            argp = argvalue(&j, argc, argv);
+            if (argp != NULL) pdebug("    argument value: %s", argp);
+            /* set tx-bot option and continue */
+            if (tx_bot_activate(argp) != VEOK) {
+               perrno("tx_bot_activate() FAILURE");
+               return EXIT_FAILURE;
+            }
             continue;
          }
          if (argument(argv[j], "-v3", "--v3-trigger")) {
