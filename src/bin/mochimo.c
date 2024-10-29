@@ -66,6 +66,10 @@
 #include "bup.h"
 #include "bcon.h"
 
+char *Opt_cplistfile = "coreip.lst";
+char *Opt_rplistfile = "recent.lst";
+char *Opt_eplistfile = "epink.lst";
+
 int check_directory(char *dirname)
 {
    char fname[FILENAME_MAX];
@@ -268,15 +272,12 @@ int init(void)
    if (ftouch("mq.lck")) return VERROR;
 
    /* update coreip list where available */
-   path_join(copyfile, "..", Coreipfname);
-   if (fcopy(copyfile, Coreipfname) != VEOK) {
-      if (!fexists(Coreipfname)) {
-         pwarn("missing Core ip list..., %s", Coreipfname);
+   path_join(copyfile, "..", Opt_cplistfile);
+   if (fcopy(copyfile, Opt_cplistfile) != VEOK) {
+      if (!fexists(Opt_cplistfile)) {
+         pwarn("missing Core ip list..., %s", Opt_cplistfile);
       }
    }
-   /* update trustedip list where available */
-   path_join(copyfile, "..", Trustedipfname);
-   fcopy(copyfile, Trustedipfname);
    /* update maddr.dat - use maddr.MAT as last resort only */
    path_join(copyfile, "..", "maddr.dat");
    if (fcopy(copyfile, "maddr.dat") != VEOK) {
@@ -427,12 +428,10 @@ int init(void)
 
    plog("Init peers...");
    /* initialize peer lists */
-   count = read_ipl(Epinkipfname, Epinklist, EPINKLEN, &Epinkidx);
+   count = read_ipl(Opt_eplistfile, Epinklist, EPINKLEN, &Epinkidx);
    if (count > 0) plog(" - added %" P32u " pinklisted peers", count);
-   count = read_ipl(Trustedipfname, Tplist, TPLISTLEN, &Tplistidx);
-   if (count > 0) plog(" - added %" P32u " trusted peers", count);
-   count = read_ipl(Trustedipfname, Rplist, RPLISTLEN, &Rplistidx);
-   count += read_ipl(Coreipfname, Rplist, RPLISTLEN, &Rplistidx);
+   count = read_ipl(Opt_cplistfile, Rplist, RPLISTLEN, &Rplistidx);
+   count += read_ipl(Opt_rplistfile, Rplist, RPLISTLEN, &Rplistidx);
    if (count > 0) plog(" - added %" P32u " recent peers", count);
 
    /* scan entire network of peers */
@@ -1025,7 +1024,6 @@ int usage(void)
       "   -qN        set Quorum to N (default 4)\n"
       "   -vN        set virtual mode: N = 1 or 2\n"
       "   -cFNAME    read core ip list from FNAME\n"
-      "   -tFNAME    read trusted ip list from FNAME\n"
       "   -c         disable read core ip list\n"
       "   -d         disable pink lists\n"
       "   -pN        set port to N\n"
@@ -1062,7 +1060,6 @@ int main(int argc, char **argv)
    unsigned long argu;  /* argument unsigned value */
 
    int reuse_addr;
-   int v3reboot;
    char *cp;
    int j;
 
@@ -1084,6 +1081,8 @@ int main(int argc, char **argv)
       }
    }
 
+   /* setup failsafe */
+   atexit(shutdown_all);
    /* logging setup */
    setploglevel(PLOG_DEBUG);
    /* Ignore all signals. */
@@ -1105,7 +1104,7 @@ int main(int argc, char **argv)
 
    /* local init */
    reuse_addr = 0;
-   v3reboot = 0;
+   Cbits |= C_OPTIN;  /* default to opt-in for Node */
 
    /* Parse command line arguments. */
    pdebug("... skipping 0th argument (program name): %s", argv[0]);
@@ -1133,7 +1132,6 @@ int main(int argc, char **argv)
             }
             /* set v3.0 trigger block and continue */
             V30TRIGGER = argu - 1;
-            v3reboot = 1;
             continue;
          }
       } else return usage();
@@ -1151,7 +1149,7 @@ int main(int argc, char **argv)
                perr("missing coreip list file");
                exit(usage());
             }
-            Coreipfname = &argv[j][2];  /* master network */
+            Opt_cplistfile = &argv[j][2];  /* master network */
             break;
          case 'd':  /* disable pink lists */
             Nopinklist = 1;
@@ -1210,13 +1208,6 @@ int main(int argc, char **argv)
             if (argv[j][2]) exit(usage());
             Safemode = 1;
             break;
-         case 't':  /* set trusted ip list */
-            if (!argv[j][2]) {
-               perr("missing trusted ip list file");
-               exit(usage());
-            }
-            Trustedipfname = &argv[j][2];  /* master network */
-            break;
          case 'T':  /* enabled Trustblock */
             Trustblock = atoi(&argv[j][2]);
             break;
@@ -1260,8 +1251,8 @@ EOA:  /* end of arguments */
          stop_found();
          stop_bcon();
          /* save dynamic peer lists */
-         save_ipl(Recentipfname, Rplist, RPLISTLEN);
-         save_ipl(Epinkipfname, Epinklist, EPINKLEN);
+         save_ipl(Opt_rplistfile, Rplist, RPLISTLEN);
+         save_ipl(Opt_eplistfile, Epinklist, EPINKLEN);
       }
    }
 
