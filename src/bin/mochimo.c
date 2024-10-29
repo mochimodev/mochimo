@@ -49,6 +49,7 @@
 #include "extmath.h"    /* 64-bit math support */
 #include "crc32.h"      /* for mirroring */
 #include "crc16.h"
+#include "exttime.h"    /* for time functions */
 
 /* Include everything that we need */
 #include "wots.h"
@@ -209,12 +210,10 @@ void monitor(void)
          Running = 0;
          return;
       } else if (strcmp(buff, "p") == 0) {   /* print peers command */
-         printf("Trusted peers:\n");
-         print_ipl(Tplist, TPLISTLEN);
          printf("Recent peers:\n");
          print_ipl(Rplist, RPLISTLEN);
          printf("Pinklisted:\n");
-         print_ipl(Epinklist, RPLISTLEN);
+         print_ipl(Epinklist, EPINKLEN);
          continue;
       } else if (*buff == '\0') {   /* ENTER to continue server */
          Monitor = runmode;
@@ -243,7 +242,7 @@ void monitor(void)
 /**
  * Initialize the server/client from any state
  * after executing the gomochi script. */
-int init(int reboot_flag)
+int init(void)
 {
    /* static word8 FortyEight[8] = { 48, }; */
    char fname[FILENAME_MAX], weighthex[65], bnumhex[17];
@@ -308,7 +307,7 @@ int init(int reboot_flag)
    }
 
    plog("Init chain...");
-   if (reboot_flag) {
+   while (V30TRIGGER > 0) {
       /* legacy neogenesis block is reconstructed by extracting the
        * ledger data with le_extract() (handles both block types)
        * and rebuilding the block with neogen().
@@ -323,7 +322,16 @@ int init(int reboot_flag)
       /* determine filename and path */
       bnum2fname(CL64_32(V30TRIGGER + 1), bcfname);
       path_join(fname, Bcdir, bcfname);
-      pdebug("rebooting neogenesis %s", fname);
+      pdebug("Waiting for v3.0 reboot file %s", fname);
+      /* pull file from previous directory */
+      path_join(copyfile, "..", bcfname);
+      if (fexists(copyfile) && !fexists(fname)) {
+         pdebug("Restoring v3.0 reboot file...");
+         if (fcopy(copyfile, fname) != VEOK) {
+            perrno("fcopy() FAILURE");
+            return VERROR;
+         }
+      }
       /* wait for file to become available */
       for (count = 0; !fexists(fname); sleep(1)) {
          if (!Running) return VERROR;
@@ -353,7 +361,7 @@ int init(int reboot_flag)
       /* check hdrlen */
       if (hdrlen == sizeof(NGHEADER)) {
          plog("Neogenesis reboot not required: %s", fname);
-         return VEOK;
+         break;
       }
 
       /* perform ledger extraction (compatible with legacy blocks) */
@@ -405,6 +413,7 @@ int init(int reboot_flag)
       }
 
       plog("Neogenesis reboot successful: %s", fname);
+      break;
    }
 
    /* Find the last block in bc/ and reset Time0, and Difficulty */
@@ -437,13 +446,15 @@ int init(int reboot_flag)
          bnum2hex(netbnum, bnumhex), weight2hex(netweight, weighthex));
       if (qlen == 0) break; /* all alone... */
       else if (qlen < Quorum) {  /* insufficient quorum */
-         plog("Insufficient quorum, try again...");
          /* pinklist peers to avoid infinite loop of network spam */
          while (*quorum) {
             /* use epinklist for purge after init */
             epinklist(*quorum);
             remove32(*quorum, quorum, MAXQUORUM, &qlen);
          }
+         /* report, wait, and re-scan... */
+         plog("Insufficient quorum, try again in 30 seconds...");
+         millisleep(30000);
          continue;
       } else shuffle32(quorum, qlen);
       if (!iszero(Cblocknum, 8)) {  /* we've got a chain */
@@ -1240,7 +1251,7 @@ EOA:  /* end of arguments */
 
    /* perform init and start server */
    if (Running) {
-      if (Running && init(v3reboot) == VEOK) {
+      if (Running && init() == VEOK) {
          server(reuse_addr);
          /* shutdown sockets */
          sock_cleanup();
