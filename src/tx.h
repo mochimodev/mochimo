@@ -32,6 +32,10 @@ extern "C" {
 
 #endif
 
+int tx_bot_activate(const char *filename);
+int tx_bot_is_active(void);
+int tx_bot_process(void);
+
 int tx_data(TXQENTRY * txe, XDATA * xdata, const void * buffer, size_t bufsz);
 int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream);
 int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream);

@@ -87,6 +87,190 @@ static int txpos_compare(const void *va, const void *vb)
 
 #endif
 
+struct {
+   word8 secret[32];
+   word8 public[32];
+   word8 adrs[32];
+   word8 count[8];
+   word8 idx[8];
+   int active;
+} Txbot = {0};
+
+int tx_bot_activate(const char *filename)
+{
+   struct LEGACY_WOTS {
+      word8 addr[TXWOTSLEN];
+      word8 balance[8];
+      word8 secret[32];
+   } wots;
+
+   if (!fexists("txbot.dat")) {
+      if (filename == NULL) return VERROR;
+      pdebug("Converting LEGACY address for Txbot...");
+      /* obtain Txbot secret and pub_seed/adrs values */
+      if (read_data(&wots, sizeof(wots), (char *) filename) != sizeof(wots)) return VERROR;
+      /* move data to Txbot global */
+      memcpy(Txbot.secret, wots.secret, 32);
+      memcpy(Txbot.public, wots.addr + TXSIGLEN, 32);
+      memcpy(Txbot.adrs, wots.addr + TXSIGLEN + 32, 32);
+      /* write Txbot file back to disk */
+      pdebug("Writing Txbot...");
+      if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) return VERROR;
+   } else {
+      pdebug("Reading existing Txbot...");
+      if (read_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
+         return VEOK;
+      }
+   }
+
+   /* set Txbot option and continue */
+   Txbot.active = 1;
+
+   return VEOK;
+}
+
+int tx_bot_is_active(void)
+{
+   return Txbot.active;
+}
+
+static void tx_bot_clear_private(word8 volatile *private)
+{
+   int i;
+
+   for (i = 0; i < HASHLEN; i++) {
+      private[i] = 0;
+   }
+}
+
+static void tx_bot_get_secret(word8 *secret, word8 *idx)
+{
+   SHA256_CTX ctx;
+
+   /* generate WOTS+ address for index... */
+   if (iszero(idx, 8)) {
+      /* ... copy origin secret */
+      memcpy(secret, Txbot.secret, HASHLEN);
+   } else {
+      /* ... or generate idx secret */
+      sha256_init(&ctx);
+      sha256_update(&ctx, idx, 8);
+      sha256_update(&ctx, Txbot.secret, HASHLEN);
+      sha256_final(&ctx, secret);
+   }
+}
+
+static void tx_bot_get_addr(word8 *addr, word8 *secret, word8 *idx)
+{
+   /* local copies */
+   word8 wots[TXWOTSLEN];
+   word8 private[32];
+   word32 adrs[8];
+   int clear = 0;
+
+   if (secret == NULL) {
+      tx_bot_get_secret(private, idx);
+      secret = private;
+      clear = 1;
+   }
+
+   /* update sacrificial adrs and generate public key */
+   memcpy(adrs, Txbot.adrs, HASHLEN);
+   wots_pkgen(wots, secret, Txbot.public, adrs);
+   /* update full wots address and convert to hash based */
+   memcpy(wots + TXSIGLEN, Txbot.public, HASHLEN);
+   memcpy(wots + TXSIGLEN + HASHLEN, Txbot.adrs, HASHLEN);
+   addr_convert(wots, addr);
+   /* destroy private without compiler optimization */
+   if (clear) tx_bot_clear_private(private);
+}
+
+int tx_bot_process(void)
+{
+   LENTRY le;
+   NODE node;
+   TXQENTRY tx;
+   word8 hash[HASHLEN];
+   word8 secret[HASHLEN];
+   word32 adrs[8];
+   word16 len;
+
+   /* zero transaction entry */
+   memset(&tx, 0, sizeof(TXQENTRY));
+
+   /* generate WOTS+ address for index... */
+   tx_bot_get_secret(secret, Txbot.idx);
+   tx_bot_get_addr(tx.src_addr, secret, Txbot.idx);
+   /* ... hold onto secret until done */
+
+   /* check for available funds */
+   if (le_find(tx.src_addr, &le, TXADDRLEN) != 1) {
+      pdebug("No Txbot funds @ idx#%" P32u "...", get32(Txbot.idx));
+      /* decrement index for next process iteration */
+      if (sub64(Txbot.idx, ONE64, Txbot.idx)) {
+         perr("No available balance for Txbot");
+         put64(Txbot.idx, Txbot.count);
+         goto DONE;
+      }
+      return VERROR;
+   }
+
+   /* Txbot funds found */
+   pdebug("Txbot funds found in %s...", hash2hex32(le.addr, NULL));
+
+   /* reduce balance by transaction fee */
+   if (sub64(le.balance, MFEE64, le.balance)) {
+      perr("Txbot balance insufficient");
+      goto DONE;
+   }
+
+   /* increment Txbot counter */
+   add64(Txbot.count, ONE64, Txbot.count);
+   put64(Txbot.idx, Txbot.count);
+   if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
+      perr("write_data() FAILURE");
+      /* revert increment */
+      sub64(Txbot.count, ONE64, Txbot.count);
+      put64(Txbot.idx, Txbot.count);
+      goto DONE;
+   }
+   /* generate recipient address for index... */
+   tx_bot_get_addr(tx.dst_addr, NULL, Txbot.idx);
+   /* update amounts -- le.amount already reduced by fee */
+   put64(tx.send_total, le.balance);
+   put64(tx.tx_fee, MFEE64);
+   /* generate WOTS+ signature */
+   tx_hash(&tx, NULL, 0, hash);
+   memcpy(adrs, Txbot.adrs, HASHLEN);
+   wots_sign(tx.tx_sig, hash, secret, Txbot.public, adrs);
+   memcpy(tx.tx_seed, Txbot.public, HASHLEN);
+   memcpy(tx.tx_adrs, Txbot.adrs, HASHLEN);
+   /* ... force WOTS+ DSA Identifier */
+   put32(tx.tx_adrs + 20, 0x42);
+   put32(tx.tx_adrs + 24, 0x0e);
+   put32(tx.tx_adrs + 28, 0x01);
+
+   /* place transaction in empty NODE and process */
+   len = (word16) (sizeof(TXQENTRY) - 8 - HASHLEN);
+   memset(&node, 0, sizeof(NODE));
+   memcpy(node.tx.buffer, &tx, len);
+   put16(node.tx.len, len);
+   if (process_tx(&node) != VEOK) {
+      perrno("Txbot transaction was not processed...");
+      /* revert increment */
+      sub64(Txbot.count, ONE64, Txbot.count);
+      put64(Txbot.idx, Txbot.count);
+      /* write to file */
+      write_data(&Txbot, sizeof(Txbot), "txbot.dat");
+   }
+
+DONE:
+   /* destroy secret without compiler optimization */
+   tx_bot_clear_private(secret);
+
+   return VEOK;
+}
+
 /**
  * Derive Transaction Entry, @a txe, and eXtended Data, @a xdata, parts
  * from a transaction data buffer received from the network.
