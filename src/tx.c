@@ -728,7 +728,6 @@ int txclean(const char *txfname, const char *bcfname)
    long long offset;       /* file position offset value */
    word32 hdrlen;          /* for block header length */
    int cond;
-   char tmpfname[FILENAME_MAX];
 
    /* ensure ledger is open (required) */
    if (le_open("ledger.dat") != VEOK) {
@@ -808,8 +807,7 @@ int txclean(const char *txfname, const char *bcfname)
    /* FILTER OLD QUEUE BASED ON BLOCK AND LEDGER */
 
    /* generate temporary filename */
-   snprintf(tmpfname, sizeof(tmpfname), "txc-%04x.tmp", rand16());
-   tfp = fopen(tmpfname, "wb");
+   tfp = tmpfile();
    if (tfp == NULL) goto FAIL_FP_MEM_BFP;
 
    /* end of file check on Merkle Block (bfp) in the following loop
@@ -858,29 +856,28 @@ int txclean(const char *txfname, const char *bcfname)
    }  /* end for() */
 
    /* cleanup */
-   fclose(tfp);
-   fclose(bfp);
+   if (bfp) fclose(bfp);
    fclose(fp);
    free(tx);
 
    /* out with the old, in with the new */
    remove(txfname);
    if (nout > 0) {
-      if (rename(tmpfname, txfname) != 0) {
-         remove(tmpfname);
+      if (fsave(tfp, (char *) txfname) != 0) {
+         fclose(tfp);
          return VERROR;
       }
    }
 
    /* success */
+   fclose(tfp);
    return VEOK;
 
    /* cleanup / error handling */
 FAIL_ALL:
    fclose(tfp);
-   remove(tmpfname);
 FAIL_FP_MEM_BFP:
-   if (bfp != NULL) fclose(bfp);
+   if (bfp) fclose(bfp);
 FAIL_FP_MEM:
    free(tx);
 FAIL_FP:
