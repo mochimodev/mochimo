@@ -794,7 +794,8 @@ int txclean(const char *txfname, const char *bcfname)
          if (!ferror(fp)) set_errno(EMCM_EOF);
          goto FAIL_FP_MEM_BFP;
       }
-      if (hdrlen != sizeof(BHEADER)) {
+      /* allow transaction loop for all non-neogenesis type blocks */
+      if (hdrlen != sizeof(BHEADER) && hdrlen != 4) {
          set_errno(EMCM_HDRLEN);
          goto FAIL_FP_MEM_BFP;
       }
