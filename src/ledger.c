@@ -416,25 +416,25 @@ int le_extract(const char *ngfile, const char *lefile)
       fclose(fp);
    } else {
       hdrlen -= 4;
-      if (hdrlen % sizeof(LENTRY_W) == 0) {
+      if (hdrlen % sizeof(WOTS_LENTRY) == 0) {
          pdebug("Processing LEGACY neo-genesis block...\n");
          /* LEGACY (NEO)GENESIS BLOCK PROCESSING... */
-         word8 waddr[TXWOTSLEN]; /* ledger address sort check */
+         word8 waddr[WOTS_ADDR_LEN]; /* ledger address sort check */
          /* process ledger data from fp, check sort, write to lfp */
-         lcount = hdrlen / sizeof(LENTRY_W);
+         lcount = hdrlen / sizeof(WOTS_LENTRY);
          for (j = 0; j < lcount; j++) {
-            if (fread(&lew, sizeof(LENTRY_W), 1, fp) != 1) {
+            if (fread(&lew, sizeof(WOTS_LENTRY), 1, fp) != 1) {
                goto RDERR_CLEANUP;
             }
             /* check ledger sort */
-            if (j > 0 && memcmp(lew.addr, waddr, TXWOTSLEN) <= 0) {
+            if (j > 0 && memcmp(lew.addr, waddr, WOTS_ADDR_LEN) <= 0) {
                set_errno(EMCM_LESORT);
                goto ERROR_CLEANUP;
             }
             /* store entry for comparison */
-            memcpy(waddr, lew.addr, TXWOTSLEN);
+            memcpy(waddr, lew.addr, WOTS_ADDR_LEN);
             /* convert WOTS+ to hash -- copy tag and balance */
-            addr_convert(lew.addr, le.addr);
+            addr_from_wots(lew.addr, le.addr);
             put64(le.balance, lew.balance);
             /* write hashed ledger entries to ledger file */
             if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
