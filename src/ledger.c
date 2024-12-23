@@ -66,15 +66,68 @@ static inline int equality_check_20bytes(const void *a, const void *b)
  */
 int addr_compare(const void *a, const void *b)
 {
-   return memcmp(a, b, TXADDRLEN);
+   return memcmp(a, b, ADDR_LEN);
 }
 
-void addr_convert(const word8 *wots, word8 *addr)
+/**
+ * Equality check for address hash. ONLY compares hash.
+ * Implements an efficient 20-byte check, mimicing the tag check one.
+ * @param a Pointer to address with hash to compare
+ * @param b Pointer to address with hash to compare against
+ * @returns 1 if address hashes match, else 0
+ */
+int addr_hash_equal(const void *a, const void *b)
 {
-   /* convert WOTS+ to hash -- copy tag and balance */
-   sha256(wots, TXSIGLEN, addr);
-   memcpy(ADDR_TAG_PTR(addr), WOTS_TAG_PTR(wots), TXTAGLEN);
+   return equality_check_20bytes(ADDR_HASH_PTR(a), ADDR_HASH_PTR(b));
 }
+
+/**
+ * Convert an implicit Mochimo Address tag to a full Hash-based Address.
+ * @param tag Pointer to tag to convert
+ * @param addr Pointer to address to store result
+ */
+void addr_from_implicit(const void *tag, void *addr)
+{
+   memcpy(ADDR_TAG_PTR(addr), tag, ADDR_TAG_LEN);
+   memcpy(ADDR_HASH_PTR(addr), tag, ADDR_TAG_LEN);
+}
+
+/**
+ * Generate a Mochimo Address hash using SHA3-512 and RIPEMD-160.
+ * @param in Pointer to data to hash
+ * @param inlen Length of data to hash
+ * @param out Pointer to store hash result
+ */
+void addr_hash_generate(const void *in, size_t inlen, void *out)
+{
+   word8 hash[SHA3LEN512]; /* intermediate sha3-512 compound hash */
+
+   /* perform compound hash -- ripemd160(sha3(in)) */
+   sha3(in, inlen, hash, SHA3LEN512);
+   ripemd160(hash, SHA3LEN512, out);
+}
+
+/**
+ * Convert Legacy WOTS+ address to hash-based Mochimo Address.
+ * @param wots Pointer to WOTS+ address to convert
+ * @param addr Pointer to hash-based address to store result
+ */
+void addr_from_wots(const void *wots, void *addr)
+{
+   const word32 default_tag[] = { 0x42, 0x0e, 0x01 };
+
+   addr_hash_generate(wots, WOTS_PK_LEN, ADDR_HASH_PTR(addr));
+
+   /* legacy "default tags" require explicit tagging */
+   if (memcmp(WOTS_TAG_PTR(wots), default_tag, WOTS_TAG_LEN) == 0) {
+      memcpy(ADDR_TAG_PTR(addr), ADDR_HASH_PTR(addr), ADDR_HASH_LEN);
+      return;
+   }
+
+   /* ... otherwise, copy legacy tags (append zeros to fill) */
+   memcpy(ADDR_TAG_PTR(addr), WOTS_TAG_PTR(wots), WOTS_TAG_LEN);
+   memset(ADDR_TAG_PTR(addr) + WOTS_TAG_LEN, 0, ADDR_HASH_LEN - WOTS_TAG_LEN);
+}  /* end addr_from_wots() */
 
 /**
  * Hashed-based address tag comparison function. ONLY compares tag.
@@ -92,15 +145,16 @@ int addr_tag_compare(const void *a, const void *b)
 
 /**
  * Equality check for address tags. ONLY compares tag.
- * Implements an efficient 12-byte check.
+ * Implements an efficient 20-byte check, extending the legacy 12-byte one.
  * @param a Pointer to address with tag to compare
  * @param b Pointer to address with tag to compare against
  * @returns 1 if address tags match, else 0
  */
 int addr_tag_equal(const void *a, const void *b)
 {
-   return tag_equal(ADDR_TAG_PTR(a), ADDR_TAG_PTR(b));
-}  /* end tag_equal() */
+   return equality_check_20bytes(ADDR_TAG_PTR(a), ADDR_TAG_PTR(b));
+}
+
 
 /**
  * @private
@@ -605,22 +659,19 @@ CLEANUP:
  */
 int tag_compare(const void *a, const void *b)
 {
-   return memcmp(a, b, TXTAGLEN);
+   return memcmp(a, b, ADDR_TAG_LEN);
 }  /* end tag_cmp() */
 
 /**
- * Equality check for tags. Implements an efficient 12-byte check.
+ * Equality check for tags. Implements an efficient 20-byte check,
+ * inspired by the legacy 12-byte check.
  * @param a Pointer to tag to check
  * @param b Pointer to tag to check against
  * @returns 1 if tags match, else 0
  */
 int tag_equal(const void *a, const void *b)
 {
-   return (
-      ((word32 *) a)[0] == ((word32 *) b)[0] &&
-      ((word32 *) a)[1] == ((word32 *) b)[1] &&
-      ((word32 *) a)[2] == ((word32 *) b)[2]
-   );
+   return equality_check_20bytes(a, b);
 }  /* end tag_equal() */
 
 /* end include guard */
