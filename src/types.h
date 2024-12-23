@@ -626,15 +626,17 @@ typedef struct {
 
 /* The block header */
 typedef struct {
-   word8 hdrlen[4];         /* header length to tran array */
-   word8 maddr[TXADDRLEN];  /* mining address */
+   word8 hdrlen[4];           /* header length to tran array */
+   word8 maddr[ADDR_TAG_LEN]; /* mining address */
    word8 mreward[8];
    /*
-    * variable length data here...
+    * array of tcount TXENTRY's here...
     */
 
-   /* array of tcount TXQENTRY's here... */
+   /* ... appended with BTRAILER */
 } BHEADER;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(BHEADER) == ( 4 + ADDR_TAG_LEN + 8 ), BHEADER_size);
 
 /* The block trailer at end of block file */
 typedef struct {
