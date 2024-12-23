@@ -476,66 +476,6 @@ ERROR_CLEANUP:
 }  /* end le_extract() */
 
 /**
- * Apply the Sanctuary Protocol to renew the ledger. Ledger file must have
- * been opened with le_open(). If Sanctuary is zero, no operation is
- * performed.
- * @return (int) value representing renew result
- * @retval VERROR on error; check errno for details
- * @retval VEOK on success
-*/
-int le_renew(void)
-{
-   FILE *fp;
-   LENTRY le;
-   word32 sanctuary[2];
-
-   /* ledger must be open */
-   if (Lefp == NULL) {
-      set_errno(EMCM_LECLOSED);
-      return VERROR;
-   }
-
-   if(Sanctuary == 0) return VEOK;  /* success */
-   sanctuary[0] = Sanctuary;
-   sanctuary[1] = 0;
-
-   /* open ledger and replacement files */
-   fp = fopen("ledger.renew", "wb");
-   if (fp == NULL) goto ERROR_CLEANUP;
-
-   /* renew the ledger per Carousal requirements */
-   for(rewind(Lefp);;) {
-      if (fread(&le, sizeof(LENTRY), 1, Lefp) != 1) {
-         if (ferror(fp)) goto ERROR_CLEANUP;
-         break;  /* EOF */
-      }
-      if(sub64(le.balance, sanctuary, le.balance)) continue;
-      if(cmp64(le.balance, Mfee) <= 0) continue;
-      if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) goto ERROR_CLEANUP;
-   }
-
-   /* cleanup */
-   fclose(fp);
-
-   /* close / replace ledger */
-   le_close();
-   remove(Lefile);
-   if (rename("ledger.renew", Lefile) != 0) {
-      return VERROR;
-   }
-
-   /* return result of reopen ledger */
-   return le_open(Lefile);
-
-   /* cleanup / error handling */
-ERROR_CLEANUP:
-   fclose(fp);
-   remove("ledger.renew");
-
-   return VERROR;
-}  /* end le_renew() */
-
-/**
  * Update the ledger by applying deltas from a ledger transaction file.
  * Ledger transaction file is sorted by addr+code, '-' comes before 'A'.
  * Ledger file is kept sorted on addr. Ledger file must have been opened
