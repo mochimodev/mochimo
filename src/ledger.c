@@ -548,11 +548,10 @@ ERROR_CLEANUP:
  */
 int le_update(const char *ltfname)
 {
-   LENTRY le, le_hold;        /* for ledger entry and ledger hold data */
-   LTRAN lt;                  /* for ledger transaction data */
-   FILE *fp, *lefp, *ltfp;    /* output, ledger, and ltran file pointers */
-   word8 le_prev[TXADDRLEN];     /* for ledger sequence check */
-   word8 lt_prev[TXADDRLEN + 1]; /* for ltran sequence check */
+   LENTRY le_hold;         /* for ledger entry hold data */
+   LENTRY le, le_prev;     /* for ledger entry and sequence check data */
+   LTRAN lt, lt_prev;      /* for ledger tran and sequence check data */
+   FILE *fp, *lefp, *ltfp; /* output, ledger, and ltran file pointers */
    word8 hold, empty;
    int compare, ecode;
 
@@ -594,11 +593,12 @@ int le_update(const char *ltfname)
       /* check ledger transaction file is open for processing */
       if (ltfp != NULL) {
          /* only perform initial comparison on ledger entry file */
-         if (lefp != NULL) compare = addr_compare(le.addr, lt.addr);
+         if (lefp != NULL) compare = addr_tag_compare(le.addr, lt.addr);
 
          /* if ledger entry compares AFTER ledger transaction, OR
           * if ledger entry file is EOF... */
          if (compare > 0 || lefp == NULL) {
+            /* ... this is a "brand new" destination/address */
             /* assume malicious intent where non-CREDIT ('A') code here */
             if (lt.trancode[0] != 'A') {
                set_errno(EMCM_LTCREDIT);
@@ -609,9 +609,10 @@ int le_update(const char *ltfname)
                memcpy(&le_hold, &le, sizeof(LENTRY));
                hold = 1;
             }
-            /* clear ledger entry data, set ledger transaction address */
+            /* clear ledger entry data */
             memset(&le, 0, sizeof(LENTRY));
-            memcpy(le.addr, lt.addr, TXADDRLEN);
+            /* convert address from implicit tag */
+            addr_from_implicit(ADDR_TAG_PTR(lt.addr), le.addr);
             /* set compare for ledger transaction processing */
             compare = 0;
          }  /* end if (compare > 0 || lefp == NULL) */
@@ -620,6 +621,10 @@ int le_update(const char *ltfname)
          while (compare == 0) {
             /* apply ledger transaction */
             switch (lt.trancode[0]) {
+               case 'H':
+                  /* transaction REHASH operation */
+                  memcpy(ADDR_HASH_PTR(le.addr), ADDR_HASH_PTR(lt.addr), ADDR_HASH_LEN);
+                  /* fallthrough */
                case 'A':
                   /* transaction CREDIT operation */
                   if (add64(le.balance, lt.amount, le.balance)) {
@@ -644,7 +649,7 @@ int le_update(const char *ltfname)
                   goto ERROR_CLEANUP;
             }
             /* read next ledger transaction */
-            memcpy(lt_prev, lt.addr, TXADDRLEN + 1);
+            memcpy(&lt_prev, &lt, sizeof(LTRAN));
             if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
                if (ferror(ltfp)) goto ERROR_CLEANUP;
                /* EOF -- cleanup, break inner loop */
@@ -653,25 +658,22 @@ int le_update(const char *ltfname)
                break;
             }
             /* check sort -- MUST BE ascending, ALLOW duplicates */
-            /* NOTE: sort check SHOULD include transaction code */
-            if (memcmp(lt_prev, lt.addr, TXADDRLEN + 1) > 0) {
+            if (lt_compare(&lt_prev, &lt) > 0) {
                set_errno(EMCM_LTSORT);
                goto ERROR_CLEANUP;
             }
             /* recompare latest ledger transaction */
-            compare = addr_compare(le.addr, lt.addr);
+            compare = addr_tag_compare(le.addr, lt.addr);
          }  /* end while (compare == 0) */
       }  /* end if (ltfp != NULL) */
 
       /* if lendger entry compares BEFORE ledger transaction, OR
        * ledger transaction file is EOF... */
       if (compare < 0 || ltfp == NULL) {
-         /* if ledger entry balance > MFEE, write to output */
-         if (cmp64(le.balance, Mfee) > 0) {
-            if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) goto ERROR_CLEANUP;
-            /* flag output not empty */
-            empty = 0;
-         }
+         /* write ledger entry to output */
+         if (fwrite(&le, sizeof(LENTRY), 1, fp) != 1) goto ERROR_CLEANUP;
+         /* flag output not empty */
+         empty = 0;
          /* if ledger entry file open... */
          if (lefp != NULL) {
             /* copy ledger hold to ledger entry, OR... */
@@ -681,7 +683,7 @@ int le_update(const char *ltfname)
                continue;
             }
             /* read next ledger transaction, AND... */
-            memcpy(le_prev, le.addr, TXADDRLEN);
+            memcpy(&le_prev, &le, sizeof(LENTRY));
             if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
                if (ferror(lefp)) goto ERROR_CLEANUP;
                /* EOF -- DO NOT CLOSE, just decouple from Lefp */
@@ -690,7 +692,7 @@ int le_update(const char *ltfname)
                continue;
             }
             /* check sort -- MUST BE ascending, NO duplicates */
-            if (memcmp(le_prev, le.addr, TXADDRLEN) >= 0) {
+            if (addr_compare(le_prev.addr, le.addr) >= 0) {
                set_errno(EMCM_LESORT);
                goto ERROR_CLEANUP;
             }
