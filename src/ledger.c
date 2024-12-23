@@ -155,6 +155,71 @@ int addr_tag_equal(const void *a, const void *b)
    return equality_check_20bytes(ADDR_TAG_PTR(a), ADDR_TAG_PTR(b));
 }
 
+/**
+ * Read an address tag from a file. Supports various address types,
+ * including legacy WOTS+, Hash-based, and Tag-only file formats.
+ * PRimarily to obtain Tags from mining address files (e.g., "maddr.dat").
+ * @param tag Pointer to address tag to read into
+ * @param filename Filename of file to read from
+ * @return (int) value representing read result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ * @exception errno=EMCM_FILEDATA if file format is unsupported
+ */
+int addr_tag_readfile(void *tag, const char *filename)
+{
+   FILE *fp;
+   long long llen;
+   size_t count;
+
+   /* open file for reading */
+   fp = fopen(filename, "rb");
+   if (fp == NULL) return VERROR;
+
+   /* determine provided file format per length */
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   llen = ftell64(fp);
+   if (llen == (-1)) goto ERROR_CLEANUP;
+
+   switch (llen) {
+      case ADDR_TAG_LEN:
+         /* read directly into output */
+         count = fread(tag, ADDR_TAG_LEN, 1, fp);
+         if (count != 1) goto ERROR_CLEANUP;
+         break;
+      case ADDR_LEN:
+         /* read directly into output, from tag offset */
+         if (fseek64(fp, ADDR_TAG_OFF, SEEK_SET) != 0) goto ERROR_CLEANUP;
+         count = fread(tag, ADDR_TAG_LEN, 1, fp);
+         if (count != 1) goto ERROR_CLEANUP;
+         break;
+      case WOTS_ADDR_LEN: {
+         /* local block scope ({}) to contain local vars */
+         word8 addr[ADDR_LEN];
+         word8 wots[WOTS_ADDR_LEN];
+         /* read into local temp */
+         if (fseek64(fp, 0LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
+         count = fread(wots, WOTS_ADDR_LEN, 1, fp);
+         if (count != 1) goto ERROR_CLEANUP;
+         /* convert wots, and copy into output */
+         addr_from_wots(wots, addr);
+         memcpy(tag, ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
+         break;
+      }  /* end (scoped) case WOTS_ADDR_LEN */
+      default:
+         /* unsupported file format */
+         set_errno(EMCM_FILEDATA);
+         goto ERROR_CLEANUP;
+   }  /* end switch() */
+
+   /* success */
+   fclose(fp);
+   return VEOK;
+
+ERROR_CLEANUP:
+   fclose(fp);
+   return VERROR;
+}  /* end addr_tag_readfile() */
 
 /**
  * @private
