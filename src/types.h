@@ -383,95 +383,210 @@ typedef struct {
    char nameId[256];                /**< device properties */
 } DEVICE_CTX;  /**< (GPU) Device context for managing device data. */
 
-/** Structure for Multi-destination data. */
+/**
+ * @struct MDST
+ * Multi-Destination structure.
+ * ```
+ * [<-------------------- 44 byte Destination -------------------->] []
+ * [<- 20 byte Tag ->][<- 16 byte Reference ->][<- 8 byte Amount ->]
+ * ```
+ *
+ * @property MDST::tag[ADDR_TAG_LEN]
+ * Destination address tag. Contains the destination address tag.
+ *
+ * @property MDST::ref[ADDR_REF_LEN]
+ * (Optional) destination reference. Zero-filled where unused.
+ * Destination reference fields must adhere to the following rules:
+ * - CONTAINS only uppercase [A-Z], digit [0-9], dash [-], null [\0]
+ * - SHALL be null terminated with remaining unused bytes zeroed
+ *   - (e.g. VALID   (char[]) { 'A','-','1','\0','\0','\0', ... } )
+ *   - (e.g. INVALID (char[]) { 'A','-','1','\0','B','\0', ... } )
+ * - MAY have multiple uppercase OR digits (NOT both) grouped together
+ * - SHALL only contain a dash to separate groups of uppercase or digit
+ * - SHALL NOT contain consecutive groups of the same group type
+ *   - (e.g. VALID   "AB-00-EF", "123-CDE-789", "ABC", "123")
+ *   - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
+ *
+ * @property MDST::amount[8]
+ * Destination send amount. Contains the amount to be sent.
+ */
 typedef struct {
-   word8 tag[TXTAGLEN]; /* Tag address for XTX multi-destination. */
-   word8 amount[8];     /* Send Amount, to this tag. */
+   word8 tag[ADDR_TAG_LEN];
+   char ref[ADDR_REF_LEN];
+   word8 amount[8];
 } MDST;
-
-/** Union for eXtended Data.
- * Where an eXtended Transaction (XTX) type is indicated, there MAY
- * also be eXtended Data (XDATA) present within the transaction.
-*/
-typedef union {
-   MDST mdst[256];
-   /* ... add eXtended Transaction data types here */
-} XDATA;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(MDST) == ( ADDR_REF_LEN + ADDR_TAG_LEN + 8 ), MDST_size);
 
 /**
- * @struct TXQENTRY
- * Structure for a standard or eXtended Transaction Entry.
- * For eXtended Transaction Entry details, see TXQENTRY::dst_addr.
+ * @struct WOTSVAL
+ * WOTS+ validation structure.
  *
- * @property TXQENTRY::dst_addr[TXADDRLEN]
- * Destination address, or eXtended Transaction metadata.
- * Transactions may indicate an eXtended Transaction by using this field
- * as a "metadata" field. In such a case...
- * - dst_addr[0-31] MAY be used to include a transaction reference
- *   - CONTAINS only uppercase [A-Z], digit [0-9], dash [-], null [\0]
- *   - SHALL be null terminated with remaining unused bytes zeroed
- *     - (e.g. VALID   (char[32]) { 'A','-','1','\0','\0','\0', ... } )
- *     - (e.g. INVALID (char[32]) { 'A','-','1','\0','B','\0', ... } )
- *   - MAY have multiple uppercase OR digits (NOT both) grouped together
- *   - SHALL only contain a dash to separate groups of uppercase or digit
- *   - SHALL NOT contain consecutive groups of the same group type
- *     - (e.g. VALID   "AB-00-EF", "123-CDE-789", "ABC", "123")
- *     - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
- * - dst_addr[32] SHALL indicate an XTX type transaction (0x00)
- * - dst_addr[33] SHALL indicate the specific type of XTX (>0x00)
- *   - Where the XTX type indicates XTX_MDST...
- *     - dst_addr[33] SHALL indicate Multi-Destination (XTX_MDST)
- *     - dst_addr[34] SHALL indicate the number of destinations (max 256)
- *     - xdata.mdst[] will contain each destination and associated amount
- *     - tx_fee will be adjusted based on the number of destinations + 1
- *   - Where the XTX type indicates XTX_NONE...
- *     - this is illegal; throw it in the bin
+ * @property WOTSVAL::signature[WOTS_SIG_LEN]
+ * WOTS+ Address signature.
  *
- * @property TXQENTRY::tx_btl[8]
+ * @property WOTSVAL::pub_seed[32]
+ * WOTS+ Address Public Seed.
+ *
+ * @property WOTSVAL::adrs[32]
+ * WOTS+ Hash Function Address Scheme. The last 12 bytes of the Address
+ * Scheme MUST contain the hexadecimal string "420000000e00000001000000".
+ */
+typedef struct {
+   word8 signature[WOTS_SIG_LEN];
+   word8 pub_seed[32];
+   word8 adrs[32];
+} WOTSVAL;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(WOTSVAL) == ( WOTS_SIG_LEN + 32 + 32 ), WOTSVAL_size);
+
+/**
+ * @struct TXHDR
+ * Transaction Header structure.
+ *
+ * @property TXHDR::options[4]
+ * Transaction options. Specifically, the first byte indicates the
+ * Transaction Data type (TXDAT), the second byte indicates the Transaction
+ * Digital Signature Algorithm (TXDSA) type used to sign the transaction,
+ * and the third and fourth bytes are reserved for additional information
+ * regarding the data within the transaction, per it's transaction type.
+ * As an example, a standard WOTS+ transaction with 24 destinations is:
+ * - options[0] = TXTYPE_MDST; (0x00: standard transaction)
+ * - options[1] = TXDSA_WOTS; (0x00: WOTS+ signature)
+ * - options[2] = 23; (23 additional, 24 total destinations)
+ * - options[3] = 0; (reserved)
+ *
+ * @property TXHDR::blk_to_live[8]
  * Transaction block-to-live, expiration indicator.
  * For a block-to-live value of zero, the transaction can never expire.
  * For non-zero block-to-live values, the transaction expires for all
  * block numbers greater than the block-to-live value. Additionally, a
  * block-to-live value is considered invalid if it exceeds the block
  * number by more than 256 blocks into the future.
- *
- * @property TXQENTRY::tx_adrs[HASHLEN]
- * WOTS+ Hash Function Address Scheme, or other Digital Signature Algorithm.
- * Currently only used to validate WOTS+ transaction signatures, provides
- * useable space for identifying alternate Digital Signature Algorithms, or
- * even alternate validation procedures, such as proposed ZCF features.
- * - tx_adrs[20-31] = 0x420000000e00000001000000 (indicates WOTS+)
- * - tx_adrs[20-31] = 0x420000000e00000002000000 (MAY indicate alt DSA)
- * - tx_adrs[20-31] = 0x012345678901234500000000 (MAY indicate ZCF AUTH)
- * - etc.
- *
- * @property TXQENTRY::tx_nonce[8]
- * Transaction nonce.
- * The transaction nonce ensures the integrity of unique transaction IDs
- * (within reasonable doubt) by always containing the block number of the
- * block it is solved into.
-*/
+ */
 typedef struct {
-   /* transaction data (These fields are order dependent) */
-   word8 src_addr[TXADDRLEN];     /* 44 */
-   word8 dst_addr[TXADDRLEN];
-/* union {
-      MDST mdst[256];
-      ... add eXtended Transaction data types here
-   } xdata; */                    /* size varies -- see dst_addr docs */
-   word8 chg_addr[TXADDRLEN];
-   word8 send_total[TXAMOUNT];    /* 8 */
-   word8 change_total[TXAMOUNT];
-   word8 tx_fee[TXAMOUNT];
-   word8 tx_btl[8];               /* 8 -- block-to-live */
-   /* validation data */
-   word8 tx_sig[TXSIGLEN];        /* 2144 -- signature */
-   word8 tx_seed[HASHLEN];        /* 32 -- (public) seed */
-   word8 tx_adrs[HASHLEN];        /* 32 -- address scheme */
-   /* final transaction nonce and hash (generated by node) */
-   word8 tx_nonce[8];
-   word8 tx_id[HASHLEN];          /* 32 */
-} TXQENTRY;
+   word8 options[4];
+   word8 src_addr[ADDR_LEN];
+   word8 chg_addr[ADDR_LEN];
+   word8 send_total[8];
+   word8 change_total[8];
+   word8 fee_total[8];
+   word8 blk_to_live[8];
+} TXHDR;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(TXHDR) == ( 4 + (ADDR_LEN * 2) + (8 * 4) ), TXHDR_size);
+
+/**
+ * @union TXDAT
+ * Transaction Data union/structure. Holds transaction data for various
+ * Transaction (TX) types used in transactions.
+ *
+ * @property TXDAT::mdst[256]
+ * Multi-Destination array. Holds up to 256 destinations.
+ */
+typedef union {
+   MDST mdst[/* up to */ 256];
+/* ... additional transaction data types here */
+} TXDAT;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(TXDAT) == ( sizeof(MDST) * 256 ), TXDAT_size);
+
+/**
+ * @union TXDSA
+ * Transaction Validation union/structure. Holds validation data for
+ * various Digital Signature Algorithms (DSA) used in transactions.
+ *
+ * @property TXDSA::wots
+ * WOTS+ DSA validation data.
+ */
+typedef union {
+   WOTSVAL wots;
+/* CRYSTALSVAL crystal; *//* FIPS 204 ML-DSA (Module Lattice) */
+/* SPHINCSVAL sphincs; *//* FIPS 205 SLH-DSA (Stateless Hash-Based) */
+/* FALCONVAL falcon; *//* FIPS 206 FN-DSA (fast-Fourier Transform over NTRU-Lattice-Based) */
+} TXDSA;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(TXDSA) == sizeof(WOTSVAL), TXDSA_size);
+
+/**
+ * @struct TXTLR
+ * Transaction Trailer structure.
+ *
+ * @property TXTLR::nonce[8]
+ * Transaction nonce. The transaction nonce ensures the integrity of unique
+ * transaction IDs (within reasonable doubt) by always containing the block
+ * number of the block it is solved into.
+ *
+ * @property TXTLR::id[HASHLEN]
+ * Transaction ID. SHA-256 hash of the transaction contents (incl. nonce).
+ */
+typedef struct {
+   word8 nonce[8];
+   word8 id[HASHLEN];
+} TXTLR;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(TXTLR) == ( 8 + HASHLEN ), TXTLR_size);
+
+/**
+ * @struct TXENTRY
+ * Transaction Entry structure. Holds a complete transaction entry.
+ *
+ * @property TXENTRY::buffer
+ * Transaction buffer. Holds the complete transaction entry, in a single
+ * contiguous block of memory.
+ *
+ * @property TXENTRY::tx_sz
+ * Transaction size within the buffer.
+ *
+ * @property TXENTRY::hdr
+ * Pointer to the Transaction Header structure within the buffer.
+ *
+ * @property TXENTRY::dat
+ * Pointer to the Transaction Data structure within the buffer.
+ *
+ * @property TXENTRY::dsa
+ * Pointer to the Transaction DSA (validation) structure within the buffer.
+ *
+ * @property TXENTRY::tlr
+ * Pointer to the Transaction Trailer structure within the buffer.
+ */
+typedef struct {
+   /* (AVOID DIRECT USAGE) transaction buffer */
+   word8 buffer[
+      sizeof(TXHDR) +
+      sizeof(TXDAT) +
+      sizeof(TXDSA) +
+      sizeof(TXTLR)
+   ];
+   size_t tx_sz;
+
+   TXHDR *hdr;
+   TXDAT *dat;
+   TXDSA *dsa;
+   TXTLR *tlr;
+
+   /** @todo convenience pointers exist for ease of access to specific
+    * transaction parameters while maintaining a contiguous transaction
+    * within the buffer -- it's also considerably unappealing. Anonymous
+    * structures/unions are not supported in C99. Consider definitions or
+    * getter functions for dereferencing parameters as local pointers.
+    */
+
+   /* convenience pointers to relative locations in buffer */
+
+   word8 *options;
+   word8 *src_addr;
+   word8 *chg_addr;
+   word8 *send_total;
+   word8 *change_total;
+   word8 *tx_fee;
+   word8 *tx_btl;
+   MDST *mdst;
+   WOTSVAL *wots;
+   word8 *tx_nonce;
+   word8 *tx_id;
+} TXENTRY;
+/* assertion NOT required */
 
 /**
  * Network transmission packet Multi-byte numbers are little-endian.
