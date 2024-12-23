@@ -38,6 +38,24 @@ word32 Sanctuary;
 word32 Lastday;
 
 /**
+ * @private
+ * Efficient 20-byte equality check, extending the legacy 12-byte one.
+ * @param a Pointer to data to compare
+ * @param b Pointer to data to compare against
+ * @returns 1 if tags match, else 0
+ */
+static inline int equality_check_20bytes(const void *a, const void *b)
+{
+   return (
+      ((word32 *) a)[0] == ((word32 *) b)[0] &&
+      ((word32 *) a)[1] == ((word32 *) b)[1] &&
+      ((word32 *) a)[2] == ((word32 *) b)[2] &&
+      ((word32 *) a)[3] == ((word32 *) b)[3] &&
+      ((word32 *) a)[4] == ((word32 *) b)[4]
+   );
+}
+
+/**
  * Hashed-based address comparison function. Includes tag in comparison.
  * @param a Pointer to address to compare
  * @param b Pointer to address to compare against
