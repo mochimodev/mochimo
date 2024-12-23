@@ -623,6 +623,8 @@ typedef struct {
     * array of LENTRY's representing lbytes number of bytes, here...
     */
 } NGHEADER;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(NGHEADER) == ( 4 + 8 ), NGHEADER_size);
 
 /* The block header */
 typedef struct {
@@ -651,6 +653,8 @@ typedef struct {
    word8 stime[4];         /* time of solve in seconds since the Epoch */
    word8 bhash[HASHLEN];   /* hash of block trailer less bhash[] */
 } BTRAILER;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(BTRAILER) == ( 32 + 8 + 8 + (4 * 3) + (HASHLEN * 2) + 4 + HASHLEN ), BTRAILER_size);
 
 /**
  * Hash-based ledger entry struct
