@@ -606,6 +606,11 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
       }
       /* ... STANDARD AND PSEUDOBLOCK */
 
+      /* check stime rollover... */
+      if (cmp64(bnum, CL64_32(V20TRIGGER)) > 0) {
+         /* ... patched in v2.0 (V20TRIGGER) */
+         if (time0 != get32(prev_bt->stime)) goto BAD_TIME0;
+      }
       /* check difficulty is adjustment appropriately */
       if (difficulty != next_difficulty(prev_bt)) goto BAD_DIFF;
       /* check future solve time (with some leniency) */
@@ -627,11 +632,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
    }
 
    /* check hash is valid for version 3.0 blocks */
-   if (cmp64(bt->bnum, CL64_32(V30TRIGGER)) > 0) {
-      if (bnum[0] > 0) {
-         /* check time0 matches previous stime */
-         if (time0 != get32(prev_bt->stime)) goto BAD_TIME0;
-      }
+   if (cmp64(bnum, CL64_32(V30TRIGGER)) > 0) {
       sha256(bt, sizeof(BTRAILER) - HASHLEN, hash);
       if (memcmp(hash, bt->bhash, HASHLEN) != 0) {
          set_errno(EMCM_BHASH);
