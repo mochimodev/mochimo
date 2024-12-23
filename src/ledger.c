@@ -226,9 +226,18 @@ ERROR_CLEANUP:
  * Comparison function to sort LTRAN objects by address + transaction code.
  * DOES NOT CONSIDER Ledger transaction amount in sorting process.
  */
-static int lt_compare(const void *va, const void *vb)
+static int lt_compare(const void *a, const void *b)
 {
-   return memcmp(va, vb, TXADDRLEN + 1);
+   LTRAN *lta = (LTRAN *) a;
+   LTRAN *ltb = (LTRAN *) b;
+   int res;
+
+   res = memcmp(ADDR_TAG_PTR(lta->addr), ADDR_TAG_PTR(ltb->addr), ADDR_TAG_LEN);
+   if (res != 0) return res;
+
+   if (lta->trancode[0] < ltb->trancode[0]) return -1;
+   if (lta->trancode[0] > ltb->trancode[0]) return 1;
+   return 0;
 }
 
 /**
