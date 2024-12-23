@@ -606,10 +606,12 @@ typedef struct {
    word8 weight[32];       /* sum of block difficulties (or TX ip map) */
    word8 len[2];  /* length of data in transaction buffer for I/O op's */
    word8 buffer[WORD16_MAX];  /* packet buffer */
-MCM_DECL_ALIGNED(4) /* (re)align crc16 to 4 byte boundary */
+   word8 __align_crc16[1]; /* (re)align crc16 to 4 byte boundary (UNUSED) */
    word8 crc16[2];
    word8 trailer[2];  /* 0xcd, 0xab */
 } TX;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(TX) == ( (2 * 5) + 8 + 8 + (32 * 3) + 2 + (WORD16_MAX + 1) + 2 + 2 ), TX_size);
 
 /**
  * Hashed-based neo-genesis block header struct
