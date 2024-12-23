@@ -437,6 +437,23 @@ int le_extract(const char *ngfile, const char *lefile)
          if (filesort(lefile, sizeof(LENTRY), LEBUFSZ, addr_compare) != 0) {
             return VERROR;
          }
+         /* re-open for duplicate check */
+         lfp = fopen(lefile, "rb");
+         if (lfp == NULL) return VERROR;
+         /* (re)process ledger entries to check sort */
+         for (j = 0; j < lcount; j++) {
+            if (fread(&le, sizeof(LENTRY), 1, lfp) != 1) {
+               goto RDERR_CLEANUP;
+            }
+            /* check ledger sort, tags are ascending and unique */
+            if (j > 0 && memcmp(le.addr, paddr, ADDR_TAG_LEN) <= 0) {
+               set_errno(EMCM_LESORT);
+               goto ERROR_CLEANUP;
+            }
+            /* store entry for comparison */
+            memcpy(paddr, le.addr, ADDR_LEN);
+         }  /* end for() */
+         fclose(lfp);
       } else {
          set_errno(EMCM_HDRLEN);
          goto ERROR_CLEANUP;
