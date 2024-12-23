@@ -656,9 +656,11 @@ typedef struct {
  * Hash-based ledger entry struct
 */
 typedef struct {
-   word8 addr[TXADDRLEN];     /* ledger entry address (incl. tag) */
-   word8 balance[TXAMOUNT];   /* ledger entry balance */
+   word8 addr[ADDR_LEN];   /* ledger entry address (incl. tag) */
+   word8 balance[8];       /* ledger entry balance */
 } LENTRY;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(LENTRY) == ( ADDR_LEN + 8 ), LENTRY_size);
 
 /* ledger transaction ltran.tmp, el.al. */
 typedef struct {
