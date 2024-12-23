@@ -103,62 +103,85 @@
 #define PORT2     2096     /**< Secondary port, primarily for testnet */
 #define TXEOT     0xabcd   /**< End-of-transmission id for packets */
 #define TXNETWORK 1337     /**< Network TX protocol version */
-#define TXSIGLEN  2144     /**< Standard transaction signature length */
-#define TXADDRLEN 44       /**< Hashed transaction address length */
-#define TXWOTSLEN 2208     /**< WOTS+ transaction address length */
-#define TXTAGLEN  12
-#define TXAMOUNT  8        /**< Standard transaction amount length */
 
-#define TRANBUFF(tx) ( (tx)->src_addr )  /**< Transaction buffer accessor */
-#define TRANLEN      ( (TXWOTSLEN*3) + (TXAMOUNT*3) + TXSIGLEN ) /**< Total Transaction length */
-#define TXBUFF(tx)   ( (word8 *) tx )    /**< Transaction packet accessor */
-#define TXBUFFLEN    ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN + 2 + 2 )
-#define TXSIG_INLEN  (TRANLEN - TXSIGLEN)
-#define TXCRC_INLEN  ( (2*5) + (8*2) + (32*3) + 2 + TRANLEN )
+/* v3.0 Hash-based Address definitions
+ * [<--------- 40 byte Address --------->]
+ * [<- 20 byte Tag ->][<- 20 byte Hash ->]
+ * ^ADDR_TAG_OFF/PTR  ^ADDR_HASH_OFF/PTR
+ */
 
-/* Digital Signature Algorithm definitions */
-
-/** Obtain DSA type code from Transaction Entry pointer */
-#define DSA_TYPE(tx) ( get32(((TXQENTRY *) (tx))->tx_adrs + 28) )
-
-/** Invalid DSA type */
-#define DSA_NONE  0x00
-/** WOTS+ DSA type */
-#define DSA_WOTS  0x01
-
-/* Address and Tag definitions */
-
+/** Full Address length, in bytes */
+#define ADDR_LEN           40
+/** Address Reference length, in bytes */
+#define ADDR_REF_LEN       16
+/** Address Tag length, in bytes */
+#define ADDR_TAG_LEN       20
+/** Address Hash length, in bytes */
+#define ADDR_HASH_LEN      20
 /** Offset, in bytes, at which a tag begins within an address */
-#define ADDR_TAG_OFF       ( TXADDRLEN - TXTAGLEN )
-#define ADDR_TAG_PTR(addr) ( ((word8 *) (addr)) + ADDR_TAG_OFF )
-#define ADDR_HAS_TAG(addr) \
-   ( *(ADDR_TAG_PTR(addr)) && *(ADDR_TAG_PTR(addr)) != 0x42 )
+#define ADDR_TAG_OFF       0
+/** Offset, in bytes, at which a hash begins within an address */
+#define ADDR_HASH_OFF      20
+/** Pointer to the tag within an address */
+#define ADDR_TAG_PTR(ptr)  ( ((word8 *) (ptr)) + ADDR_TAG_OFF )
+/** Pointer to the hash within an address */
+#define ADDR_HASH_PTR(ptr) ( ((word8 *) (ptr)) + ADDR_HASH_OFF )
 
-#define WOTS_TAG_OFF       ( TXWOTSLEN - TXTAGLEN )
-#define WOTS_TAG_PTR(wots) ( ((word8 *) (wots)) + WOTS_TAG_OFF )
+/* LEGACY WOTS+ Address and Tag definitions */
 
-/* eXtended Transaction (XTX) definitions */
+/** Full WOTS+ Address length, in bytes */
+#define WOTS_ADDR_LEN      2208
+/** WOTS+ Public Key length, in bytes */
+#define WOTS_PK_LEN        2144
+/** WOTS+ Signature length, in bytes */
+#define WOTS_SIG_LEN       2144
+/** WOTS+ Address Tag length, in bytes */
+#define WOTS_TAG_LEN       12
+/** Offset, in bytes, at which a tag begins within an address */
+#define WOTS_TAG_OFF       ( WOTS_ADDR_LEN - WOTS_TAG_LEN )
+/** Pointer to the tag within a WOTS+ address */
+#define WOTS_TAG_PTR(ptr)  ( ((word8 *) (ptr)) + WOTS_TAG_OFF )
 
-/** Conditional test for an eXtended Transaction */
-#define IS_XTX(tx)      ( ((TXQENTRY *)(tx))->dst_addr[ADDR_TAG_OFF] == 0 )
-/** Type code (word8) for an eXtended Transaction */
-#define XTX_TYPE(tx)    ( ((TXQENTRY *)(tx))->dst_addr[ADDR_TAG_OFF + 1] )
-/** eXtended Data count (not length) for an eXtended Transaction */
-#define XTX_COUNT(tx)   ( ((TXQENTRY *)(tx))->dst_addr[ADDR_TAG_OFF + 2] )
+/* Digital Signature Algorithm (DSA) and Transaction (TX) definitions */
 
-/** Invalid Transaction type */
-#define XTX_NONE   0x00
-/** Multi-destination Transaction type */
-#define XTX_MDST   0x01
-/** Memorandum Transaction type */
-#define XTX_MEMO   0x02
+/* Minimum length of a Transaction (received via network) */
+#define TXLEN_MIN ( sizeof(TXHDR) + sizeof(MDST) + sizeof(WOTSVAL) )
+
+/* Minimum length of a Transaction (on disk) */
+#define TXLEN_DSK_MIN ( TXLEN_MIN + sizeof(TXTLR) )
+
+/**
+ * VANITY ADDRESSES ARE NOT SUPPORTED BY THE DIRECTION OF THE CODEBASE.
+ * One day, someone will ask, "Hey, wouldn't it be cool if we could?".
+ * Well, yes... but actually NO. Vanity Addresses rely on "direct" account
+ * creation. Version 3.0 uses "implicit" account creation. Vanity address
+ * creation may be used to hijack transactions to addresses using implicit
+ * address creation, by withholding transactions to the implicit address
+ * until the vanity address is created. Any protections against this have
+ * thus far been deemed insufficient or inappropriate to implement.
+ */
+#define TXDAT_VANITY "ERROR: Vanity Addresses are not supported."
+
+/** Transaction Data type code from first TX options byte */
+#define TXDAT_TYPE(options) ( ((word8 *) (options))[0] )
+/** Multi-Destination type transaction data */
+#define TXDAT_MDST  0x00
+
+/** Transaction DSA type code from second TX options byte */
+#define TXDSA_TYPE(options)  ( ((word8 *) (options))[1] )
+/** WOTS+ DSA type transaction validation data */
+#define TXDSA_WOTS  0x00
+
+/** Multi-Destination transaction count from third TX options byte */
+#define MDST_COUNT(options) ( ((word8 *) (options))[2] + 1 )
+/* ... options byte for MDST count is zero-based (++) */
 
 /* Historic Compatibility Break Points */
 #define V20TRIGGER 0x4321  /* v2.0 open source (adjust diff, reward) */
 #define V2001PATCH 0x4521  /* v2.0.1 difficulty patch */
 #define V23TRIGGER 0xd431  /* v2.3 pseudoblocks */
 #define V24TRIGGER 0x12851 /* v2.4 FPGA-Tough PoW algo */
-MCM_DECL_UNUSED static word32 V30TRIGGER = 0x9ffff; /* v3.0 blockchain reboot */
+#define V30TRIGGER 0x9ffff /* v3.0 blockchain reboot */
 #define BRIDGE     949     /* Trouble time -- Edit for testing */
 
 /* break point trigger detection MACROs */
