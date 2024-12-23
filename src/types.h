@@ -662,12 +662,30 @@ typedef struct {
 /* structure packing assertion required ... */
 STATIC_ASSERT(sizeof(LENTRY) == ( ADDR_LEN + 8 ), LENTRY_size);
 
-/* ledger transaction ltran.tmp, el.al. */
+/**
+ * @struct LTRAN
+ * ledger transaction struct for ltran.tmp, el.al.
+ * Used to coo the intermediate step between block validation and ledger update.
+ *
+ * @property LTRAN::addr[ADDR_LEN]
+ * Ledger transaction address.
+ *
+ * @property LTRAN::trancode[1]
+ * Ledger transaction code. Indicates the type of transaction:
+ * - '-' = debit
+ * - 'A' = credit
+ * - 'H' = rehash (sorts last!)
+ *
+ * @property LTRAN::amount[8]
+ * Ledger transaction amount.
+ */
 typedef struct {
-   word8 addr[TXADDRLEN];    /* 44 */
-   word8 trancode[1];        /* '-' = debit, 'A' = credit (sorts last!) */
-   word8 amount[TXAMOUNT];   /* 8 */
+   word8 addr[ADDR_LEN];
+   char trancode[1];
+   word8 amount[8];
 } LTRAN;
+/* structure packing assertion required ... */
+STATIC_ASSERT(sizeof(LTRAN) == ( ADDR_LEN + 1 + 8 ), LTRAN_size);
 
 /* end include guard */
 #endif
