@@ -30,10 +30,14 @@ extern word32 Lastday;
 extern "C" {
 #endif
 
-int addr_compare(const void * a, const void * b);
-void addr_convert(const word8 *wots, word8 *addr);
-int addr_tag_compare(const void * a, const void * b);
-int addr_tag_equal(const void * a, const void * b);
+int addr_compare(const void *a, const void *b);
+int addr_hash_equal(const void *a, const void *b);
+void addr_from_implicit(const void *tag, void *addr);
+void addr_hash_generate(const void *in, size_t inlen, void *out);
+void addr_from_wots(const void *wots, void *addr);
+int addr_tag_compare(const void *a, const void *b);
+int addr_tag_equal(const void *a, const void *b);
+int addr_tag_readfile(void *tag, const char *filename);
 int le_open(const char *lefile);
 void le_close(void);
 int le_extract(const char *neogen_file, const char *ledger_file);

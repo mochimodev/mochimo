@@ -13,23 +13,22 @@
 #include "ledger.h"
 
 /* internal support */
-#include "tag.h"
-#include "sort.h"
 #include "global.h"
 #include "error.h"
 
 /* external support */
 #include <string.h>
-#include "sha256.h"
+#include "sha3.h"
+#include "ripemd160.h"
 #include "extmath.h"
 #include "extlib.h"
 #include <errno.h>
 
 /* LEGACY WOTS+ ledger entry struct */
 typedef struct {
-   word8 addr[TXWOTSLEN];
+   word8 addr[WOTS_ADDR_LEN];
    word8 balance[8];
-} LENTRY_W;
+} WOTS_LENTRY;
 
 static FILE *Lefp;
 static long long Nledger;
@@ -331,8 +330,8 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
       return 0;
    }
 
-   /* clamp search length to TXADDRLEN */
-   if (len > TXADDRLEN) len = TXADDRLEN;
+   /* clamp search length to ledger address length */
+   if (len > ADDR_LEN) len = ADDR_LEN;
 
    low = 0;
    hi = Nledger - 1;
@@ -365,11 +364,11 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
 */
 int le_extract(const char *ngfile, const char *lefile)
 {
-   LENTRY_W lew;           /* buffer for WOTS+ ledger entries */
+   WOTS_LENTRY lew;           /* buffer for WOTS+ ledger entries */
    LENTRY le;              /* buffer for Hashed ledger entries */
    NGHEADER ngh;           /* buffer for neo-genesis header */
    FILE *fp, *lfp;         /* FILE pointers */
-   word8 paddr[TXADDRLEN]; /* ledger address sort check */
+   word8 paddr[ADDR_LEN]; /* ledger address sort check */
    word64 lbytes;
    size_t j, lcount;
    word32 hdrlen;
