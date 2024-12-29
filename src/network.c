@@ -15,7 +15,6 @@
 /* internal support */
 #include "tx.h"
 #include "tfile.h"
-#include "tag.h"
 #include "sync.h"
 #include "ledger.h"
 #include "global.h"
@@ -405,6 +404,7 @@ int send_balance(NODE *np)
    word16 len;
 
    len = get16(np->tx.len);
+   if (len > ADDR_LEN) len = ADDR_LEN;
 
    /* look up source address in ledger */
    if (le_find(np->tx.buffer, &le, len)) {
