@@ -485,35 +485,6 @@ int send_identify(NODE *np)
    return send_op(np, OP_IDENTIFY);
 }
 
-/**
- * Look-up and return an address tag to np.
- * Called from gettx() opcode == OP_RESOLVE
- *
- * on entry:
- *     tag string at ADDR_TAG_PTR(np->tx.dst_addr)    tag to query
- * on return:
- *     np->tx.send_total = 1 if found, or 0 if not found.
- *     if found: np->tx.dst_addr has full found address with tag.
- *               np->tx.change_total has balance.
- *
- * Returns VEOK if found, else VERROR.
-*/
-int send_resolve(NODE *np)
-{
-   LENTRY le;
-   word16 len;
-
-   len = get16(np->tx.len);
-   /* find tag in leger.dat */
-   if (tag_find(np->tx.buffer, le.addr, le.balance, len)) {
-      memcpy(np->tx.buffer, &le, sizeof(LENTRY));
-      put16(np->tx.len, sizeof(LENTRY));
-      send_op(np, OP_RESOLVE);
-   } else send_nack(np, errno);
-
-   return VEOK;
-}  /* end send_resolve() */
-
 /* Creates child to send OP_FOUND to all recent peers */
 int send_found(void)
 {
@@ -872,7 +843,7 @@ int gettx(NODE *np, SOCKET sd)
          break;
       }
       case OP_BALANCE:     send_balance(np); return 1;
-      case OP_RESOLVE:     send_resolve(np); return 1;
+      case OP_RESOLVE:     /* send_resolve(np); */ return 1;
       case OP_GET_CBLOCK:  /* fallthrough */
       case OP_MBLOCK:      if (!Allowpush) return 1; break;
       case OP_HASH:        send_hash(np); return 1;

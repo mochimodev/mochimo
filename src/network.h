@@ -63,7 +63,6 @@ int send_ipl(NODE *np);
 int send_hash(NODE *np);
 int send_tf(NODE *np);
 int send_identify(NODE *np);
-int send_resolve(NODE *np);
 int send_found(void);
 int callserver(NODE *np, word32 ip);
 int get_file(word32 ip, word8 *bnum, char *fname);
