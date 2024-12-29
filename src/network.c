@@ -411,7 +411,7 @@ int send_balance(NODE *np)
       memcpy(np->tx.buffer, &le, sizeof(LENTRY));
       put16(np->tx.len, sizeof(LENTRY));
       send_op(np, OP_SEND_BAL);
-   } else send_nack(np, errno);
+   }
 
    Nbalance++;
    return 0;  /* success */
@@ -443,7 +443,6 @@ int send_hash(NODE *np)
    bnum2fname(np->tx.blocknum, bcfname);
    path_join(fname, Bcdir, bcfname);
    if (read_trailer(&bt, fname) != VEOK) {
-      send_nack(np, errno);
       return VERROR;
    }
    /* copy hash of tx.blocknum to TX */
@@ -849,7 +848,6 @@ int gettx(NODE *np, SOCKET sd)
          Nlogins++;  /* raw TX in */
          status = process_tx(np);
          if (status != VEOK) {
-            send_nack(np, errno);
             if (status == VEBAD2) goto bad1;
             if (status == VEBAD) goto bad2;
          } else if (tx->version[1] & C_OPTIN) {
