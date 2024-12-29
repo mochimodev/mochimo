@@ -299,7 +299,7 @@ static inline char *mcm__strerror(int errnum, char *buf, size_t bufsz)
    /* "EMCM__DESC" is provided to "EMCM__TABLE" for extraction of Mochimo
     * error IDs and descriptions as case values and results, respectively.
     */
-#define EMCM__DESC(DESC, ID) case ID: cp = DESC; break;
+#define EMCM__DESC(ID, DESC) case ID: cp = DESC; break;
       EMCM__TABLE(EMCM__DESC)
 
       default:
@@ -337,7 +337,7 @@ static inline char *mcm__strerrorname(int errnum, char *buf, size_t bufsz)
    /* "EMCM__NAME" is provided to "EMCM__TABLE" for extraction of Mochimo
     * error IDs as case values and re-interpretted as textual names.
     */
-#define EMCM__NAME(_, NAME) case NAME: cp = #NAME; break;
+#define EMCM__NAME(NAME, _) case NAME: cp = #NAME; break;
       EMCM__TABLE(EMCM__NAME)
 
    #ifdef _GNU_SOURCE

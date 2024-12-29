@@ -118,297 +118,113 @@
 
 #endif
 
-/* Table of Mochimo error descriptions, and (documented) names.
- * NOTE: Our insanity is directly proportional to the number of errors and
- * associated trivial information we must implement raised to the power of
- * the number of places we have to repeat such information in our codebase.
- * These MACROs serve as arguably unpleasant but necessary boilerplate to
- * avoid such a demise of sanity. C Gods, please forgive me...
+/* Table of Mochimo error codes (names) and descriptions (documented).
+ * Although initially, a dirty solution to a debatable problem, the use of
+ * this MACRO has since evolved and seems a fitting way to manage multiple
+ * related lookup tables of the same data, in a single location.
  */
 
-#define EMCM__TABLE(fn) \
+#define EMCM__TABLE(EMCM__ITEM) \
 /* math errors... */ \
-   fn("Unspecified 64-bit math overflow", \
-   /** Unspecified 64-bit math overflow */ \
-      EMCM_MATH64_OVERFLOW) \
-   fn("Unspecified 64-bit math underflow", \
-   /** Unspecified 64-bit math underflow */ \
-      EMCM_MATH64_UNDERFLOW) \
+   EMCM__ITEM(EMCM_MATH64_OVERFLOW, "Unspecified 64-bit math overflow") \
+   EMCM__ITEM(EMCM_MATH64_UNDERFLOW, "Unspecified 64-bit math underflow") \
 /* file related errors... */ \
-   fn("Unexpected end-of-file", \
-   /** Unexpected end-of-file */ \
-      EMCM_EOF) \
-   fn("Unexpected number of items in file", \
-   /** Unexpected number of items in file */ \
-      EMCM_FILECOUNT) \
-   fn("Unexpected file data", \
-   /** Unexpected file data */ \
-      EMCM_FILEDATA) \
-   fn("Unexpected length of file", \
-   /** Unexpected length of file */ \
-      EMCM_FILELEN) \
-   fn("Unexpected file length during sort", \
-   /** Unexpected file length during sort */ \
-      EMCM_SORTLEN) \
+   EMCM__ITEM(EMCM_EOF, "Unexpected end-of-file") \
+   EMCM__ITEM(EMCM_FILECOUNT, "Unexpected number of items in file") \
+   EMCM__ITEM(EMCM_FILEDATA, "Unexpected file data") \
+   EMCM__ITEM(EMCM_FILELEN, "Unexpected length of file") \
+   EMCM__ITEM(EMCM_SORTLEN, "Unexpected file length during sort") \
 /* block related errors... */ \
-   fn("Bad block hash", \
-   /** Bad block hash */ \
-      EMCM_BHASH) \
-   fn("Bad block number", \
-   /** Bad block number */ \
-      EMCM_BNUM) \
-   fn("Bad difficulty", \
-   /** Bad difficulty */ \
-      EMCM_DIFF) \
-   fn("Bad Genesis hash", \
-   /** Bad Genesis hash */ \
-      EMCM_GENHASH) \
-   fn("Bad header length", \
-   /** Bad header length */ \
-      EMCM_HDRLEN) \
-   fn("Bad miner address", \
-   /** Bad miner address */ \
-      EMCM_MADDR) \
-   fn("Bad miner fee", \
-   /** Bad miner fee */ \
-      EMCM_MFEE) \
-   fn("Overflow of miner fees", \
-   /** Overflow of miner fees */ \
-      EMCM_MFEES_OVERFLOW) \
-   fn("Bad miner reward", \
-   /** Bad miner reward */ \
-      EMCM_MREWARD) \
-   fn("Overflow of miner rewards", \
-   /** Overflow of miner rewards */ \
-      EMCM_MREWARDS_OVERFLOW) \
-   fn("Bad merkle root", \
-   /** Bad merkle root */ \
-      EMCM_MROOT) \
-   fn("Bad nonce", \
-   /** Bad nonce */ \
-      EMCM_NONCE) \
-   fn("Non-zero Genesis data", \
-   /** Non-zero Genesis data */ \
-      EMCM_NZGEN) \
-   fn("Bad (previous) block hash", \
-   /** Bad (previous) block hash */ \
-      EMCM_PHASH) \
-   fn("Bad TOT time", \
-   /** Bad TOT time */ \
-      EMCM_PTIME) \
-   fn("Bad solve time", \
-   /** Bad solve time */ \
-      EMCM_STIME) \
-   fn("Bad TX count", \
-   /** Bad TX count */ \
-      EMCM_TCOUNT) \
-   fn("Bad start time", \
-   /** Bad start time */ \
-      EMCM_TIME0) \
-   fn("Bad trailer length", \
-   /** Bad trailer length */ \
-      EMCM_TLRLEN) \
-   fn("Too many transactions", \
-   /** Too many transactions */ \
-      EMCM_TMAX) \
-   fn("Bad trailer data", \
-   /** Bad trailer data */ \
-      EMCM_TRAILER) \
+   EMCM__ITEM(EMCM_BHASH, "Bad block hash") \
+   EMCM__ITEM(EMCM_BNUM, "Bad block number") \
+   EMCM__ITEM(EMCM_DIFF, "Bad difficulty") \
+   EMCM__ITEM(EMCM_GENHASH, "Bad Genesis hash") \
+   EMCM__ITEM(EMCM_HDRLEN, "Bad header length") \
+   EMCM__ITEM(EMCM_MADDR, "Bad miner address") \
+   EMCM__ITEM(EMCM_MFEE, "Bad miner fee") \
+   EMCM__ITEM(EMCM_MFEES_OVERFLOW, "Overflow of miner fees") \
+   EMCM__ITEM(EMCM_MREWARD, "Bad miner reward") \
+   EMCM__ITEM(EMCM_MREWARDS_OVERFLOW, "Overflow of miner rewards") \
+   EMCM__ITEM(EMCM_MROOT, "Bad merkle root") \
+   EMCM__ITEM(EMCM_NONCE, "Bad nonce") \
+   EMCM__ITEM(EMCM_NZGEN, "Non-zero Genesis data") \
+   EMCM__ITEM(EMCM_PHASH, "Bad (previous) block hash") \
+   EMCM__ITEM(EMCM_PTIME, "Bad TOT time") \
+   EMCM__ITEM(EMCM_STIME, "Bad solve time") \
+   EMCM__ITEM(EMCM_TCOUNT, "Bad TX count") \
+   EMCM__ITEM(EMCM_TIME0, "Bad start time") \
+   EMCM__ITEM(EMCM_TLRLEN, "Bad trailer length") \
+   EMCM__ITEM(EMCM_TMAX, "Too many transactions") \
+   EMCM__ITEM(EMCM_TRAILER, "Bad trailer data") \
 /* ledger entry related errors... */ \
-   fn("Overflow of ledger amounts", \
-   /** Overflow of ledger amounts */ \
-      EMCM_LEOVERFLOW) \
-   fn("Ledger operation attempted while ledger is closed", \
-   /** Ledger operation attempted while ledger is closed */ \
-      EMCM_LECLOSED) \
-   fn("No records written to ledger file", \
-   /** No records written to ledger file */ \
-      EMCM_LEEMPTY) \
-   fn("Ledger cannot be extracted from a non-NG block", \
-   /** Ledger cannot be extracted from a non-NG block */ \
-      EMCM_LEEXTRACT) \
-   fn("Bad ledger sort", \
-   /** Bad ledger sort */ \
-      EMCM_LESORT) \
-   fn("Bad sum of ledger amounts", \
-   /** Bad sum of ledger amounts */ \
-      EMCM_LESUM) \
-   fn("Bad tag reference to ledger entry", \
-   /** Bad tag reference to ledger entry */ \
-      EMCM_LETAG) \
+   EMCM__ITEM(EMCM_LEOVERFLOW, "Overflow of ledger amounts") \
+   EMCM__ITEM(EMCM_LECLOSED, "Ledger operation attempted while ledger is closed") \
+   EMCM__ITEM(EMCM_LEEMPTY, "No records written to ledger file") \
+   EMCM__ITEM(EMCM_LEEXTRACT, "Ledger cannot be extracted from a non-NG block") \
+   EMCM__ITEM(EMCM_LESORT, "Bad ledger sort") \
+   EMCM__ITEM(EMCM_LESUM, "Bad sum of ledger amounts") \
+   EMCM__ITEM(EMCM_LETAG, "Bad tag reference to ledger entry") \
 /* ledger transaction related errors... */ \
-   fn("Bad ledger transaction code", \
-   /** Bad ledger transaction code */ \
-      EMCM_LTCODE) \
-   fn("Unexpected ledger transaction code for ledger entry creation", \
-   /** Unexpected ledger transaction code for ledger entry creation */ \
-      EMCM_LTCREDIT) \
-   fn("Ledger transaction debit, does not match ledger entry balance", \
-   /** Ledger transaction debit, does not match ledger entry balance */ \
-      EMCM_LTDEBIT) \
-   fn("Bad ledger transactions sort", \
-   /** Bad ledger transactions sort */ \
-      EMCM_LTSORT) \
+   EMCM__ITEM(EMCM_LTCODE, "Bad ledger transaction code") \
+   EMCM__ITEM(EMCM_LTCREDIT, "Unexpected ledger transaction code for ledger entry creation") \
+   EMCM__ITEM(EMCM_LTDEBIT, "Ledger transaction debit, does not match ledger entry balance") \
+   EMCM__ITEM(EMCM_LTSORT, "Bad ledger transactions sort") \
 /* network related errors... */ \
-   fn("Unhandled operation code", \
-   /** Unhandled operation code */ \
-      EMCM_OPCODE) \
-   fn("Missing OP_HELLO packet", \
-   /** Missing OP_HELLO packet */ \
-      EMCM_OPHELLO) \
-   fn("Missing OP_HELLO_ACK packet", \
-   /** Missing OP_HELLO_ACK packet */ \
-      EMCM_OPHELLOACK) \
-   fn("Invalid operation code", \
-   /** Invalid operation code */ \
-      EMCM_OPNVAL) \
-   fn("Received unexpected operation code", \
-   /** Received unexpected operation code */ \
-      EMCM_OPRECV) \
-   fn("Invalid CRC16 packet hash", \
-   /** Invalid CRC16 packet hash */ \
-      EMCM_PKTCRC) \
-   fn("Unexpected packet identification", \
-   /** Unexpected packet identification */ \
-      EMCM_PKTIDS) \
-   fn("Unexpected negative acknowledgement", \
-   /** Unexpected negative acknowledgement */ \
-      EMCM_PKTNACK) \
-   fn("Incompatible packet network", \
-   /** Incompatible packet network */ \
-      EMCM_PKTNET) \
-   fn("Invalid packet opcode", \
-   /** Invalid packet opcode */ \
-      EMCM_PKTOPCODE) \
-   fn("Invalid packet trailer", \
-   /** Invalid packet trailer */ \
-      EMCM_PKTTLR) \
+   EMCM__ITEM(EMCM_OPCODE, "Unhandled operation code") \
+   EMCM__ITEM(EMCM_OPHELLO, "Missing OP_HELLO packet") \
+   EMCM__ITEM(EMCM_OPHELLOACK, "Missing OP_HELLO_ACK packet") \
+   EMCM__ITEM(EMCM_OPNVAL, "Invalid operation code") \
+   EMCM__ITEM(EMCM_OPRECV, "Received unexpected operation code") \
+   EMCM__ITEM(EMCM_PKTCRC, "Invalid CRC16 packet hash") \
+   EMCM__ITEM(EMCM_PKTIDS, "Unexpected packet identification") \
+   EMCM__ITEM(EMCM_PKTNACK, "Unexpected negative acknowledgement") \
+   EMCM__ITEM(EMCM_PKTNET, "Incompatible packet network") \
+   EMCM__ITEM(EMCM_PKTOPCODE, "Invalid packet opcode") \
+   EMCM__ITEM(EMCM_PKTTLR, "Invalid packet trailer") \
 /* POW related errors... */ \
-   fn("Bad PoW (Trigg)", \
-   /** Bad PoW (Trigg) */ \
-      EMCM_POWTRIGG) \
-   fn("Bad PoW (Peach)", \
-   /** Bad PoW (Peach) */ \
-      EMCM_POWPEACH) \
-   fn("Bad PoW Anomaly (bugfix)", \
-   /** Bad PoW Anomaly (bugfix) */ \
-      EMCM_POWANOMALY) \
+   EMCM__ITEM(EMCM_POWTRIGG, "Bad PoW (Trigg)") \
+   EMCM__ITEM(EMCM_POWPEACH, "Bad PoW (Peach)") \
+   EMCM__ITEM(EMCM_POWANOMALY, "Bad PoW Anomaly (bugfix)") \
 /* transaction related errors... */ \
-   fn("No transactions to handle", \
-   /** No transactions to handle */ \
-      EMCM_TX0) \
-   fn("Invalid address scheme data", \
-   /** Invalid address scheme data */ \
-      EMCM_TXADRS) \
-   fn("Transaction block-to-live out of range", \
-   /** Transaction block-to-live out of range */ \
-      EMCM_TXBTL) \
-   fn("Change address is not in Ledger", \
-   /** Change address is not in Ledger */ \
-      EMCM_TXCHGEXISTS) \
-   fn("Change address is not in Ledger", \
-   /** Change address is not in Ledger */ \
-      EMCM_TXCHGNOLE) \
-   fn("Change address is not Tagged", \
-   /** Change address is not Tagged */ \
-      EMCM_TXCHGNOTAG) \
-   fn("Duplicate change address tag", \
-   /** Duplicate change address tag */ \
-      EMCM_TXCHGTAGDUP) \
-   fn("Destination address is not in Ledger", \
-   /** Destination address is not in Ledger */ \
-      EMCM_TXDSTNOLE) \
-   fn("Destination address is not Tagged", \
-   /** Destination address is not Tagged */ \
-      EMCM_TXDSTNOTAG) \
-   fn("Fee is invalid", \
-   /** Fee is invalid */ \
-      EMCM_TXFEE) \
-   fn("Overflow of transaction feees", \
-   /** Overflow of transaction feees */ \
-      EMCM_TXFEE_OVERFLOW) \
-   fn("Bad transaction ID", \
-   /** Bad transaction ID */ \
-      EMCM_TXID) \
-   fn("Duplicate transaction ID", \
-   /** Duplicate transaction ID */ \
-      EMCM_TXIDDUP) \
-   fn("Invalid transaction", \
-   /* Invalid transaction */ \
-      EMCM_TXINVAL) \
-   fn("Overflow of transaction amounts", \
-   /** Overflow of transaction amounts */ \
-      EMCM_TXOVERFLOW) \
-   fn("Bad transaction sort", \
-   /** Bad transaction sort */ \
-      EMCM_TXSORT) \
-   fn("Source address is change address", \
-   /** Source address is change address */ \
-      EMCM_TXCHG) \
-   fn("Invalid Digital Signature Algorithm", \
-   /** Invalid Digital Signature Algorithm */ \
-      EMCM_TXDSA) \
-   fn("Source address is destination address", \
-   /** Source address is destination address */ \
-      EMCM_TXDST) \
-   fn("Invalid transaction nonce", \
-   /** Invalid transaction nonce */ \
-      EMCM_TXNONCE) \
-   fn("Duplicate transaction source address", \
-   /** Duplicate transaction source address */ \
-      EMCM_TXSRCDUP) \
-   fn("Source address is not in Ledger", \
-   /** Source address is not in Ledger */ \
-      EMCM_TXSRCLE) \
-   fn("Source address is not Tagged", \
-   /** Source address is not Tagged */ \
-      EMCM_TXSRCNOTAG) \
-   fn("Invalid Tag activation (change address already exists)", \
-   /** Invalid Tag activation (change address already exists) */ \
-      EMCM_TXTAGCHG) \
-   fn("Invalid Tag activation (source address is tagged)", \
-   /** Invalid Tag activation (source address is tagged) */ \
-      EMCM_TXTAGSRC) \
-   fn("Transaction total does not match ledger balance", \
-   /** Transaction total does not match ledger balance */ \
-      EMCM_TXTOTAL) \
-   fn("WOTS+ signature invalid", \
-   /** WOTS+ signature invalid */ \
-      EMCM_TXWOTS) \
+   EMCM__ITEM(EMCM_TX0, "No transactions to handle") \
+   EMCM__ITEM(EMCM_TXADRS, "Invalid address scheme data") \
+   EMCM__ITEM(EMCM_TXBTL, "Transaction block-to-live out of range") \
+   EMCM__ITEM(EMCM_TXCHGEXISTS, "Change address is not in Ledger") \
+   EMCM__ITEM(EMCM_TXCHGNOLE, "Change address is not in Ledger") \
+   EMCM__ITEM(EMCM_TXCHGNOTAG, "Change address is not Tagged") \
+   EMCM__ITEM(EMCM_TXCHGTAGDUP, "Duplicate change address tag") \
+   EMCM__ITEM(EMCM_TXDSTNOLE, "Destination address is not in Ledger") \
+   EMCM__ITEM(EMCM_TXDSTNOTAG, "Destination address is not Tagged") \
+   EMCM__ITEM(EMCM_TXFEE, "Fee is invalid") \
+   EMCM__ITEM(EMCM_TXFEE_OVERFLOW, "Overflow of transaction feees") \
+   EMCM__ITEM(EMCM_TXID, "Bad transaction ID") \
+   EMCM__ITEM(EMCM_TXIDDUP, "Duplicate transaction ID") \
+   EMCM__ITEM(EMCM_TXINVAL, "Invalid transaction") \
+   EMCM__ITEM(EMCM_TXOVERFLOW, "Overflow of transaction amounts") \
+   EMCM__ITEM(EMCM_TXSORT, "Bad transaction sort") \
+   EMCM__ITEM(EMCM_TXCHG, "Source address is change address") \
+   EMCM__ITEM(EMCM_TXDSA, "Invalid Digital Signature Algorithm") \
+   EMCM__ITEM(EMCM_TXDST, "Source address is destination address") \
+   EMCM__ITEM(EMCM_TXNONCE, "Invalid transaction nonce") \
+   EMCM__ITEM(EMCM_TXSRCDUP, "Duplicate transaction source address") \
+   EMCM__ITEM(EMCM_TXSRCLE, "Source address is not in Ledger") \
+   EMCM__ITEM(EMCM_TXSRCNOTAG, "Source address is not Tagged") \
+   EMCM__ITEM(EMCM_TXTAGCHG, "Invalid Tag activation (change address already exists)") \
+   EMCM__ITEM(EMCM_TXTAGSRC, "Invalid Tag activation (source address is tagged)") \
+   EMCM__ITEM(EMCM_TXTOTAL, "Transaction total does not match ledger balance") \
+   EMCM__ITEM(EMCM_TXWOTS, "WOTS+ signature invalid") \
 /* eXtended transaction related errors... */ \
-   fn("eXtended TX change total is less than fee", \
-   /** eXtended TX change total is less than fee */ \
-      EMCM_XTXCHGTOTAL) \
-   fn("eXtended TX destination amount is zero", \
-   /** eXtended TX destination amount is zero */ \
-      EMCM_XTXDSTAMOUNT) \
-   fn("eXtended TX fee does not match tally", \
-   /** eXtended TX fee does not match tally */ \
-      EMCM_XTXFEES) \
-   fn("Invalid reference format in eXtended Transaction", \
-   /** Invalid reference format in eXtended Transaction */ \
-      EMCM_XTXREF) \
-   fn("eXtended TX send total is zero", \
-   /** eXtended TX send total is zero */ \
-      EMCM_XTXSENDTOTAL) \
-   fn("eXtended TX source is not tagged", \
-   /** eXtended TX source is not tagged */ \
-      EMCM_XTXSRCNOTAG) \
-   fn("eXtended TX destination tag matches source tag", \
-   /** eXtended TX destination tag matches source tag */ \
-      EMCM_XTXTAGMATCH) \
-   fn("eXtended TX source tag does not match change tag", \
-   /** eXtended TX source tag does not match change tag */ \
-      EMCM_XTXTAGMISMATCH) \
-   fn("eXtended TX destination tag is not in Ledger", \
-   /** eXtended TX destination tag is not in Ledger */ \
-      EMCM_XTXTAGNOLE) \
-   fn("eXtended TX total does not match tally", \
-   /** eXtended TX total does not match tally */ \
-      EMCM_XTXTOTALS) \
-   fn("eXtended TX type is not defined", \
-   /** eXtended TX type is not defined */ \
-      EMCM_XTXUNDEF)
+   EMCM__ITEM(EMCM_XTXCHGTOTAL, "eXtended TX change total is less than fee") \
+   EMCM__ITEM(EMCM_XTXDSTAMOUNT, "eXtended TX destination amount is zero") \
+   EMCM__ITEM(EMCM_XTXFEES, "eXtended TX fee does not match tally") \
+   EMCM__ITEM(EMCM_XTXREF, "Invalid reference format in eXtended Transaction") \
+   EMCM__ITEM(EMCM_XTXSENDTOTAL, "eXtended TX send total is zero") \
+   EMCM__ITEM(EMCM_XTXSRCNOTAG, "eXtended TX source is not tagged") \
+   EMCM__ITEM(EMCM_XTXTAGMATCH, "eXtended TX destination tag matches source tag") \
+   EMCM__ITEM(EMCM_XTXTAGMISMATCH, "eXtended TX source tag does not match change tag") \
+   EMCM__ITEM(EMCM_XTXTAGNOLE, "eXtended TX destination tag is not in Ledger") \
+   EMCM__ITEM(EMCM_XTXTOTALS, "eXtended TX total does not match tally") \
+   EMCM__ITEM(EMCM_XTXUNDEF, "eXtended TX type is not defined")
 
 /**
  * Mochimo error number type. This is a signed integer type (by force).
@@ -437,7 +253,7 @@ enum mcm_errno_t {
     * Doxygen (our intended target) does not interpret comments as
     * whitespace during MACRO expansion.
     */
-#define EMCM__ENUM(_, ID) ID,
+#define EMCM__ENUM(ID, DESC) /** DESC */ ID,
    EMCM__TABLE(EMCM__ENUM)
 };
 
