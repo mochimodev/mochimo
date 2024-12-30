@@ -851,6 +851,10 @@ int txclean(const char *txfname, const char *bcfname)
       return VERROR;
    }
 
+   /* error handling init */
+   fp = bfp = tfp = NULL;
+   tx = NULL;
+
    /* GENERATE SORTED (ASCENDING) TXID REFERENCES FOR COMPARE */
 
    /* open provided txclean file */
@@ -991,14 +995,11 @@ int txclean(const char *txfname, const char *bcfname)
    return VEOK;
 
    /* cleanup / error handling */
-FAIL_ALL:
-   fclose(tfp);
-FAIL_FP_MEM_BFP:
+ERROR_CLEANUP:
+   if (tfp) fclose(tfp);
    if (bfp) fclose(bfp);
-FAIL_FP_MEM:
-   free(tx);
-FAIL_FP:
-   fclose(fp);
+   if (fp) fclose(fp);
+   if (tx) free(tx);
 
    return VERROR;
 }  /* end txclean() */
