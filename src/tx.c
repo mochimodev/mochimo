@@ -559,6 +559,58 @@ static int mdst_val(const TXENTRY *txe)
 }  /* end mdst_val() */
 
 /**
+ * @private
+ * Validate WOTS+ validation data from a transaction.
+ * @param tx Pointer to Transaction Entry to validate
+ * @param message Pointer to message hash
+ * @return (int) value representing validation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+static int tx_val__wots(const TXENTRY *tx)
+{
+   const word32 adrs_[] = { 0x42, 0x0e, 0x01 };
+
+   word8 pk[WOTS_PK_LEN];
+   word8 message[HASHLEN];
+   word8 addrhash[ADDR_HASH_LEN];
+   word32 adrs[8];
+   word8 *src_addr;
+   WOTSVAL *wots;
+
+   /* dereference relevant pointers */
+   src_addr = tx->hdr->src_addr;
+   wots = tx->wots;
+
+   /* generate transaction signature message */
+   tx_hash(tx, 0, message);
+
+   /* recreate WOTS+ public key from signature */
+   memcpy(adrs, wots->adrs, 32);
+   wots_pk_from_sig(pk, wots->signature, message, wots->pub_seed, adrs);
+   /* ... always modifies adrs[], resulting in { ..., 0x42, 0x0e, 0x01 }.
+    * Somewhat unintentionally, a check was included on this result that
+    * would have normally been ignored, discovering an issue with WOTS+
+    * optimisations/improvements causing validation failures elsewhere.
+    * The following checks will remain to prevent future regressions,
+    * until the appropriate unit test is updated to cover this case.
+    */
+   if (memcmp(wots->adrs, adrs, 32) != 0 || /* ... BAD WOTS+ function */
+         memcmp(wots->adrs + 20, adrs_, 12) != 0 /* ... BAD TX data */) {
+      set_errno(EMCM_TXADRS);
+      return VERROR;
+   }
+   /* validate hashed address against source */
+   addr_hash_generate(pk, WOTS_PK_LEN, addrhash);
+   if (memcmp(ADDR_HASH_PTR(src_addr), addrhash, ADDR_HASH_LEN) != 0) {
+      set_errno(EMCM_TXWOTS);
+      return VERROR;
+   }
+
+   return VEOK;
+}  /* end tx_val__wots() */
+
+/**
  * Validate transaction data, as if received directly from a wallet.
  * DOES NOT validate tx_nonce or tx_id. Requires an open ledger.
  * @param txe Pointer to transaction entry to validate
