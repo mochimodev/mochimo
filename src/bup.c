@@ -113,7 +113,6 @@ int b_update(char *fname, int mode)
    /* separate validation process for pseudo-block */
    if (mode != 2) {
       if (mode == 0) remove("mblock.dat");
-      tag_free(); /* Erase Tagidx[] to be rebuilt on next tag_find() */
       /* Hotfix for critical bug identified on 09/26/19 */
       if (fexists("cblock.lck")) {
          remove("cblock.lck");
@@ -214,20 +213,18 @@ int b_update(char *fname, int mode)
          perrno("failed on rename() ngblock.dat to %s", fpath);
          restart("failed to accept block");
       }
-      /* check CAROUSEL() */
+      /* check CAROUSEL() -- REMOVE SANCTUARY TRIGGER FOR NOW
       if (get32(Cblocknum) == Lastday) {
-         tag_free();  /* Erase old in-memory Tagidx[] */
          plog("Lastday 0x%x.  Carousel begins...", Lastday);
          if (le_renew() != VEOK) {
             perrno("Carousel failure");
             restart("failed to le_renew()");
          }
-         /* clean the tx queue (again), no bc file */
          if (txclean("txclean.dat", NULL) != VEOK) {
             pwarn("forcing clean TX queue...");
             remove("txclean.dat");
          }
-      }
+      } */
       /* print block update */
       if(!Bgflag) {
          bnum = get32(bt.bnum);
@@ -249,26 +246,18 @@ CLEANUP:
     * of removing any issues withe txclean.dat AND to update tx_nonce
     */
 
-   /* combine transaction queues before a clean */
+   /* ... combine transaction queues before a clean */
    if (fexists("txq1.dat")) {
       system("cat txq1.dat >>txclean.dat 2>/dev/null");
       remove("txq1.dat");
       /* txq1.dat is empty now */
       Txcount = 0;
    }
-
-   /* reconstruct candidate block if transactions exist in "clean" queue */
    if (fexistsnz("txclean.dat")) {
       if (txclean("txclean.dat", bcfile_clean) != VEOK) {
          perrno("post-update txclean() FAILURE");
          pwarn("txclean.dat integrity unknown, deleting...");
          remove("txclean.dat");
-      }
-      /* check txclean.dat contains transactions */
-      if (fexistsnz("txclean.dat")) {
-         if (b_con("txclean.dat") != VEOK) {
-            perrno("post-update b_con() FAILURE");
-         }
       }
    }
 
