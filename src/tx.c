@@ -743,43 +743,29 @@ int txe_val(const TXENTRY *txe, const void *bnum, const void *mfee)
 }  /* end txe_val() */
 
 /**
- * Search txq1.dat and txclean.dat for conflicts with the src_addr or
- * (when applicable) chg_addr tags, of queued transactions.
+ * Search txq1.dat and txclean.dat for conflicts with the src_addr
+ * of queued transactions.
  * @param src_addr Pointer to source address
- * @param chg_addr Pointer to change address
  * @return (int) value representing the result
  * @retval VERROR on conflict; check errno for details
  * @retval VEOK on success
  */
-int txcheck(word8 *src_addr, word8 *chg_addr)
+int txcheck(const word8 *src_addr)
 {
    FILE *fp;
-   TXQENTRY txe;
-   int chg_chk;
+   TXENTRY txe;
+   word8 *src_addr;
 
-   /* determine requirement for additional chg_addr checks */
-   chg_chk = ADDR_HAS_TAG(chg_addr) && !addr_tag_equal(src_addr, chg_addr);
-   /* NOTE: chg_addr tag conflict checks would not usually be required
-    * until the tag validation stage of a transaction validation routine,
-    * however it feels particularly convenient/efficient to perform the
-    * check at the same time as the src_addr conflict checks
-    */
+   src_addr = txe_src_addr;
 
    /* read transaction in txq1 checkiung for conflicts */
    fp = fopen("txq1.dat", "rb");
    if (fp != NULL) {
-      while (tx_fread(&txe, NULL, fp) == VEOK) {
-         if (memcmp(txe.src_addr, src_addr, TXADDRLEN) == 0) {
-            /* source address conflict */
+      while (tx_fread(&txe, fp) == VEOK) {
+         if (addr_tag_equal(txe_src_addr, src_addr)) {
+            /* source address (tag) conflict */
             set_errno(EMCM_TXSRCDUP);
             goto FAIL;
-         }
-         if (chg_chk) {
-            if (addr_tag_equal(txe.chg_addr, chg_addr)) {
-               /* change address tag conflict */
-               set_errno(EMCM_TXCHGTAGDUP);
-               goto FAIL;
-            }
          }
       }
       /* error check file and close*/
@@ -790,18 +776,11 @@ int txcheck(word8 *src_addr, word8 *chg_addr)
    /* duplicate search routine (as above) for txclean */
    fp = fopen("txclean.dat", "rb");
    if (fp != NULL) {
-      while (tx_fread(&txe, NULL, fp) == VEOK) {
-         if (memcmp(txe.src_addr, src_addr, TXADDRLEN) == 0) {
-            /* source address conflict */
+      while (tx_fread(&txe, fp) == VEOK) {
+         if (addr_tag_equal(txe_src_addr, src_addr)) {
+            /* source address (tag) conflict */
             set_errno(EMCM_TXSRCDUP);
             goto FAIL;
-         }
-         if (chg_chk) {
-            if (addr_tag_equal(txe.chg_addr, chg_addr)) {
-               /* change address tag conflict */
-               set_errno(EMCM_TXCHGTAGDUP);
-               goto FAIL;
-            }
          }
       }
       /* error check file and close*/
