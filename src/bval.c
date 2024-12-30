@@ -121,7 +121,7 @@ int ng_val(const char *ngfile, const word8 bnum[8])
    long long len;
    word64 lbytes;
    size_t j, lcount;
-   word8 prev_addr[TXADDRLEN];
+   word8 prev_addr[ADDR_LEN];
    word8 mroot[HASHLEN];
    word8 amounts[8];
    word8 rewards[8];
@@ -204,7 +204,7 @@ int ng_val(const char *ngfile, const word8 bnum[8])
    for (j = 0; j < lcount; j++) {
       if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
       /* check ledger sort -- skip on first read */
-      if (j > 0 && memcmp(le.addr, prev_addr, TXADDRLEN) <= 0) {
+      if (j > 0 && memcmp(le.addr, prev_addr, ADDR_LEN) <= 0) {
          set_errno(EMCM_LESORT);
          goto DROP_CLEANUP;
       }
@@ -215,7 +215,7 @@ int ng_val(const char *ngfile, const word8 bnum[8])
       }
       /* hash ledger entry directly into merkel tree -- store prev addr */
       sha256(&le, sizeof(LENTRY), mtree + (j * HASHLEN));
-      memcpy(prev_addr, le.addr, TXADDRLEN);
+      memcpy(prev_addr, le.addr, ADDR_LEN);
    }
 
    /* compute and validate Merkel Root */
