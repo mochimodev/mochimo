@@ -500,32 +500,27 @@ static int mdst_val__reference(const char *reference)
 /**
  * @private
  * Validate a Multi-Destination Transaction (incl. reference field).
- * @param txe Pointer to Transaction Entry
- * @param mdst Pointer to Multi-Destination array
+ * @param txe Pointer to Transaction Entry to validate
  * @return (int) value representing the validation result
  * @retval VEBAD2 on bad signature; check errno for details
  * @retval VEBAD on bad transaction; check errno for details
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
+static int mdst_val(const TXENTRY *txe)
 {
-   word8 addr[TXADDRLEN];
-   word8 total[8], mfees[8];
-   int j, count;
+   MDST *mdst = txe->mdst;
+   word8 total[8] = {0};
+   word8 mfees[8] = {0};
+   int count;
+   int j;
 
-   /* check valid reference format */
-   if (xtx_ref_val((char *) txe->dst_addr) != VEOK) {
-      set_errno(EMCM_XTXREF);
-      return VEBAD;
-   }
+   /* obtain multi-destination count */
+   count = MDST_COUNT(txe->hdr);
 
-   memset(total, 0, 8);
-   memset(mfees, 0, 8);
-   memset(addr, 0, TXADDRLEN);
-   count = (int) XTX_COUNT(txe) + 1;
    /* Tally each dst[] amount and mfees... */
    for (j = 0; j < count; j++) {
+      /* no zero amounts */
       if (iszero(mdst[j].amount, 8)) {
          set_errno(EMCM_XTXDSTAMOUNT);
          return VEBAD;
@@ -535,22 +530,21 @@ static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
          set_errno(EMCM_XTXTAGMATCH);
          return VEBAD;
       }
-      /* tally fees and send_total */
+      /* tally amounts and fees -- no overflow */
       if (add64(total, mdst[j].amount, total)) {
-         set_errno(EMCM_XTXTOTALS);
+         set_errno(EMCM_MATH64_OVERFLOW);
          return VEBAD;
       }
       if (add64(mfees, Myfee, mfees)) {
-         set_errno(EMCM_XTXFEES);
+         set_errno(EMCM_MFEES_OVERFLOW);
          return VEBAD;
       }
-      /* dst tag MUST exist in the ledger */
-      memcpy(ADDR_TAG_PTR(addr), mdst[j].tag, TXTAGLEN);
-      if (!tag_find(addr, NULL, NULL, TXTAGLEN)) {
-         set_errno(EMCM_XTXTAGNOLE);
-         return VERROR;
+      /* dst reference must be valid */
+      if (mdst_val__reference(mdst[j].ref) != VEOK) {
+         set_errno(EMCM_XTXREF);
+         return VEBAD;
       }
-   }
+   }  /* end for() */
    /* Check tallies... */
    if (cmp64(total, txe->send_total) != 0) {
       set_errno(EMCM_XTXTOTALS);
@@ -562,7 +556,7 @@ static int xtx_mdst_val(TXQENTRY *txe, MDST *mdst)
    }
 
    return VEOK;  /* valid */
-}  /* end xtx_mdst_val() */
+}  /* end mdst_val() */
 
 /**
  * Validate transaction data, as if received directly from a wallet.
