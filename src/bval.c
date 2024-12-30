@@ -281,12 +281,12 @@ int b_val(const char *bcfile, const char *ltfile)
    long long len, min;
    word8 *mtree;
    FILE *fp, *ltfp;        /* input fname, output file ltran.tmp */
+   word8 prev_src_addr[ADDR_LEN];   /* source address sort check */
    word8 mroot[HASHLEN];   /* computed Merkel root */
-   word8 addr[TXADDRLEN];  /* for tag_find() */
    word8 mreward[8];
    word32 mdstlen, tcount; /* multi-destination and transaction count */
    word32 j, k;            /* loop counters */
-   int ecode;
+   int ecode, overflow;
 
    /* init NULL for error handling */
    fp = ltfp = NULL;
@@ -302,7 +302,7 @@ int b_val(const char *bcfile, const char *ltfile)
    len = ftell64(fp);
    if (len == (-1)) return VERROR;
    /* ensure file contains the minimum amount of data */
-   min = sizeof(BHEADER) + sizeof(TXQENTRY) + sizeof(BTRAILER);
+   min = sizeof(BHEADER) + TXLEN_MIN + sizeof(BTRAILER);
    if (len < min) {
       set_errno(EMCM_FILEDATA);
       goto ERROR_CLEANUP;
@@ -352,21 +352,31 @@ int b_val(const char *bcfile, const char *ltfile)
    /* Validate each transaction */
    for (j = 0; j < tcount; j++) {
       /* read transaction data for validation */
-      if (tx_fread(&tx, &xdata, fp) != VEOK) goto RDERR_CLEANUP;
+      if (tx_fread(&txe, fp) != VEOK) goto RDERR_CLEANUP;
 
       /* ... TRANSACTION PROCESSING ... */
 
-      /* check tx_id is sorted (skip first) -- mtree holds prev tx_id */
-      if (j > 0 && memcmp(tx.tx_id, mtree + (j * HASHLEN), HASHLEN) <= 0) {
-         set_errno(EMCM_TXSORT);
-         goto DROP_CLEANUP;
+      /* skip first src_addr check */
+      if (j > 0) {
+         /* check src_addr is sorted, NO DUPLICATES */
+         if (memcmp(txe.src_addr, prev_src_addr, ADDR_LEN) <= 0) {
+            set_errno(EMCM_TXSORT);
+            goto DROP_CLEANUP;
+         }
       }
       /* validate transaction */
-      ecode = txqe_val(&tx, &xdata, bt.bnum);
+      ecode = txe_val(&txe, bt.bnum, bt.mfee);
       if (ecode != VEOK) goto CLEANUP;
 
-      /* add transaction id to merkel tree (infer previous tx_id) */
-      memcpy(&mtree[(j + 1) * HASHLEN], tx.tx_id, HASHLEN);
+      /* add transaction id to merkel tree, store src_addr */
+      memcpy(&mtree[(j + 1) * HASHLEN], txe.tx_id, HASHLEN);
+      memcpy(prev_src_addr, txe.src_addr, ADDR_LEN);
+
+      /* sum fees for (additional) miner credit */
+      if (add64(mreward, txe.tx_fee, mreward)) {
+         set_errno(EMCM_MFEES_OVERFLOW);
+         goto ERROR_CLEANUP;
+      }
 
       /* ... LTRAN PROCESSING ... */
 
@@ -464,8 +474,6 @@ ERROR_CLEANUP:
 DROP_CLEANUP:
    ecode = VEBAD2;
 CLEANUP:
-   if (raddr) free(raddr);
-   if (ltran) free(ltran);
    if (mtree) free(mtree);
    if (fp) fclose(fp);
    if (ltfp) {
