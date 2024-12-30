@@ -70,6 +70,53 @@ char *Opt_cplistfile = "coreip.lst";
 char *Opt_rplistfile = "recent.lst";
 char *Opt_eplistfile = "epink.lst";
 
+#ifdef _WIN32
+#include <windows.h>
+#include <wincrypt.h>
+#else
+#include <unistd.h>
+#include <fcntl.h>
+#endif
+
+/**
+ * @private
+ * Fills a buffer with random data from urandom or CryptGenRandom (WIN32).
+ * Obtain a random unsigned value from urandom or CryptGenRandom (WIN32).
+ * @returns Random unsigned value
+ */
+unsigned urandom(void *buf, size_t bufsz) {
+   unsigned seed = 123456789;
+
+   /* use local seed if no buffer */
+   if (!buf || !bufsz) {
+      bufsz = sizeof(seed);
+      buf = &seed;
+   }
+
+#ifdef _WIN32
+   HCRYPTPROV prov = 0;
+   if (CryptAcquireContext(&prov, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
+      CryptGenRandom(prov, (DWORD) bufsz, (BYTE *) buf);
+      CryptReleaseContext(prov, 0);
+   }
+#else
+   int fd = open("/dev/urandom", O_RDONLY);
+   if (fd != -1) {
+      read(fd, buf, bufsz);
+      close(fd);
+   }
+#endif
+
+   /* return unsigned value from buffer where available */
+   if (buf && bufsz >= sizeof(unsigned)) {
+      return *((unsigned *) buf);
+   }
+
+   return seed;
+}
+
+/* END RANDOM SEED FUNCTION */
+
 int check_directory(char *dirname)
 {
    char fname[FILENAME_MAX];
@@ -1104,11 +1151,10 @@ int main(int argc, char **argv)
 #ifndef _WIN32
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
 #endif
-
-   /* improve random generators */
-   srand16fast(time(NULL) ^ getpid());
-   srand16(time(NULL), 0, 123456789 ^ getpid());
-   srand32(time(NULL) ^ 123456789 ^ getpid());
+   /* seed random generators with urandom (or equivalent) */
+   srand16fast(urandom(seeds, sizeof(seeds)));
+   srand16(seeds[1], seeds[2], seeds[3]);
+   srand32(*((unsigned long long *) &seeds[4]));
    /* enable socket support */
    sock_startup();
 
