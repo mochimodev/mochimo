@@ -1135,8 +1135,6 @@ int usage(void)
 #ifdef BX_MYSQL
       "\n   -X         Export to MySQL database on block update"
 #endif
-      "\n   -v3, --v3-reboot=<file>"
-      "\n       enable version 3 REBOOT mode for <file>"
       "\n\n"
    );
 
@@ -1214,23 +1212,6 @@ int main(int argc, char **argv)
                perrno("tx_bot_activate() FAILURE");
                return EXIT_FAILURE;
             }
-            continue;
-         }
-         if (argument(argv[j], "-v3", "--v3-trigger")) {
-            argp = argvalue(&j, argc, argv);
-            if (argp == NULL) {
-               perr("missing argument value");
-               return EXIT_FAILURE;
-            }
-            pdebug("    argument value: %s", argp);
-            /* obtain trigger value -- auto-detect base-n */
-            argu = strtoul(argp, NULL, 0);
-            if (argu == 0 || errno == ERANGE) {
-               perr("invalid argument value \"%s\"", argp);
-               return EXIT_FAILURE;
-            }
-            /* set v3.0 trigger block and continue */
-            V30TRIGGER = argu - 1;
             continue;
          }
       } else return usage();
