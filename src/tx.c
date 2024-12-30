@@ -479,12 +479,12 @@ static int xtx_ref_val(void *buffer)
             break;  /* switch() */
          case DIGIT:  /* allow either numeric, dash, or ZERO */
             if (isdigit(reference[j])) continue;  /* for() */
-            if (reference[j] == '-') { state = UPPER_DASH; continue; }
+            if (reference[j] == '-') { state = DIGIT_DASH; continue; }
             if (reference[j] == '\0') { state = ZERO; continue; }
             break;  /* switch() */
          case UPPER:  /* allow either uppercase, dash, or ZERO */
             if (isupper(reference[j])) continue;  /* for() */
-            if (reference[j] == '-') { state = DIGIT_DASH; continue; }
+            if (reference[j] == '-') { state = UPPER_DASH; continue; }
             if (reference[j] == '\0') { state = ZERO; continue; }
             break;  /* switch() */
          case ZERO:  /* allow only ZERO (end of reference) */
