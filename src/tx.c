@@ -323,212 +323,112 @@ DONE:
 }
 
 /**
- * Derive Transaction Entry, @a txe, and eXtended Data, @a xdata, parts
- * from a transaction data buffer received from the network.
- * @note DOES NOT COPY tx_nonce and tx_id. This function is designed for
- * use on a transaction buffer received directly from the network, where
- * the nonce and id are NOT generally provided.
- * @param txe Pointer to put Transaction Entry data
- * @param xdata Pointer to put eXtended Data
- * @param buffer Pointer to buffer to derive transaction parts from
- * @param bufsz Length, in bytes, of provided @a buffer
- * @return (int) value representing the result
- * @retval VERROR on error; check errno for details
- * @retval VEOK on success
- */
-int tx_data(TXQENTRY *txe, XDATA *xdata, const void *buffer, size_t bufsz)
-{
-   word8 *xbuffer;
-   size_t len, total;
-
-   /* check buffer contains at least TXQENTRY (excl. nonce and id) */
-   total = sizeof(TXQENTRY) - 8 - HASHLEN;
-   if (bufsz < total) {
-      set_errno(EMCM_TXINVAL);
-      return VERROR;
-   }
-
-   xbuffer = ((word8 *) buffer) + (TXADDRLEN * 2);
-   /* determine if eXtended Data is present */
-   if (IS_XTX(buffer)) {
-      switch (XTX_TYPE(buffer)) {
-         /* ... add eXtended Transaction data types here */
-         case XTX_MDST:
-            /* infer +1 MDST count due to byte limitations */
-            len = ((size_t) XTX_COUNT(buffer) + 1) * sizeof(MDST);
-            break;
-         default:
-            /* no eXtended Data available */
-            len = 0;
-      }
-      if (len > 0) {
-         /* check buffer contains aditional xdata (len) */
-         if (bufsz < (total + len)) {
-            set_errno(EMCM_TXINVAL);
-            return VERROR;
-         }
-         /* copy xdata (if provided) and adjust buffer */
-         if (xdata != NULL) memcpy(xdata, xbuffer, len);
-         xbuffer = xbuffer + len;
-      }
-   }
-
-   /* copy core transaction data */
-   memcpy(txe, buffer, (TXADDRLEN * 2));
-   memcpy(txe->chg_addr, xbuffer, total - (TXADDRLEN * 2));
-
-   return VEOK;
-}  /* end tx_data() */
-
-/**
- * Read a single Transaction and eXtended Data entry in to the provided
- * buffers, @a txe and @a xdata, from the given input @a stream. The
- * file position indicator is advanced by the size of the whole entry.
- * @param txe Pointer to Transaction Entry buffer
- * @param xdata Pointer to eXtended Data buffer, or NULL
+ * Read a single Transaction Entry in to the provided container, @a txe,
+ * from the given input @a stream. The file position indicator is
+ * advanced by the size of the Transaction Entry (size varies).
+ * @param txe Pointer to Transaction Entry container
  * @param stream The stream to read from
  * @return (int) value representing the read result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int tx_fread(TXQENTRY *txe, XDATA *xdata, FILE *stream)
+int tx_fread(TXENTRY *tx, FILE *stream)
 {
-   size_t len, res;
+   size_t len;
 
-   /* read up to transaction change address to check for MDST */
-   res = fread(txe, (TXADDRLEN * 2), 1, stream);
-   if (res != 1) return VERROR;
+   /* prepare transaction container */
+   memset(tx, 0, sizeof(TXENTRY));
 
-   /* determine if eXtended Data is present */
-   if (IS_XTX(txe)) {
-      switch (XTX_TYPE(txe)) {
-         /* ... add eXtended Transaction data types here */
-         case XTX_MDST:
-            /* infer +1 MDST count due to byte limitations */
-            len = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
-            break;
-         default:
-            /* no eXtended Data available */
-            len = 0;
-      }
-      /* read eXtended Data or skip if xdata is NULL */
-      if (len > 0) {
-         if (xdata == NULL) {
-            res = (size_t) fseek64(stream, (long long) len, SEEK_CUR);
-            if (res != 0) return VERROR;
-         } else {
-            res = fread(xdata, len, 1, stream);
-            if (res != 1) return VERROR;
-         }
-      }
+   /* read transaction header into buffer */
+   if (fread(tx->buffer, sizeof(TXHDR), 1, stream) != 1) {
+      return VERROR;
    }
 
-   /* read remaining transaction data (from chg_addr) */
-   len = sizeof(TXQENTRY) - (TXADDRLEN * 2);
-   res = fread(txe->chg_addr, len, 1, stream);
-   if (res != 1) return VERROR;
+   /* initialize transaction entry already containing header */
+   tx__init(tx, NULL);
+
+   /* read remaining transaction parts */
+   len = tx->tx_sz - sizeof(TXHDR);
+   if (fread(tx->buffer + sizeof(TXHDR), len, 1, stream) != 1) {
+      return VERROR;
+   }
 
    return VEOK;
 }  /* end tx_fread() */
 
 /**
- * Write a single Transaction and eXtended Data entry from the provided
- * buffers, @a txe and @a xdata, to the given input @a stream. The file
- * position indicator is advanced by the size of the whole entry. If the
- * provided Transaction entry does not indicate an eXtended Transaction
- * entry that contains eXtended Data, it MAY be left NULL.
- * @param txe Pointer to Transaction Entry buffer
- * @param xdata Pointer to eXtended Data buffer, or NULL
- * @param stream The stream to read from
+ * Write a single Transaction Entry in to the provided container, @a txe,
+ * to the given output @a stream. The file position indicator is
+ * advanced by the size of the Transaction Entry (size varies).
+ * @param txe Pointer to Transaction Entry container
+ * @param stream The stream to write to
  * @return (int) value representing the write result
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
- * @exception errno=ENODATA Write requires xdata, which was not provided
  */
-int tx_fwrite(TXQENTRY *txe, XDATA *xdata, FILE *stream)
+int tx_fwrite(const TXENTRY *tx, FILE *stream)
 {
-   size_t len, res;
-
-   /* write transaction data up to possible eXtended Data */
-   res = fwrite(txe, (TXADDRLEN * 2), 1, stream);
-   if (res != 1) return VERROR;
-
-   /* determine if eXtended Data is present */
-   if (IS_XTX(txe)) {
-      switch (XTX_TYPE(txe)) {
-         /* ... add eXtended Transaction data types here */
-         case XTX_MDST:
-            /* infer +1 MDST count due to byte limitations */
-            len = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
-            break;
-         default:
-            /* no eXtended Data available */
-            len = 0;
-      }
-      /* read eXtended Data or skip if xdata is NULL */
-      if (len > 0) {
-         if (xdata == NULL) {
-            set_errno(ENODATA);
-            return VERROR;
-         } else {
-            res = fwrite(xdata, len, 1, stream);
-            if (res != 1) return VERROR;
-         }
-      }
+   /* write buffer to output stream */
+   if (fwrite(tx->buffer, tx->tx_sz, 1, stream) != 1) {
+      return VERROR;
    }
-
-   /* write remaining transaction data */
-   len = sizeof(TXQENTRY) - (TXADDRLEN * 2);
-   res = fwrite(txe->chg_addr, len, 1, stream);
-   if (res != 1) return VERROR;
 
    return VEOK;
 }  /* end tx_fwrite() */
 
 /**
- * Hash Transaction Entry, @a txe, and eXtended Data, @a xdata, parts per
- * their intended buffer structure as if found within a blockchain file.
+ * Hash a Transaction Entry, @a txe.
  * @param txe Pointer to Transaction Entry data
- * @param xdata Pointer to eXtended Data
  * @param full Set non-zero for a "full" Transaction ID hash or
  * set zero for a Transaction Signature Message hash.
  * @param out Pointer to place finalized hash
  */
-void tx_hash(TXQENTRY *txe, XDATA *xdata, int full, void *out)
+void tx_hash(const TXENTRY *tx, int full, void *out)
 {
-   SHA256_CTX ctx;
-   size_t len;
-
-   sha256_init(&ctx);
-
-   /* update hash with pre-xtx transaction data */
-   sha256_update(&ctx, txe->src_addr, TXADDRLEN);
-   sha256_update(&ctx, txe->dst_addr, TXADDRLEN);
-
-   /* determine if eXtended Data is present */
-   if (IS_XTX(txe)) {
-      switch (XTX_TYPE(txe)) {
-         /* ... add eXtended Transaction data types here */
-         case XTX_MDST:
-            /* infer +1 MDST count due to byte limitations */
-            len = ((size_t) XTX_COUNT(txe) + 1) * sizeof(MDST);
-            break;
-         default:
-            /* no eXtended Data available */
-            len = 0;
-      }
-      /* update hash with transaction eXtended Data */
-      sha256_update(&ctx, xdata, len);
+   if (full) {
+      /* full transaction ID hash */
+      sha256(tx->buffer, tx->tx_sz - sizeof(TXTLR), out);
+      return;
    }
 
-   /* update hash with remaining transaction data */
-   if (full) {
-      sha256_update(&ctx, txe->chg_addr, txe->tx_id - txe->chg_addr);
-   } else sha256_update(&ctx, txe->chg_addr, txe->tx_sig - txe->chg_addr);
-
-   /* finalize */
-   sha256_final(&ctx, out);
+   /* transaction signature message hash (header + data) */
+   sha256(tx->buffer, (size_t) tx->dsa - (size_t) tx->hdr, out);
 }  /* end tx_hash() */
+
+/**
+ * Read transaction data from a buffer into a Transaction Entry structure.
+ * @param tx Pointer to TXENTRY structure to populate
+ * @param buf Pointer to buffer containing transaction data
+ * @param bufsz Size of buffer containing transaction data
+ * @return (int) value representing the result of the operation
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int tx_read(TXENTRY *tx, const void *buf, size_t bufsz)
+{
+   /* check bufsz contains header data */
+   if (bufsz < sizeof(TXHDR)) {
+      set_errno(EMCM_TXINVAL);
+      return VERROR;
+   }
+
+   /* prepare transaction container */
+   memset(tx, 0, sizeof(TXENTRY));
+
+   /* compute offsets */
+   tx__init(tx, buf);
+
+   /* check transaction size -- valid with or without trailer data */
+   if (bufsz > tx->tx_sz || bufsz < (tx->tx_sz - sizeof(TXTLR))) {
+      set_errno(EMCM_TXINVAL);
+      return VERROR;
+   }
+
+   /* prepare transaction buffer */
+   memcpy(tx->buffer, buf, bufsz);
+
+   return VEOK;
+}  /* end tx_read() */
 
 /**
  * @private
