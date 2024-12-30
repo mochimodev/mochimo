@@ -323,10 +323,6 @@ int b_val(const char *bcfile, const char *ltfile)
       set_errno(EMCM_MREWARD);
       goto DROP_CLEANUP;
    }
-   if (ADDR_HAS_TAG(bh.maddr)) {
-      set_errno(EMCM_MADDR);
-      goto DROP_CLEANUP;
-   }
 
    /* validate block trailer (incl. PoW) against tfile trailer */
    if (read_trailer(&tft, "tfile.dat") != VEOK) goto ERROR_CLEANUP;
