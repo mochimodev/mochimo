@@ -6,6 +6,6 @@ User=mcm
 Group=mcm
 WorkingDirectory=/opt/mochimo/
 ExecStartPre=/bin/sh -c 'until ping -c1 1.1.1.1; do sleep 1; done;'
-ExecStart=/bin/bash /opt/mochimo/gomochi -q1
+ExecStart=/bin/bash /opt/mochimo/gomochi -p2098 -q1 -T638000
 [Install]
 WantedBy=multi-user.target
