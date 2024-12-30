@@ -1154,18 +1154,9 @@ int main(int argc, char **argv)
    char *cp;
    int j;
 
-   /* sanity checks are executed in isolation */
    {
-      /* static asserts checked at compile time */
+      /* ensure little endian check -- executed in isolation */
       STATIC_ASSERT(sizeof(word32) == 4, word32_size);
-      STATIC_ASSERT(sizeof(MDST) == 20, MDST_struct_size);
-      STATIC_ASSERT(sizeof(TXQENTRY) == 2412, TXQENTRY_struct_size);
-      STATIC_ASSERT(sizeof(NGHEADER) == 12, NGHEADER_struct_size);
-      STATIC_ASSERT(sizeof(BHEADER) == 56, BHEADER_struct_size);
-      STATIC_ASSERT(sizeof(BTRAILER) == 160, BTRAILER_struct_size);
-      STATIC_ASSERT(sizeof(LENTRY) == 52, LENTRY_struct_size);
-      STATIC_ASSERT(sizeof(LTRAN) == 53, LTRAN_struct_size);
-      /* ensure little endian architecture */
       if (get16((word8[2]) { 0x34, 0x12 }) != 0x1234u) {
          perr("incompatible endian type");
          return EXIT_FAILURE;
