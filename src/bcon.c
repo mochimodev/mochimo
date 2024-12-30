@@ -361,8 +361,15 @@ int b_con(const char *output)
          if (!ferror(fp)) set_errno(EMCM_EOF);
          goto ERROR_CLEANUP;
       }
-      /* add transaction id to merkel tree */
-      memcpy(&mtree[(j + 1) * HASHLEN], txc.tx_id, HASHLEN);
+      /* skip duplicate source address */
+      if (j > 0) {
+         if (memcmp(txc.src_addr, tx[j - 1].src, HASHLEN) == 0) {
+            continue;
+         }
+      }
+      /* set appropriate nonce and hash */
+      put64(txc.tx_nonce, bt.bnum);
+      tx_hash(&txc, 1, txc.tx_id);
       /* write transaction to block */
       if (tx_fwrite(&txc, &xdata, fpout) != VEOK) {
          goto ERROR_CLEANUP;
