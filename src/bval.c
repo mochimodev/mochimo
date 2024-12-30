@@ -273,17 +273,13 @@ CLEANUP:
  */
 int b_val(const char *bcfile, const char *ltfile)
 {
-   TXQENTRY tx;            /* Holds one transaction in the array */
-   XDATA xdata;
+   TXENTRY txe;            /* holds one transaction entry from block */
    BTRAILER tft;           /* fixed length block trailer (tfile) */
    BTRAILER bt;            /* fixed length block trailer */
    BHEADER bh;             /* fixed length block header */
+   LTRAN lt;               /* ledger transaction */
    long long len, min;
-   size_t ltcount, ltidx, refidx;
-   void *ptr;
-   LTRAN *ltran;
    word8 *mtree;
-   word8 *raddr;           /* reference address list of spent tags */
    FILE *fp, *ltfp;        /* input fname, output file ltran.tmp */
    word8 mroot[HASHLEN];   /* computed Merkel root */
    word8 addr[TXADDRLEN];  /* for tag_find() */
@@ -293,9 +289,8 @@ int b_val(const char *bcfile, const char *ltfile)
    int ecode;
 
    /* init NULL for error handling */
-   mtree = raddr = NULL;
    fp = ltfp = NULL;
-   ltran = NULL;
+   mtree = NULL;
 
    /* open block file and extract metadata */
    fp = fopen(bcfile, "rb");
@@ -352,39 +347,11 @@ int b_val(const char *bcfile, const char *ltfile)
    if (mtree == NULL) goto ERROR_CLEANUP;
 
    /* begin merkel hash with mining address + reward */
-   sha256(bh.maddr /* + bh.mreward */, TXADDRLEN + 8, mtree);
+   sha256(bh.maddr /* + bh.mreward */, sizeof(bh.maddr) + 8, mtree);
 
-   /* Any transactions to dst_tag's, where the dst_tag also exists as
-    * src_tag in another transaction within the same block, MUST have
-    * the dst_addr replaced with the chg_addr of the transaction from
-    * which the dst_tag was spent as a src_tag. This only applies to
-    * tagged addreses; untagged (mining) addresses are unaffected.
-    *
-    * Example (not dependant on order):
-    * TX#1: src(A) -> dst(B) -> chg(C);
-    * TX#2: src(D) -> dst(A) -> chg(E);
-    * ... TX#2's dst(A) needs to be changed to TX#1's chg(C);
-    *
-    * To address this issue without introducing multiple O(n^2) loops,
-    * we store the chg_addr of afflicted transactions in a list of
-    * reference addresses (*raddr). This list is then sorted by tag
-    * for binary searching, and used to modify destinations during
-    * the final (write) pass of ledger transaction creation.
-    *
-    * Addresses are place in the reference list on the following criterea:
-    * (src_addr) is a tagged address  AND  (src_tag) is equal to (chg_tag)
-    */
-
-   /* ltran space is initially estimated (+1 for miner) */
-   ltcount = tcount * 3 + 1;
-   /* malloc space for ltran list (estimated) */
-   ltran = malloc(sizeof(LTRAN) * ltcount);
-   if (ltran == NULL) goto ERROR_CLEANUP;
-   /* malloc space for reference list (assumes worst case) */
-   raddr = malloc(TXADDRLEN * tcount);
-   if (raddr == NULL) goto ERROR_CLEANUP;
-   /* zero indexes */
-   ltidx = refidx = 0;
+   /* open ltran file for writing */
+   ltfp = fopen(ltfile, "wb");
+   if (ltfp == NULL) goto ERROR_CLEANUP;
 
    /* Validate each transaction */
    for (j = 0; j < tcount; j++) {
@@ -407,62 +374,47 @@ int b_val(const char *bcfile, const char *ltfile)
 
       /* ... LTRAN PROCESSING ... */
 
-      /* save afflicted change address to reference list */
-      if (ADDR_HAS_TAG(tx.src_addr) &&
-            addr_tag_equal(tx.src_addr, tx.chg_addr)) {
-         memcpy(raddr + (refidx * TXADDRLEN), tx.chg_addr, TXADDRLEN);
-         refidx++;
+      /* ltran DEBIT source address */
+      memcpy(lt.addr, txe.src_addr, ADDR_LEN);
+      lt.trancode[0] = '-';
+      overflow  = add64(txe.send_total, txe.change_total, lt.amount);
+      overflow += add64(lt.amount, txe.tx_fee, lt.amount);
+      if (overflow) {
+         set_errno(EMCM_TXOVERFLOW);
+         goto DROP_CLEANUP;
       }
-      /* ltran debit source address */
-      memcpy(ltran[ltidx].addr, tx.src_addr, TXADDRLEN);
-      ltran[ltidx].trancode[0] = '-';
-      add64(tx.send_total, tx.change_total, ltran[ltidx].amount);
-      add64(tx.tx_fee, ltran[ltidx].amount, ltran[ltidx].amount);
-      ltidx++;
-      /* check for eXtended TX type transaction */
-      if (!IS_XTX(&tx)) {
-         /* ltran credit destination address */
-         memcpy(ltran[ltidx].addr, tx.dst_addr, TXADDRLEN);
-         ltran[ltidx].trancode[0] = 'D';
-         /* ... 'D' is changed to 'A' in the final (write) pass */
-         put64(ltran[ltidx].amount, tx.send_total);
-         ltidx++;
-      } else if (XTX_TYPE(&tx) == XTX_MDST) {
-         /* handle Multi-destination Transaction */
-         mdstlen = XTX_COUNT(&tx) + 1;
-         if (mdstlen > 1) {
-            /* realloc space to account for additional destinations */
-            ltcount += mdstlen - 1;
-            ptr = realloc(ltran, sizeof(LTRAN) * ltcount);
-            if (ptr == NULL) goto ERROR_CLEANUP;
-            ltran = ptr;
-         }
-         /* iterate multi-destinations */
-         for (k = 0; k < mdstlen; k++) {
-            /* find address associated with tag */
-            memcpy(ADDR_TAG_PTR(addr), xdata.mdst[k].tag, TXTAGLEN);
-            if (tag_find(addr, addr, NULL, TXTAGLEN) != VEOK) {
-               set_errno(EMCM_LETAG);
-               goto ERROR_CLEANUP;
-            }
-            /* ltran credit multi-destination address */
-            memcpy(ltran[ltidx].addr, addr, TXADDRLEN);
-            ltran[ltidx].trancode[0] = 'D';
-            /* ... 'D' is changed to 'A' in the final (write) pass */
-            put64(ltran[ltidx].amount, xdata.mdst[k].amount);
-            ltidx++;
-         }
-      }  /* end else if (XTX_TYPE(&tx) == XTX_MDST) */
-      /* ltran credit change address */
-      memcpy(ltran[ltidx].addr, tx.chg_addr, TXADDRLEN);
-      ltran[ltidx].trancode[0] = 'A';
-      put64(ltran[ltidx].amount, tx.change_total);
-      ltidx++;
-      /* additionally, sum fees for miner credit */
-      if (add64(mreward, tx.tx_fee, mreward)) {
-         set_errno(EMCM_MFEES_OVERFLOW);
+      if (fwrite(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
          goto ERROR_CLEANUP;
       }
+
+      /* ltran REHASH src_tag->change address */
+      memcpy(lt.addr, txe.chg_addr, ADDR_LEN);
+      lt.trancode[0] = 'H';
+      put64(lt.amount, txe.change_total);
+      if (fwrite(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+         goto ERROR_CLEANUP;
+      }
+
+      /* process transaction per transaction type */
+      switch (TXDAT_TYPE(&txe)) {
+         case TXDAT_MDST:
+            /* ltran credit every destination address */
+            mdstlen = MDST_COUNT(&txe);
+            for (k = 0; k < mdstlen; k++) {
+               /* copy tag and zero address "hash" */
+               memcpy(ADDR_TAG_PTR(lt.addr), txe.mdst[k].tag, ADDR_TAG_LEN);
+               memset(ADDR_HASH_PTR(lt.addr), 0, ADDR_HASH_LEN);
+               lt.trancode[0] = 'A';
+               put64(lt.amount, txe.mdst[k].amount);
+               if (fwrite(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+                  goto ERROR_CLEANUP;
+               }
+            }
+            break;
+         default:
+            set_errno(EMCM_XTXUNDEF);
+            goto DROP_CLEANUP;
+      }  /* end switch TX_TYPE */
    }  /* end for j */
 
    /* transactions are variable length, so to check file length we must
@@ -487,37 +439,17 @@ int b_val(const char *bcfile, const char *ltfile)
    /* Make ledger tran to add to or create mining address.
     * '...Money from nothing...'
     */
-   memcpy(ltran[ltidx].addr, bh.maddr, TXADDRLEN);
-   ltran[ltidx].trancode[0] = 'A';
-   put64(ltran[ltidx].amount, mreward);
-   ltidx++;
 
-   /* sort reference address list by tag */
-   qsort(raddr, refidx, TXADDRLEN, addr_tag_compare);
-
-   /* open ltran file (if provided) */
-   ltfp = fopen(ltfile, "wb");
-   if (ltfp == NULL) goto ERROR_CLEANUP;
-   /* write ltrans to file, check zero value credits and references */
-   for (j = 0; j < ltidx; j++) {
-      /* skip zero value credits */
-      if (ltran[j].trancode[0] == 'A' || ltran[j].trancode[0] == 'D') {
-         if (iszero(ltran[j].amount, 8)) continue;
-      }
-      /* raddrect destinations of spent tags */
-      if (ltran[j].trancode[0] == 'D') {
-         ltran[j].trancode[0] = 'A';
-         /* replace with reference address if tag matches */
-         ptr = bsearch(ltran[j].addr, raddr, refidx, TXADDRLEN, addr_tag_compare);
-         if (ptr) memcpy(ltran[j].addr, ptr, TXADDRLEN);
-      }
-      /* write ltran entry -- sorted by le_update() */
-      if (fwrite(&ltran[j], sizeof(LTRAN), 1, ltfp) != 1) goto ERROR_CLEANUP;
+   /* copy "mining" tag and zero address "hash" */
+   memcpy(ADDR_TAG_PTR(lt.addr), bh.maddr, ADDR_TAG_LEN);
+   memset(ADDR_HASH_PTR(lt.addr), 0, ADDR_HASH_LEN);
+   lt.trancode[0] = 'A';
+   put64(lt.amount, mreward);
+   if (fwrite(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+      goto ERROR_CLEANUP;
    }
 
    /* cleanup */
-   free(ltran);
-   free(raddr);
    free(mtree);
    fclose(fp);
    fclose(ltfp);
