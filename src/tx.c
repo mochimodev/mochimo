@@ -3,6 +3,9 @@
  * @headerfile tx.h <tx.h>
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
+ * @todo This unit contains duplicated code from src/bcon.c involving
+ * TXPOS and txpos_compare(). This code has not been refactored into
+ * a common header file or source file due to future planned deprecation.
 */
 
 /* include guard */
