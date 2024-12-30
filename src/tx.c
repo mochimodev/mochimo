@@ -87,6 +87,57 @@ static int txpos_compare(const void *va, const void *vb)
 
 #endif
 
+/**
+ * @private
+ * Initialize a Transaction Entry structure per the given header options.
+ * @param tx Pointer to TXENTRY structure to initialize
+ * @param hdr Pointer to TXHDR structure to analyze, or NULL where the
+ * Transaction Header is contained within the TXENTRY buffer
+ */
+static void tx__init(TXENTRY *tx, const void *opts)
+{
+   size_t dsaoff, tlroff;
+
+   if (opts == NULL) {
+      opts = tx->buffer;
+   }
+
+   /* determine validation data offset */
+   switch (TXDAT_TYPE(opts)) {
+      case TXDAT_MDST:
+         /* offset depends on destination count (+1) */
+         dsaoff = sizeof(TXHDR) + (sizeof(MDST) * MDST_COUNT(opts));
+         break;
+   }
+
+   /* determine trailer data offset */
+   switch (TXDSA_TYPE(opts)) {
+      case TXDSA_WOTS:
+         tlroff = dsaoff + sizeof(WOTSVAL);
+         break;
+   }
+
+   /* initialize structure properties */
+   tx->hdr = (TXHDR *) tx->buffer;
+   tx->dat = (TXDAT *) (tx->buffer + sizeof(TXHDR));
+   tx->dsa = (TXDSA *) (tx->buffer + dsaoff);
+   tx->tlr = (TXTLR *) (tx->buffer + tlroff);
+   tx->tx_sz = tlroff + sizeof(TXTLR);
+
+   /* set convenient pointers */
+   tx->options = tx->hdr->options;
+   tx->src_addr = tx->hdr->src_addr;
+   tx->chg_addr = tx->hdr->chg_addr;
+   tx->send_total = tx->hdr->send_total;
+   tx->change_total = tx->hdr->change_total;
+   tx->tx_fee = tx->hdr->fee_total;
+   tx->tx_btl = tx->hdr->blk_to_live;
+   tx->mdst = tx->dat->mdst;
+   tx->wots = &(tx->dsa->wots);
+   tx->tx_nonce = tx->tlr->nonce;
+   tx->tx_id = tx->tlr->id;
+}  /* end tx__init() */
+
 struct {
    word8 secret[32];
    word8 public[32];
