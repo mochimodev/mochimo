@@ -290,14 +290,24 @@ void monitor(void)
    }  /* end command loop */
 }  /* end monitor() */
 
+int update_file(const char *dstfile, const char *srcfile, int force)
+{
+   if (!fexists((char *) dstfile) || force) {
+      pdebug("updating %s from %s", dstfile, srcfile);
+      return fcopy((char *) srcfile, (char *) dstfile);
+   }
+   return VEOK;
+}
+
 /**
  * Initialize the server/client from any state
  * after executing the gomochi script. */
 int init(void)
 {
    /* static word8 FortyEight[8] = { 48, }; */
-   char fname[FILENAME_MAX], weighthex[65], bnumhex[17];
+   char dir[FILENAME_MAX], fname[FILENAME_MAX];
    char bcfname[FILENAME_MAX], copyfile[FILENAME_MAX];
+   char weighthex[65], bnumhex[17];
    word32 qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
    word8 netweight[32], netbnum[8]; //, bnum[8];
@@ -318,35 +328,31 @@ int init(void)
    if (check_directory(Bcdir) || check_directory(Spdir)) return VERROR;
    if (ftouch("mq.lck")) return VERROR;
 
-   /* update coreip list where available */
+   /* (ALWAYS) update core peer list and mining address file */
    path_join(copyfile, "..", Opt_cplistfile);
-   if (fcopy(copyfile, Opt_cplistfile) != VEOK) {
-      if (!fexists(Opt_cplistfile)) {
-         pwarn("missing Core ip list..., %s", Opt_cplistfile);
-      }
+   if (update_file(Opt_cplistfile, copyfile, 1) != VEOK) {
+      perrno("failed to restore %s", Opt_cplistfile);
+      return VERROR;
    }
-   /* update maddr.dat - use maddr.MAT as last resort only */
    path_join(copyfile, "..", "maddr.dat");
-   if (fcopy(copyfile, "maddr.dat") != VEOK) {
-      if (!fexists("maddr.dat")) {
-         path_join(copyfile, "..", "maddr.mat");
-         if (fcopy(copyfile, "maddr.dat") != VEOK) {
-            perr("Failed to copy mining address");
-            return VERROR;
-         } else pwarn("using maddr.MAT (the founder's mining address)");
-      }
-   }
-   /* initialize genesis block filename */
-   path_join(fname, Bcdir, "b0000000000000000.bc");
-   /* (try) restore core chain files if any do not exist */
-   if (!fexists("tfile.dat") || !fexists(fname)) {
-      pdebug("Restore core chain files...");
-      path_join(copyfile, "..", "genblock.bc");
-      if (!fexists(copyfile) || fcopy(copyfile, fname) != VEOK) {
-         perrno("Genesis block restoration FAILURE");
+   if (update_file("maddr.dat", copyfile, 1) != VEOK) {
+      pwarn("using \"maddr.mat\" (NOT YOUR MINING ADDRESS)");
+      path_join(copyfile, "..", "maddr.mat");
+      if (update_file("maddr.dat", copyfile, 0) != VEOK) {
+         perrno("failed to restore maddr.dat");
          return VERROR;
       }
-      remove("tfile.dat");
+   }
+   /* (IF NOT EXISTS) update blockchain files */
+   path_join(fname, Bcdir, "b0000000000000000.bc");
+   path_join(copyfile, "..", "genblock.bc");
+   if (update_file(fname, copyfile, 0) != VEOK) {
+      perrno("failed to restore %s", fname);
+      return VERROR;
+   }
+   path_join(copyfile, "..", "tfile.dat");
+   if (update_file("tfile.dat", copyfile, 0) != VEOK) {
+      pwarn("deriving Tfile from genesis block");
       if (read_trailer(&bt, fname) != VEOK || \
             append_tfile(&bt, 1, "tfile.dat") != VEOK) {
          perrno("append_tfile() FAILURE; %s", fname);
@@ -355,122 +361,13 @@ int init(void)
    }
 
    plog("Init chain...");
-   while (V30TRIGGER > 0) {
-      /* legacy neogenesis block is reconstructed by extracting the
-       * ledger data with le_extract() (handles both block types)
-       * and rebuilding the block with neogen().
-       */
-
-      /* check v3 trigger */
-      if ((V30TRIGGER + 1) & 0xff) {
-         perr("Non-Neogenesis reboot block number: %lu", (V30TRIGGER + 1));
-         return VERROR;
-      }
-
-      /* determine filename and path */
-      bnum2fname(CL64_32(V30TRIGGER + 1), bcfname);
-      path_join(fname, Bcdir, bcfname);
-      pdebug("Waiting for v3.0 reboot file %s", fname);
-      /* pull file from previous directory */
-      path_join(copyfile, "..", bcfname);
-      if (fexists(copyfile) && !fexists(fname)) {
-         pdebug("Restoring v3.0 reboot file...");
-         if (fcopy(copyfile, fname) != VEOK) {
-            perrno("fcopy() FAILURE");
-            return VERROR;
-         }
-      }
-      /* wait for file to become available */
-      for (count = 0; !fexists(fname); sleep(1)) {
-         if (!Running) return VERROR;
-         if (errno != ENOENT) {
-            perrno("fexists() FAILURE");
-            return VERROR;
-         }
-         if (time(NULL) % 10 == 0) {
-            pdebug("... ENOENT: waiting(%d) for %s", count++, fname);
-         }
-      }
-
-      /* read file to check conversion */
-      fp = fopen(fname, "rb");
-      if (fp == NULL) {
-         perrno("fopen() FAILURE");
-         return VERROR;
-      }
-      if (fread(&hdrlen, 4, 1, fp) != 1) {
-         if (!ferror(fp)) set_errno(EMCM_EOF);
-         perrno("fread() FAILURE");
-         fclose(fp);
-         return VERROR;
-      }
-      fclose(fp);
-
-      /* check hdrlen */
-      if (hdrlen == sizeof(NGHEADER)) {
-         plog("Neogenesis reboot not required: %s", fname);
-         break;
-      }
-
-      /* perform ledger extraction (compatible with legacy blocks) */
-      if (le_extract(fname, "ledger.v3") != VEOK) {
-         perrno("le_extract(v3) FAILURE");
-         return VERROR;
-      }
-
-      /* read and modify trailer data... */
-      if (read_trailer(&bt, fname) != VEOK) {
-         perrno("read_trailer(v3) FAILURE");
-         return VERROR;
-      }
-      /* ... block hash needs to be replaced with previous block hash */
-      memcpy(bt.bhash, bt.phash, HASHLEN);
-      /* ... block number needs to be replaced with previous block number */
-      sub64(bt.bnum, ONE64, bt.bnum);
-      /* ... reamining data is either duplicate or irrelevant */
-
-      /* reconstruct v3 neogenesis block */
-      if (neogen(&bt, "ledger.v3", "neogen.v3") != VEOK) {
-         perrno("neogen(v3) FAILURE");
-         return VERROR;
-      }
-      /* replace old neogenesis block */
-      remove(fname);
-      if (rename("neogen.v3", fname) != 0) {
-         perrno("rename(v3) FAILURE");
-         return VERROR;
-      }
-      remove("ledger.dat");
-      if (rename("ledger.v3", "ledger.dat") != 0) {
-         perrno("rename(v3) FAILURE");
-         return VERROR;
-      }
-      /* trim the Tfile to trigger block */
-      if (trim_tfile("tfile.dat", CL64_32(V30TRIGGER)) != VEOK) {
-         perrno("trim_tfile(v3) FAILURE");
-         return VERROR;
-      }
-      /* the new neogenesis block needs to be re-written to the Tfile */
-      if (read_trailer(&bt, fname) != VEOK) {
-         perrno("read_trailer(v3) FAILURE");
-         return VERROR;
-      }
-      if (append_tfile(&bt, 1, "tfile.dat") != VEOK) {
-         perrno("append_tfile(v3) FAILURE");
-         return VERROR;
-      }
-
-      plog("Neogenesis reboot successful: %s", fname);
-      break;
-   }
-
-   /* Find the last block in bc/ and reset Time0, and Difficulty */
+   /* reset internal chain data based on Tfile */
    if (reset_chain() != VEOK) {
       perrno("reset_chain() FAILURE");
       memset(Cblocknum, 0, 8);  /* flag resync */
    } else if (!iszero(Cblocknum, 8)) {
-      plog(" - 0x%s 0x%s", bnum2hex(Cblocknum, bnumhex),
-         weight2hex(Weight, weighthex));
+      pdebug("intialized chain... 0x%s 0x%s",
+         bnum2hex(Cblocknum, bnumhex), weight2hex(Weight, weighthex));
    }
 
    plog("Init peers...");
@@ -496,13 +393,21 @@ int init(void)
          while (*quorum) {
             /* use epinklist for purge after init */
             epinklist(*quorum);
+            remove32(*quorum, Rplist, RPLISTLEN, &Rplistidx);
             remove32(*quorum, quorum, MAXQUORUM, &qlen);
          }
          /* report, wait, and re-scan... */
          plog("Insufficient quorum, try again in 30 seconds...");
-         millisleep(30000);
+         millisleep(5000);
+         if (!Running) return VERROR;
          continue;
       } else shuffle32(quorum, qlen);
+      /* check network is v3.0 compatible */
+      if (cmp64(netbnum, CL64_32(V30TRIGGER)) < 0) {
+         perr("discovered network is not v3.0 compatible");
+         plog("check network port...");
+         break;
+      }
       if (!iszero(Cblocknum, 8)) {  /* we've got a chain */
          status = VEOK;  /* don't panic... EVERYTHING IS FINE! */
          result = cmp256(Weight, netweight);  /* compare network weight */
@@ -539,6 +444,11 @@ int init(void)
                }
             } else if (status == VERROR) {  /* chain is fallen... */
                plog("Blockchain is aligned, catchup...");
+               /* check "catchup" doesn't cross v3 trigger */
+               if (cmp64(Cblocknum, CL64_32(V30TRIGGER)) < 0) {
+                  perr("catchup() cannot cross v3.0 trigger...");
+                  break;
+               }
                catchup(quorum, qlen);  /* try to catchup with blockchain */
                break;
             } else if (status == VEBAD) {  /* chain is split... */
@@ -573,6 +483,116 @@ int init(void)
       /* we're either out of quorum members, or our resync failed */
       plog("Resync failure: try again...\n\n");
    }
+
+   /* check state of v3.0 reboot */
+   if (cmp64(Cblocknum, CL64_32(V30TRIGGER)) < 0) {
+      /* legacy neogenesis block is reconstructed by extracting the
+      * ledger data with le_extract() (handles both block types)
+      * and rebuilding the block with neogen().
+      */
+
+      /* verify reboot files... */
+      if (cwd(dir, FILENAME_MAX) == NULL) {
+         perrno("cwd() FAILURE");
+         return VERROR;
+      };
+
+      /* ... v3.0 Tfile */
+      path_join(copyfile, dir, "v3", "tfile.dat");
+      plog("Waiting for %s...", copyfile);
+      while (update_file("tfile.dat", copyfile, 1)) {
+         if (errno != ENOENT) {
+            perrno("fexists() FAILURE");
+            return VERROR;
+         }
+         while (Running && !fexists(copyfile)) sleep(1);
+         if (!Running) return VERROR;
+      }
+      /* ... v3.0 blockchain file (neogen) */
+      bnum2fname(CL64_32(V30TRIGGER + 1), bcfname);
+      path_join(copyfile, dir, "v3", bcfname);
+      path_join(fname, Bcdir, bcfname);
+      plog("Waiting for %s...", copyfile);
+      while (update_file(fname, copyfile, 1)) {
+         if (errno != ENOENT) {
+            perrno("fexists() FAILURE");
+            return VERROR;
+         }
+         while (Running && !fexists(copyfile)) sleep(1);
+         if (!Running) return VERROR;
+      }
+
+      /* read file to check conversion */
+      fp = fopen(fname, "rb");
+      if (fp == NULL) {
+         perrno("fopen() FAILURE");
+         return VERROR;
+      }
+      if (fread(&hdrlen, 4, 1, fp) != 1) {
+         if (!ferror(fp)) set_errno(EMCM_EOF);
+         perrno("fread() FAILURE");
+         fclose(fp);
+         return VERROR;
+      }
+      fclose(fp);
+
+      /* perform ledger extraction (compatible with legacy blocks) */
+      if (le_extract(fname, "ledger.dat") != VEOK) {
+         perrno("le_extract(v3) FAILURE");
+         return VERROR;
+      }
+
+      /* check if ledger conversion is required */
+      if (hdrlen != sizeof(NGHEADER)) {
+         /* read and modify trailer data for neogen() as "previous" data...
+         * NOTE: Why? "previous" data MAY NOT be available for fresh start.
+         */
+         if (read_trailer(&bt, fname) != VEOK) {
+            perrno("read_trailer(v3) FAILURE");
+            return VERROR;
+         }
+         /* ... block hash needs to be replaced with previous block hash */
+         memcpy(bt.bhash, bt.phash, HASHLEN);
+         /* ... block number needs to be replaced with previous block number */
+         sub64(bt.bnum, ONE64, bt.bnum);
+         /* ... reamining data is either duplicate or irrelevant */
+
+         /* reconstruct v3 neogenesis block */
+         if (neogen(&bt, "ledger.dat", "ngblock.dat") != VEOK) {
+            perrno("neogen(v3) FAILURE");
+            return VERROR;
+         }
+         /* replace old neogenesis block */
+         remove(fname);
+         if (rename("ngblock.dat", fname) != 0) {
+            perrno("rename(v3) FAILURE");
+            return VERROR;
+         }
+      }  /* end v3.0 ledger conversion */
+
+      /* trim the Tfile to trigger block */
+      if (trim_tfile("tfile.dat", CL64_32(V30TRIGGER)) != VEOK) {
+         perrno("trim_tfile(v3) FAILURE");
+         return VERROR;
+      }
+      /* the new neogenesis block needs to be re-written to the Tfile */
+      if (read_trailer(&bt, fname) != VEOK) {
+         perrno("read_trailer(v3) FAILURE");
+         return VERROR;
+      }
+      if (append_tfile(&bt, 1, "tfile.dat") != VEOK) {
+         perrno("append_tfile(v3) FAILURE");
+         return VERROR;
+      }
+
+      /* reset internal chain data */
+      if (reset_chain() != VEOK) {
+         perrno("V3REBOOT reset_chain() FAILURE");
+         return VERROR;
+      }
+
+      plog("Neogenesis reboot successful: %s", fname);
+   }  /* end v3.0 reboot */
 
    txclean("txclean.dat", NULL);
    purge_epoch();
