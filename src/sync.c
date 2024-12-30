@@ -242,7 +242,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       perrno("validate_tfile(tfile.dat, 0x%s, 0x%s, 0) FAILURE",
          bnum2hex(bnum, NULL), weight2hex(weight, NULL));
       return VERROR;
-   } else if (validate_tfile_pow("tfile.dat", 0) != VEOK) {
+   } else if (validate_tfile_pow("tfile.dat", Trustblock) != VEOK) {
       remove("tfile.pow.fail");
       rename("tfile.dat", "tfile.pow.fail");
       perrno("validate_tfile_pow(tfile.dat, 0) FAILURE");
