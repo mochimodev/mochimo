@@ -15,8 +15,6 @@
 /* internal support */
 #include "tx.h"
 #include "tfile.h"
-#include "tag.h"
-#include "sort.h"
 #include "peer.h"
 #include "peach.h"
 #include "ledger.h"
