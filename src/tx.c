@@ -1130,8 +1130,7 @@ pid_t mirror(void)
  */
 int process_tx(NODE *np)
 {
-   TXQENTRY txe;
-   XDATA xdata;
+   TXENTRY txe;
    FILE *fp;
    TX *tx;
    int evilness;
@@ -1142,30 +1141,26 @@ int process_tx(NODE *np)
 
    tx = &np->tx;
 
-   /* process transaction data into txe and xdata parts */
-   ecode = tx_data(&txe, &xdata, tx->buffer, get16(tx->len));
+   /* read transaction entry from buffer */
+   ecode = tx_read(&txe, tx->buffer, get16(tx->len));
    if (ecode != VEOK) return VEBAD;
 
    /* (quick) check for duplicate transactions */
-   ecode = txcheck(txe.src_addr, txe.chg_addr);
+   ecode = txcheck(txe.src_addr);
    if (ecode != VEOK) {
       Ndups++;
       return ecode;
    }
 
    /* Validate addresses, fee, signature, source balance, and total. */
-   evilness = tx_val(&txe, &xdata, Cblocknum);
+   evilness = tx_val(&txe, Cblocknum, Myfee);
    if(evilness) return evilness;
-
-   /* update nonce and transaction id */
-   add64(Cblocknum, ONE64, txe.tx_nonce);
-   tx_hash(&txe, &xdata, 1, txe.tx_id);
 
    fp = fopen("txq1.dat", "ab");
    if (fp == NULL) return VERROR;
 
    /* write transaction (incl. nonce and id) to txq1.dat */
-   ecode = tx_fwrite(&txe, &xdata, fp);
+   ecode = tx_fwrite(&txe, fp);
    fclose(fp);  /* close txq1.dat */
    if (ecode != VEOK) return VERROR;
 
