@@ -3,6 +3,9 @@
  * @headerfile bcon.h <bcon.h>
  * @copyright Adequate Systems LLC, 2018-2022. All Rights Reserved.
  * <br />For license information, please refer to ../LICENSE.md
+ * @todo This unit contains duplicated code from src/tx.c involving
+ * TXPOS and txpos_compare(). This code has not been refactored into
+ * a common header file or source file due to future planned deprecation.
 */
 
 /* include guard */
@@ -27,10 +30,10 @@
 
 /**
  * @private Transaction Position structure.
- * Contains an ID and file position type pair.
+ * Contains a source and file position type pair.
 */
 typedef struct {
-   word8 id[HASHLEN];
+   word8 src[ADDR_LEN];
    fpos_t pos;
 } TXPOS;
 
@@ -43,7 +46,7 @@ static int txpos_compare(const void *va, const void *vb)
    TXPOS *a = (TXPOS *) va;
    TXPOS *b = (TXPOS *) vb;
 
-   return memcmp(a->id, b->id, sizeof(a->id));
+   return memcmp(a->src, b->src, sizeof(a->src));
 }
 
 /**
@@ -237,18 +240,18 @@ ERROR_CLEANUP:
 */
 int b_con(const char *output)
 {
-   TXQENTRY txc;           /* for holding transaction data */
-   XDATA xdata;            /* for holding eXtended transaction data */
+   TXENTRY txc;            /* for holding transaction data */
    BTRAILER bt;            /* block trailers are fixed length */
    BHEADER bh;             /* the minimal length block header */
    TXPOS *tx;              /* malloc'd transaction positions */
    FILE *fp, *fpout;       /* to read txclean file and write cblock */
+   void *ptr;              /* realloc pointer */
    word8 *mtree;           /* malloc'd merkle tree list */
    fpos_t pos;             /* file position offset indicator */
    long long offset;       /* file position offset value (ftell) */
-   size_t len, tcount;     /* malloc'd space and transaction count */
-   size_t j;               /* loop counter */
-   int count;              /* read_data() return value */
+   size_t count, tcount;   /* malloc'd space and transaction count */
+   size_t j, actual;       /* loop counter and txclean count */
+   int cond;               /* loop condition */
 
    /* init pointers */
    fpout = fp = NULL;
@@ -284,30 +287,36 @@ int b_con(const char *output)
       goto ERROR_CLEANUP;
    }
 
-   /* malloc required space (approximate) */
-   len = (size_t) offset / sizeof(TXQENTRY);
-   tx = malloc(len * sizeof(TXPOS));
-   if (tx == NULL) goto ERROR_CLEANUP;
-
-   /* store txid and associated fpos_t value in arrays */
-   for (rewind(fp), tcount = 0; tcount < len; tcount++) {
-      /* store position for later use (if tx is read) */
-      if (fgetpos(fp, &pos) != 0) goto ERROR_CLEANUP;
-      if (tx_fread(&txc, NULL, fp) != VEOK) {
-         if (ferror(fp)) goto ERROR_CLEANUP;
-         /* EOF -- check fridge for leftovers */
-         if (ftell64(fp) < offset) {
-            set_errno(EMCM_FILEDATA);
-            goto ERROR_CLEANUP;
+   /* reset file position indicator */
+   if (fseek64(fp, 0LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   /* loop to check allocated space is sufficient (+32 TXs/loop) */
+   for (actual = 0, cond = 1, count = 32; cond; count += 32) {
+      /* (re)allocate memory space for 32 TXs at a time */
+      ptr = realloc(tx, count * sizeof(TXPOS));
+      if (ptr == NULL) goto ERROR_CLEANUP;
+      tx = ptr;
+      /* loop to store source and associated fpos_t value in array */
+      while (actual < count) {
+         /* store position for later use (if tx is read) */
+         if (fgetpos(fp, &pos) != 0) goto ERROR_CLEANUP;
+         if (tx_fread(&txc, fp) != VEOK) {
+            if (ferror(fp)) goto ERROR_CLEANUP;
+            /* set EOF condition */
+            cond = 0;
+            break;
          }
-         break;
-      }
-      /* set txid reference data */
-      memcpy(&(tx[tcount].id), txc.tx_id, HASHLEN);
-      tx[tcount].pos = pos;
+         /* set source reference data */
+         memcpy(&(tx[actual].src), txc.src_addr, ADDR_LEN);
+         tx[actual++].pos = pos;
+      }  /* end while() */
+   }  /* end for() */
+   /* check for leftover data */
+   if (ftell64(fp) < offset) {
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
    }
    /* sort the txid reference array */
-   qsort(tx, tcount, sizeof(TXPOS), txpos_compare);
+   qsort(tx, actual, sizeof(TXPOS), txpos_compare);
 
    /* BEGIN BLOCK CONSTRUCTION */
 
