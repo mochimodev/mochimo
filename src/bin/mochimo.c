@@ -651,6 +651,7 @@ int server(int reuse_addr)
    Stime = Ltime + 10;      /* status display time */
    bctime = Ltime + 30;     /* block constructor time */
    mqtime = Ltime + 5;      /* mirror() time */
+   mtime = Ltime + 5;       /* miner time */
    Utime = Ltime;           /* for watchdog timer */
    Watchdog = WATCHTIME + (rand16() % 600);
    ipltime = Ltime + (rand16() % 300) + 10;  /* ip list fetch time */
