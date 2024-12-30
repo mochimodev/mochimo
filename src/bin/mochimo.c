@@ -601,6 +601,24 @@ int init(void)
    return Running ? VEOK : VERROR;
 }  /* end init() */
 
+int start_bcon(void)
+{
+   put64(Bcbnum, Cblocknum);  /* save current block number */
+   Bcon_pid = fork();
+   if (Bcon_pid == -1) {
+      perr("Cannot fork() for b_con()");
+      Bcon_pid = 0;
+   } else if (Bcon_pid == 0) {
+      /* in child */
+      if (b_con("cblock.dat") != VEOK) {
+         perrno("b_con() FAILURE");
+         exit(1);  /* child exits */
+      }
+      exit(0);  /* child exits */
+   }
+   return Bcon_pid;
+}
+
 /**
  * The Mochimo Server/Client!
  *
@@ -715,6 +733,8 @@ int server(int reuse_addr)
                   addrecent(np->ip);   /* v.28 */
                   Stime = Ltime + 20;  /* hold status display */
                }
+               /* check txclean.dat contains transactions */
+               if (fexistsnz("txclean.dat")) start_bcon();
                Blockfound = 0;
             }
          }  /* end if OP_FOUND child */
@@ -857,6 +877,8 @@ int server(int reuse_addr)
                send_found();  /* start send_found() child */
                Stime = Ltime + 20;  /* hold status display */
             }
+            /* check txclean.dat contains transactions */
+            if (fexistsnz("txclean.dat")) start_bcon();
          }
          remove("mblock.dat");
          Blockfound = 0;
@@ -875,6 +897,8 @@ int server(int reuse_addr)
             if (b_update("pblock.dat", 2) != VEOK) {
                restart("Failed to update pseudo-block");
             } else Stime = Ltime + 20;  /* hold status display */
+            /* check txclean.dat contains transactions */
+            if (fexistsnz("txclean.dat")) start_bcon();
          }
       } else {
          /* block constructor time trigger checks */
@@ -896,19 +920,7 @@ int server(int reuse_addr)
                system("cat txq1.dat >>txclean.dat 2>/dev/null");
                remove("txq1.dat");
                Txcount = 0;  /* txq1.dat is empty now */
-               put64(Bcbnum, Cblocknum);  /* save current block number */
-               Bcon_pid = fork();
-               if (Bcon_pid == -1) {
-                  perr("Cannot fork() for b_con()");
-                  Bcon_pid = 0;
-               } else if (Bcon_pid == 0) {
-                  /* in child */
-                  if (b_con("cblock.dat") != VEOK) {
-                     perrno("b_con() FAILURE");
-                     exit(1);  /* child exits */
-                  }
-                  exit(0);  /* child exits */
-               }
+               start_bcon();  /* start child */
                bctime = Ltime + BCONFREQ;
             }
          }
