@@ -774,15 +774,12 @@ int txcheck(const word8 *src_addr)
 {
    FILE *fp;
    TXENTRY txe;
-   word8 *src_addr;
-
-   src_addr = txe_src_addr;
 
    /* read transaction in txq1 checkiung for conflicts */
    fp = fopen("txq1.dat", "rb");
    if (fp != NULL) {
       while (tx_fread(&txe, fp) == VEOK) {
-         if (addr_tag_equal(txe_src_addr, src_addr)) {
+         if (addr_tag_equal(txe.src_addr, src_addr)) {
             /* source address (tag) conflict */
             set_errno(EMCM_TXSRCDUP);
             goto FAIL;
@@ -797,7 +794,7 @@ int txcheck(const word8 *src_addr)
    fp = fopen("txclean.dat", "rb");
    if (fp != NULL) {
       while (tx_fread(&txe, fp) == VEOK) {
-         if (addr_tag_equal(txe_src_addr, src_addr)) {
+         if (addr_tag_equal(txe.src_addr, src_addr)) {
             /* source address (tag) conflict */
             set_errno(EMCM_TXSRCDUP);
             goto FAIL;
