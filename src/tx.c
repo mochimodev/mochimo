@@ -432,13 +432,12 @@ int tx_read(TXENTRY *tx, const void *buf, size_t bufsz)
 
 /**
  * @private
- * Validate a 32 byte eXtended Transaction reference field.
- * @param buffer Pointer to start of 32 byte reference buffer
+ * Validate a 16 byte Multi-Destination Reference field.
+ * @param ref Pointer to start of 16 byte reference buffer
  * @return VEOK on success, or VERROR or error; check errno for details
  */
-static int xtx_ref_val(void *buffer)
+static int mdst_val__reference(const char *reference)
 {
-   char *reference;
    int j;
 
    /* define states for stages of validation */
@@ -447,8 +446,8 @@ static int xtx_ref_val(void *buffer)
    /* Validation format rules (from types.h):
     * - CONTAINS only uppercase [A-Z], digit [0-9], dash [-], null [\0]
     * - SHALL be null terminated with remaining unused bytes zeroed
-    *   - (e.g. VALID   `(char[32]) { 'A','-','1','\0','\0','\0', ... }`)
-    *   - (e.g. INVALID `(char[32]) { 'A','-','1','\0','B','\0', ... }`)
+    *   - (e.g. VALID   `(char[]) { 'A','-','1','\0','\0','\0', ... }`)
+    *   - (e.g. INVALID `(char[]) { 'A','-','1','\0','B','\0', ... }`)
     * - MAY have multiple uppercase OR digits (NOT both) grouped together
     * - SHALL only contain a dash to separate groups of uppercase or digit
     * - SHALL NOT contain consecutive groups of the same group type
@@ -456,14 +455,8 @@ static int xtx_ref_val(void *buffer)
     *   - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
     */
 
-   reference = (char *) buffer;
-   /* ensure null termination */
-   if (reference[HASHLEN - 1] != '\0') {
-      return VERROR;
-   }
-
    /* validate reference format */
-   for (state = START, j = 0; j < HASHLEN; j++) {
+   for (state = START, j = 0; j < ADDR_REF_LEN; j++) {
       /* state determines the next allowed characters */
       switch (state) {
          /* NOTE: "continue" here is associated with for() loop */
@@ -495,9 +488,14 @@ static int xtx_ref_val(void *buffer)
       return VERROR;
    }  /* end for() */
 
+   /* state machine must end on null termination */
+   if (state != ZERO) {
+      return VERROR;
+   }
+
    /* reference valid */
    return VEOK;
-}  /* end xtx_ref_val() */
+}  /* end mdst_val__reference() */
 
 /**
  * @private
