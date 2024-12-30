@@ -1149,6 +1149,7 @@ int main(int argc, char **argv)
    char *argp;          /* argument pointer (for argv) */
    unsigned long argu;  /* argument unsigned value */
 
+   unsigned seeds[8];   /* random seed values */
    int reuse_addr;
    char *cp;
    int j;
