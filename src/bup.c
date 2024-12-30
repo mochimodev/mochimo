@@ -31,7 +31,8 @@
 
 void print_bup(BTRAILER *bt, char *solvestr)
 {
-   const char *bsdd_haiku_tail = " \b-- ";
+   const char *blob_trigger = " \b-- ";
+   const char *blob_fix = "--";
    word32 bnum, btxs, btime, bdiff;
    char haiku[256], *haiku1, *haiku2, *haiku3;
    char hash[10];
@@ -50,9 +51,9 @@ void print_bup(BTRAILER *bt, char *solvestr)
       haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
       haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
       /* remove backspace char -- causes issues in journalctl logs */
-      cp = strstr(haiku2, bsdd_haiku_tail);
-      if (cp != NULL) memmove(cp, cp + 2, 4);
-      printf("\n/) %s\n(=: %s\n\\)   %s\n", haiku1, haiku2, haiku3);
+      cp = strstr(haiku2, blob_trigger);
+      if (cp != NULL) strncpy(cp, blob_fix, strlen(blob_fix) + 1);
+      printf("\n/) %s\n(=: %s\n\\) %s\n", haiku1, haiku2, haiku3);
       /* print block update and details */
       plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
          btime, bdiff, btxs);
