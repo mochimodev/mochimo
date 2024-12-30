@@ -279,7 +279,7 @@ int b_con(const char *output)
       /* no transactions? */
       set_errno(EMCM_TX0);
       goto ERROR_CLEANUP;
-   } else if ((size_t) offset < sizeof(TXQENTRY)) {
+   } else if ((size_t) offset < TXLEN_MIN) {
       /* file contains unknown data */
       set_errno(EMCM_FILEDATA);
       goto ERROR_CLEANUP;
@@ -340,24 +340,24 @@ int b_con(const char *output)
    }
 
    /* malloc merkle tree (+1 for header data) */
-   mtree = malloc((tcount + 1) * HASHLEN);
+   mtree = malloc((actual + 1) * HASHLEN);
    if (mtree == NULL) goto ERROR_CLEANUP;
 
    /* begin merkel hash with mining address + reward */
-   sha256(bh.maddr /* + bh.mreward */, TXADDRLEN + 8, mtree);
+   sha256(bh.maddr /* + bh.mreward */, sizeof(bh.maddr) + 8, mtree);
 
    /** @todo switch to a progressive merkle hash function that
     * doesn't require the entire list to be in memory at once.
     */
 
    /* read transactions from txclean.dat using sorted TXPOS array */
-   for (j = 0; j < tcount; j++) {
+   for (j = tcount = 0; j < actual; j++) {
       /* seek to transaction position */
       if (fsetpos(fp, &tx[j].pos) != 0) {
          goto ERROR_CLEANUP;
       }
       /* read transaction */
-      if (tx_fread(&txc, &xdata, fp) != VEOK) {
+      if (tx_fread(&txc, fp) != VEOK) {
          if (!ferror(fp)) set_errno(EMCM_EOF);
          goto ERROR_CLEANUP;
       }
@@ -370,8 +370,10 @@ int b_con(const char *output)
       /* set appropriate nonce and hash */
       put64(txc.tx_nonce, bt.bnum);
       tx_hash(&txc, 1, txc.tx_id);
+      /* add transaction id to merkel tree (++ prefix for miner) */
+      memcpy(&mtree[(++tcount) * HASHLEN], txc.tx_id, HASHLEN);
       /* write transaction to block */
-      if (tx_fwrite(&txc, &xdata, fpout) != VEOK) {
+      if (tx_fwrite(&txc, fpout) != VEOK) {
          goto ERROR_CLEANUP;
       }
    }  /* end for() */
