@@ -258,10 +258,8 @@ int b_con(const char *output)
    mtree = NULL;
    tx = NULL;
 
-   /* get mining address */
-   count = read_data(bh.maddr, TXADDRLEN, "maddr.dat");
-   if (count != TXADDRLEN || ADDR_HAS_TAG(bh.maddr)) {
-      /* tagged addresses are NOT mining addresses -- for now... */
+   /* get mining address tag */
+   if (addr_tag_readfile(bh.maddr, "maddr.dat") != VEOK) {
       set_errno(EMCM_MADDR);
       return VERROR;
    }
