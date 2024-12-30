@@ -211,12 +211,13 @@ help:
 	@echo ""
 
 install:
-	@systemctl stop mochimo.service
+	@getent passwd mcm >/dev/null || \
+	 useradd --no-create-home --system --shell /usr/sbin/nologin mcm
+	@systemctl status mochimo.service 2>/dev/nul && \
+	 systemctl stop mochimo.service || true
 	@mkdir -p /opt/mochimo/
 	@cp -r $(BINDIR)/* /opt/mochimo/
 	@chown -R mcm:mcm /opt/mochimo/
-	@getent passwd mcm > /dev/null || \
-	 useradd --no-create-home --system --shell /usr/sbin/nologin mcm
 	@cp .github/systemd/mochimo.service /etc/systemd/system/
 	@systemctl enable mochimo.service
 	@systemctl start mochimo.service
@@ -244,14 +245,16 @@ package-%:
 	@rm -r $(addprefix $*/,$(wildcard $(INCLUDEDIR)/**/.git*)) 2>/dev/null
 	@rm -r $(addprefix $*/,$(wildcard $(INCLUDEDIR)/**/docs)) 2>/dev/null
 	@sed -i 's/<no-ver>/$*/g' $*/GNUmakefile
+	@tar -czf $*.tar.gz $*
+	@rm -r $*
+	@echo && echo "Packaged to $*.tar.gz" && echo
 
 uninstall:
-	@systemctl stop mochimo.service
-	@systemctl disable mochimo.service
-	@rm /etc/systemd/system/mochimo.service
-	@rm -r /opt/mochimo/
-	@userdel mcm
-	@echo "Mochimo uninstalled."
+	@systemctl stop mochimo.service && systemctl disable mochimo.service && \
+	 rm /etc/systemd/system/mochimo.service || true
+	@rm -r /opt/mochimo/ || true
+	@userdel mcm || true
+	@echo && echo "Mochimo uninstalled." && echo
 
 ## ^^ END RECIPE CONFIGURATION ^^
 #################################
