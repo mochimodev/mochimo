@@ -138,58 +138,17 @@ static void tx__init(TXENTRY *tx, const void *opts)
 
 struct {
    word8 secret[32];
-   word8 public[32];
-   word8 adrs[32];
+   word8 public[2][32];
+   word8 adrs[2][32];
+   word8 tag[2][ADDR_TAG_LEN];
    word8 count[8];
    word8 idx[8];
    int active;
 } Txbot = {0};
 
-int tx_bot_activate(const char *filename)
-{
-   struct LEGACY_WOTS {
-      word8 addr[TXWOTSLEN];
-      word8 balance[8];
-      word8 secret[32];
-   } wots;
-
-   if (!fexists("txbot.dat")) {
-      if (filename == NULL) return VERROR;
-      pdebug("Converting LEGACY address for Txbot...");
-      /* obtain Txbot secret and pub_seed/adrs values */
-      if (read_data(&wots, sizeof(wots), (char *) filename) != sizeof(wots)) return VERROR;
-      /* move data to Txbot global */
-      memcpy(Txbot.secret, wots.secret, 32);
-      memcpy(Txbot.public, wots.addr + TXSIGLEN, 32);
-      memcpy(Txbot.adrs, wots.addr + TXSIGLEN + 32, 32);
-      /* write Txbot file back to disk */
-      pdebug("Writing Txbot...");
-      if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) return VERROR;
-   } else {
-      pdebug("Reading existing Txbot...");
-      if (read_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
-         return VEOK;
-      }
-   }
-
-   /* set Txbot option and continue */
-   Txbot.active = 1;
-
-   return VEOK;
-}
-
 int tx_bot_is_active(void)
 {
    return Txbot.active;
-}
-
-static void tx_bot_clear_private(word8 volatile *private)
-{
-   int i;
-
-   for (i = 0; i < HASHLEN; i++) {
-      private[i] = 0;
-   }
 }
 
 static void tx_bot_get_secret(word8 *secret, word8 *idx)
@@ -212,48 +171,108 @@ static void tx_bot_get_secret(word8 *secret, word8 *idx)
 static void tx_bot_get_addr(word8 *addr, word8 *secret, word8 *idx)
 {
    /* local copies */
-   word8 wots[TXWOTSLEN];
+   word8 wots[WOTS_ADDR_LEN];
    word8 private[32];
    word32 adrs[8];
-   int clear = 0;
+   int item;
+
+   item = (*idx) % 2;
 
    if (secret == NULL) {
       tx_bot_get_secret(private, idx);
       secret = private;
-      clear = 1;
    }
 
    /* update sacrificial adrs and generate public key */
-   memcpy(adrs, Txbot.adrs, HASHLEN);
-   wots_pkgen(wots, secret, Txbot.public, adrs);
+   memcpy(adrs, Txbot.adrs[item], HASHLEN);
+   wots_pkgen(wots, secret, Txbot.public[item], adrs);
    /* update full wots address and convert to hash based */
-   memcpy(wots + TXSIGLEN, Txbot.public, HASHLEN);
-   memcpy(wots + TXSIGLEN + HASHLEN, Txbot.adrs, HASHLEN);
-   addr_convert(wots, addr);
-   /* destroy private without compiler optimization */
-   if (clear) tx_bot_clear_private(private);
+   memcpy(wots + WOTS_PK_LEN, Txbot.public[item], HASHLEN);
+   memcpy(wots + WOTS_PK_LEN + HASHLEN, Txbot.adrs[item], HASHLEN);
+   addr_from_wots(wots, addr);
+}
+
+int tx_bot_activate(const char *filename)
+{
+   struct /* LEGACY_WOTS_EXPORT */ {
+      word8 addr[WOTS_ADDR_LEN];
+      word8 balance[8];
+      word8 secret[32];
+   } wots;
+   word8 addr[ADDR_LEN];
+
+   if (!fexists("txbot.dat")) {
+      if (filename == NULL) return VERROR;
+      pdebug("Converting LEGACY address for Txbot...");
+      /* obtain Txbot secret and pub_seed/adrs values */
+      if (read_data(&wots, sizeof(wots), (char *) filename) != sizeof(wots)) return VERROR;
+      if (WOTS_TAG_PTR(wots.addr)[0] != 0x42) {
+         perr("Legacy Tagged WOTS+ address not supported");
+         return VERROR;
+      }
+      /* move data to Txbot global */
+      memcpy(Txbot.secret, wots.secret, 32);
+      memcpy(Txbot.public[0], wots.addr + WOTS_PK_LEN, 32);
+      memcpy(Txbot.adrs[0], wots.addr + WOTS_PK_LEN + 32, 32);
+      /* generate appropriate tag (item 0) */
+      tx_bot_get_addr(addr, NULL, ZERO64);
+      memcpy(Txbot.tag[0], ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
+      /* expand secondary public and adrs items */
+      sha256(Txbot.public[0], 32, Txbot.public[1]);
+      sha256(Txbot.adrs[0], 32, Txbot.adrs[1]);
+      /* ... force WOTS+ default */
+      put32(Txbot.adrs[1] + 20, 0x42);
+      put32(Txbot.adrs[1] + 24, 0x0e);
+      put32(Txbot.adrs[1] + 28, 0x01);
+      /* generate appropriate tag (item 1) */
+      tx_bot_get_addr(addr, NULL, ONE64);
+      memcpy(Txbot.tag[1], ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
+      /* write Txbot file back to disk */
+      pdebug("Writing Txbot...");
+      if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) return VERROR;
+   } else {
+      pdebug("Reading existing Txbot...");
+      if (read_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
+         return VEOK;
+      }
+   }
+
+   /* set Txbot option and continue */
+   Txbot.active = 1;
+
+   return VEOK;
 }
 
 int tx_bot_process(void)
 {
    LENTRY le;
    NODE node;
-   TXQENTRY tx;
+   TXENTRY tx;
+   word8 src_addr[ADDR_LEN];
+   word8 chg_addr[ADDR_LEN];
    word8 hash[HASHLEN];
    word8 secret[HASHLEN];
    word32 adrs[8];
-   word16 len;
+
+   int item;
 
    /* zero transaction entry */
-   memset(&tx, 0, sizeof(TXQENTRY));
+   memset(&tx, 0, sizeof(TXENTRY));
+   item = (*Txbot.idx) % 2;
 
-   /* generate WOTS+ address for index... */
+   /* store source item, and secret for signature */
    tx_bot_get_secret(secret, Txbot.idx);
-   tx_bot_get_addr(tx.src_addr, secret, Txbot.idx);
-   /* ... hold onto secret until done */
-
+   /* generate src_addr */
+   tx_bot_get_addr(src_addr, secret, Txbot.idx);
+   memcpy(ADDR_TAG_PTR(src_addr), Txbot.tag[item], ADDR_TAG_LEN);
    /* check for available funds */
-   if (le_find(tx.src_addr, &le, TXADDRLEN) != 1) {
+   for (;;) {
+      /* ensure available funds in found addresses */
+      if (le_find(src_addr, &le, ADDR_LEN)) {
+         if (sub64(le.balance, MFEE64, le.balance) == 0) {
+            break;
+         }
+      }
       pdebug("No Txbot funds @ idx#%" P32u "...", get32(Txbot.idx));
       /* decrement index for next process iteration */
       if (sub64(Txbot.idx, ONE64, Txbot.idx)) {
@@ -267,56 +286,54 @@ int tx_bot_process(void)
    /* Txbot funds found */
    pdebug("Txbot funds found in %s...", hash2hex32(le.addr, NULL));
 
-   /* reduce balance by transaction fee */
-   if (sub64(le.balance, MFEE64, le.balance)) {
-      perr("Txbot balance insufficient");
+
+   /* generate chg_addr (+2) -- force tag */
+   add64(Txbot.idx, CL64_32(2), Txbot.idx);
+   tx_bot_get_addr(chg_addr, NULL, Txbot.idx);
+   memcpy(ADDR_TAG_PTR(chg_addr), Txbot.tag[item], ADDR_TAG_LEN);
+   /* update count if necessary */
+   if (cmp64(Txbot.count, Txbot.idx) < 0) {
+      put64(Txbot.count, Txbot.idx);
+   }
+
+   /* store current Txbot state */
+   if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
+      /* DO NOT PROCEED WITH TRANSACTION */
+      perr("write_data() FAILURE");
       goto DONE;
    }
 
-   /* increment Txbot counter */
-   add64(Txbot.count, ONE64, Txbot.count);
-   put64(Txbot.idx, Txbot.count);
-   if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
-      perr("write_data() FAILURE");
-      /* revert increment */
-      sub64(Txbot.count, ONE64, Txbot.count);
-      put64(Txbot.idx, Txbot.count);
-      goto DONE;
-   }
-   /* generate recipient address for index... */
-   tx_bot_get_addr(tx.dst_addr, NULL, Txbot.idx);
-   /* update amounts -- le.amount already reduced by fee */
-   put64(tx.send_total, le.balance);
+   /* set options and intialize transaction */
+   TXDSA_TYPE(tx.buffer) = TXDSA_WOTS;
+   TXDAT_TYPE(tx.buffer) = TXDAT_MDST;
+   tx__init(&tx, NULL);
+   /* build transaction -- le.amount already reduced by fee */
+   memcpy(tx.hdr->src_addr, src_addr, ADDR_LEN);
+   memcpy(tx.mdst[0].tag, Txbot.tag[item ^ 1], ADDR_TAG_LEN);
+   put64(tx.mdst[0].amount, le.balance);
+   memcpy(tx.hdr->chg_addr, chg_addr, ADDR_LEN);
+   put64(tx.hdr->send_total, le.balance);
    put64(tx.tx_fee, MFEE64);
    /* generate WOTS+ signature */
-   tx_hash(&tx, NULL, 0, hash);
-   memcpy(adrs, Txbot.adrs, HASHLEN);
-   wots_sign(tx.tx_sig, hash, secret, Txbot.public, adrs);
-   memcpy(tx.tx_seed, Txbot.public, HASHLEN);
-   memcpy(tx.tx_adrs, Txbot.adrs, HASHLEN);
-   /* ... force WOTS+ DSA Identifier */
-   put32(tx.tx_adrs + 20, 0x42);
-   put32(tx.tx_adrs + 24, 0x0e);
-   put32(tx.tx_adrs + 28, 0x01);
+   tx_hash(&tx, 0, hash);
+   memcpy(adrs, Txbot.adrs[item], 32);
+   wots_sign(tx.wots->signature, hash, secret, Txbot.public[item], adrs);
+   memcpy(tx.wots->pub_seed, Txbot.public[item], 32);
+   memcpy(tx.wots->adrs, Txbot.adrs[item], 32);
+   /* ... force WOTS+ default */
+   put32(tx.wots->adrs + 20, 0x42);
+   put32(tx.wots->adrs + 24, 0x0e);
+   put32(tx.wots->adrs + 28, 0x01);
 
    /* place transaction in empty NODE and process */
-   len = (word16) (sizeof(TXQENTRY) - 8 - HASHLEN);
    memset(&node, 0, sizeof(NODE));
-   memcpy(node.tx.buffer, &tx, len);
-   put16(node.tx.len, len);
+   memcpy(node.tx.buffer, &tx, TXLEN_MIN);
+   put16(node.tx.len, TXLEN_MIN);
    if (process_tx(&node) != VEOK) {
       perrno("Txbot transaction was not processed...");
-      /* revert increment */
-      sub64(Txbot.count, ONE64, Txbot.count);
-      put64(Txbot.idx, Txbot.count);
-      /* write to file */
-      write_data(&Txbot, sizeof(Txbot), "txbot.dat");
    }
 
 DONE:
-   /* destroy secret without compiler optimization */
-   tx_bot_clear_private(secret);
-
    return VEOK;
 }
 
