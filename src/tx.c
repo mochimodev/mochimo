@@ -1076,7 +1076,7 @@ pid_t mgc(word32 ip)
          if(search32(ip, (word32 *) mtx.weight, 8)) continue;
       }
       if(callserver(&node, ip) != VEOK) break;
-      memcpy(node.tx.buffer, mtx.buffer, sizeof(mtx.buffer));
+      memcpy(node.tx.buffer, mtx.buffer, get16(mtx.len));
       /* copy buffer length and ip address map to outgoing TX */
       memcpy(node.tx.weight, mtx.weight, 32);
       put16(node.tx.len, get16(mtx.len));
