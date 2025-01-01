@@ -413,6 +413,8 @@ int le_extract(const char *ngfile, const char *lefile)
       /* close files */
       fclose(lfp);
       fclose(fp);
+      lfp = NULL;
+      fp = NULL;
    } else {
       hdrlen -= 4;
       if (hdrlen % sizeof(WOTS_LENTRY) == 0) {
@@ -441,6 +443,8 @@ int le_extract(const char *ngfile, const char *lefile)
          /* close files */
          fclose(lfp);
          fclose(fp);
+         lfp = NULL;
+         fp = NULL;
          /* sort the resulting ledger file */
          if (filesort(lefile, sizeof(LENTRY), LEBUFSZ, addr_compare) != 0) {
             return VERROR;
@@ -462,6 +466,7 @@ int le_extract(const char *ngfile, const char *lefile)
             memcpy(paddr, le.addr, ADDR_LEN);
          }  /* end for() */
          fclose(lfp);
+         lfp = NULL;
       } else {
          set_errno(EMCM_HDRLEN);
          goto ERROR_CLEANUP;
@@ -477,8 +482,8 @@ RDERR_CLEANUP:
       set_errno(EMCM_EOF);
    }
 ERROR_CLEANUP:
-   fclose(lfp);
-   fclose(fp);
+   if (lfp) fclose(lfp);
+   if (fp) fclose(fp);
 
    return VERROR;
 }  /* end le_extract() */
