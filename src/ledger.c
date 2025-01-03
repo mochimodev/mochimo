@@ -352,6 +352,112 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
 }  /* end le_find() */
 
 /**
+ * Extract a ledger from a LEGACY neogenesis block. Checks sort.
+ * @note Due to nuances in v2.x ledger processing, this function uses an
+ * indirect extraction method whereby ledger entries are converted to
+ * ledger transaction credits ('A') before being updated in to a ledger.
+ * This process is ONLY designed for the the transition from WOTS+ to
+ * Hash-based ledger entries, and should otherwise be used with caution.
+ * @param ngfile Filename of the neo-genesis block
+ * @param lefile Filename of the ledger
+ * @return (int) value representing extraction result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+ */
+int le_extract_legacy(const char *ngfile, const char *lefile)
+{
+   WOTS_LENTRY lew;     /* buffer for WOTS+ ledger entries */
+   LTRAN lt;            /* buffer for ledger transactions */
+   FILE *fp = NULL;     /* block FILE pointer*/
+   FILE *ltfp = NULL;   /* ledger FILE pointer */
+   long long llen;
+   size_t j, lcount;
+   word32 hdrlen;
+   word8 prev[WOTS_ADDR_LEN]; /* sort check */
+
+   pdebug("le_extract_legacy() start...");
+
+   fp = ltfp = NULL;
+
+   /* open neogenesis */
+   fp = fopen(ngfile, "rb");
+   if (fp == NULL) return VERROR;
+   /* read hdrlen and find file length */
+   if (fread(&hdrlen, 4, 1, fp) != 1) goto RDERR_CLEANUP;
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   llen = ftell64(fp);
+   if (llen == (-1)) goto ERROR_CLEANUP;
+   /* check hdrlen (excl. trailer length) */
+   llen = llen - sizeof(BTRAILER);
+   if ((llen - hdrlen) != 0) {
+      set_errno(EMCM_HDRLEN);
+      goto ERROR_CLEANUP;
+   }
+   /* check ledger data (excl. header+trailer length) */
+   llen = llen - 4LL;
+   if ((llen - sizeof(WOTS_LENTRY)) <= 0 || llen % sizeof(WOTS_LENTRY)) {
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
+   }
+
+   /* open temp ltran */
+   ltfp = fopen("ltran.tmp", "wb");
+   /* process ledger data from fp, check sort, write to ltran.tmp */
+   if (fseek64(fp, 4LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   lcount = llen / sizeof(WOTS_LENTRY);
+   for (j = 0; j < lcount; j++) {
+      if (fread(&lew, sizeof(WOTS_LENTRY), 1, fp) != 1) {
+         goto RDERR_CLEANUP;
+      }
+      /* check ledger sort */
+      if (j > 0 && memcmp(lew.addr, prev, WOTS_ADDR_LEN) <= 0) {
+         set_errno(EMCM_LESORT);
+         goto ERROR_CLEANUP;
+      }
+      /* store entry for comparison */
+      memcpy(prev, lew.addr, WOTS_ADDR_LEN);
+      /* convert WOTS+ to hash -- copy balance for credit 'A' */
+      addr_from_wots(lew.addr, lt.addr);
+      lt.trancode[0] = 'A';
+      put64(lt.amount, lew.balance);
+      /* write hashed ledger transaction to ltran file */
+      if (fwrite(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
+         goto ERROR_CLEANUP;
+      }
+   }  /* end for() */
+   fclose(ltfp);
+   fclose(fp);
+   ltfp = NULL;
+   fp = NULL;
+
+   /* process ledger transactions into empty ledger file */
+   le_close();
+   Lefp = tmpfile();
+   strncpy(Lefile, lefile, sizeof(Lefile) - 1);
+   if (le_update("ltran.tmp") != VEOK) {
+      return VERROR;
+   }
+
+   /* ledger extracted */
+   remove("ltran.tmp");
+   return VEOK;
+
+   /* cleanup / error handling */
+RDERR_CLEANUP:
+   if (!ferror(fp)) {
+      set_errno(EMCM_EOF);
+   }
+ERROR_CLEANUP:
+   if (ltfp) {
+      remove("ltran.tmp");
+      fclose(ltfp);
+   }
+   if (fp) fclose(fp);
+
+   return VERROR;
+}  /* end le_extract_legacy() */
+
+/**
  * Extract a ledger from a neo-genesis block. Checks sort.
  * @param ngfile Filename of the neo-genesis block
  * @param lefile Filename of the ledger
@@ -361,114 +467,59 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
 */
 int le_extract(const char *ngfile, const char *lefile)
 {
-   WOTS_LENTRY lew;           /* buffer for WOTS+ ledger entries */
    LENTRY le;              /* buffer for Hashed ledger entries */
    NGHEADER ngh;           /* buffer for neo-genesis header */
-   FILE *fp, *lfp;         /* FILE pointers */
-   word8 paddr[ADDR_LEN]; /* ledger address sort check */
-   word64 lbytes;
+   FILE *fp = NULL;        /* block FILE pointer*/
+   FILE *lfp = NULL;       /* ledger FILE pointer */
+   long long llen, lbytes;
    size_t j, lcount;
-   word32 hdrlen;
+   word8 prev[ADDR_LEN];   /* ledger address sort check */
 
-   /* open files */
+   /* open neogensis file */
    fp = fopen(ngfile, "rb");
    if (fp == NULL) return VERROR;
+   /* check header data */
+   if (fread(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+   if (get32(ngh.hdrlen) != sizeof(NGHEADER)) {
+      set_errno(EMCM_HDRLEN);
+      goto ERROR_CLEANUP;
+   }
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   llen = ftell64(fp);
+   if (llen == (-1)) goto ERROR_CLEANUP;
+   /* check ledger data (excl. header+trailer length) */
+   llen = llen - sizeof(NGHEADER) - sizeof(BTRAILER);
+   put64(&lbytes, ngh.lbytes);
+   if ((lbytes - sizeof(LENTRY)) <= 0 || lbytes % sizeof(LENTRY) || \
+         lbytes != llen) {
+      set_errno(EMCM_FILEDATA);
+      goto ERROR_CLEANUP;
+   }
+
+   /* open output ledger file */
    lfp = fopen(lefile, "wb");
    if (lfp == NULL) {
       fclose(fp);
       return VERROR;
    }
-   /* read hdrlen and determine NGHEADER or LEGACY processing */
-   if (fread(&hdrlen, 4, 1, fp) != 1) goto RDERR_CLEANUP;
-   if (hdrlen == sizeof(NGHEADER)) {
-      pdebug("Processing NGHEADER neo-genesis block...\n");
-      /* read/check neo-genesis block header */
-      if (fseek64(fp, 0LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
-      if (fread(&ngh, sizeof(NGHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
-      if (get32(ngh.hdrlen) != sizeof(NGHEADER)) {
-         set_errno(EMCM_HDRLEN);
+
+   /* process ledger data from fp, check sort, write to lfp */
+   if (fseek64(fp, get32(ngh.hdrlen), SEEK_SET) != 0) goto ERROR_CLEANUP;
+   lcount = (size_t) lbytes / sizeof(LENTRY);
+   for (j = 0; j < lcount; j++) {
+      if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
+      /* check ledger sort */
+      if (j > 0 && addr_compare(le.addr, prev) <= 0) {
+         set_errno(EMCM_LESORT);
          goto ERROR_CLEANUP;
       }
-      put64(&lbytes, ngh.lbytes);
-      if (lbytes < sizeof(LENTRY) || lbytes % sizeof(LENTRY) != 0) {
-         set_errno(EMCM_FILEDATA);
-         goto ERROR_CLEANUP;
-      }
-      /* process ledger data from fp, check sort, write to lfp */
-      for (lcount = lbytes / sizeof(LENTRY), j = 0; j < lcount; j++) {
-         if (fread(&le, sizeof(LENTRY), 1, fp) != 1) goto RDERR_CLEANUP;
-         /* check ledger sort */
-         if (j > 0 && addr_compare(le.addr, paddr) <= 0) {
-            set_errno(EMCM_LESORT);
-            goto ERROR_CLEANUP;
-         }
-         /* store entry for comparison */
-         memcpy(paddr, le.addr, sizeof(le.addr));
-         /* write hashed ledger entries to ledger file */
-         if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
-      }  /* end for() */
-      /* close files */
-      fclose(lfp);
-      fclose(fp);
-      lfp = NULL;
-      fp = NULL;
-   } else {
-      hdrlen -= 4;
-      if (hdrlen % sizeof(WOTS_LENTRY) == 0) {
-         pdebug("Processing LEGACY neo-genesis block...\n");
-         /* LEGACY (NEO)GENESIS BLOCK PROCESSING... */
-         word8 waddr[WOTS_ADDR_LEN]; /* ledger address sort check */
-         /* process ledger data from fp, check sort, write to lfp */
-         lcount = hdrlen / sizeof(WOTS_LENTRY);
-         for (j = 0; j < lcount; j++) {
-            if (fread(&lew, sizeof(WOTS_LENTRY), 1, fp) != 1) {
-               goto RDERR_CLEANUP;
-            }
-            /* check ledger sort */
-            if (j > 0 && memcmp(lew.addr, waddr, WOTS_ADDR_LEN) <= 0) {
-               set_errno(EMCM_LESORT);
-               goto ERROR_CLEANUP;
-            }
-            /* store entry for comparison */
-            memcpy(waddr, lew.addr, WOTS_ADDR_LEN);
-            /* convert WOTS+ to hash -- copy tag and balance */
-            addr_from_wots(lew.addr, le.addr);
-            put64(le.balance, lew.balance);
-            /* write hashed ledger entries to ledger file */
-            if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
-         }  /* end for() */
-         /* close files */
-         fclose(lfp);
-         fclose(fp);
-         lfp = NULL;
-         fp = NULL;
-         /* sort the resulting ledger file */
-         if (filesort(lefile, sizeof(LENTRY), LEBUFSZ, addr_compare) != 0) {
-            return VERROR;
-         }
-         /* re-open for duplicate check */
-         lfp = fopen(lefile, "rb");
-         if (lfp == NULL) return VERROR;
-         /* (re)process ledger entries to check sort */
-         for (j = 0; j < lcount; j++) {
-            if (fread(&le, sizeof(LENTRY), 1, lfp) != 1) {
-               goto RDERR_CLEANUP;
-            }
-            /* check ledger sort, tags are ascending and unique */
-            if (j > 0 && memcmp(le.addr, paddr, ADDR_TAG_LEN) <= 0) {
-               set_errno(EMCM_LESORT);
-               goto ERROR_CLEANUP;
-            }
-            /* store entry for comparison */
-            memcpy(paddr, le.addr, ADDR_LEN);
-         }  /* end for() */
-         fclose(lfp);
-         lfp = NULL;
-      } else {
-         set_errno(EMCM_HDRLEN);
-         goto ERROR_CLEANUP;
-      }
-   }
+      /* store entry for comparison */
+      memcpy(prev, le.addr, sizeof(le.addr));
+      /* write hashed ledger entries to ledger file */
+      if (fwrite(&le, sizeof(LENTRY), 1, lfp) != 1) goto ERROR_CLEANUP;
+   }  /* end for() */
+   fclose(lfp);
+   fclose(fp);
 
    /* ledger extracted */
    return VEOK;
@@ -522,8 +573,10 @@ int le_update(const char *ltfname)
    /* fseek and read initial ledger entry */
    if (fseek64(lefp, 0LL, SEEK_SET) != 0) return VERROR;
    if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
-      if (!ferror(lefp)) set_errno(EMCM_EOF);
-      return VERROR;
+      if (ferror(lefp)) return VERROR;
+      /* allow empty ledger file */
+      fclose(lefp);
+      lefp = NULL;
    }
    /* open and read initial ledger transaction */
    ltfp = fopen(ltfname, "rb");
