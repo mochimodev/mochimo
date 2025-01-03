@@ -274,7 +274,12 @@ int le_open(const char *lefile)
    Lefp = fp;
    /* update static ledger unit values */
    Nledger = offset / sizeof(LENTRY);
-   strncpy(Lefile, lefile, sizeof(Lefile) - 1);
+   if (Lefile != lefile) {
+      /* ... C standard states that the behavior of strcpy is undefined
+       * when the source and destination objects overlap
+       */
+      strncpy(Lefile, lefile, sizeof(Lefile) - 1);
+   }
 
    return VEOK;
 
@@ -567,10 +572,11 @@ int le_update(const char *ltfname)
    if (ecode != 0) return VERROR;
 
    /* init for error handling */
-   fp = ltfp = NULL;
-   lefp = Lefp;
+   fp = lefp = ltfp = NULL;
 
-   /* fseek and read initial ledger entry */
+   /* open and read initial ledger entry */
+   lefp = fopen(Lefile, "rb");
+   if (lefp == NULL) return VERROR;
    if (fseek64(lefp, 0LL, SEEK_SET) != 0) return VERROR;
    if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
       if (ferror(lefp)) return VERROR;
