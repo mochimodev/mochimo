@@ -113,19 +113,16 @@ void addr_hash_generate(const void *in, size_t inlen, void *out)
  */
 void addr_from_wots(const void *wots, void *addr)
 {
-   const word32 default_tag[] = { 0x42, 0x0e, 0x01 };
+   word8 hash[ADDR_HASH_LEN];
 
-   addr_hash_generate(wots, WOTS_PK_LEN, ADDR_HASH_PTR(addr));
+   /* ... originally, pre-v3.0 vanity tags were intended to carry over
+    * to the new addresses; however due to the incompatibility of
+    * vanity tags with implicit addresses, as well as some legacy
+    * nuances, all addresses will be converted to implicit addresses
+    */
 
-   /* legacy "default tags" require explicit tagging */
-   if (memcmp(WOTS_TAG_PTR(wots), default_tag, WOTS_TAG_LEN) == 0) {
-      memcpy(ADDR_TAG_PTR(addr), ADDR_HASH_PTR(addr), ADDR_HASH_LEN);
-      return;
-   }
-
-   /* ... otherwise, copy legacy tags (append zeros to fill) */
-   memcpy(ADDR_TAG_PTR(addr), WOTS_TAG_PTR(wots), WOTS_TAG_LEN);
-   memset(ADDR_TAG_PTR(addr) + WOTS_TAG_LEN, 0, ADDR_HASH_LEN - WOTS_TAG_LEN);
+   addr_hash_generate(wots, WOTS_PK_LEN, hash);
+   addr_from_implicit(hash, addr);
 }  /* end addr_from_wots() */
 
 /**
