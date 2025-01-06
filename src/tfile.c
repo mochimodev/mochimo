@@ -144,16 +144,48 @@ ERROR_CLEANUP:
 
 /**
  * Compute mining reward for a specified block number.
- * It is a function of block number:
+ * As of version 3, this function targets a total supply of
+ * 2 ^ 56 (~72M) coins at block number 6422560, where the reward
+ * is fixed to 1000000000 for all proceeding rewards.
+ * The reward distribution is as follows:
  * @code
  * +------------------+---------------------------------------+
  * | Block Number (n) | Reward                                |
  * +------------------+---------------------------------------+
  * | 0 - 17184        | 5000000000 + (56000 * n)              |
  * | 17185 - 373760   | 5917392000 + (150000 * (n - 0x4321))  |
- * | 373761 - 2097152 | 59523942000 - (28488 * (n - 0x5b401)) |
+ * | 373761 - 655360  | 59523942000 - (28488 * (n - 0x5b401)) |
+ * | 655361 - 6422560 | 12938103399 - (2070 * (n - 0xa0000))  |
+ * | 6422560 - ...    | 1000000000                            |
  * +------------------+---------------------------------------+
  * @endcode
+ * @note While in some form or another the target supply has always
+ * been 2^56 (~72M) coins, initially this included the premine, but
+ * for various changes over the history of the network, it did not.
+ * Version 3.x of the network, reverts the reward distribution back
+ * to the intended target supply of 2^56 coins, including premine.
+ * The process of determining the parameters to achieve this target
+ * supply is no more than simple algebraic manipulation of the Sum
+ * of an Arithmetic Sequence formula... followed by some dark arts.
+ * The formula for the sum of an arithmetic sequence is:
+ *    Sn = n(A1 + An)/2
+ * where Sn is the sum of the sequence,
+ *       n is the number of rewards for the sequence,
+ *       A1 is the first reward in the sequence, and
+ *       An is the n-th reward in the sequence.
+ * Using the existing parameters, one can determine the total supply
+ * at any given block number, subtract this supply from the desired
+ * total supply, and use the result as the desired Sum (Sn). Assuming
+ * the n-th reward (An) and distribution length (n) are known, one
+ * can solve for the first reward (A1) and subsequent reward deltas
+ * for a "close enough" parameter set to achieve the desired total
+ * supply. The "dark arts" come in when one realizes that neogenesis
+ * blocks negatively affect the accuracy of this method. By removing
+ * the neogenesis blocks from the n parameter, one can achieve a more
+ * accurate result, but still non-exact result, which is then further
+ * adjusted manually to achieve the desired total supply. It's likely
+ * there is an exact solution to this problem that does not require
+ * such "dark arts", but it is beyond the scope of this documentation.
  * @param reward Pointer to place block reward
  * @param bnum Block number to calculate reward for
  */
@@ -163,14 +195,14 @@ void get_mreward(word8 reward[8], const word8 bnum[8])
    const word32 base1[2] = { 0x2a05f200, 1 };     /* base  5000000000 */
    const word32 base2[2] = { 0x60b43c80, 1 };     /* base  5917392000 */
    const word32 base3[2] = { 0xdbe74670, 0x0d };  /* base 59523942000 */
-   const word32 base4[2] = { 0x0d7aca00, 0x03 };  /* base 13111052800 */
+   const word32 base4[2] = { 0x032bca67, 0x03 };  /* base 12938103399 */
    const word32 t1[2] =  { V20TRIGGER, 0 };  /* v2.0 block (17185) */
    const word32 t2[2] =  { MIDTRIGGER, 0 };  /* mid block (373761) */
    const word32 t3[2] =  { V30TRIGGER, 0 };  /* v3.0 block (655360) */
    const word32 delta1[2] = { 56000, 0 };    /* increment (pre-v2.0) */
    const word32 delta2[2] = { 150000, 0 };   /* increment */
    const word32 delta3[2] = { 28488, 0 };    /* decrement */
-   const word32 delta4[2] = { 2100 , 0 };    /* decrement */
+   const word32 delta4[2] = { 2070 , 0 };    /* decrement */
    word8 bnum2[8];
    int fix = 0;
 
