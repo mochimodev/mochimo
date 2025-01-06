@@ -79,6 +79,19 @@ int append_tfile(const BTRAILER *bt, size_t count, const char *tfile)
 }
 
 /**
+ * Compute the bridge time for a specified block number.
+ * @param bnum Block number to calculate bridge time for
+ * @return (word32) value representing bridge time
+ */
+word32 get_bridge(const void *bnum)
+{
+   /* pre-V30TRIGGER BRIDGE time */
+   if (bnum && cmp64(bnum, V30TRIGGER) < 0) return 949;
+   /* post-V30TRIGGER BRIDGE time */
+   return 238;
+}
+
+/**
  * Compute the sum of block rewards represented by a Tfile. Only trailers
  * with a non-zero transaction count are added to the rewards sum. A block
  * number may be specified to limit the reward sum.
@@ -146,19 +159,23 @@ ERROR_CLEANUP:
  */
 void get_mreward(word8 reward[8], const word8 bnum[8])
 {
+   const word32 final[2] = { 0x3b9aca00, 0 };     /* final 1000000000 */
    const word32 base1[2] = { 0x2a05f200, 1 };     /* base  5000000000 */
    const word32 base2[2] = { 0x60b43c80, 1 };     /* base  5917392000 */
    const word32 base3[2] = { 0xdbe74670, 0x0d };  /* base 59523942000 */
-   const word32 t1[2] =  { 0x4321, 0 };      /* v2.0 block (17185) */
-   const word32 t2[2] =  { 0x5b401, 0 };     /* mid block (373761) */
-   const word32 t3[2] =  { 0x200000, 0 };    /* final block (2097152) */
+   const word32 base4[2] = { 0x0d7aca00, 0x03 };  /* base 13111052800 */
+   const word32 t1[2] =  { V20TRIGGER, 0 };  /* v2.0 block (17185) */
+   const word32 t2[2] =  { MIDTRIGGER, 0 };  /* mid block (373761) */
+   const word32 t3[2] =  { V30TRIGGER, 0 };  /* v3.0 block (655360) */
    const word32 delta1[2] = { 56000, 0 };    /* increment (pre-v2.0) */
    const word32 delta2[2] = { 150000, 0 };   /* increment */
    const word32 delta3[2] = { 28488, 0 };    /* decrement */
+   const word32 delta4[2] = { 2100 , 0 };    /* decrement */
    word8 bnum2[8];
+   int fix = 0;
 
-   if(cmp64(bnum, t1) < 0) {
-      /* bnum < 17185 */
+   if (cmp64(bnum, t1) < 0) {
+      /* v1.x.x reward incrementing */
       if(sub64(bnum, ONE64, bnum2)) {
          /* underflow, no reward */
          memset(reward, 0, 8);
@@ -167,19 +184,27 @@ void get_mreward(word8 reward[8], const word8 bnum[8])
          add64(reward, base1, reward);
       }
    } else if(cmp64(bnum, t2) < 0) {
-      /* first 4 years (excl. bnum[0... 17184]) */
+      /* v2.x.x reward incrementing */
       sub64(bnum, t1, bnum2);
       mult64(delta2, bnum2, reward);
       add64(reward, base2, reward);
    } else if(cmp64(bnum, t3) <= 0) {
-      /* last 18 years */
+      /* v2.x reward decrementing */
       sub64(bnum, t2, bnum2);
       mult64(delta3, bnum2, reward);
       if(sub64(base3, reward, reward)) {
          /* underflow, no reward */
          memset(reward, 0, 8);
       }
-   } else memset(reward, 0, 8);
+   } else {
+      /* v3.x.x reward decrementing */
+      sub64(bnum, t3, bnum2);
+      if (mult64(delta4, bnum2, reward)) fix = 1;
+      else if (sub64(base4, reward, reward)) fix = 1;
+      if (fix || cmp64(reward, final) < 0) {
+         memcpy(reward, final, 8);
+      }
+   }
 }  /* end get_mreward() */
 
 /**
@@ -285,24 +310,25 @@ ERROR_CLEANUP:
 /**
  * Compute the difficulty of the next block, given the previous trailer.
  * NOTE: hash is set to 0 for old algorithm.
- * NOTE: seconds is 32-bit signed, stime and bnum are from block trailer.
+ * NOTE: seconds is intentionally 32-bit signed.
  * @param bt Pointer to previous Block Trailer
  * @return (word32) value representing the next difficulty
  */
 word32 next_difficulty(const BTRAILER *bt)
 {
-   word32 hash;
+   word32 hash = 0;
    word32 stime = get32(bt->stime);
    word32 difficulty = get32(bt->difficulty);
-   int seconds = stime - get32(bt->time0);
+   int seconds = (int) stime - get32(bt->time0);
    int highsolve = 284;
    int lowsolve = 143;
 
-   /* Change V20TRIGGER to a non-NG block number trigger for new algorithm. */
+/* LEGACY ALGORITHM (reference only)
+
    const word32 trigger_block[2] = { V20TRIGGER };
    const word32 fix_trigger[2] = { V2001PATCH };
 
-   /* I fear no man. But that thing... */
+      I fear no man. But that thing...
 
    if(seconds < 0) return difficulty;
    if(cmp64(bt->bnum, trigger_block) < 0){
@@ -321,7 +347,38 @@ word32 next_difficulty(const BTRAILER *bt)
          difficulty++;
    }
 
-   /* ... it scares me. */
+      ... it scares me.
+
+   */
+
+   /* EPOCHALYPSE HANDLER */
+   if (seconds < 0) return difficulty;
+
+   if (cmp64(bt->bnum, CL64_32(V30TRIGGER)) >= 0) {
+      highsolve = 138;
+      lowsolve = 69;
+   } else if (cmp64(bt->bnum, CL64_32(V20TRIGGER)) >= 0) {
+      /* ... fear makes strangers of people who would be friends ... */
+      if (cmp64(bt->bnum, CL64_32(V2001PATCH)) <= 0) {
+         hash = (stime >> 6) ^ stime;
+      }
+      highsolve = 284;
+      lowsolve = 143;
+   } else {
+      highsolve = 506;
+      lowsolve = 253;
+   }
+
+   if (seconds > highsolve) {
+      if (difficulty > 0) {
+         if (hash & 1) difficulty--;
+         difficulty--;
+      }
+   } else if(seconds < lowsolve) {
+      if ((hash & 3) == 0 && difficulty < 255) {
+         difficulty++;
+      }
+   }
 
    return difficulty;
 }  /* next_difficulty() */
@@ -578,7 +635,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
          /* ... PSEUDOBLOCK ONLY */
 
          /* check times of trouble... must equal BRIDGE seconds */
-         if ((word32) (stime - time0) != BRIDGE) goto BAD_STIME;
+         if ((word32) (stime - time0) != get_bridge(bnum)) goto BAD_STIME;
          /* ... word32 boundary handles an Epochalypse event */
          /* check mroot is zero'd */
          if (!iszero(bt->mroot, HASHLEN)) {
@@ -600,7 +657,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
          if (cmp64(bnum, CL64_32(0x1b6ff)) > 0 || (bnum[0] != 0xff
                && cmp64(bnum, CL64_32(V23TRIGGER)) > 0)) {
             /* check block time does not exceed BRIDGE seconds */
-            if ((word32) (stime - time0) > BRIDGE) goto BAD_STIME;
+            if ((word32) (stime - time0) > get_bridge(bnum)) goto BAD_STIME;
             /* ... word32 boundary handles an Epochalypse event */
          }
       }

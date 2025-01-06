@@ -44,7 +44,7 @@
 #define TPLISTLEN    32       /**< trusted peer list */
 #define CRCLISTLEN   1024     /**< recent tx crc's */
 #define MAXQUORUM    16       /**< for init */
-#define BCONFREQ     10       /**< Run con at least */
+#define BCONFREQ     3        /**< Run con at least */
 #define CBITS        0        /**< 8 capability bits for TX */
 #define MFEE         500
 
@@ -181,13 +181,8 @@
 #define V2001PATCH 0x4521  /* v2.0.1 difficulty patch */
 #define V23TRIGGER 0xd431  /* v2.3 pseudoblocks */
 #define V24TRIGGER 0x12851 /* v2.4 FPGA-Tough PoW algo */
+#define MIDTRIGGER 0x5b401 /* peak mining reward */
 #define V30TRIGGER 0xa0000 /* v3.0 blockchain reboot (MUST BE NEOGEN) */
-#define BRIDGE     949     /* Trouble time -- Edit for testing */
-
-/* break point trigger detection MACROs */
-#define NEWYEAR(bnum) ( get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0 )
-#define WATCHTIME  (BRIDGE*4+1)  /* minimum watchdog time */
-#define TIMES_OF_TROUBLE(bnum) NEWYEAR(bnum)
 
 /**
  * Capability bit for candidate block pushing nodes. Indicates the

@@ -31,6 +31,7 @@ extern "C" {
 
 void add_weight(word8 weight[32], word8 difficulty);
 int append_tfile(const BTRAILER *bt, size_t count, const char *file);
+word32 get_bridge(const void *bnum);
 void get_mreward(word8 reward[8], const word8 bnum[8]);
 int get_tfrewards(const char *tfile, word8 rewards[8], const word8 bnum[8]);
 void merkle_root(const word8 *hashlist, size_t count, word8 *root);

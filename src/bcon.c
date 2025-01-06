@@ -85,7 +85,7 @@ int pseudo(const char *output)
    put32(bt.difficulty, Difficulty);
    /* ... bt.mroot left zero'd (empty block) */
    /* ... bt.nonce left zero'd (solve abandoned) */
-   put32(bt.stime, Time0 + BRIDGE);
+   put32(bt.stime, Time0 + get_bridge(bt.bnum));
    /* compute pseudo-block hash directly into block trailer */
    sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
 
