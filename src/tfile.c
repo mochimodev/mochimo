@@ -632,7 +632,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
    }
 
    /* check hash is valid for version 3.0 blocks */
-   if (cmp64(bnum, CL64_32(V30TRIGGER)) > 0) {
+   if (cmp64(bnum, CL64_32(V30TRIGGER)) >= 0) {
       sha256(bt, sizeof(BTRAILER) - HASHLEN, hash);
       if (memcmp(hash, bt->bhash, HASHLEN) != 0) {
          set_errno(EMCM_BHASH);

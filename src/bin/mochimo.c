@@ -509,7 +509,7 @@ int init(void)
          if (!Running) return VERROR;
       }
       /* ... v3.0 blockchain file (neogen) */
-      bnum2fname(CL64_32(V30TRIGGER + 1), bcfname);
+      bnum2fname(CL64_32(V30TRIGGER), bcfname);
       path_join(copyfile, dir, "v3", bcfname);
       path_join(fname, Bcdir, bcfname);
       plog("Waiting for %s...", copyfile);
@@ -570,8 +570,8 @@ int init(void)
          }
       }  /* end v3.0 ledger conversion */
 
-      /* trim the Tfile to trigger block */
-      if (trim_tfile("tfile.dat", CL64_32(V30TRIGGER)) != VEOK) {
+      /* prep the Tfile for v3 transition */
+      if (trim_tfile("tfile.dat", CL64_32(V30TRIGGER - 1)) != VEOK) {
          perrno("trim_tfile(v3) FAILURE");
          return VERROR;
       }

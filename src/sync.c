@@ -210,12 +210,11 @@ int catchup(word32 plist[], word32 count)
  * Returns VEOK on success, else restarts. */
 int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 {
-   const word32 v3bnum_trigger[2] = { V30TRIGGER };
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN];
 
    /* resync from quorum bnum must be higher than V30TRIGGER */
-   if (cmp64(highbnum, v3bnum_trigger) <= 0) {
+   if (cmp64(highbnum, CL64_32(V30TRIGGER)) < 0) {
       perr("V30TRIGGER bnum not met, cannot resync");
       return VERROR;
    }
@@ -258,9 +257,9 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    /* determine starting neo-genesis block -- bump to V30TRIGGER */
    put64(bnum, highbnum); bnum[0] = 0;
    if (sub64(bnum, CL64_32(0x100), bnum)) memset(bnum, 0, 8);
-   if (cmp64(bnum, v3bnum_trigger) <= 0) {
+   if (cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
       pwarn("bumping neo-genesis block to V30TRIGGER");
-      put64(bnum, v3bnum_trigger);
+      put64(bnum, CL64_32(V30TRIGGER));
    }
    pdebug("neo-genesis block 0x%s", bnum2hex(bnum, NULL));
    /* trim the tfile back to the neo-genesis block and close the ledger */
