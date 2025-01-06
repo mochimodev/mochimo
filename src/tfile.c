@@ -86,7 +86,9 @@ int append_tfile(const BTRAILER *bt, size_t count, const char *tfile)
 word32 get_bridge(const void *bnum)
 {
    /* pre-V30TRIGGER BRIDGE time */
-   if (bnum && cmp64(bnum, V30TRIGGER) < 0) return 949;
+   if (bnum && cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
+      return 949;
+   }
    /* post-V30TRIGGER BRIDGE time */
    return 238;
 }
