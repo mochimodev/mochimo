@@ -293,7 +293,6 @@ void monitor(void)
 int update_file(const char *dstfile, const char *srcfile, int force)
 {
    if (!fexists((char *) dstfile) || force) {
-      pdebug("updating %s from %s", dstfile, srcfile);
       return fcopy((char *) srcfile, (char *) dstfile);
    }
    return VEOK;
@@ -486,9 +485,10 @@ int init(void)
 
    /* check state of v3.0 reboot */
    if (cmp64(Cblocknum, CL64_32(V30TRIGGER)) < 0) {
-      /* legacy neogenesis block is reconstructed by extracting the
-      * ledger data with le_extract() (handles both block types)
-      * and rebuilding the block with neogen().
+      /* Legacy neogenesis blocks are reconstructed by converting the
+      * ledger data with le_extract_legacy(), rebuilding the neogenesis
+      * block with neogen(), and re-extracting the converted ledger data
+      * with le_extract(). An appropriate Tfile is also required.
       */
 
       /* verify reboot files... */
@@ -537,13 +537,18 @@ int init(void)
       fclose(fp);
 
       /* perform ledger extraction (compatible with legacy blocks) */
+      plog("Extracting Ledger data...");
       if (le_extract(fname, "ledger.dat") != VEOK) {
-         perrno("le_extract(v3) FAILURE");
-         return VERROR;
-      }
+         if (errno != EMCM_HDRLEN) {
+            perrno("le_extract(v3) FAILURE");
+            return VERROR;
+         }
+         plog("... trying LEGACY extraction procedure");
+         if (le_extract_legacy(fname, "ledger.dat") != VEOK) {
+            perrno("le_extract_legacy() FAILURE");
+            return VERROR;
+         }
 
-      /* check if ledger conversion is required */
-      if (hdrlen != sizeof(NGHEADER)) {
          /* read and modify trailer data for neogen() as "previous" data...
          * NOTE: Why? "previous" data MAY NOT be available for fresh start.
          */
@@ -560,6 +565,11 @@ int init(void)
          /* reconstruct v3 neogenesis block */
          if (neogen(&bt, "ledger.dat", "ngblock.dat") != VEOK) {
             perrno("neogen(v3) FAILURE");
+            return VERROR;
+         }
+         /* re-extract ledger (MUST OCCUR TO RECHECK SORT) */
+         if (le_extract("ngblock.dat", "ledger.dat") != VEOK) {
+            perrno("le_extract(v3) FAILURE");
             return VERROR;
          }
          /* replace old neogenesis block */
