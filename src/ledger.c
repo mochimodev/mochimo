@@ -32,7 +32,7 @@ typedef struct {
 
 static FILE *Lefp;
 static long long Nledger;
-static char Lefile[FILENAME_MAX];
+static char Lefile[FILENAME_MAX] = "ledger.dat";
 word32 Sanctuary;
 word32 Lastday;
 
