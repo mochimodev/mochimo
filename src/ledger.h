@@ -40,7 +40,7 @@ int addr_tag_equal(const void *a, const void *b);
 int addr_tag_readfile(void *tag, const char *filename);
 int le_open(const char *lefile);
 void le_close(void);
-int le_extract_legacy(const char *ngfile, const char *lefile);
+int le_extract_legacy(const char *ngfile);
 int le_extract(const char *ngfile, const char *lefile);
 int le_find(const word8 *addr, LENTRY *le, word16 len);
 int le_renew(void);

@@ -544,7 +544,7 @@ int init(void)
             return VERROR;
          }
          plog("... trying LEGACY extraction procedure");
-         if (le_extract_legacy(fname, "ledger.dat") != VEOK) {
+         if (le_extract_legacy(fname) != VEOK) {
             perrno("le_extract_legacy() FAILURE");
             return VERROR;
          }

@@ -369,7 +369,7 @@ int le_find(const word8 *addr, LENTRY *le, word16 len)
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-int le_extract_legacy(const char *ngfile, const char *lefile)
+int le_extract_legacy(const char *ngfile)
 {
    WOTS_LENTRY lew;     /* buffer for WOTS+ ledger entries */
    LTRAN lt;            /* buffer for ledger transactions */
@@ -438,7 +438,6 @@ int le_extract_legacy(const char *ngfile, const char *lefile)
    /* process ledger transactions into empty ledger file */
    le_close();
    Lefp = tmpfile();
-   strncpy(Lefile, lefile, sizeof(Lefile) - 1);
    if (le_update("ltran.tmp") != VEOK) {
       return VERROR;
    }
@@ -572,16 +571,15 @@ int le_update(const char *ltfname)
    if (ecode != 0) return VERROR;
 
    /* init for error handling */
-   fp = lefp = ltfp = NULL;
+   fp = ltfp = NULL;
 
-   /* open and read initial ledger entry */
-   lefp = fopen(Lefile, "rb");
+   /* "borrow" existing ledger file pointer */
+   lefp = Lefp;
    if (lefp == NULL) return VERROR;
    if (fseek64(lefp, 0LL, SEEK_SET) != 0) return VERROR;
    if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
       if (ferror(lefp)) return VERROR;
       /* allow empty ledger file */
-      fclose(lefp);
       lefp = NULL;
    }
    /* open and read initial ledger transaction */
