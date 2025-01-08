@@ -959,7 +959,9 @@ int server(int reuse_addr)
          /* perform passive mining once every second */
          if (peach_solve(&bt, bt.difficulty[0], bt.nonce) == VEOK) {
             /* record solve time and hash block trailer */
-            put32(bt.stime, (word32) time(NULL));
+            if (get32(bt.time0) == (word32) time(NULL)) {
+               put32(bt.stime, (word32) time(NULL) + 1);
+            } else put32(bt.stime, (word32) time(NULL));
             sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
             /* rewrite block trailer to disk */
             fp = fopen("cblock.dat", "r+b");
