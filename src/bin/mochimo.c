@@ -660,7 +660,7 @@ int server(int reuse_addr)
    Ltime = time(NULL);      /* real time GMT in seconds */
    Stime = Ltime + 10;      /* status display time */
    bctime = Ltime + 30;     /* block constructor time */
-   mqtime = Ltime + 5;      /* mirror() time */
+   mqtime = Ltime + 10;     /* mirror() time */
    mtime = Ltime + 5;       /* miner time */
    Utime = Ltime;           /* for watchdog timer */
    Watchdog = get_bridge(NULL) + (rand16() % 600);
@@ -924,6 +924,7 @@ int server(int reuse_addr)
                if (tx_bot_process() == VEOK) {
                   /* update block number and Txbot data */
                   put64(Lblock, Cblocknum);
+                  mqtime = Ltime + 10;
                }
             }
             /* check conditions for Transaction Queue processor */
@@ -1001,7 +1002,7 @@ int server(int reuse_addr)
          pid = waitpid(Mqpid, NULL, WNOHANG);
          if(pid > 0) {
             Mqpid = 0;
-            mqtime = Ltime + 2;
+            mqtime = Ltime + 10;
          }
       }
 
