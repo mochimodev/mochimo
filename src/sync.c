@@ -572,7 +572,7 @@ int contention(NODE *np)
          pdebug("pow validation failure");
          return 0;
       }
-      add_weight(weight, bt->difficulty[0]);
+      if (bt->bnum[0] != 0xff) add_weight(weight, bt->difficulty[0]);
       /* ... check for splitblock, first non-matching BTRAILER */
       if (splitblock == 0) {
          if (memcmp(bt, &(our_bt[j]), sizeof(BTRAILER)) != 0) {
