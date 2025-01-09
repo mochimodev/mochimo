@@ -44,9 +44,10 @@ void add_weight(word8 weight[32], word8 difficulty)
    word8 add256[32] = { 0 };
 
    /* originally, chain weight calculation was split by v2.0 (V20TRIGGER);
-    * however, since chain weight is implicit and not technically part of
-    * the chain, we don't NEED to retain it's original behavior when we
-    * transition over a hard fork to the scale of v3.0 */
+    * however, since chain weight is implicit (not part of the chain), and
+    * dropping the pre-v2.0 behavior only results in a much larger weight,
+    * we don't NEED to retain it's original behavior for v3.0
+    */
 
    add256[difficulty / 8] = 1 << (difficulty % 8);
    multi_add(weight, add256, weight, 32);
