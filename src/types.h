@@ -182,7 +182,7 @@
 #define V23TRIGGER 0xd431  /* v2.3 pseudoblocks */
 #define V24TRIGGER 0x12851 /* v2.4 FPGA-Tough PoW algo */
 #define MIDTRIGGER 0x5b401 /* peak mining reward */
-#define V30TRIGGER 0xa0000 /* v3.0 blockchain reboot (MUST BE NEOGEN) */
+#define V30TRIGGER 0x9e800 /* v3.0 blockchain reboot (MUST BE NEOGEN) */
 
 /**
  * Capability bit for candidate block pushing nodes. Indicates the
