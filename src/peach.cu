@@ -1267,7 +1267,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          /* ensure block trailer is updated */
          memcpy(P->h_bt[sid], bt, BTSIZE);
          /* generate (first) nonce directly into block trailer */
-         trigg_generate_fast(P->h_bt[sid]->nonce);
+         trigg_generate(P->h_bt[sid]->nonce);
          /* generate (second) nonce seeds into seed list */
          for(i = 0; i < dev->threads; i++) {
             trigg_generate_fast(P->h_seed[sid] + (i * 16));
