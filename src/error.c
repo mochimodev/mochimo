@@ -34,15 +34,6 @@ static int Logtime;
 
 #endif
 
-/* set default "preferred path separator" per OS */
-#ifndef PREFERRED_PATH_SEP
-   #ifdef _WIN32
-      #define PREFERRED_PATH_SEP  "\\"
-   #else
-      #define PREFERRED_PATH_SEP  "/"
-   #endif
-#endif
-
 /**
  * Check argument list for options. @a chk1 and/or @a chk2 can be NULL.
  * Compatible with values separated by " " or "=".<br/>

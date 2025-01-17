@@ -44,6 +44,27 @@
    #define MCM_DECL_UNUSED
 #endif
 
+/* Preferred path separator; system specific */
+#ifdef _WIN32
+   /* set default "Windows" path separator */
+   #ifndef PREFERRED_PATH_SEP
+   #define PREFERRED_PATH_SEP  "\\"
+   #endif
+
+   typedef char FILEPATH[MAX_PATH];
+
+#else
+   /* set default "UNIX" path separator */
+   #ifndef PREFERRED_PATH_SEP
+   #define PREFERRED_PATH_SEP  "/"
+   #endif
+
+   typedef char FILEPATH[PATH_MAX];
+
+#endif
+
+typedef char FILENAME[FILENAME_MAX];
+
 /* STATIC ASSERTION MACRO, for compile time assertion. */
 #define STATIC_ASSERT(EXPR, MSG) MCM_DECL_UNUSED static char \
    STATIC_ASSERTION_FAILURE__##MSG[(2*(!!(EXPR)))-1]
