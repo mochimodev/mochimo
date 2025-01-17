@@ -440,7 +440,7 @@ int init(void)
                      status = VEBAD; /* 2319! Foreign entity (block) */
                   } else status = VERROR;  /* we're just behind */
                   continue;  /* restart loop with new status */
-               }
+               } else break;
             } else if (status == VERROR) {  /* chain is fallen... */
                plog("Blockchain is aligned, catchup...");
                /* check "catchup" doesn't cross v3 trigger */
