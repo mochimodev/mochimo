@@ -447,167 +447,145 @@ void *trigg_generate(void *out)
 /**
  * Generate a tokenized haiku (fast). Generates tokenized haiku into @a out
  * using pseudo-rng from rand16(). Seed with srand16() before use.
+ * @note using trigg_generate() for the first half of a nonce, and this
+ * function for the second half of a nonce, is suitable without reasonable
+ * consideration towards collisions until rates reach the "Peta" scale.
+ * After which, one should start to consider a "difficulty-weighted"
+ * revision of trigg_generate() for the first half of a nonce.
  * @param out Pointer to place tokenized haiku into
 */
 void *trigg_generate_fast(void *out)
 {
-   /* create entropy, and seed pointers */
-   word32 rnd32[2] = { 0, 0 };
-   word16 *rnd16 = (word16 *) rnd32;
-   word8 *seed = (word8 *) out;
-   int zero_from;
-
-   /* generate random value < 0x48023C40000 (4,948,402,372,608) */
-   rnd16[0] = rand16(); rnd16[1] = rand16(); rnd16[2] = rand16();
-   if (rnd16[2] > 0x480) rnd16[2] %= 0x481;
-   if (rnd16[2] == 0x480) rnd16[1] %= 0x23C4;
+   /* generate prng(64 bits) */
+   word32 rnd32[2] = { rand32(), rand32() };
+   word8 tokens[16] = {0};
 
    /* determine frame type from rnd value */
    if (rnd32[1] > 0x80 || (rnd32[1] == 0x80 && rnd32[0] >= 0x23C40000)) {
       /* Permutations remaining: 4,948,402,372,608 (4.9 Trillion) */
       /* Permutations this frame: 4,398,046,511,104 (1 << 42) */
-	   seed[ 0] = Z_ING[(rnd32[0] & 31)];
-	   seed[ 1] = Z_PREP[(rnd32[0] >> 5) & 7];
-	   seed[ 2] = 5;
-	   seed[ 3] = Z_ADJ[(rnd32[0] >> 8) & 63];
-	   seed[ 4] = Z_NS[(rnd32[0] >> 14) & 63];
-	   seed[ 5] = 1;
-      seed[ 6] = Z_MASS[(rnd32[0] >> 19) & 31];
-	   seed[ 7] = Z_ING[(rnd32[0] >> 24) & 31];
-	   seed[ 8] = 3;
-	   seed[ 9] = 1;
-      seed[10] = 5;
+	   tokens[ 0] = Z_ING[(rnd32[0] & 31)];
+	   tokens[ 1] = Z_PREP[(rnd32[0] >> 5) & 7];
+	   tokens[ 2] = 5;
+	   tokens[ 3] = Z_ADJ[(rnd32[0] >> 8) & 63];
+	   tokens[ 4] = Z_NS[(rnd32[0] >> 14) & 63];
+	   tokens[ 5] = 1;
+      tokens[ 6] = Z_MASS[(rnd32[0] >> 19) & 31];
+	   tokens[ 7] = Z_ING[(rnd32[0] >> 24) & 31];
+	   tokens[ 8] = 3;
+	   tokens[ 9] = 1;
+      tokens[10] = 5;
       /* 32-bit entropy boundary exceeded... */
-	   seed[11] = Z_ADJ[((rnd32[0] >> 29) | (rnd32[1] << 3)) & 63];
+	   tokens[11] = Z_ADJ[((rnd32[0] >> 29) | (rnd32[1] << 3)) & 63];
       /* ... 32-bit entropy boundary passed */
-	   seed[12] = Z_NS[(rnd32[1] >> 3) & 63];
-      /* zero from 13th-byte... */
-      zero_from = 13;
+	   tokens[12] = Z_NS[(rnd32[1] >> 3) & 63];
    } else if (rnd32[1] > 0 || rnd32[0] >= 0x23C40000) {
       /* Permutations remaining: 550,355,861,504 (550 Billion) */
       /* Permutations this frame: 549,755,813,888 (1 << 39) */
-	   seed[ 0] = Z_ING[(rnd32[0] & 31)];
-	   seed[ 1] = Z_PREP[(rnd32[0] >> 5) & 7];
-	   seed[ 2] = Z_TIME[(rnd32[0] >> 8) & 15];
-	   seed[ 3] = Z_MASS[(rnd32[0] >> 12) & 31];
-	   seed[ 4] = 1;
-      seed[ 5] = Z_MASS[(rnd32[0] >> 17) & 31];
-	   seed[ 6] = Z_ING[(rnd32[0] >> 22) & 31];
-	   seed[ 7] = 3;
-	   seed[ 8] = 1;
-      seed[ 9] = 5;
+	   tokens[ 0] = Z_ING[(rnd32[0] & 31)];
+	   tokens[ 1] = Z_PREP[(rnd32[0] >> 5) & 7];
+	   tokens[ 2] = Z_TIME[(rnd32[0] >> 8) & 15];
+	   tokens[ 3] = Z_MASS[(rnd32[0] >> 12) & 31];
+	   tokens[ 4] = 1;
+      tokens[ 5] = Z_MASS[(rnd32[0] >> 17) & 31];
+	   tokens[ 6] = Z_ING[(rnd32[0] >> 22) & 31];
+	   tokens[ 7] = 3;
+	   tokens[ 8] = 1;
+      tokens[ 9] = 5;
       /* 32-bit entropy boundary exceeded... */
-	   seed[10] = Z_ADJ[((rnd32[0] >> 27) | (rnd32[1] << 5)) & 63];
+	   tokens[10] = Z_ADJ[((rnd32[0] >> 27) | (rnd32[1] << 5)) & 63];
       /* ... 32-bit entropy boundary passed */
-	   seed[11] = Z_NS[(rnd32[1] >> 1) & 63];
-      /* zero from 12th-byte... */
-      zero_from = 12;
+	   tokens[11] = Z_NS[(rnd32[1] >> 1) & 63];
    } else if (rnd32[0] >= 0x3C40000) {
       /* Permutations remaining: 600,047,616 (600 Million) */
       /* Permutations this frame: 536,870,912 (1 << 29) */
-	   seed[ 0] = Z_TIME[(rnd32[0] & 15)];
-	   seed[ 1] = Z_AMB[(rnd32[0] >> 4) & 15];
-	   seed[ 2] = 1;
-      seed[ 3] = Z_PREP[(rnd32[0] >> 8) & 7];
-	   seed[ 4] = 5;
-	   seed[ 5] = Z_ADJ[(rnd32[0] >> 11) & 63];
-	   seed[ 6] = Z_NS[(rnd32[0] >> 17) & 63];
-	   seed[ 7] = 3;
-	   seed[ 8] = 1;
-      seed[ 9] = Z_INGADJ[(rnd32[0] >> 23) & 63];
-      /* zero from 10th-byte... */
-      zero_from = 10;
+	   tokens[ 0] = Z_TIME[(rnd32[0] & 15)];
+	   tokens[ 1] = Z_AMB[(rnd32[0] >> 4) & 15];
+	   tokens[ 2] = 1;
+      tokens[ 3] = Z_PREP[(rnd32[0] >> 8) & 7];
+	   tokens[ 4] = 5;
+	   tokens[ 5] = Z_ADJ[(rnd32[0] >> 11) & 63];
+	   tokens[ 6] = Z_NS[(rnd32[0] >> 17) & 63];
+	   tokens[ 7] = 3;
+	   tokens[ 8] = 1;
+      tokens[ 9] = Z_INGADJ[(rnd32[0] >> 23) & 63];
    } else if (rnd32[0] >= 0x2C40000) {
       /* Permutations remaining: 63,176,704 (63 Million) */
       /* Permutations this frame: 16,777,216 (1 << 24) */
-	   seed[ 0] = Z_TIME[(rnd32[0] & 15)];
-	   seed[ 1] = Z_AMB[(rnd32[0] >> 4) & 15];
-	   seed[ 2] = 1;
-      seed[ 3] = Z_ADJ[(rnd32[0] >> 8) & 63];
-	   seed[ 4] = Z_MASS[(rnd32[0] >> 14) & 31];
-	   seed[ 5] = 1;
-      seed[ 6] = Z_ING[(rnd32[0] >> 19) & 31];
-      /* zero from 7th-byte... */
-      zero_from = 7;
+	   tokens[ 0] = Z_TIME[(rnd32[0] & 15)];
+	   tokens[ 1] = Z_AMB[(rnd32[0] >> 4) & 15];
+	   tokens[ 2] = 1;
+      tokens[ 3] = Z_ADJ[(rnd32[0] >> 8) & 63];
+	   tokens[ 4] = Z_MASS[(rnd32[0] >> 14) & 31];
+	   tokens[ 5] = 1;
+      tokens[ 6] = Z_ING[(rnd32[0] >> 19) & 31];
    } else if (rnd32[0] >= 0x1C40000) {
       /* Permutations remaining: 46,399,488 (46 Million) */
       /* Permutations this frame: 16,777,216 (1 << 24) */
-	   seed[ 0] = Z_PREP[(rnd32[0] & 7)];
-	   seed[ 1] = Z_MASS[(rnd32[0] >> 3) & 31];
-	   seed[ 2] = 1;
-      seed[ 3] = Z_ADJ[(rnd32[0] >> 8) & 63];
-	   seed[ 4] = Z_NPL[(rnd32[0] >> 14) & 31];
-	   seed[ 5] = 1;
-      seed[ 6] = Z_INGINF[(rnd32[0] >> 19) & 31];
-      /* zero from 7th-byte... */
-      zero_from = 7;
+	   tokens[ 0] = Z_PREP[(rnd32[0] & 7)];
+	   tokens[ 1] = Z_MASS[(rnd32[0] >> 3) & 31];
+	   tokens[ 2] = 1;
+      tokens[ 3] = Z_ADJ[(rnd32[0] >> 8) & 63];
+	   tokens[ 4] = Z_NPL[(rnd32[0] >> 14) & 31];
+	   tokens[ 5] = 1;
+      tokens[ 6] = Z_INGINF[(rnd32[0] >> 19) & 31];
    } else if (rnd32[0] >= 0xC40000) {
       /* Permutations remaining: 29,622,272 (29 Million) */
       /* Permutations this frame: 16,777,216 (1 << 24) */
-	   seed[ 0] = Z_PREP[rnd32[0] & 7];
-	   seed[ 1] = Z_ADJ[(rnd32[0] >> 3) & 63];
-	   seed[ 2] = Z_MASS[(rnd32[0] >> 9) & 31];
-	   seed[ 3] = 1;
-      seed[ 4] = Z_NPL[(rnd32[0] >> 14) & 31];
-	   seed[ 5] = 1;
-      seed[ 6] = Z_INGINF[(rnd32[0] >> 19) & 31];
-      /* zero from 7th-byte... */
-      zero_from = 7;
+	   tokens[ 0] = Z_PREP[rnd32[0] & 7];
+	   tokens[ 1] = Z_ADJ[(rnd32[0] >> 3) & 63];
+	   tokens[ 2] = Z_MASS[(rnd32[0] >> 9) & 31];
+	   tokens[ 3] = 1;
+      tokens[ 4] = Z_NPL[(rnd32[0] >> 14) & 31];
+	   tokens[ 5] = 1;
+      tokens[ 6] = Z_INGINF[(rnd32[0] >> 19) & 31];
    } else if (rnd32[0] >= 0x440000) {
       /* Permutations remaining: 12,845,056 (12 Million) */
       /* Permutations this frame: 8,388,608 (1 << 23) */
-	   seed[ 0] = 5;
-	   seed[ 1] = Z_NS[(rnd32[0] & 63)];
-	   seed[ 2] = 1;
-      seed[ 3] = Z_PREP[(rnd32[0] >> 6) & 7];
-	   seed[ 4] = Z_TIMED[(rnd32[0] >> 9) & 7];
-	   seed[ 5] = Z_MASS[(rnd32[0] >> 12) & 31];
-	   seed[ 6] = 3;
-	   seed[ 7] = 1;
-      seed[ 8] = Z_ADJ[(rnd32[0] >> 17) & 63];
-      /* zero from 9th-byte... */
-      zero_from = 9;
+	   tokens[ 0] = 5;
+	   tokens[ 1] = Z_NS[(rnd32[0] & 63)];
+	   tokens[ 2] = 1;
+      tokens[ 3] = Z_PREP[(rnd32[0] >> 6) & 7];
+	   tokens[ 4] = Z_TIMED[(rnd32[0] >> 9) & 7];
+	   tokens[ 5] = Z_MASS[(rnd32[0] >> 12) & 31];
+	   tokens[ 6] = 3;
+	   tokens[ 7] = 1;
+      tokens[ 8] = Z_ADJ[(rnd32[0] >> 17) & 63];
    } else if (rnd32[0] >= 0x40000) {
       /* Permutations remaining: 4,456,448 (4 Million) */
       /* Permutations this frame: 4,194,304 (1 << 22) */
-	   seed[ 0] = Z_PREP[(rnd32[0] & 7)];
-	   seed[ 1] = Z_TIMED[(rnd32[0] >> 3) & 7];
-	   seed[ 2] = 1;
-      seed[ 3] = Z_ADJ[(rnd32[0] >> 6) & 63];
-	   seed[ 4] = Z_NPL[(rnd32[0] >> 12) & 31];
-	   seed[ 5] = 1;
-      seed[ 6] = Z_INGINF[(rnd32[0] >> 17) & 31];
-      /* zero from 7th-byte... */
-      zero_from = 7;
+	   tokens[ 0] = Z_PREP[(rnd32[0] & 7)];
+	   tokens[ 1] = Z_TIMED[(rnd32[0] >> 3) & 7];
+	   tokens[ 2] = 1;
+      tokens[ 3] = Z_ADJ[(rnd32[0] >> 6) & 63];
+	   tokens[ 4] = Z_NPL[(rnd32[0] >> 12) & 31];
+	   tokens[ 5] = 1;
+      tokens[ 6] = Z_INGINF[(rnd32[0] >> 17) & 31];
    } else if(rnd32[0] >= 0x20000) {
       /* Permutations remaining: 262,144 (262 Thousand) */
       /* Permutations this frame: 131,072 (1 << 17) */
-	   seed[ 0] = Z_TIME[(rnd32[0] & 15)];
-	   seed[ 1] = Z_MASS[(rnd32[0] >> 4) & 31];
-	   seed[ 2] = 1;
-      seed[ 3] = Z_INF[(rnd32[0] >> 9) & 15];
-	   seed[ 4] = 9;
-	   seed[ 5] = 2;
-	   seed[ 6] = 1;
-      seed[ 7] = Z_AMB[(rnd32[0] >> 13) & 15];
-      /* zero from 8th-byte... */
-      zero_from = 8;
+	   tokens[ 0] = Z_TIME[(rnd32[0] & 15)];
+	   tokens[ 1] = Z_MASS[(rnd32[0] >> 4) & 31];
+	   tokens[ 2] = 1;
+      tokens[ 3] = Z_INF[(rnd32[0] >> 9) & 15];
+	   tokens[ 4] = 9;
+	   tokens[ 5] = 2;
+	   tokens[ 6] = 1;
+      tokens[ 7] = Z_AMB[(rnd32[0] >> 13) & 15];
    } else {
       /* Permutations remaining: 131,072 (131 Thousand) */
       /* Permutations this frame: 131,072 (1 << 17) */
-	   seed[ 0] = Z_PREP[(rnd32[0] & 7)];
-	   seed[ 1] = Z_TIMED[(rnd32[0] >> 3) & 7];
-	   seed[ 2] = 1;
-      seed[ 3] = 5;
-	   seed[ 4] = Z_NS[(rnd32[0] >> 6) & 63];
-	   seed[ 5] = 1;
-      seed[ 6] = Z_ING[(rnd32[0] >> 12) & 31];
-      /* zero from 7th-byte... */
-      zero_from = 7;
+	   tokens[ 0] = Z_PREP[(rnd32[0] & 7)];
+	   tokens[ 1] = Z_TIMED[(rnd32[0] >> 3) & 7];
+	   tokens[ 2] = 1;
+      tokens[ 3] = 5;
+	   tokens[ 4] = Z_NS[(rnd32[0] >> 6) & 63];
+	   tokens[ 5] = 1;
+      tokens[ 6] = Z_ING[(rnd32[0] >> 12) & 31];
    }
 
-   /* clear remaining seed */
-   memset(seed + zero_from, 0, 16 - zero_from);
+   /* copy tokens to output */
+   memcpy(out, tokens, 16);
 
    return out;
 }  /* end trigg_generate_fast() */
