@@ -9,12 +9,14 @@
 #ifndef MOCHIMO_BUP_H
 #define MOCHIMO_BUP_H
 
+#include "types.h"
 
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+void print_bup(BTRAILER *bt, char *solvestr);
 int b_update(char *fname, int mode);
 
 #ifdef __cplusplus
