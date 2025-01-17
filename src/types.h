@@ -367,16 +367,28 @@
 #define DEV_INIT  (2)   /**< Device initialization status */
 #define DEV_WORK  (3)   /**< Device working status */
 
-/* device structs */
-
+/**
+ * @struct DEVICE_CTX
+ * Device (GPU) context structure, for managing device status and work.
+ *
+ * @property DEVICE::id
+ * Device identifier. For appropriate device library functions.
+ *
+ * @property DEVICE::status
+ * Device status.
+ *
+ * @property DEVICE::peach
+ * Peach context pointer. Can refer to either a CUDA or OpenCL context.
+ *
+ */
 typedef struct {
-   int id, type, status;            /**< device identification */
-   int grid, block, threads;        /**< device config/status */
-   unsigned fan, pow, temp, util;   /**< device monitors */
-   time_t last_work, last_monitor;  /**< timestamps */
-   word64 work, total_work;         /**< work counters */
-   char nameId[256];                /**< device properties */
-} DEVICE_CTX;  /**< (GPU) Device context for managing device data. */
+   int id, type, status;
+   int grid, block, threads;
+   void *peach;
+   size_t work, total;
+   time_t last;
+   char info[256];
+} DEVICE_CTX;
 
 /**
  * @struct MDST

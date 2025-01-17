@@ -23,7 +23,7 @@
 /* external support */
 #include "extint.h"
 #include "extmath.h"
-#include "extprint.h"
+#include "error.h"
 /* external support -- Nighthash */
 #include "blake2b.h"
 #include "md2.h"
@@ -48,9 +48,9 @@
    do { \
       cudaError_t _cerr = _cmd; \
       if (_cerr != cudaSuccess) { \
-         int _n; cudaGetDevice(&_n); \
+         int _n = (-1); cudaGetDevice(&_n); \
          const char *_err = cudaGetErrorString(_cerr); \
-         pfatal("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
+         palert("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
          peach_free_cuda_device(_dev, DEV_FAIL); \
          _exec; \
       } \
@@ -883,7 +883,7 @@ int peach_checkhash_cuda(int count, BTRAILER bt[], void *out)
 
    cuCHK(cudaGetDeviceCount(&cuda_count), NULL, return (-1));
    if (cuda_count < 1) {
-      pfatal("No CUDA devices...");
+      palert("No CUDA devices...");
       return -1;
    }
    cuCHK(cudaSetDevice(0), NULL, return (-1));
@@ -957,170 +957,83 @@ int peach_free_cuda_device(DEVICE_CTX *devp, int status)
  * CUDA device number. If not performing a re-initialization, recommend
  * using peach_init_cuda() first.
 */
-int peach_init_cuda_device(DEVICE_CTX *devp, int id)
+int peach_init_cuda_device(DEVICE_CTX *ctx)
 {
-   static int nvml_initialized = 0;
-   static unsigned nvml_count = 0;
+   PEACH_CUDA_CTX *ctxp;
 
-   struct cudaDeviceProp props;
-   nvmlPciInfo_t pci;
-   nvmlDevice_t *nvmlp;
-   unsigned i, gen, width, skip;
-
-   if (nvml_initialized == 0) {
-      /* set nvml initialized */
-      nvml_initialized = 1;
-      /* initialize nvml */
-      if (nvmlInit() != NVML_SUCCESS) {
-         nvml_count = pdebug("Unable to initialize NVML");
-         plog("No NVML devices detected...");
-      } else if (nvmlDeviceGetCount(&nvml_count) != NVML_SUCCESS) {
-         nvml_count = pdebug("Unable to obtain NVML count");
-         plog("No NVML devices detected...");
-      }
+   /* check for double init */
+   if (ctx->peach) {
+      set_errno(EINVAL);
+      return VERROR;
    }
 
-   devp->id = id;
-   devp->work = 0;
-   devp->last_work = 0;
-   devp->total_work = 0;
-   devp->status = DEV_NULL;
-   devp->type = CUDA_DEVICE;
-   nvmlp = &(PeachCudaCTX[id].nvml_device);
-   /* get CUDA properties for verification with nvml device */
-   if (cudaGetDeviceProperties(&props, id) != cudaSuccess) {
-      perr("cudaGetDeviceProperties(%d)", id);
-   } else {
-      /* scan nvml devices for match */
-      PeachCudaCTX[id].nvml_enabled = 0;
-      for (i = 0; i < nvml_count; i++) {
-         memset(nvmlp, 0, sizeof(nvmlDevice_t));
-         if (nvmlDeviceGetHandleByIndex(i, nvmlp) == NVML_SUCCESS &&
-            (nvmlDeviceGetPciInfo(*nvmlp, &pci) == NVML_SUCCESS) &&
-            (pci.device == props.pciDeviceID) &&
-            (pci.domain == props.pciDomainID) &&
-            (pci.bus == props.pciBusID)) {
-            /* obtain link gen/width */
-            if (nvmlDeviceGetCurrPcieLinkGeneration(*nvmlp, &gen)
-                  != NVML_SUCCESS) gen = 0;
-            if (nvmlDeviceGetCurrPcieLinkWidth(*nvmlp, &width)
-                  != NVML_SUCCESS) width = 0;
-            PeachCudaCTX[id].nvml_enabled = 1;
-            break;
-         }
-      }
-      /* store GPU name, PCI Id and gen info in nameId */
-      skip = strncmp("NVIDIA ", props.name, 7) ? 0 : 7;
-      snprintf(devp->nameId, sizeof(devp->nameId),
-         "%04u:%02u:%02u %.128s Gen%1ux%02u", props.pciDomainID,
-         props.pciDeviceID, props.pciBusID, props.name + skip, gen, width);
-   }
+   /* allocate peach context */
+   ctxp = (PEACH_CUDA_CTX *) malloc(sizeof(PEACH_CUDA_CTX));
+   if (ctxp == NULL) return VERROR;
+   ctx->peach = ctxp;
+
    /* set context to CUDA id */
-   cuCHK(cudaSetDevice(id), devp, return VERROR);
+   cuCHK(cudaSetDevice(ctx->id), ctx, return VERROR);
    /* set CUDA configuration for device */
-   if (cudaOccupancyMaxPotentialBlockSize(&(devp->grid), &(devp->block),
+   if (cudaOccupancyMaxPotentialBlockSize(&(ctx->grid), &(ctx->block),
          kcu_peach_solve, 0, 0) != cudaSuccess) {
-      pdebug("cudaOccupancy~BlockSize(%d) failed...", id);
+      pdebug("cudaOccupancy~BlockSize(%d) failed...", ctx->id);
       pdebug("Using conservative defaults for <<<512/128>>>");
-      devp->grid = 512;
-      devp->block = 128;
+      ctx->grid = 512;
+      ctx->block = 128;
    }
    /* calculate total threads */
-   devp->threads = devp->grid * devp->block;
+   ctx->threads = ctx->grid * ctx->block;
    /* create streams for device */
-   cuCHK(cudaStreamCreate(&(PeachCudaCTX[id].stream[0])), devp, return VERROR);
-   cuCHK(cudaStreamCreate(&(PeachCudaCTX[id].stream[1])), devp, return VERROR);
+   cuCHK(cudaStreamCreate(&(ctxp->stream[0])), ctx, return VERROR);
+   cuCHK(cudaStreamCreate(&(ctxp->stream[1])), ctx, return VERROR);
    /* allocate pinned host memory for host/device transfers */
-   cuCHK(cudaMallocHost(&(PeachCudaCTX[id].h_solve[0]), 32), devp, return VERROR);
-   cuCHK(cudaMallocHost(&(PeachCudaCTX[id].h_solve[1]), 32), devp, return VERROR);
-   cuCHK(cudaMallocHost(&(PeachCudaCTX[id].h_seed[0]), 16 * devp->threads), devp, return VERROR);
-   cuCHK(cudaMallocHost(&(PeachCudaCTX[id].h_seed[1]), 16 * devp->threads), devp, return VERROR);
-   cuCHK(cudaMallocHost(&(PeachCudaCTX[id].h_bt[0]), sizeof(BTRAILER)), devp, return VERROR);
-   cuCHK(cudaMallocHost(&(PeachCudaCTX[id].h_bt[1]), sizeof(BTRAILER)), devp, return VERROR);
+   cuCHK(cudaMallocHost(&(ctxp->h_solve[0]), 32), ctx, return VERROR);
+   cuCHK(cudaMallocHost(&(ctxp->h_solve[1]), 32), ctx, return VERROR);
+   cuCHK(cudaMallocHost(&(ctxp->h_seed[0]), 16 * ctx->threads), ctx, return VERROR);
+   cuCHK(cudaMallocHost(&(ctxp->h_seed[1]), 16 * ctx->threads), ctx, return VERROR);
+   cuCHK(cudaMallocHost(&(ctxp->h_bt[0]), sizeof(BTRAILER)), ctx, return VERROR);
+   cuCHK(cudaMallocHost(&(ctxp->h_bt[1]), sizeof(BTRAILER)), ctx, return VERROR);
    /* allocate device memory for host/device transfers */
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_solve[0]), 32), devp, return VERROR);
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_solve[1]), 32), devp, return VERROR);
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_seed[0]), 16 * devp->threads), devp, return VERROR);
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_seed[1]), 16 * devp->threads), devp, return VERROR);
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_bt[0]), sizeof(BTRAILER)), devp, return VERROR);
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_bt[1]), sizeof(BTRAILER)), devp, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_solve[0]), 32), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_solve[1]), 32), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_seed[0]), 16 * ctx->threads), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_seed[1]), 16 * ctx->threads), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_bt[0]), sizeof(BTRAILER)), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_bt[1]), sizeof(BTRAILER)), ctx, return VERROR);
    /* allocate memory for Peach map on device */
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_phash), 32), devp, return VERROR);
-   cuCHK(cudaMalloc(&(PeachCudaCTX[id].d_map), PEACHMAPLEN), devp, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_phash), 32), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(ctxp->d_map), PEACHMAPLEN), ctx, return VERROR);
    /* clear device/host allocated memory */
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_bt[0], 0, sizeof(BTRAILER),
-      cudaStreamDefault), devp, return VERROR);
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_bt[1], 0, sizeof(BTRAILER),
-      cudaStreamDefault), devp, return VERROR);
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_seed[0], 0, 16 * devp->threads,
-      cudaStreamDefault), devp, return VERROR);
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_seed[1], 0, 16 * devp->threads,
-      cudaStreamDefault), devp, return VERROR);
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_solve[0], 0, 32,
-      cudaStreamDefault), devp, return VERROR);
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_solve[1], 0, 32,
-      cudaStreamDefault), devp, return VERROR);
-   cuCHK(cudaMemsetAsync(PeachCudaCTX[id].d_phash, 0, 32,
-      cudaStreamDefault), devp, return VERROR);
-   memset(PeachCudaCTX[id].h_bt[0], 0, sizeof(BTRAILER));
-   memset(PeachCudaCTX[id].h_bt[1], 0, sizeof(BTRAILER));
-   memset(PeachCudaCTX[id].h_seed[0], 0, 16 * devp->threads);
-   memset(PeachCudaCTX[id].h_seed[1], 0, 16 * devp->threads);
-   memset(PeachCudaCTX[id].h_solve[0], 0, 32);
-   memset(PeachCudaCTX[id].h_solve[1], 0, 32);
+   cuCHK(cudaMemsetAsync(ctxp->d_bt[0], 0, sizeof(BTRAILER),
+      cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaMemsetAsync(ctxp->d_bt[1], 0, sizeof(BTRAILER),
+      cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaMemsetAsync(ctxp->d_seed[0], 0, 16 * ctx->threads,
+      cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaMemsetAsync(ctxp->d_seed[1], 0, 16 * ctx->threads,
+      cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaMemsetAsync(ctxp->d_solve[0], 0, 32,
+      cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaMemsetAsync(ctxp->d_solve[1], 0, 32,
+      cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaMemsetAsync(ctxp->d_phash, 0, 32,
+      cudaStreamDefault), ctx, return VERROR);
+   memset(ctxp->h_bt[0], 0, sizeof(BTRAILER));
+   memset(ctxp->h_bt[1], 0, sizeof(BTRAILER));
+   memset(ctxp->h_seed[0], 0, 16 * ctx->threads);
+   memset(ctxp->h_seed[1], 0, 16 * ctx->threads);
+   memset(ctxp->h_solve[0], 0, 32);
+   memset(ctxp->h_solve[1], 0, 32);
+
+   /* wait for all operations in cudaStreamDefault to complete */
+   cuCHK(cudaStreamSynchronize(cudaStreamDefault), ctx, return VERROR);
+
+   /* set device as initialized */
+   ctx->status = DEV_INIT;
 
    return VEOK;
 }  /* end peach_init_cuda_device() */
-
-/**
- * Initialize a DEVICE_CTX list with CUDA devices for solving the Peach
- * proof of work algorithm.
- * @param devlist Pointer to DEVICE_CTX list to initialize
- * @param max Maximum number of CUDA devices to initialize
- * @returns number of CUDA devices available for initialization
- * @note It is possible to have "some" CUDA devices fail to initialize.
-*/
-int peach_init_cuda(DEVICE_CTX devlist[], int max)
-{
-   static int initialized = 0;
-   static int num = 0;
-
-   int id;
-
-   /* avoid re-initialization attempts */
-   if (initialized) return num;
-
-   /* check for cuda driver and devices */
-   switch (cudaGetDeviceCount(&num)) {
-      case cudaErrorNoDevice:
-         return plog("No CUDA devices detected...");
-      case cudaErrorInsufficientDriver:
-         pfatal("Insufficient CUDA Driver. Update display drivers...");
-         return 0;
-      case cudaSuccess:
-         if (num > max) {
-            num = max;
-            plog("CUDA Devices: %d (limited)\n", num);
-            perr("CUDA device count EXCEEDED maximum count parameter!");
-            pwarn("Some CUDA devices will not be utilized.");
-            plog("Please advise developers if this is an issue...");
-         }
-         break;
-      default:
-         pfatal("Unknown CUDA initialization error occured...");
-         return 0;
-   }
-
-   /* set initialized */
-   initialized = 1;
-   if (num < 1) return (num = 0);
-   /* allocate memory for PeachCudaCTX */
-   PeachCudaCTX = (PEACH_CUDA_CTX *) malloc(sizeof(PEACH_CUDA_CTX) * num);
-   /* initialize device contexts for CUDA num devices */
-   for (id = 0; id < num; id++) peach_init_cuda_device(&devlist[id], id);
-
-   return num;
-}  /* end peach_init_cuda() */
 
 /**
  * Try solve for a tokenized haiku as nonce output for Peach proof of work
@@ -1138,18 +1051,17 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
 {
    int i, id, sid, grid, block, build;
    PEACH_CUDA_CTX *P;
-   nvmlReturn_t nr;
 
    /* init */
    id = dev->id;
-   P = &PeachCudaCTX[id];
+   P = (PEACH_CUDA_CTX *) dev->peach;
 
    /* check for GPU failure */
-   if (dev->status == DEV_FAIL && dev->last_work) {
+   if (dev->status == DEV_FAIL && dev->last) {
       /* recovery MAY be possible --- wait 5 seconds */
-      if (difftime(time(NULL), dev->last_work) >= 5) {
+      if (difftime(time(NULL), dev->last) >= 5) {
          printf("CUDA#%d-> attempting failure recovery...", id);
-         peach_init_cuda_device(dev, id);
+         peach_init_cuda_device(dev);
       }
       return VERROR;
    }
@@ -1160,16 +1072,6 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
    /* set/check cuda device */
    cuCHK(cudaSetDevice(id), dev, return VERROR);
    cuCHK(cudaGetLastError(), dev, return VERROR);
-
-   /* ensure initialization is complete */
-   if (dev->status == DEV_NULL) {
-      if (cudaStreamQuery(cudaStreamDefault) != cudaSuccess) return VERROR;
-      /* set next action to build Peach map */
-      dev->status = DEV_INIT;
-      dev->last_work = time(NULL);
-      dev->total_work = 0;
-      dev->work = 0;
-   }
 
    /* build peach map */
    if (dev->status == DEV_INIT) {
@@ -1222,7 +1124,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          if (cudaStreamQuery(P->stream[1]) == cudaSuccess
             && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
             /* build is complete */
-            dev->last_work = time(NULL);
+            dev->last = time(NULL);
             dev->status = DEV_IDLE;
             dev->work = 0;
          }
@@ -1265,7 +1167,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          /* check for "on-the-fly" difficulty changes */
          diff = diff && diff < bt->difficulty[0] ? diff : bt->difficulty[0];
          /* ensure block trailer is updated */
-         memcpy(P->h_bt[sid], bt, BTSIZE);
+         memcpy(P->h_bt[sid], bt, sizeof(BTRAILER));
          /* generate (first) nonce directly into block trailer */
          trigg_generate(P->h_bt[sid]->nonce);
          /* generate (second) nonce seeds into seed list */
@@ -1287,7 +1189,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             cudaMemcpyDeviceToHost, P->stream[sid]);
          cuCHK(cudaGetLastError(), dev, return VERROR);
          /* increment progress counters */
-         dev->total_work += dev->threads;
+         dev->total += dev->threads;
          dev->work += dev->threads;
       }
    }
