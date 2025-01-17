@@ -16,6 +16,7 @@
 #include "tx.h"
 #include "tfile.h"
 #include "sync.h"
+#include "parallel.h"
 #include "ledger.h"
 #include "global.h"
 #include "error.h"
@@ -866,27 +867,6 @@ bad2: pinklist(np->ip);
    return VEBAD;
 }  /* end gettx() */
 
-typedef struct {
-   TX tx;               /* holds resulting transaction data */
-   word32 ip;           /* target peer to acquire peers from */
-   int result;          /* ecode result of thread operation */
-   volatile int join;   /* indicates thread is ready for join */
-} THARG_GETIPL;
-
-ThreadProc th_get_ipl(void *args)
-{
-   THARG_GETIPL *tharg = (THARG_GETIPL *) args;
-   NODE node;
-
-   /* perform iplist request */
-   tharg->result = get_ipl(&node, tharg->ip);
-   /* copy iplist data and mark thread as ready for join */
-   memcpy(&tharg->tx, &node.tx, sizeof(TX));
-   tharg->join = 1;
-
-   Unthread;
-}
-
 /**
  * Perform a network scan, refreshing Rplist[] with available nodes.
  * The highest advertised network hash, weight and bnum is placed in
@@ -897,87 +877,83 @@ ThreadProc th_get_ipl(void *args)
 int scan_network
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum)
 {
-   THARG_GETIPL tharg[MAXNODES] = { 0 };
-   ThreadId tid[MAXNODES] = { 0 };
-   int j, result;
-   word32 *ipp, done, next, qcount;
+   TX *tx;
+   NODE node;
+   word32 done = 0;
+   word32 next = 0;
+   word32 qcount = 0;
+   word32 peer, *ipp;
    word16 len;
    word8 highhash[HASHLEN] = { 0 };
    word8 highweight[32] = { 0 };
    word8 highbnum[8] = { 0 };
    char weighthex[65], bnumhex[17];
+   int result;
 
-   done = next = qcount = 0;
    plog("begin network scan... ");
-   while (done < next || (next < Rplistidx && Rplist[next])) {
-      /* check threads */
-      for (j = 0; j < MAXNODES; j++) {
-         /* check available threads */
-         if (tid[j] == 0) {
-            if (next < Rplistidx && Rplist[next]) {
-               tharg[j].ip = Rplist[next];
-               tharg[j].join = 0;
-               result = thread_create(&tid[j], &th_get_ipl, &tharg[j]);
-               if (result != VEOK) {
-                  perrno("thread_create()");
-                  tharg[j].join = 0;
-                  tid[j] = 0;
-               } else next++;
+
+   OMP_PARALLEL_(private(tx, node, peer, ipp, len, result))
+   {
+      while (Running && next < RPLISTLEN && Rplist[next]) {
+         OMP_CRITICAL_()
+         {
+            peer = Rplist[next];
+            if (peer) next++;
+         }
+         /* idle condition */
+         if (peer == 0) {
+            if (done < next) {
+               millisleep(100);
+               continue;
             }
-         } else if (tharg[j].join) {
-            /* thread is finished */
-            result = thread_join(tid[j]);
-            if (result != VEOK) perrno("thread_join()");
-            if ((tharg[j].join >> 8) == VEOK) {
-               /* get ip list from TX */
-               len = get16(tharg[j].tx.len);
-               ipp = (word32 *) tharg[j].tx.buffer;
+            break;
+         }
+         /* get ip list from peer */
+         if (get_ipl(&node, peer) == VEOK) {
+            /* get ip list from TX */
+            tx = &(node.tx);
+            len = get16(tx->len);
+            ipp = (word32 *) tx->buffer;
+            OMP_CRITICAL_()
+            {
+               /* iterate peerlist adding to recent peers */
                for( ; len > 0; ipp++, len -= 4) {
+                  if (Rplistidx >= RPLISTLEN) break;
                   if (*ipp == 0) continue;
-                  if (Rplist[RPLISTLEN - 1]) break;
                   addrecent(*ipp);
                }
                /* check peer's chain weight against highweight */
-               result = cmp256(tharg[j].tx.weight, highweight);
+               result = cmp256(tx->weight, highweight);
                if (result >= 0) {  /* higher or same chain detection */
                   if (result > 0) {  /* higher chain detection */
                      pdebug("new highweight");
-                     memcpy(highhash, tharg[j].tx.cblockhash, HASHLEN);
-                     memcpy(highweight, tharg[j].tx.weight, 32);
-                     put64(highbnum, tharg[j].tx.cblock);
+                     memcpy(highhash, tx->cblockhash, HASHLEN);
+                     memcpy(highweight, tx->weight, 32);
+                     put64(highbnum, tx->cblock);
                      qcount = 0;
                      if (quorum) {
                         memset(quorum, 0, qlen);
                         pdebug("higher chain found, quourum reset...");
                      }
                   }  /* check block hash and add to quorum */
-                  if (memcmp(tharg[j].tx.cblockhash, highhash, HASHLEN) >= 0) {
+                  if (memcmp(tx->cblockhash, highhash, HASHLEN) >= 0) {
                      /* add ip to quorum, or q consensus */
                      if (quorum && qcount < qlen) {
-                        quorum[qcount++] = tharg[j].ip;
-                        pdebug("%s qualified", ntoa(&tharg[j].ip, NULL));
+                        quorum[qcount++] = peer;
+                        pdebug("%s qualified", ntoa(&peer, NULL));
                      } else if (quorum == NULL) qcount++;
                   }
-               }
-            }  /* clear thread data */
-            tharg[j].join = 0;
-            tid[j] = 0;
+               }  /* end if higher or same chain */
+            }  /* end OMP_CRITICAL_() */
+         }  /* end if get_ipl() == VEOK */
+         OMP_ATOMIC_()
             done++;
-         }
-      }
-      if (!Running) {
-         plog("Terminating threads in scan_network()...");
-         for(j = 0; j < MAXNODES; j++) {
-            if (!tid[j]) continue;
-            result = thread_cancel(tid[j]);
-            if (result != 0) perrno("thread_cancel()");
-         }
-         break;
-      } else millisleep(1);
-   }
-   pdebug("found %d qualifying nodes...", qcount);
+      }  /* end while() */
+   }  /* end OMP_PARALLEL_() */
    pdebug("qualifying weight 0x...%s", weight2hex(highweight, weighthex));
    pdebug("qualifying block 0x%s", bnum2hex(highbnum, bnumhex));
+   pdebug("qualifying nodes %d...", qcount);
+   print_ipl(quorum, qcount);
 
    /* set highest hash, weight and block number */
    if (hash) memcpy(hash, highhash, HASHLEN);

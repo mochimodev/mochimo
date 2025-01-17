@@ -15,6 +15,7 @@
 /* internal support */
 #include "types.h"
 #include "tfile.h"
+#include "parallel.h"
 #include "network.h"
 #include "ledger.h"
 #include "global.h"
@@ -23,45 +24,23 @@
 #include "bup.h"
 
 /* external support */
-#include <sys/wait.h>
-#include <sys/types.h>
-#include <string.h>
-#include <signal.h>
 #include "extthrd.h"
 #include "extmath.h"
 #include "extlib.h"
 #include "extint.h"
 #include "extio.h"
 
-#define THREADS_MAX  64
+/* system support */
+#include <signal.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <sys/types.h>
 
-typedef struct {
-   volatile int tr;  /* thread function result -- set by thread */
-   word8 bnum[8];    /* blockchain file to download */
-   word32 ip;        /* source ip */
-} BIP_THREAD_ARGS;
-
-ThreadProc thread_get_block(void *arg)
+/* (long running) synchronization interrupt handler */
+static word8 SYNC_interrupt_signal_;
+static void SYNC_interrupt_(int sig)
 {
-   BIP_THREAD_ARGS *args = (BIP_THREAD_ARGS *) arg;
-   char fname[FILENAME_MAX], fname2[FILENAME_MAX];
-   int res;
-
-   /* initialize */
-   sprintf(fname, "b%" P32x ".tmp", get32(args->bnum));
-   sprintf(fname2, "b%" P32x ".dat", get32(args->bnum));
-   res = get_file(args->ip, args->bnum, fname);
-   if (res == VEOK) {
-      res = rename(fname, fname2);
-      if (res != 0) {
-         perrno("failed to move %s -> %s", fname, fname2);
-         res = VERROR;
-      }
-   }
-
-   remove(fname);
-   args->tr = (res << 8) | 1;
-   Unthread;
+   SYNC_interrupt_signal_ = sig;
 }
 
 /**
@@ -123,13 +102,14 @@ int reset_chain(void)
  * Returns VEOK if updates made, else b_update() error code. */
 int catchup(word32 plist[], word32 count)
 {
-   char fname[FILENAME_MAX], fname2[FILENAME_MAX];
-   ThreadId tid[MAXQUORUM] = { 0 };
-   BIP_THREAD_ARGS args[MAXQUORUM] = { 0 };
-   word8 bnum[8], bclear[8];
-   word32 i, n, done;
-   FILE *fp;
-   int res;
+   void (*SIGTERM_old)(int);
+   void (*SIGINT_old)(int);
+   FILENAME fname_dl = {0};
+   FILENAME fname = {0};
+   word32 *ipp = plist;
+   word32 peer;
+   word8 bnum[8];
+   int ecode = VEOK;
 
    /* initialize... */
    show("getblock");  /* get blockchain files */
@@ -137,72 +117,95 @@ int catchup(word32 plist[], word32 count)
    if (mkdir_p(Bcdir) != 0) {  /* ensure Bcdir is ready */
       perrno("failed to verify %s/ directory", Bcdir);
       return VERROR;
-   }  /* fill args with peer ips */
-   for (done = n = 0; n < MAXQUORUM && n < count; n++) {
-      args[n].ip = plist[n];
+   }
+
+   /* set POW interrupt signal handlers */
+   SIGINT_old = signal(SIGINT, SYNC_interrupt_);
+   SIGTERM_old = signal(SIGTERM, SYNC_interrupt_);
+
+   /* clear artifacts of previous runs */
+   add64(Cblocknum, CL64_32(0xfff), bnum);
+   while (cmp64(Cblocknum, bnum) < 0) {
+      if (SYNC_interrupt_signal_) break;
+      bnum2hex(bnum, fname_dl);
+      bnum2fname(bnum, fname);
+      sub64(bnum, ONE64, bnum);
+      remove(fname_dl);
+      remove(fname);
+      fname_dl[0] = 0;
+      fname[0] = 0;
    }
 
    /* download/validate/update blocks from args */
-   put64(bclear, Cblocknum);
-   while(Running && done < n) {
-      for(put64(bnum, Cblocknum), done = i = 0; i < n; i++) {
-         if (args[i].ip == 0) done++;
-         else if (tid[i] > 0 && args[i].tr) {  /* thread finished */
-            if (thread_join(tid[i]) != 0) perrno("thread_join");
-            if ((args[i].tr >> 8) != VEOK) args[i].ip = 0;  /* kick */
-            args[i].tr = 0;
-            tid[i] = 0;
-         } else if (tid[i] == 0) {
-            do {  /* determine next required block - skip neogenesis */
-               add64(bnum, One, bnum);
-               if (bnum[0] == 0) add64(bnum, One, bnum);
-               sprintf(fname, "b%" P32x ".tmp", get32(bnum));
-               sprintf(fname2, "b%" P32x ".dat", get32(bnum));
-               if (cmp64(bnum, bclear) > 0) {
-                  /* clear a safe path for the incoming blocks */
-                  put64(bclear, bnum);
-                  remove(fname2);
-                  remove(fname);
-               }  /* ... path is clear */
-            } while(fexists(fname) || fexists(fname2));
-            /* create file for child, so the children don't fight */
-            fp = fopen(fname, "w");
-            if (fp == NULL) perrno("fopen(%s) failed", fname);
-            else {
-               fclose(fp);
-               put64(args[i].bnum, bnum);
-               res = thread_create(&(tid[i]), &thread_get_block, &args[i]);
-               if (res != 0) {
-                  perrno("thread_create");
-                  args[i].tr = 0;
-                  tid[i] = 0;
-                  remove(fname);
-               }
+   OMP_PARALLEL_(private(bnum, fname, fname_dl, peer) num_threads(count))
+   {  /* ... parallel block update handling */
+      OMP_CRITICAL_()
+         peer = *(ipp++);
+      while (count && ecode == VEOK) {
+         if (SYNC_interrupt_signal_) break;
+         /* asynchronous block download (after set) */
+         if (*fname_dl && fexists(fname_dl)) {
+            if (get_file(peer, bnum, fname_dl) != VEOK) {
+               perrno("get_file(%s) FAILURE", fname_dl);
+               remove(fname_dl);
+               OMP_ATOMIC_()
+                  count--;
+               break;
             }
          }
-      }
-      do {
-         add64(Cblocknum, One, bnum);
-         sprintf(fname2, "b%" P32x ".dat", get32(bnum));
-         if (fexists(fname2)) {
-            res = b_update(fname2, 0);
-            if (res != VEOK) {
-               perr("failed to update block file %s", fname2);
-               /* wait for all threads to finish and return res */
-               for (i = 0; i < n; i++) {
-                  if (tid[i] == 0) continue;
-                  if (thread_cancel(tid[i]) != 0) {
-                     perrno("thread_cancel(%zu)", (size_t) tid[i]);
-                  }
-               }
-               return res;
+         /* synchronous file and update handling */
+         OMP_CRITICAL_()
+         {
+            /* rename downloaded files */
+            if (*fname_dl) {
+               bnum2fname(bnum, fname);
+               rename(fname_dl, fname);
+               fname_dl[0] = 0;
+               fname[0] = 0;
             }
-         }
-      } while(Running && cmp64(Cblocknum, bnum) == 0);
-      if(Dynasleep) usleep(Dynasleep);  /* small rest */
-   }  /* end while(Running && done < n... download blocks */
+            /* check and update next block */
+            add64(Cblocknum, ONE64, bnum);
+            bnum2fname(bnum, fname);
+            while (fexists(fname)) {
+               pdebug("b_update(%s)...", fname);
+               ecode = b_update(fname, 0);
+               if (ecode != VEOK) {
+                  perrno("b_update(%s) FAILURE", fname);
+                  remove(fname);
+                  break;
+               }
+               /* check for next block */
+               add64(Cblocknum, One, bnum);
+               bnum2fname(bnum, fname);
+            }
+            /* find next download */
+            bnum2hex(bnum, fname_dl);
+            while (fexists(fname_dl) || fexists(fname)) {
+               add64(bnum, ONE64, bnum);
+               if (bnum[0] == 0) add64(bnum, ONE64, bnum);
+               bnum2hex(bnum, fname_dl);
+               bnum2fname(bnum, fname);
+            }
+            /* reserve download file(name) */
+            ftouch(fname_dl);
+         }  /* end OMP_CRITICAL_() */
+      }  /* end while (!SYNC_interrupt_signal_... */
+      /* cleanup temporary files */
+      if (*fname_dl) remove(fname_dl);
+      if (*fname) remove(fname);
+   }  /* end OMP parallel */
 
-   return VEOK;
+   /* restore signal handlers */
+   signal(SIGINT, SIGINT_old);
+   signal(SIGTERM, SIGTERM_old);
+   if (SYNC_interrupt_signal_) {
+      raise(SYNC_interrupt_signal_);
+      SYNC_interrupt_signal_ = 0;
+      set_errno(EINTR);
+      return VERROR;
+   }
+
+   return ecode;
 }  /* end catchup() */
 
 /**

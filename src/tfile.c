@@ -16,23 +16,26 @@
 #include "types.h"
 #include "trigg.h"
 #include "peach.h"
+#include "parallel.h"
 #include "network.h"
 #include "global.h"
 #include "error.h"
 
 /* external support */
-#include <string.h>
 #include "extmath.h"
 #include "extlib.h"
 #include "extio.h"
 
-/* parallel support */
-#ifdef _OPENMP
-   #include <omp.h>
-#endif
+/* system support */
+#include <signal.h>
+#include <string.h>
 
-/** Global shutdown flag for long running functions of tfile.h */
-word8 TfileShutdown = 0;
+/* (long running) Proof of Work interrupt handler */
+static word8 POW_interrupt_signal_;
+static void POW_interrupt_(int sig)
+{
+   POW_interrupt_signal_ = sig;
+}
 
 /**
  * Accumulate 256-bit weight based on difficulty
@@ -821,6 +824,8 @@ int validate_tfile_fp(FILE *fp, word8 bnum[8], word8 weight[32], int trust)
  */
 int validate_tfile_pow_fp(FILE *fp, int trust)
 {
+   void (*SIGTERM_old)(int);
+   void (*SIGINT_old)(int);
    BTRAILER bt;
    long long len, skip;
    int ecode, errnum;
@@ -842,14 +847,16 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
       if (fseek64(fp, skip, SEEK_SET) != 0) return VERROR;
    }
 
-#ifdef _OPENMP
-   #pragma omp parallel private(bt)
-#endif
+   /* set POW interrupt signal handlers */
+   SIGINT_old = signal(SIGINT, POW_interrupt_);
+   SIGTERM_old = signal(SIGTERM, POW_interrupt_);
+
+   /* parallelize PoW validation (where available) */
+   OMP_PARALLEL_(private(bt))
    {
-      while (!TfileShutdown && ecode == VEOK) {
-      #ifdef _OPENMP
-         #pragma omp critical
-      #endif
+      while (ecode == VEOK) {
+         if (POW_interrupt_signal_) break;
+         OMP_CRITICAL_()
          {
             if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
                ecode = VEWAITING;
@@ -865,9 +872,7 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
          if (bt.bnum[0] == 0 || get32(bt.tcount) == 0) continue;
          /* validate trailer Proof-of-Work */
          if (validate_pow(&bt) != VEOK) {
-         #ifdef _OPENMP
-            #pragma omp critical
-         #endif
+            OMP_CRITICAL_()
             {
                errnum = errno;
                ecode = VERROR;
@@ -875,7 +880,17 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
                   get32(bt.bnum + 4), get32(bt.bnum));
             }
          }
-      }
+      }  /* end while */
+   }  /* end OMP_PARALLEL_ */
+
+   /* restore signal handlers */
+   signal(SIGINT, SIGINT_old);
+   signal(SIGTERM, SIGTERM_old);
+   if (POW_interrupt_signal_) {
+      raise(POW_interrupt_signal_);
+      POW_interrupt_signal_ = 0;
+      set_errno(EINTR);
+      return VERROR;
    }
 
    /* ensure errno integrity through parallel processing */

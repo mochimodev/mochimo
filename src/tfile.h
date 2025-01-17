@@ -22,8 +22,6 @@
 #define NTFTX_SPACE  ( sizeof(((TX *) NULL)->buffer) / sizeof(BTRAILER) )
 STATIC_ASSERT(NTFTX <= NTFTX_SPACE, NTFTX_too_large_for_buffer);
 
-extern word8 TfileShutdown;
-
 /* C/C++ compatible prototypes */
 #ifdef __cplusplus
 extern "C" {
