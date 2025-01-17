@@ -360,6 +360,8 @@ int init(void)
    }
 
    plog("Init chain...");
+   /* open ledger where available */
+   le_open("ledger.dat");
    /* reset internal chain data based on Tfile */
    if (reset_chain() != VEOK) {
       perrno("reset_chain() FAILURE");
