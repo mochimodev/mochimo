@@ -1292,44 +1292,6 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
       }
    }
 
-   /* power and temperature monitoring (1 second interval) */
-   if (P->nvml_enabled && difftime(time(NULL), dev->last_monitor)) {
-      dev->last_monitor = time(NULL);
-      /* get GPU device power */
-      unsigned int fan;
-      nr = nvmlDeviceGetFanSpeed(P->nvml_device, &fan);
-      if (nr != NVML_SUCCESS) {
-         perr("nvml(%d) fan speed: %s\n", id, nvmlErrorString(nr));
-         memset(&(P->nvml_device), 0, sizeof(nvmlDevice_t));
-         P->nvml_enabled = 0;
-      } else dev->fan = fan;
-      /* get GPU device power */
-      unsigned int power;
-      nr = nvmlDeviceGetPowerUsage(P->nvml_device, &power);
-      if (nr != NVML_SUCCESS) {
-         perr("nvml(%d) power usage: %s\n", id, nvmlErrorString(nr));
-         memset(&(P->nvml_device), 0, sizeof(nvmlDevice_t));
-         P->nvml_enabled = 0;
-      } else dev->pow = power / 1000;
-      /* get GPU device temperature */
-      unsigned int temperature;
-      nr = nvmlDeviceGetTemperature(P->nvml_device, NVML_TEMPERATURE_GPU,
-         &temperature);
-      if (nr != NVML_SUCCESS) {
-         perr("nvml(%d) temperature: %s\n", id, nvmlErrorString(nr));
-         memset(&(P->nvml_device), 0, sizeof(nvmlDevice_t));
-         P->nvml_enabled = 0;
-      } else dev->temp = temperature;
-      /* get GPU device utilization */
-      nvmlUtilization_t utilization;
-      nr = nvmlDeviceGetUtilizationRates(P->nvml_device, &utilization);
-      if (nr != NVML_SUCCESS) {
-         perr("nvml(%d) utilization rates: %s\n", id, nvmlErrorString(nr));
-         memset(&(P->nvml_device), 0, sizeof(nvmlDevice_t));
-         P->nvml_enabled = 0;
-      } else dev->util = utilization.gpu;
-   }
-
    return VERROR;
 }  /* end peach_solve_cuda() */
 
