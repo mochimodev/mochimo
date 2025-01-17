@@ -180,6 +180,7 @@ int addr_tag_readfile(void *tag, const char *filename)
    switch (llen) {
       case ADDR_TAG_LEN:
          /* read directly into output */
+         if (fseek64(fp, 0LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
          count = fread(tag, ADDR_TAG_LEN, 1, fp);
          if (count != 1) goto ERROR_CLEANUP;
          break;
