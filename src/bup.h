@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 void print_bup(BTRAILER *bt, char *solvestr);
+int b_adjust_maddr_fp(FILE *fp, void *maddr);
 int b_update(char *fname, int mode);
 
 #ifdef __cplusplus

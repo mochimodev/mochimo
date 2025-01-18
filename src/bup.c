@@ -64,6 +64,79 @@ void print_bup(BTRAILER *bt, char *solvestr)
 }  /* end print_bup() */
 
 /**
+ * Adjust a block to accommodate a new mining address. Uses existing state
+ * and updates the necessary components to reflect the new mining address.
+ * @param fp File pointer to candidate block file
+ * @param maddr New mining address to update block with
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int b_adjust_maddr_fp(FILE *fp, void *maddr)
+{
+   TXENTRY txc;   /* for holding transaction data */
+   BTRAILER bt;   /* block trailers are fixed length */
+   BHEADER bh;    /* the minimal length block header */
+   word8 *mtree;  /* malloc'd merkle tree list */
+   size_t tcount; /* malloc'd transaction count */
+   size_t j;      /* loop counter and txclean count */
+
+   /* init pointers */
+   mtree = NULL;
+
+   /* read block trailer */
+   if (fseek(fp, (long) -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
+   tcount = get32(bt.tcount);
+
+   /* read/update block header */
+   if (fseek(fp, 0L, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   if (fread(&bh, sizeof(BHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+   memcpy(bh.maddr, maddr, sizeof(bh.maddr));
+   if (fseek(fp, 0L, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   if (fwrite(&bh, sizeof(BHEADER), 1, fp) != 1) goto ERROR_CLEANUP;
+
+   /* ... fp left at start of TXENTRY[] ...*/
+
+   /* malloc merkle tree (+1 for header data) */
+   mtree = malloc((tcount + 1) * HASHLEN);
+   if (mtree == NULL) goto ERROR_CLEANUP;
+
+   /* begin merkel hash with mining address + reward */
+   sha256(bh.maddr /* + bh.mreward */, sizeof(bh.maddr) + 8, mtree);
+
+   /* read transactions from txclean.dat using sorted TXPOS array */
+   for (j = 1; j < (tcount + 1); j++) {
+      /* add transaction id to merkel tree (++ prefix for miner) */
+      if (tx_fread(&txc, fp) != VEOK) goto RDERR_CLEANUP;
+      memcpy(&mtree[j * HASHLEN], txc.tx_id, HASHLEN);
+   }  /* end for() */
+
+   /* (re)compute merkel root hash straight into the trailer */
+   merkle_root(mtree, tcount + 1, bt.mroot);
+   /* ... bt.nonce left zero'd (not known) */
+   /* ... bt.stime left zero'd (not known) */
+   /* ... bt.bhash left zero'd (not known) */
+
+   /* write trailer to file */
+   if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) goto ERROR_CLEANUP;
+
+   /* cleanup */
+   free(mtree);
+
+   /* success */
+   return VEOK;
+
+   /* cleanup / error handling */
+RDERR_CLEANUP:
+   if (!ferror(fp)) set_errno(EMCM_EOF);
+ERROR_CLEANUP:
+   if (mtree) free(mtree);
+
+   return VERROR;
+}  /* end b_adjust_maddr_fp() */
+
+/**
  * mode: 0 = their block
  * nonzero = our block
  * specifically: 1 = normal block
