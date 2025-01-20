@@ -46,6 +46,7 @@ git commit -m "merge build-c v1.1.2 repository files"
 # │   │   ├── .nojekyll
 # │   │   ├── config
 # │   │   ├── layout.xml
+# │   │   ├── logo.svg
 # │   │   └── style.css
 # │   └── workflows
 # │       ├── codeql.yaml
@@ -85,8 +86,7 @@ git commit -m "merge build-c v1.1.2 repository files"
 # ├── CHANGELOG.md
 # ├── GNUmakefile
 # ├── LICENSE.md
-# ├── README.md
-# └── VERSION
+# └── README.md
 ```
 
 ## Automatically configured filename/extension support
@@ -97,27 +97,32 @@ By default, the GNUMakefile is automatically configured to operate with the foll
 - `src/*.cuh:` CUDA header file, for inclusion ONLY by other CUDA source files
 - `src/bin/*.c:` C source file, for binary execution
 - `src/test/component-*.c:` C source file for testing C functions
-- `src/test/component-*-cu.c:` C source file for testing CUDA functions, compiled with `$(CC)` ONLY if `$(CFLAGS)` contains the `"-DCUDA"` definition
+- `src/test/component-*-cu.c:` C source file for testing CUDA functions
 
 ## Makefile usage
-CLI usage information is revealed with the use of `make` or `make help` in the project's root directory.
+CLI usage information is revealed with `make help`:
 ```
-Usage:  make [options] [FLAGS=FLAGVALUES]
-
-	make               prints this usage information
-	make all           build all object files
-	make allcuda       build all CUDA object files
-	make clean         removes build directory and files
-	make cleanall      removes (all) build directories and files
-	make coverage      build test coverage file
-	make docs          build documentation files
-	make library       build a library file containing all objects
-	make report        build html report from test coverage
-	make sublibraries  build all library files (incl. submodules)
-	make test          build and run tests
-	make test-*        build and run sub tests matching *
-	make variable-*    show the value of a variable matching *
-	make version       show the git repository version string
+Usage:  make [options] [targets]
+Options:
+   DEFINES="<defines>" for additional preprocessor definitions
+      e.g. make all DEFINES="_GNU_SOURCE _XOPEN_SOURCE=600"
+   NO_CUDA=1 to disable CUDA support
+   NO_RECURSIVE=1 to disable recursive submodule actions
+   CFLAGS="<flags>" for additional C compiler flags
+   NVCFLAGS="<flags>" for additional NVIDIA compiler flags
+      e.g. make all CFLAGS="-fsanitize=address"
+   ... "make --help" for make specific options
+User Targets:
+   ... no user targets available ...
+Utility Targets:
+   make [all]       build all object files into a library
+   make clean       remove build files (incl. within submodules)
+   make coverage    build test coverage file and generate report
+   make docs        build documentation files
+   make echo-*      show the value of a variable matching *
+   make help        prints this usage information
+   make test        build and run (all) tests
+   make test-*      build and run tests matching *
 ```
 
 ## Configurable Flags
@@ -126,7 +131,7 @@ Most parameters used by the Makefile can be configured, either directly in the M
 ## Integrated Documentation
 *Requires at least `doxygen` v1.9.x (unavailable through `apt` on Ubuntu 20.04)*
 
-C/C++ Documentation is made available with the help of Doxygen, using special comment style blocks before functions and definitions for automatic recognition and compilation into an easy to navigate html documentation front-end. 
+C/C++ Documentation is made available with the help of Doxygen, using special comment style blocks before functions and definitions for automatic recognition and compilation into an easy to navigate html documentation front-end.
 
 Use:
 * `make docs` after the code is commented appropriately
@@ -144,20 +149,7 @@ Use:
 Test coverage can be generated locally and viewed via a HTML report (generated separately). `lcov` is required to generate coverage data.
 
 Use:
-* `make coverage` to generate coverage data, AND
-* `make report` to generate html report from coverage data, OR
-* `make coverage report` to do both in one command
-
-## Test coverage (workflow)
-Test coverage is also generated automatically by the `tests.yaml` github workflow and automatically uploaded to [CodeCov.io](https://about.codecov.io/) upon success, **provided that all tests pass.**
-
-**In some circumstances test coverage of a brand new repository will fail, specifying that the repository cannot be found.** Some causes of this error include:
-* being too deadly;
-  * I think there is some delay between creating/pushing to a repository and the repository being detectable by CodeCov. In this case, you can simply "re-run" the GitHub Action jobs after some time and it will pass ok.
-* repository is private;
-  * If the repository is private, one would normally question the necessity of coverage data, and recommend that the "coverage job" be removed from the `tests.yaml` workflow file. However, if coverage data is deemed necessary, you will need to obtain a CodeCov token from the website for your new repository, add it as a GitHub repository "secret" and include it in the `tests.yaml` workflow file.
-
-**On the rare chance that test coverage remains in a failed state,** you may need to manually "activate" a repository on the CodeCov dashboard (website) and "re-run" all jobs again.
+* `make coverage` to generate html report from coverage data
 
 ## Submodule support
 Support for submodules is automatically built into the Makefile, provided that:
@@ -177,17 +169,21 @@ git commit -m "add submodule to repostory"
 ```sh
 cd project-repo
 git -C include/<submodule-name> pull origin <main|tag|commit>
-git commit -m "update submodule to latest revision"
+git add include/<submodule-name>
+git commit -m "update submodule to <main|tag|commit>"
 ```
 
 ## CUDA support
-CUDA compilation of `*.c` source files is enabled by the Makefile for systems with appropriately installed CUDA Toolkit. The Makefile uses the NVCC compiler in place of the normal compiler (normally gcc) to compile identical object files. By default, the NVCC compiler is assumed to be accessible at the standard cuda toolkit install location `/usr/local/cuda/bin/nvcc`, however this is configurable via the command line using the `NVCC` flag like so:
+CUDA compilation of `*.cu` source files is enabled BY DEFAULT for systems with appropriately installed CUDA Toolkit. The Makefile uses the `nvcc` compiler in place of the normal compiler (normally gcc) to compile identical object files. By default, the `nvcc` compiler is assumed to be accessible at the standard cuda toolkit install location `/usr/local/cuda`, however this is configurable via the command line using the `CUDADIR` flag like so:
 ```sh
-make build/source.o NVCC=/path/to/nvcc
+make build/source.o CUDADIR=/path/to/cuda
 ```
 
-Use:
-* `make cuda` to build all objects with NVCC
+If CUDA compilation is undesireable, it can be disabled by adding `NO_CUDA=1` to make commands.
+
+```
+make all NO_CUDA=1
+```
 
 ## License
 This repository is licensed for use under an MPL 2.0 derivative Open Source license.<br/>
