@@ -1,48 +1,33 @@
 
 ##
 # GNUmakefile - C/C++ makefile for GNU Make
-# Copyright 2021-2024 Adequate Systems, LLC. All Rights Reserved.
+# Copyright 2021-2025 Adequate Systems, LLC. All Rights Reserved.
 #
 
-#####################
-# vv CONFIGURATION vv
-
-# system utils
-CC:= /usr/bin/gcc
-NVCC:= /usr/local/cuda/bin/nvcc
+# REQUIRE bash shell
 SHELL:= bash
 
 # system directories
 CUDADIR:= /usr/local/cuda
-NVINCLUDEDIR:= /usr/local/cuda/include
-NVLIBDIR:= /usr/local/cuda/lib64 /usr/local/cuda/lib64/stubs
 
 # project directories
 BINDIR:= bin
 BUILDDIR:= build
-INCLUDEDIR:= include
+SUBDIR:= include
 SOURCEDIR:= src
 TESTBUILDDIR:= $(BUILDDIR)/test
 TESTSOURCEDIR:= $(SOURCEDIR)/test
 BINSOURCEDIR:= $(SOURCEDIR)/bin
+SUBDIRS := $(wildcard $(SUBDIR)/**)
 
-# build definitions
-GITVERSION:=$(shell git describe --always --dirty --tags || echo "<no-ver>")
-VERDEF:=-DGIT_VERSION="\"$(GITVERSION)\""
+# version info
+VERSION := $(shell git describe --always --dirty --tags 2>/dev/null)
+VERSION := $(or $(VERSION),u$(shell date +u%g%j)) # untracked version
 
-# input flags
-CUDEF:= $(filter -DCUDA,$(CFLAGS))
-CFLAGS:= # RESERVED for user compile options
-LFLAGS:= # RESERVED for user linking options
-NVCFLAGS:= # RESERVED for user compilation options specific to NVCC
-
-# module name (by default, the name of the root directory)
-# NOTE: excessive makefile commands account for embedded make calls
-MODULE:= $(notdir $(realpath $(dir $(lastword $(MAKEFILE_LIST)))))
-
-# module library and coverage files
-MODLIB:= $(BUILDDIR)/lib$(MODULE).a
-COVERAGE:= $(BUILDDIR)/coverage.info
+# compilers
+NVCC := $(if $(NO_CUDA),,$(shell ls $(CUDADIR)/bin/nvcc 2>/dev/null | head -n 1))
+GCC := $(shell ls /usr/{,local/}bin/gcc-[0-9]* 2>/dev/null | sort -t- -k2,2V | tail -n 1)
+CC := $(or $(GCC),$(CC)) # some systems alias gcc elsewhere
 
 # source files: test (base/cuda), base, cuda
 BCSRCS:= $(sort $(wildcard $(BINSOURCEDIR)/*.c))
@@ -56,113 +41,107 @@ COBJS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.o,$(CSRCS))
 CUOBJS:= $(patsubst $(SOURCEDIR)/%.cu,$(BUILDDIR)/%.cu.o,$(CUSRCS))
 TCOBJS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.o,$(TCSRCS))
 TCUOBJS:= $(patsubst $(SOURCEDIR)/%-cu.c,$(BUILDDIR)/%-cu.o,$(TCUSRCS))
+# ... collection of object files
+OBJECTS := $(COBJS) $(if $(NVCC),$(CUOBJS))
 
-# dependency files; compatible only with *.c files
-DEPENDS:= $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.d, \
-	$(BCSRCS) $(CSRCS) $(TCSRCS) $(TCUSRCS) $(TCLSRCS))
+# test coverage file
+COVERAGE := $(BUILDDIR)/coverage.info
 
-# dynamic working set of objects; dependant on compilation flags
-OBJECTS:= $(COBJS) $(if $(CUDEF),$(CUOBJS),)
+# library names: submodule, cuda, base
+SUBLIBRARIES := $(patsubst $(SUBDIR)/%,%,$(SUBDIRS))
+CULIBRARIES := $(if $(NVCC),cudart nvidia-ml stdc++)
+LIBRARY := $(lastword $(notdir $(realpath .)))
 
-# dynamic test objects, names and components; eye candy during tests
-TESTOBJECTS:= $(TCOBJS) $(if $(CUDEF),$(TCUOBJS),)
-TESTNAMES:= $(basename $(patsubst $(TESTBUILDDIR)/%,%,$(TESTOBJECTS)))
-TESTCOMPS:= $(shell echo $(TESTOBJECTS) | sed 's/\s/\n/g' | \
-	sed -E 's/\S*\/([^-]*)[-.]+\S*/\1/g' | sort -u)
+# library files: submodule, base
+SUBLIBRARYFILES := $(join $(SUBDIRS),$(patsubst $(SUBDIR)/%,/$(BUILDDIR)/lib%.a,$(SUBDIRS)))
+LIBRARYFILE := $(BUILDDIR)/lib$(LIBRARY).a
 
-# includes and include/library directories
-INCLUDES:= $(wildcard $(INCLUDEDIR)/**)
-INCLUDEDIRS:= $(SOURCEDIR) $(addsuffix /$(SOURCEDIR),$(INCLUDES)) \
-	$(if $(CUDEF),$(NVINCLUDEDIR),)
-LIBDIRS:= $(BUILDDIR) $(addsuffix /$(BUILDDIR),$(INCLUDES)) \
-	$(if $(CUDEF),$(NVLIBDIR),)
-SUBLIBS:= $(join $(INCLUDES),\
-	$(patsubst $(INCLUDEDIR)/%,/$(BUILDDIR)/lib%.a,$(INCLUDES)))
-LIBFLAGS:= -l$(MODULE) $(patsubst $(INCLUDEDIR)/%,-l%,$(INCLUDES)) \
-	$(if $(CUDEF),-lcudart -lnvidia-ml -lstdc++,) -lm
+# library directories: submodule, cuda
+SUBLIBRARYDIRS := $(addsuffix /$(BUILDDIR),$(SUBDIRS))
+CULIBRARYDIRS := $(if $(NVCC),$(addprefix $(CUDADIR),/lib64 /lib64/stubs))
 
-# compiler/linker flag macros
-CCWARNS:= -Wall -Wextra -Wpedantic -Werror
-CXFLAGS:= -fopenmp # -fopenmp typically links with -pthreads
-LDFLAGS:= $(addprefix -L,$(LIBDIRS)) -Wl,-\( $(LIBFLAGS) -Wl,-\) $(CXFLAGS)
-CCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) $(CCWARNS) -MMD -MP $(CXFLAGS)
-NVCCFLAGS:= $(addprefix -I,$(INCLUDEDIRS)) -Xptxas -Werror
+# include directories: submodule, cuda
+SUBINCLUDEDIRS := $(addsuffix /$(SOURCEDIR),$(SUBDIRS))
+CUINCLUDEDIRS := $(if $(NVCC),$(CUDADIR)/include)
 
-## ^^ END CONFIGURATION ^^
-##########################
+# linker and compiler flags
+CXFLAGS := -MMD -MP -Wall -Werror -Wextra -Wpedantic
+DFLAGS := $(addprefix -D,$(DEFINES) VERSION=$(VERSION))
+IFLAGS := $(addprefix -I,$(SOURCEDIR) $(CUINCLUDEDIRS) $(SUBINCLUDEDIRS))
+LFLAGS := $(addprefix -L,$(BUILDDIR) $(CULIBRARYDIRS) $(SUBLIBRARYDIRS))
+lFlags := $(addprefix -l,m $(LIBRARY) $(CULIBRARIES) $(SUBLIBRARIES))
+LCFLAGS := -pthread
+# ... working set of flags
+CCFLAGS := $(IFLAGS) $(CXFLAGS) $(CFLAGS) $(DFLAGS) $(LCFLAGS)
+LDFLAGS := $(LFLAGS) -Wl,-\( $(lFlags) -Wl,-\) $(LCFLAGS)
+NVCCFLAGS := $(IFLAGS) -Xptxas -Werror $(NVCFLAGS)
+
+################################################################
 
 .SUFFIXES: # disable rules predefined by MAKE
-.PHONY: _ all clean cleanall coverage docs help-dev library report \
-	sublibs test update version help
+.PHONY: all clean coverage docs help library test
 
-# default rule calls help and informs of help-dev
-_: # help as dependency DOES NOT inform of missing help rule
-	@make help --no-print-directory
-	@echo "Run 'make help-dev' for developer usage information."
-
-# build "all" base objects
-all: $(OBJECTS)
+# default rule builds (local) library file containing all objects
+all: $(SOURCEDIR) $(SUBLIBRARYFILES) $(LIBRARYFILE)
 
 # remove build directory and files
 clean:
 	@rm -rf $(BUILDDIR)
+	@$(if $(NO_RECURSIVE),,$(foreach DIR,$(SUBDIRS),make clean -C $(DIR);))
 
-# remove all build directories and files; recursive
-cleanall: clean
-	@$(foreach DIR,$(INCLUDES),make cleanall -C $(DIR); )
-
-# build test coverage (requires lcov); redirect
+# build test coverage (requires lcov); depends on coverage file
 coverage: $(COVERAGE)
+	genhtml $(COVERAGE) --output-directory $(BUILDDIR)
 
 # build documentation files (requires doxygen)
 docs:
 	@mkdir -p docs
 	@cp .github/docs/config docs/config
-	@echo 'PROJECT_NAME = "$(MODULE)"' | \
-	 tr '[:lower:]' '[:upper:]' >>docs/config
-	@echo 'PROJECT_NUMBER = "$(GITVERSION)"' >>docs/config
+	@echo 'PROJECT_NAME = "$(LIBRARY)"' | tr '[:lower:]' '[:upper:]' >>docs/config
+	@echo 'PROJECT_NUMBER = "$(VERSION)"' >>docs/config
 	-doxygen docs/config
 	rm docs/config
 
-# developer help information
-help-dev:
+# echo the value of a variable matching pattern
+echo-%:
+	@echo $* = $($*)
+
+# display help information
+help:
 	@echo ""
 	@echo "Usage:  make [options] [targets]"
 	@echo "Options:"
-	@echo "   ... see 'make --help' for make specific options"
-	@echo "   CFLAGS='<flags>' for additional compiler flags"
-	@echo "   LFLAGS='<flags>' for additional linker flags"
-	@echo "   NVCFLAGS='<flags>' for additional NVIDIA compiler flags"
-	@echo "Targets (developer):"
-	@echo "   make [_]         redirects to 'help' and suggests 'help-dev'"
-	@echo "   make all         build all object files"
-	@echo "   make clean       remove build directory"
-	@echo "   make cleanall    remove build directory (incl. submodules)"
-	@echo "   make coverage    build test coverage file"
+	@echo "   DEFINES=\"<defines>\" for additional preprocessor definitions"
+	@echo "      e.g. make all DEFINES=\"_GNU_SOURCE _XOPEN_SOURCE=600\""
+	@echo "   NO_CUDA=1 to disable CUDA support"
+	@echo "   NO_RECURSIVE=1 to disable recursive submodule actions"
+	@echo "   CFLAGS=\"<flags>\" for additional C compiler flags"
+	@echo "   NVCFLAGS=\"<flags>\" for additional NVIDIA compiler flags"
+	@echo "      e.g. make all CFLAGS=\"-fsanitize=address\""
+	@echo "   ... \"make --help\" for make specific options"
+	@echo "User Targets:"
+	@echo "   ... no user targets available ..."
+	@echo "Utility Targets:"
+	@echo "   make [all]       build all object files into a library"
+	@echo "   make clean       remove build files (incl. within submodules)"
+	@echo "   make coverage    build test coverage file and generate report"
 	@echo "   make docs        build documentation files"
-	@echo "   make help-dev    prints this developer usage information"
-	@echo "   make library     build a library file containing all objects"
-	@echo "   make report      build html report from test coverage"
-	@echo "   make sublibs     build all library files (incl. submodules)"
+	@echo "   make echo-*      show the value of a variable matching *"
+	@echo "   make help        prints this usage information"
 	@echo "   make test        build and run (all) tests"
 	@echo "   make test-*      build and run tests matching *"
-	@echo "   make update      update current repository and submodules"
-	@echo "   make variable-*  show the value of a variable matching *"
-	@echo "   make version     show the git repository version string"
 	@echo ""
 
-# build library file; redirect
-library: $(MODLIB)
+################################################################
 
-# build local html coverage report from coverage data
-report: $(COVERAGE)
-	genhtml $(COVERAGE) --output-directory $(BUILDDIR)
-
-# initialize and build build submodule libraries; redirect
-sublibs: $(SUBLIBS)
+# dynamic test objects, names and components; eye candy during tests
+TESTOBJECTS:= $(TCOBJS) $(if $(NVCC),$(TCUOBJS))
+TESTNAMES:= $(basename $(patsubst $(TESTBUILDDIR)/%,%,$(TESTOBJECTS)))
+TESTCOMPS:= $(shell echo $(TESTOBJECTS) | sed 's/\s/\n/g' | \
+	sed -E 's/\S*\/([^-]*)[-.]+\S*/\1/g' | sort -u)
 
 # build and run specific tests matching pattern
-test-%: $(SUBLIBS) $(MODLIB)
+test-%: $(SUBLIBRARYFILES) $(LIBRARYFILE)
 	@echo -e "\n[--------] Performing $(words $(filter $*%,$(TESTNAMES)))" \
 		"tests matching \"$*\""
 	@$(foreach TEST,\
@@ -172,11 +151,11 @@ test-%: $(SUBLIBS) $(MODLIB)
 	 ) || ( touch $(TEST).fail && \ echo "[  ERROR ] $(TEST), ecode=$$?" ); )
 
 # build and run tests
-test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
+test: $(SUBLIBRARYFILES) $(LIBRARYFILE) $(TESTOBJECTS)
 	@if test -d $(BUILDDIR); then find $(BUILDDIR) -name *.fail -delete; fi
 	@echo -e "\n[========] Found $(words $(TESTNAMES)) tests" \
-		"for $(words $(TESTCOMPS)) components in \"$(MODULE)\""
-	@echo "[========] Performing all tests in \"$(MODULE)\" by component"
+		"for $(words $(TESTCOMPS)) components in \"$(LIBRARY)\""
+	@echo "[========] Performing all tests in \"$(LIBRARY)\" by component"
 	@-$(foreach COMP,$(TESTCOMPS),make test-$(COMP) --no-print-directory; )
 	@export FAILS=$$(find $(BUILDDIR) -name *.fail -delete -print | wc -l); \
 	 echo -e "\n[========] Testing completed. Analysing results..."; \
@@ -184,68 +163,58 @@ test: $(SUBLIBS) $(MODLIB) $(TESTOBJECTS)
 	 echo -e "[ FAILED ] $$FAILS tests failed.\n"; \
 	 exit $$FAILS
 
-# update git repository (incl. submodule)
-update:
-	git pull --recurse-submodules
-	@! git merge --abort 2>/dev/null
+################################################################
 
-# echo the value of a variable matching pattern
-variable-%:
-	@echo $* = $($*)
-
-# echo the value of the GITVERSION
-version:
-	@echo $(GITVERSION)
-
-############################
-# vv RECIPE CONFIGURATION vv
-
-# include custom recipe configurations here
-
-## ^^ END RECIPE CONFIGURATION ^^
-#################################
-
-# build module library, within build directory, from dynamic object set
-$(MODLIB): $(OBJECTS)
+# build (local) library, within build directory, from dynamic object set
+$(LIBRARYFILE): $(OBJECTS)
 	@mkdir -p $(dir $@)
-	ar rcs $(MODLIB) $(OBJECTS)
-
-# build submodule libraries, within associated directories
-$(SUBLIBS): %: $(INCLUDEDIRS)
-	@make library -C $(INCLUDEDIR)/$(word 2,$(subst /, ,$@))
+	ar rcs $(LIBRARYFILE) $(OBJECTS)
 
 # build coverage file, within out directory
 $(COVERAGE):
 	@mkdir -p $(dir $@)
-	@make clean all --no-print-directory "CFLAGS=$(CFLAGS) --coverage -O0"
+	@make clean all NO_CUDA=1 "LCFLAGS=$(LCFLAGS) --coverage -O0"
 	lcov -c -i -d $(BUILDDIR) -o $(COVERAGE)_base
-	@make test --no-print-directory "CFLAGS=$(CFLAGS) --coverage -O0"
+	@make test NO_CUDA=1 "LCFLAGS=$(LCFLAGS) --coverage -O0"
 	lcov -c -d $(BUILDDIR) -o $(COVERAGE)_test
 	lcov -a $(COVERAGE)_base -a $(COVERAGE)_test -o $(COVERAGE) || \
 		cp $(COVERAGE)_base $(COVERAGE)
 	rm -rf $(COVERAGE)_base $(COVERAGE)_test
 	lcov -r $(COVERAGE) '*/$(TESTSOURCEDIR)/*' -o $(COVERAGE)
-	@$(foreach INC,$(INCLUDEDIRS),if test $(DEPTH) -gt 0; then \
-		make coverage -C $(INC) DEPTH=$$(($(DEPTH) - 1)); fi; )
+
+# build test binaries ONLY [EXPERIMENTAL DEPENDENCY-LESS TEST CASES]
+#$(TESTBUILDDIR)/%: $(TESTBUILDDIR)/%.o
+#	@mkdir -p $(dir $@)
+#	$(CC) $(TESTBUILDDIR)/$*.o -o $@
+
+# build test objects ONLY [EXPERIMENTAL DEPENDENCY-LESS TEST CASES]
+#$(TESTBUILDDIR)/%.o: $(TESTSOURCEDIR)/%.c
+#	@mkdir -p $(dir $@)
+#	$(CC) -c $(TESTSOURCEDIR)/$*.c -o $@ $(CCFLAGS)
 
 # build binaries, within build directory, from associated objects
-$(BUILDDIR)/%: $(SUBLIBS) $(MODLIB) $(BUILDDIR)/%.o
+$(BUILDDIR)/%: $(SUBLIBRARYFILES) $(LIBRARYFILE) $(BUILDDIR)/%.o
 	@mkdir -p $(dir $@)
-	$(CC) $(BUILDDIR)/$*.o -o $@ $(LDFLAGS) $(LFLAGS) $(CFLAGS) $(VERDEF)
+	$(CC) $(BUILDDIR)/$*.o -o $@ $(LDFLAGS)
 
 # build cuda objects, within build directory, from *.cu files
-$(BUILDDIR)/%.cu.o: $(SUBLIBS) $(SOURCEDIR)/%.cu
+$(BUILDDIR)/%.cu.o: $(SOURCEDIR)/%.cu
 	@mkdir -p $(dir $@)
-	$(NVCC) -c $(SOURCEDIR)/$*.cu -o $@ $(NVCCFLAGS) $(NVCFLAGS) $(VERDEF)
+	$(NVCC) -c $(SOURCEDIR)/$*.cu -o $@ $(NVCCFLAGS)
 
 # build c objects, within build directory, from *.c files
-$(BUILDDIR)/%.o: $(SUBLIBS) $(SOURCEDIR)/%.c
+$(BUILDDIR)/%.o: $(SOURCEDIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) -c $(SOURCEDIR)/$*.c -o $@ $(CCFLAGS) $(CFLAGS) $(VERDEF)
+	$(CC) -c $(SOURCEDIR)/$*.c -o $@ $(CCFLAGS)
 
-# initialize submodules, within include directory
-$(INCLUDEDIRS): %:
+# build submodule libraries: depends on submodule source directories
+$(SUBLIBRARYFILES): %: $(SUBSOURCEDIRS)
+	@make -C $(SUBDIR)/$(word 2,$(subst /, ,$@))
+
+# initialize submodule source directories
+$(SUBSOURCEDIRS): %:
 	git submodule update --init --recursive
 
 # include depends rules created during "build object file" process
--include $(DEPENDS)
+-include $(patsubst $(SOURCEDIR)/%.c,$(BUILDDIR)/%.d,\
+   $(BCSRCS) $(CSRCS) $(TCSRCS) $(TCUSRCS) $(TCLSRCS))
