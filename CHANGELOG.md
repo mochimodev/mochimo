@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.4.1]
+
+### Fixed
+- missing submodule initialization parameter
+
 ## [1.4.0]
 Improvements to GNUmakefile operation, identification of components and usage.
 
@@ -98,8 +104,9 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.4.0...HEAD
-[1.2.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.3.1...build-c-1.4.0
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.4.1...HEAD
+[1.4.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.4.0...build-c-1.4.1
+[1.4.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.3.1...build-c-1.4.0
 [1.2.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.0...build-c-1.2.1
 [1.2.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.3...build-c-1.2.0
 [1.1.3]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.2...build-c-1.1.3
