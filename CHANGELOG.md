@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0]
+Improvements to GNUmakefile operation, identification of components and usage.
+
+### Changed
+- PNG docs logo to SVG for better scaling
+- GNUmakefile now automatically builds CUDA components where possible
+  - *this can be disabled with `NO_CUDA=1`*
+
+### Removed
+- erroneous configuration in `.github/docs/config`
+- automatic test coverage upload; upload manually if required
+- GNUmakefile recipe clutter, simplifying/combining some actions
+
 ## [1.2.1]
 Fixes for slow makefile builds (due to GIT_VERSION shell command) and erroneous rebuilds (due to submodule libraries not being detected as up-to-date). Minor README and CHANGELOG adjustments.
 
@@ -85,7 +98,8 @@ Initial repository release.
 - Automatic CI/CD workflows for testing, coverage reports and code quality
 - Automatic documentation generation via doxygen configuration
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.1...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/build-c-1.4.0...HEAD
+[1.2.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.3.1...build-c-1.4.0
 [1.2.1]: https://github.com/adequatesystems/build-c/compare/build-c-1.2.0...build-c-1.2.1
 [1.2.0]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.3...build-c-1.2.0
 [1.1.3]: https://github.com/adequatesystems/build-c/compare/build-c-1.1.2...build-c-1.1.3
