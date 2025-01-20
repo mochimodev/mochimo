@@ -285,6 +285,7 @@ $(SUBLIBRARYFILES): %: $(SUBSOURCEDIRS)
 
 # initialize submodule source directories
 $(SUBSOURCEDIRS): %:
+	git config submodule.recurse true
 	git submodule update --init --recursive
 
 # include depends rules created during "build object file" process
