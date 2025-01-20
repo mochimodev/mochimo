@@ -19,6 +19,7 @@ TESTBUILDDIR:= $(BUILDDIR)/test
 TESTSOURCEDIR:= $(SOURCEDIR)/test
 BINSOURCEDIR:= $(SOURCEDIR)/bin
 SUBDIRS := $(wildcard $(SUBDIR)/**)
+SUBSOURCEDIRS := $(addsuffix /$(SOURCEDIR),$(SUBDIRS))
 
 # version info
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null)
