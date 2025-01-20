@@ -70,7 +70,7 @@ DFLAGS := $(addprefix -D,$(DEFINES) VERSION=$(VERSION))
 IFLAGS := $(addprefix -I,$(SOURCEDIR) $(CUINCLUDEDIRS) $(SUBINCLUDEDIRS))
 LFLAGS := $(addprefix -L,$(BUILDDIR) $(CULIBRARYDIRS) $(SUBLIBRARYDIRS))
 lFlags := $(addprefix -l,m $(LIBRARY) $(CULIBRARIES) $(SUBLIBRARIES))
-LCFLAGS := -pthread
+LCFLAGS := -fopenmp
 # ... working set of flags
 CCFLAGS := $(IFLAGS) $(CXFLAGS) $(CFLAGS) $(DFLAGS) $(LCFLAGS)
 LDFLAGS := $(LFLAGS) -Wl,-\( $(lFlags) -Wl,-\) $(LCFLAGS)
@@ -111,17 +111,17 @@ echo-%:
 help:
 	@echo ""
 	@echo "Usage:  make [options] [targets]"
+	@echo ""
 	@echo "Options:"
-	@echo "   DEFINES=\"<defines>\" for additional preprocessor definitions"
-	@echo "      e.g. make all DEFINES=\"_GNU_SOURCE _XOPEN_SOURCE=600\""
+	@echo "   'make --help' for make specific options"
+	@echo "   DEFINES='<defines>'' for additional preprocessor definitions"
+	@echo "      e.g. make all DEFINES='_GNU_SOURCE _XOPEN_SOURCE=600'"
 	@echo "   NO_CUDA=1 to disable CUDA support"
 	@echo "   NO_RECURSIVE=1 to disable recursive submodule actions"
-	@echo "   CFLAGS=\"<flags>\" for additional C compiler flags"
-	@echo "   NVCFLAGS=\"<flags>\" for additional NVIDIA compiler flags"
-	@echo "      e.g. make all CFLAGS=\"-fsanitize=address\""
-	@echo "   ... \"make --help\" for make specific options"
-	@echo "User Targets:"
-	@echo "   ... no user targets available ..."
+	@echo "   CFLAGS='<flags>' for additional C compiler flags"
+	@echo "   NVCFLAGS='<flags>' for additional NVIDIA compiler flags"
+	@echo "      e.g. make all CFLAGS='-fsanitize=address'"
+	@echo ""
 	@echo "Utility Targets:"
 	@echo "   make [all]       build all object files into a library"
 	@echo "   make clean       remove build files (incl. within submodules)"
@@ -131,6 +131,21 @@ help:
 	@echo "   make help        prints this usage information"
 	@echo "   make test        build and run (all) tests"
 	@echo "   make test-*      build and run tests matching *"
+	@echo ""
+	@echo "Mochimo Targets:"
+	@echo "   make install     install mochimo to /opt/mochimo/"
+	@echo "   make miner       build miner binary and install in bin/"
+	@echo "   make mochimo     build mochimo binary and install in bin/"
+	@echo "   make service     install mochimo as background service"
+	@echo "   make service-logs"
+	@echo "      record mochimo service logs from the latest session"
+	@echo "      in a service.log file for service log review"
+	@echo "   make uninstall	remove mochimo binary and config files"
+	@echo ""
+	@echo "DO NOT USE:"
+	@echo "   sudo make [TARGET]"
+	@echo "... unless required by:"
+	@echo "   make [install|service|uninstall]"
 	@echo ""
 
 ################################################################
@@ -166,23 +181,15 @@ test: $(SUBLIBRARYFILES) $(LIBRARYFILE) $(TESTOBJECTS)
 
 ################################################################
 
-install:
-	@getent passwd mcm >/dev/null || \
-	 useradd --no-create-home --system --shell /usr/sbin/nologin mcm
-	@systemctl status mochimo.service 2>/dev/nul && \
-	 systemctl stop mochimo.service || true
+install: $(BINDIR)/mochimo
 	@mkdir -p /opt/mochimo/
 	@cp -r $(BINDIR)/* /opt/mochimo/
 	@chown -R mcm:mcm /opt/mochimo/
-	@cp .github/systemd/mochimo.service /etc/systemd/system/
-	@systemctl enable mochimo.service
-	@systemctl start mochimo.service
-	@echo "Mochimo installed. Use 'journalctl -u mochimo -f' to view logs."
+	@echo && echo "Successfully installed to /opt/mochimo/" && echo
 
-miner:
-	@make $(BUILDDIR)/bin/miner CFLAGS=-DCUDA --no-print-directory
-	@chmod +x $(BUILDDIR)/bin/miner
-	@cp $(BUILDDIR)/bin/miner $(BINDIR)/
+miner: $(BUILDDIR)/bin/gpuminer
+	@chmod +x $(BUILDDIR)/bin/gpuminer
+	@cp $(BUILDDIR)/bin/gpuminer $(BINDIR)/
 
 mochimo: $(BUILDDIR)/bin/mochimo
 	@chmod +x $(BUILDDIR)/bin/mochimo
@@ -204,6 +211,21 @@ package-%:
 	@tar -czf $*.tar.gz $*
 	@rm -r $*
 	@echo && echo "Packaged to $*.tar.gz" && echo
+
+service: /opt/mochimo/mochimo
+	@getent passwd mcm >/dev/null || useradd --no-create-home --system --shell /usr/sbin/nologin mcm
+	@systemctl status mochimo.service 2>/dev/nul && systemctl stop mochimo.service || true
+	@cp .github/systemd/mochimo.service /etc/systemd/system/
+	@systemctl enable mochimo.service
+	@echo && echo "Background service installed." && echo
+	@echo "Manage the service with:"
+	@echo "   service mochimo [start|stop|status]"
+	@echo "Monitor service logs with:"
+	@echo "   journalctl -o cat -u mochimo [-f]"
+	@echo ""
+
+service-logs: /etc/systemd/system/mochimo.service
+	@journalctl _SYSTEMD_INVOCATION_ID=`systemctl show -p InvocationID --value "mochimo"` >service.log
 
 uninstall:
 	@systemctl stop mochimo.service && systemctl disable mochimo.service && \
