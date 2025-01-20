@@ -450,7 +450,7 @@ int tx_read(TXENTRY *tx, const void *buf, size_t bufsz)
 
 /**
  * @private
- * Validate a 16 byte Multi-Destination Reference field.
+ * Validate a Multi-Destination Reference field.
  * @param ref Pointer to start of 16 byte reference buffer
  * @return VEOK on success, or VERROR or error; check errno for details
  */
@@ -463,7 +463,7 @@ static int mdst_val__reference(const char *reference)
 
    /* Validation format rules (from types.h):
     * - CONTAINS only uppercase [A-Z], digit [0-9], dash [-], null [\0]
-    * - SHALL be null terminated with remaining unused bytes zeroed
+    * - SHALL have remaining bytes zeroed after first null termination
     *   - (e.g. VALID   `(char[]) { 'A','-','1','\0','\0','\0', ... }`)
     *   - (e.g. INVALID `(char[]) { 'A','-','1','\0','B','\0', ... }`)
     * - MAY have multiple uppercase OR digits (NOT both) grouped together
@@ -506,13 +506,13 @@ static int mdst_val__reference(const char *reference)
       return VERROR;
    }  /* end for() */
 
-   /* state machine must end on null termination */
-   if (state != ZERO) {
-      return VERROR;
-   }
+   /* state machine must end with ZERO, DIGIT or UPPER state */
+   if (state == ZERO) return VEOK;
+   if (state == DIGIT) return VEOK;
+   if (state == UPPER) return VEOK;
+   /* ... else reference is invalid */
 
-   /* reference valid */
-   return VEOK;
+   return VERROR;
 }  /* end mdst_val__reference() */
 
 /**
