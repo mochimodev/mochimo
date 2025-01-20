@@ -652,6 +652,13 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
          set_errno(EMCM_NONCE);
          return VERROR;
       }
+      /* check mroot is zero'd (pre-v3.0) */
+      if (cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
+         if (!iszero(bt->mroot, HASHLEN)) {
+            set_errno(EMCM_MROOT);
+            return VERROR;
+         }
+      }
    } else {
       /* ... STANDARD BLOCK ONLY */
 
@@ -675,11 +682,6 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
          /* check times of trouble... must equal BRIDGE seconds */
          if ((word32) (stime - time0) != get_bridge(bnum)) goto BAD_STIME;
          /* ... word32 boundary handles an Epochalypse event */
-         /* check mroot is zero'd */
-         if (!iszero(bt->mroot, HASHLEN)) {
-            set_errno(EMCM_MROOT);
-            return VERROR;
-         }
       } else {
          /* ... STANDARD BLOCK ONLY */
 
