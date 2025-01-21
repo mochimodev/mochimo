@@ -19,7 +19,6 @@
 
 /* internal support */
 #include "types.h"   /* for standard mochimo datatypes */
-#include "tx.h"      /* for transaction support b_recon() */
 #include "tfile.h"   /* for merkle_root() */
 #include "network.h" /* for mochimo communication protocols */
 #include "peach.h"   /* for peach algorithm */
@@ -856,11 +855,21 @@ MCM_DECL_UNUSED
       for (time(&stime); Running; millisleep(Dynasleep)) {
          time(&now);
          if (difftime(now, stime) > 20) {
-            double dtime = difftime(now, device[idx].last);
-            double hps = (double) device[idx].work / (dtime ? dtime : 1);
-            const char *m = metric_reduce(&hps);
-            plog("%s %.02lf%sH/s", device[idx].info, hps, m);
+            /* change status after bridge time */
+            if (difftime(now, get32(BT_curr.time0)) >= BRIDGEv3) {
+               plog("%s waiting for work...", device[idx].info);
+            } else {
+               double dtime = difftime(now, device[idx].last);
+               double hps = (double) device[idx].work / (dtime ? dtime : 1);
+               const char *m = metric_reduce(&hps);
+               plog("%s %.02lf%sH/s", device[idx].info, hps, m);
+            }
             time(&stime);
+         }
+         /* deactivate mining after bridge time */
+         if (difftime(now, get32(BT_curr.time0)) >= BRIDGEv3) {
+            millisleep(1000);
+            continue;
          }
          /* more rest for the wicked... */
          if (BT_solve.nonce[0]) {
