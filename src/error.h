@@ -226,6 +226,7 @@ typedef char FILENAME[FILENAME_MAX];
    EMCM__ITEM(EMCM_TXCHG, "Source address is change address") \
    EMCM__ITEM(EMCM_TXDSA, "Invalid Digital Signature Algorithm") \
    EMCM__ITEM(EMCM_TXDST, "Source address is destination address") \
+   EMCM__ITEM(EMCM_TXMDSTSORT, "Multi-Destination Array is not sorted") \
    EMCM__ITEM(EMCM_TXNONCE, "Invalid transaction nonce") \
    EMCM__ITEM(EMCM_TXSRCDUP, "Duplicate transaction source address") \
    EMCM__ITEM(EMCM_TXSRCLE, "Source address is not in Ledger") \
@@ -245,7 +246,12 @@ typedef char FILENAME[FILENAME_MAX];
    EMCM__ITEM(EMCM_XTXTAGMISMATCH, "eXtended TX source tag does not match change tag") \
    EMCM__ITEM(EMCM_XTXTAGNOLE, "eXtended TX destination tag is not in Ledger") \
    EMCM__ITEM(EMCM_XTXTOTALS, "eXtended TX total does not match tally") \
-   EMCM__ITEM(EMCM_XTXUNDEF, "eXtended TX type is not defined")
+   EMCM__ITEM(EMCM_XTXUNDEF, "eXtended TX type is not defined") \
+/* device related errors */ \
+   EMCM__ITEM(EMCM_CUDA, "Internal CUDA error") \
+   EMCM__ITEM(EMCM_CUDA_LIMIT, "Number of CUDA devices will be limited") \
+   EMCM__ITEM(EMCM_NVML, "Internal NVML error") \
+
 
 /**
  * Mochimo error number type. This is a signed integer type (by force).
