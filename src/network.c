@@ -573,7 +573,7 @@ int callserver(NODE *np, word32 ip)
    snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
    /* begin connection */
    np->ip = ip;
-   np->sd = sock_connect_ip(ip, Dstport, INIT_TIMEOUT);
+   np->sd = sock_connect_ip(ip, Dstport, STD_TIMEOUT);
    if(np->sd == INVALID_SOCKET) {
       pdebug("%s failed to connect", np->id);
       goto FAIL_ERRSOCK;
@@ -583,10 +583,10 @@ int callserver(NODE *np, word32 ip)
    id1 = (word8) (np->id1 >> 8);
    put16(np->tx.opcode, OP_HELLO);
    snprintf(np->id, sizeof(np->id), "%.15s %.02x~%.02x", ipaddr, id1, id2);
-   if (send_tx(np, ACK_TIMEOUT) != VEOK) {
+   if (send_tx(np, STD_TIMEOUT) != VEOK) {
       pdebug("%s failed to send handshake", np->id);
       goto FAIL_ERR3WAY;
-   } else if (recv_tx(np, ACK_TIMEOUT) != VEOK) {
+   } else if (recv_tx(np, STD_TIMEOUT) != VEOK) {
       pdebug("%s *** handshake not recv'd", np->id);
       goto FAIL_ERR3WAY;
    }
