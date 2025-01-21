@@ -29,8 +29,7 @@
 /* Adjustable Parameters */
 #define MAXNODES     37       /**< maximum number of connected nodes */
 #define INIT_TIMEOUT 3        /**< initial timeout after accept() */
-#define ACK_TIMEOUT  10       /**< hello_ack timeout in callserver() */
-#define STD_TIMEOUT  10       /**< connection timeout in callserver() */
+#define STD_TIMEOUT  5        /**< connection timeout in callserver() */
 #define LQLEN        100      /**< listen() queue length */
 #define TXQUEBIG     32       /**< big enough to run bcon */
 #define MAXBLTX      32768    /**< max TX's in a block for bcon (~1M) */
