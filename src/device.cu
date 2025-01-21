@@ -42,20 +42,21 @@ int init_cuda_devices(DEVICE_CTX *ctx, int len)
 
    /* initialize nvml */
    nvml_init = 1;
+   nvml_count = 0;
    ret = nvmlInit();
    if (ret != NVML_SUCCESS && ret != NVML_ERROR_ALREADY_INITIALIZED) {
       nvml__log_error(ret);
       nvml_init = 0;
    } else {
-      nvml_count = 0;
       ret = nvmlDeviceGetCount(&nvml_count);
       if (ret != NVML_SUCCESS) {
          nvml__log_error(ret);
-         nvml_count = 0;
+         nvml_init = 0;
       }
    }
 
    /* get cuda devices */
+   cuda_count = 0;
    err = cudaGetDeviceCount(&cuda_count);
    if (err != CUDA_SUCCESS) {
       cuda__log_error(err);
@@ -65,7 +66,7 @@ int init_cuda_devices(DEVICE_CTX *ctx, int len)
    /* check device context capacity */
    if (cuda_count > len) {
       set_errno(EMCM_CUDA_LIMIT);
-      return VERROR;
+      return (-1);
    }
 
    /* initialize context per device */
