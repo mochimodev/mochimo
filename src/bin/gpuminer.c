@@ -390,17 +390,19 @@ int network_recv_cblock(void)
    NODE node;
    FILE *fp;
    long llen;
+   int ecode;
 
    /* obtain latest cblock */
-   fp = NULL;
-   node.sd = INVALID_SOCKET;
-   if (callserver(&node, Rplist[0]) != VEOK) return VERROR;
-   if (send_op(&node, OP_GET_CBLOCK) != VEOK) goto ERROR_CLEANUP;
    fp = tmpfile();
    if (fp == NULL) goto ERROR_CLEANUP;
-   if (recv_fp(&node, fp) != VEOK) goto ERROR_CLEANUP;
+   ecode = callserver(&node, Rplist[0]);
+   if (ecode == VEOK) ecode = send_op(&node, OP_GET_CBLOCK);
+   if (ecode == VEOK) ecode = recv_fp(&node, fp);
+   if (ecode != VEOK) goto ECODE_CLEANUP;
+   /* socket cleanup */
    sock_close(node.sd);
    node.sd = INVALID_SOCKET;
+
    llen = ftell(fp);
    if (llen == (-1)) goto ERROR_CLEANUP;
    if (llen < (long) BLOCKLEN_MIN) {
@@ -411,7 +413,8 @@ int network_recv_cblock(void)
    /* check maddr */
    if (Maddr_isset) {
       /* reconstruct block with own maddr */
-      if (b_adjust_maddr_fp(fp, Maddr) != VEOK) goto ERROR_CLEANUP;
+      ecode = b_adjust_maddr_fp(fp, Maddr);
+      if (ecode != VEOK) goto ECODE_CLEANUP;
    }
 
    if (fseek(fp, -((long) sizeof(BTRAILER)), SEEK_CUR) != 0) {
@@ -445,9 +448,11 @@ OK_CLEANUP:
    return VETIMEOUT;
 
 ERROR_CLEANUP:
+   ecode = VERROR;
+ECODE_CLEANUP:
    if (node.sd != INVALID_SOCKET) sock_close(node.sd);
    if (fp) fclose(fp);
-   return VERROR;
+   return ecode;
 }  /* end network_recv_cblock() */
 
 int network_send_solve(void)
