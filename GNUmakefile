@@ -182,17 +182,15 @@ test: $(SUBLIBRARYFILES) $(LIBRARYFILE) $(TESTOBJECTS)
 
 ################################################################
 
-install: $(BINDIR)/mochimo
-	@mkdir -p /opt/mochimo/
-	@cp -r $(BINDIR)/* /opt/mochimo/
-	@chown -R mcm:mcm /opt/mochimo/
-	@echo && echo "Successfully installed to /opt/mochimo/" && echo
+INSTALLDIR := /opt/mochimo
+SERVICE := /etc/systemd/system/mochimo.service
 
-miner: $(BUILDDIR)/bin/gpuminer
-	@chmod +x $(BUILDDIR)/bin/gpuminer
-	@cp $(BUILDDIR)/bin/gpuminer $(BINDIR)/
+$(SERVICE): .github/systemd/mochimo.service
+	@cp .github/systemd/mochimo.service $(SERVICE)
+	@systemctl enable mochimo.service
+	@echo && echo "Background service installed." && echo
 
-mochimo: $(BUILDDIR)/bin/mochimo
+$(BINDIR)/mochimo: $(BUILDDIR)/bin/mochimo
 	@chmod +x $(BUILDDIR)/bin/mochimo
 	@chmod +x $(SOURCEDIR)/_init/gomochi
 	@chmod +x $(SOURCEDIR)/_init/*-external.sh
@@ -200,6 +198,21 @@ mochimo: $(BUILDDIR)/bin/mochimo
 	@mkdir -p $(BINDIR)/d/split
 	@cp $(BUILDDIR)/bin/mochimo $(BINDIR)/
 	@cp $(SOURCEDIR)/_init/* $(BINDIR)/
+
+$(INSTALLDIR)/mochimo: $(BINDIR)/mochimo
+	@mkdir -p /opt/mochimo/
+	@cp -r $(BINDIR)/* /opt/mochimo/
+
+install: $(INSTALLDIR)/mochimo
+	-useradd -M -r -s /usr/sbin/nologin mcm
+	@chown -R mcm:mcm /opt/mochimo/
+	@echo && echo "Successfully installed to /opt/mochimo/" && echo
+
+miner: $(BUILDDIR)/bin/gpuminer
+	@chmod +x $(BUILDDIR)/bin/gpuminer
+	@cp $(BUILDDIR)/bin/gpuminer $(BINDIR)/
+
+mochimo: $(BINDIR)/mochimo
 
 package-%:
 	@make cleanall --no-print-directory
@@ -213,12 +226,7 @@ package-%:
 	@rm -r $*
 	@echo && echo "Packaged to $*.tar.gz" && echo
 
-service: /opt/mochimo/mochimo
-	@getent passwd mcm >/dev/null || useradd --no-create-home --system --shell /usr/sbin/nologin mcm
-	@systemctl status mochimo.service 2>/dev/nul && systemctl stop mochimo.service || true
-	@cp .github/systemd/mochimo.service /etc/systemd/system/
-	@systemctl enable mochimo.service
-	@echo && echo "Background service installed." && echo
+service: $(INSTALLDIR)/mochimo $(SERVICE)
 	@echo "Manage the service with:"
 	@echo "   service mochimo [start|stop|status]"
 	@echo "Monitor service logs with:"
@@ -229,8 +237,9 @@ service-logs: /etc/systemd/system/mochimo.service
 	@journalctl _SYSTEMD_INVOCATION_ID=`systemctl show -p InvocationID --value "mochimo"` >service.log
 
 uninstall:
-	@systemctl stop mochimo.service && systemctl disable mochimo.service && \
-	 rm /etc/systemd/system/mochimo.service || true
+	@systemctl stop mochimo.service || true
+	@systemctl disable mochimo.service || true
+	@rm /etc/systemd/system/mochimo.service || true
 	@rm -r /opt/mochimo/ || true
 	@userdel mcm || true
 	@echo && echo "Mochimo uninstalled." && echo
