@@ -83,21 +83,6 @@ int append_tfile(const BTRAILER *bt, size_t count, const char *tfile)
 }
 
 /**
- * Compute the bridge time for a specified block number.
- * @param bnum Block number to calculate bridge time for
- * @return (word32) value representing bridge time
- */
-word32 get_bridge(const void *bnum)
-{
-   /* pre-V30TRIGGER BRIDGE time */
-   if (bnum && cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
-      return 949;
-   }
-   /* post-V30TRIGGER BRIDGE time */
-   return 238;
-}
-
-/**
  * Compute the sum of block rewards represented by a Tfile. Only trailers
  * with a non-zero transaction count are added to the rewards sum. A block
  * number may be specified to limit the reward sum.
@@ -619,7 +604,7 @@ static int validate_genesis_trailer(const BTRAILER *bt)
  */
 int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
 {
-   word32 difficulty, stime, time0;
+   word32 difficulty, btime, stime, time0;
    word8 hash[HASHLEN];
    word8 bnum[8];
 
@@ -673,6 +658,7 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
    difficulty = get32(bt->difficulty);
    stime = get32(bt->stime);
    time0 = get32(bt->time0);
+   btime = stime - time0;
 
    /* check time0, difficulty, mroot and stime... */
    if (bnum[0] > 0) {
@@ -680,7 +666,9 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
          /* ... PSEUDOBLOCK ONLY */
 
          /* check times of trouble... must equal BRIDGE seconds */
-         if ((word32) (stime - time0) != get_bridge(bnum)) goto BAD_STIME;
+         if (cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
+            if (btime != BRIDGEv2) goto BAD_STIME;
+         } else if (btime != BRIDGEv3) goto BAD_STIME;
          /* ... word32 boundary handles an Epochalypse event */
       } else {
          /* ... STANDARD BLOCK ONLY */
@@ -697,7 +685,9 @@ int validate_trailer(const BTRAILER *bt, const BTRAILER *prev_bt)
          if (cmp64(bnum, CL64_32(0x1b6ff)) > 0 || (bnum[0] != 0xff
                && cmp64(bnum, CL64_32(V23TRIGGER)) > 0)) {
             /* check block time does not exceed BRIDGE seconds */
-            if ((word32) (stime - time0) > get_bridge(bnum)) goto BAD_STIME;
+            if (cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
+               if (btime > BRIDGEv2) goto BAD_STIME;
+            } else if (btime > BRIDGEv3) goto BAD_STIME;
             /* ... word32 boundary handles an Epochalypse event */
          }
       }

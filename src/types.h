@@ -184,6 +184,9 @@
 #define MIDTRIGGER 0x5b401 /* peak mining reward */
 #define V30TRIGGER 0x9e800 /* v3.0 blockchain reboot (MUST BE NEOGEN) */
 
+#define BRIDGEv3   238     /* post-V30TRIGGER BRIDGE time */
+#define BRIDGEv2   949     /* post-V23TRIGGER BRIDGE time */
+
 /**
  * Capability bit for candidate block pushing nodes. Indicates the
  * capability to push Candidate Blocks, primarily to headless miners.

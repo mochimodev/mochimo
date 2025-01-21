@@ -665,7 +665,7 @@ int server(int reuse_addr)
    mqtime = Ltime + 10;     /* mirror() time */
    mtime = Ltime + 5;       /* miner time */
    Utime = Ltime;           /* for watchdog timer */
-   Watchdog = get_bridge(NULL) + (rand16() % 600);
+   Watchdog = BRIDGEv3 + (rand16() % 600);
    ipltime = Ltime + (rand16() % 300) + 10;  /* ip list fetch time */
    sftime = Ltime + (rand16() % 300) + 300;  /* send_found() time */
    vtime = Ltime + 4;  /* Verisimility restart check time */
@@ -900,7 +900,7 @@ int server(int reuse_addr)
       /* generate pseudo-block in "times of trouble", else check bcon...
        * NOTE: after V30TRIGGER TIMES_OF_TROUBLE() is no longer relevant
        */
-      if(Ltime >= (Time0 + get_bridge(NULL))) {
+      if(Ltime >= (Time0 + BRIDGEv3)) {
          if (pseudo("pblock.dat") != VEOK) {
             perrno("pseudo() FAILURE");
             restart("Failed to make pseudo-block");
