@@ -43,8 +43,8 @@
 #include <stdarg.h>
 #include <string.h>
 
-#ifndef GIT_VERSION
-   #define GIT_VERSION "<no-version>"
+#ifndef VERSION
+   #define VERSION "<no-version>"
 
 #endif
 
@@ -674,12 +674,9 @@ MCM_DECL_UNUSED
 
    /* init - defaults */
    miner_mode = NODE_MODE;
-
    Port = Dstport = PORT1;
-   Dynasleep = 10;
-   Noprivate = 0;
-   Interval = 5;
-   Running = 1;
+   Dynasleep = 10; /* ms */
+   Interval = 10; /* s */
 
 /* ARGUMENT MACROs */
 #define GET_ARGP_OR_EXIT_FAILURE(ARGP) \
@@ -813,7 +810,7 @@ MCM_DECL_UNUSED
    }  /* end command line arguments */
 
    /* print (and log) copyright and version information */
-   plog("Mochimo Miner " GIT_VERSION ", built " __DATE__ " " __TIME__);
+   plog("Mochimo Miner " VERSION ", built " __DATE__ " " __TIME__);
    plog("Copyright (c) 2024 Adequate Systems, LLC.  All Rights Reserved.");
    plog("See the License Agreement at the links below:");
    plog("   https://mochimo.org/license.pdf (PDF version)");
