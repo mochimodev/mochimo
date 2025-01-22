@@ -277,6 +277,7 @@ $(COVERAGE):
 $(BUILDDIR)/%: $(SUBLIBRARYFILES) $(LIBRARYFILE) $(BUILDDIR)/%.o
 	@mkdir -p $(dir $@)
 	$(CC) $(BUILDDIR)/$*.o -o $@ $(LDFLAGS)
+	chmod +x $@
 
 # build cuda objects, within build directory, from *.cu files
 $(BUILDDIR)/%.cu.o: $(SOURCEDIR)/%.cu
