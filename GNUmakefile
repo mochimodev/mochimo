@@ -66,16 +66,16 @@ SUBINCLUDEDIRS := $(addsuffix /$(SOURCEDIR),$(SUBDIRS))
 CUINCLUDEDIRS := $(if $(NVCC),$(CUDADIR)/include)
 
 # linker and compiler flags
-CXFLAGS := -MMD -MP -Wall -Werror -Wextra -Wpedantic
+NVCFLAGS := -Xptxas -Werror
+CFLAGS := -MMD -MP -Wall -Werror -Wextra -Wpedantic -fopenmp
 DFLAGS := $(addprefix -D,$(DEFINES) VERSION=$(VERSION))
 IFLAGS := $(addprefix -I,$(SOURCEDIR) $(CUINCLUDEDIRS) $(SUBINCLUDEDIRS))
 LFLAGS := $(addprefix -L,$(BUILDDIR) $(CULIBRARYDIRS) $(SUBLIBRARYDIRS))
-lFlags := $(addprefix -l,m $(LIBRARY) $(CULIBRARIES) $(SUBLIBRARIES))
-LCFLAGS := -fopenmp
+lFlags := -Wl,-\( $(addprefix -l,m $(LIBRARY) $(CULIBRARIES) $(SUBLIBRARIES)) -Wl,-\)
 # ... working set of flags
-CCFLAGS := $(IFLAGS) $(CXFLAGS) $(CFLAGS) $(DFLAGS) $(LCFLAGS)
-LDFLAGS := $(LFLAGS) -Wl,-\( $(lFlags) -Wl,-\) $(LCFLAGS)
-NVCCFLAGS := $(IFLAGS) -Xptxas -Werror $(NVCFLAGS)
+CCFLAGS := $(IFLAGS) $(DFLAGS) $(CFLAGS) $(CCARGS)
+LDFLAGS := $(LFLAGS) $(DFLAGS) $(CFLAGS) $(CCARGS) $(LDARGS) $(lFlags)
+NVCCFLAGS := $(IFLAGS) $(DFLAGS) $(NVCFLAGS) $(NVCCARGS)
 
 ################################################################
 
