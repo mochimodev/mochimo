@@ -237,9 +237,9 @@ package-%:
 
 service: $(INSTALLDIR)/mochimo $(SERVICE)
 	@echo && echo "Manage the service with:"
-	@echo "   service mochimo [start|stop|status]"
+	@echo "   [sudo] service mochimo [start|stop|status]"
 	@echo && echo "Monitor service logs with:"
-	@echo "   journalctl -o cat -u mochimo [-f]"
+	@echo "   [sudo] journalctl -o cat -u mochimo [-f]"
 	@echo && echo "... service (done)" && echo
 
 service-logs: /etc/systemd/system/mochimo.service
