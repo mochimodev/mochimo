@@ -146,7 +146,8 @@ int catchup(word32 plist[], word32 count)
          /* asynchronous block download (after set) */
          if (*fname_dl && fexists(fname_dl)) {
             if (get_file(peer, bnum, fname_dl) != VEOK) {
-               perrno("get_file(%s) FAILURE", fname_dl);
+               pdebug("get_file(%s, %s) incomplete...",
+                  ntoa(&peer, (char[16]){0}), fname_dl);
                remove(fname_dl);
                OMP_ATOMIC_()
                   count--;
