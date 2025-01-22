@@ -240,6 +240,12 @@ int pinklisted(word32 ip)
  */
 int cpinklist(word32 ip)
 {
+   if (isprivate(ip)) {
+      pdebug("%s is private", ntoa(&ip, NULL));
+      pdebug("   not pink-listed");
+      return VEOK;
+   }
+
    if(Cpinkidx >= CPINKLEN)
       Cpinkidx = 0;
    Cpinklist[Cpinkidx++] = ip;
@@ -253,6 +259,12 @@ int cpinklist(word32 ip)
  */
 int pinklist(word32 ip)
 {
+   if (isprivate(ip)) {
+      pdebug("%s is private", ntoa(&ip, NULL));
+      pdebug("   not pink-listed");
+      return VEOK;
+   }
+
    pdebug("%s pink-listed", ntoa(&ip, NULL));
 
    if(!pinklisted(ip)) {
@@ -273,6 +285,12 @@ int pinklist(word32 ip)
  */
 int lpinklist(word32 ip)
 {
+   if (isprivate(ip)) {
+      pdebug("%s is private", ntoa(&ip, NULL));
+      pdebug("   not pink-listed");
+      return VEOK;
+   }
+
    if(Lpinkidx >= LPINKLEN)
       Lpinkidx = 0;
    Lpinklist[Lpinkidx++] = ip;
@@ -282,6 +300,12 @@ int lpinklist(word32 ip)
 
 int epinklist(word32 ip)
 {
+   if (isprivate(ip)) {
+      pdebug("%s is private", ntoa(&ip, NULL));
+      pdebug("   not pink-listed");
+      return VEOK;
+   }
+
    if(Epinkidx >= EPINKLEN) {
       pdebug("Epoch pink list overflow");
       Epinkidx = 0;
