@@ -106,6 +106,8 @@ int isprivate(word32 ip)
    if(bp[0] == 172 && bp[1] >= 16 && bp[1] <= 31) return 2;  /* class B */
    if(bp[0] == 192 && bp[1] == 168) return 3;  /* class C */
    if(bp[0] == 169 && bp[1] == 254) return 4;  /* auto */
+   if (bp[0] == 127) return 5;  /* loopback */
+   if (bp[0] == 0) return 6;  /* reserved */
    return 0;  /* public IP */
 }
 
