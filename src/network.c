@@ -120,52 +120,54 @@ int child_status(NODE *np, pid_t pid, int status)
    return 1;  /* error if child caught signal */
 }  /* end child_status() */
 
-/* inline helper function for checking sock_recv/send return + Running */
-static inline int sock__check(int *ecode, const char *name, const char *id)
-{
-   if (*ecode != VEOK) {
-      if (*ecode == VETIMEOUT) {
-         pdebug("%s(%s): connection timed out", name, id);
-         Ntimeouts++;
-      } else {
-         pdebug("%s(%s): aborting", name, id);
-         Nsenderrs++;
-      }
-   } else if (!Running) {
-      pdebug("%s(%s): local shutdown", name, id);
-      *ecode = VERROR;
-   } else *ecode = VEOK;
-
-   return *ecode;
-}
-
 /**
  * Receive next packet from NODE *np.
  * SOCKET np->sd is already set non-blocking.
  * Returns: VEOK (0) = good, else error code. */
 int recv_tx(NODE *np, double timeout)
 {
-   int ecode, len;
+   int count, len, n;
+   time_t start;
    TX *tx;
 
    /* init recv_tx() */
    tx = &(np->tx);
+   put16(tx->len, 0);
+   time(&start);
 
-   /* recv PDU header for buffer length */
-   len = (int) (tx->buffer - (word8 *) tx);
-   ecode = sock_recv(np->sd, tx, len, 0, timeout);
-   if (sock__check(&ecode, "recv_tx", np->id) != VEOK) return ecode;
+   /* loop until PDU is recv'd
+    * NOTE: tx.len[2] may extend the requirement recv()
+    */
 
-   /* recv buffer length + PDU trailer */
-   len = (int) get16(tx->len);
-   ecode = sock_recv(np->sd, tx->buffer, len + 4, 0, timeout);
-   if (sock__check(&ecode, "recv_tx", np->id) != VEOK) return ecode;
+#define recv_len(lenp) ( TXHDRLEN + get16((lenp)) + TXTLRLEN )
+   len = recv_len(tx->len);
+   for (n = 0; n < len; n += count, len = recv_len(tx->len)) {
+      count = recv(np->sd, (word8 *) tx + n, len - n, 0);
+      switch (count) {
+         case (-1): {
+            if (sock_waiting(sock_errno)) {
+               if (difftime(time(NULL), start) >= timeout) {
+                  return VETIMEOUT;
+               }
+               /* wait patiently */
+               millisleep(10);
+               count = 0;
+               continue;
+            }
+            perrno("%s recv() failed", np->id);
+         }  /* fallthrough */
+         case 0: {
+            pdebug("%s abort", np->id);
+            return VERROR;
+         }
+      }  /* end switch */
+   }  /* end for (n... */
 
    /* shift crc16 and trailer to correct position in TX struct */
-   memmove(tx->crc16, tx->buffer + len, 4);
+   memmove(tx->crc16, tx->buffer + get16(tx->len), 4);
 
    /* compute crc16 checksum and verify packet integrity */
-   if (get16(tx->crc16) != crc16(tx, TXHDRLEN + len)) {
+   if (get16(tx->crc16) != crc16(tx, len - TXTLRLEN)) {
       pdebug("%s *** CRC16 mismatch, 0x%" P16X " != 0x%" P16X,
          np->id, get16(tx->crc16), crc16(tx, TXHDRLEN + len));
       Nrecverrs++;
@@ -255,11 +257,13 @@ int recv_file(NODE *np, char *fname)
  * Returns VEOK on success, else VERROR. */
 int send_tx(NODE *np, double timeout)
 {
-   int ecode, len;
+   int count, len, n;
+   time_t start;
    TX *tx;
 
    /* init send_tx() */
    tx = &(np->tx);
+   time(&start);
 
    /* fill tx packet with relevant information... */
    tx->version[0] = PVERSION;
@@ -276,17 +280,37 @@ int send_tx(NODE *np, double timeout)
       memcpy(tx->weight, Weight, HASHLEN);
    }
 
-   /* send PDU header and buffer length */
-   len = (int) get16(np->tx.len) + (tx->buffer - (word8 *) tx);
-   ecode = sock_send(np->sd, tx, len, 0, timeout);
-   if (sock__check(&ecode, "send_tx", np->id) != VEOK) return ecode;
-
    /* compute packet crc16 checksum -- use length from previous step */
-   put16(tx->crc16, crc16(tx, len));
+   put16(tx->crc16, crc16(tx, TXHDRLEN + get16(tx->len)));
+   /* shift crc16 and trailer to correct position in buffer */
+   memmove(tx->buffer + get16(tx->len), tx->crc16, 4);
 
-   /* send PDU trailer */
-   ecode = sock_send(np->sd, tx->crc16, 4, 0, timeout);
-   if (sock__check(&ecode, "send_tx", np->id) != VEOK) return ecode;
+   /* loop until PDU is recv'd
+    * NOTE: tx.len[2] requirement DOES NOT change here
+    */
+
+   len = TXHDRLEN + get16(tx->len) + TXTLRLEN;
+   for (n = 0; n < len; n += count) {
+      count = send(np->sd, (word8 *) tx + n, len - n, 0);
+      switch (count) {
+         case (-1): {
+            if (sock_waiting(sock_errno)) {
+               if (difftime(time(NULL), start) >= timeout) {
+                  return VETIMEOUT;
+               }
+               /* wait patiently */
+               millisleep(10);
+               count = 0;
+               continue;
+            }
+            perrno("%s send() failed", np->id);
+         }  /* fallthrough */
+         case 0: {
+            pdebug("%s abort", np->id);
+            return VERROR;
+         }
+      }  /* end switch */
+   }  /* end for (n... */
 
    /* packet sent */
    Nsends++;
