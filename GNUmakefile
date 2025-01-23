@@ -23,7 +23,7 @@ SUBSOURCEDIRS := $(addsuffix /$(SOURCEDIR),$(SUBDIRS))
 
 # version info
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null)
-VERSION := \"$(or $(VERSION),u$(shell date +u%g%j))\" # untracked version
+VERSION := \"$(or $(VERSION),$(shell date +u%g%j))\" # untracked version
 
 # compilers
 NVCC := $(if $(NO_CUDA),,$(shell ls $(CUDADIR)/bin/nvcc 2>/dev/null | head -n 1))
@@ -67,7 +67,7 @@ CUINCLUDEDIRS := $(if $(NVCC),$(CUDADIR)/include)
 
 # linker and compiler flags
 NVCFLAGS := -Xptxas -Werror
-CFLAGS := -MMD -MP -Wall -Werror -Wextra -Wpedantic -fopenmp
+CFLAGS := -MMD -MP -Wall -Werror -Wextra -Wpedantic -fopenmp -g -rdynamic
 DFLAGS := $(addprefix -D,$(DEFINES) VERSION=$(VERSION))
 IFLAGS := $(addprefix -I,$(SOURCEDIR) $(CUINCLUDEDIRS) $(SUBINCLUDEDIRS))
 LFLAGS := $(addprefix -L,$(BUILDDIR) $(CULIBRARYDIRS) $(SUBLIBRARYDIRS))
