@@ -28,6 +28,8 @@
 #include "bup.h"
 
 /* external support */
+#include "base58.h"
+#include "crc16.h"
 #include "extint.h"
 #include "extio.h"
 #include "extmath.h"
@@ -753,18 +755,30 @@ MCM_DECL_UNUSED
                }
                /* print (and log) mining address */
             } else {
-               /* interpret hexadecimal mining address */
-               if (strlen(argp) != (sizeof(Maddr) * 2)) {
-                  perr("invalid mining address(hex)");
+               /* interpret Base58 mining address (+checksum) */
+               if (base58_decode(argp, NULL) != (ADDR_TAG_LEN + 2)) {
+                  perr("invalid Mochimo Address length");
                   return EXIT_FAILURE;
                }
-               char hex[3] = {0};
-               for (size_t i = 0; i < sizeof(Maddr); i++) {
-                  strncpy(hex, &argp[i * 2], 2);
-                  Maddr[i] = (word8) strtoul(hex, NULL, 16);
+               /* convert Base58 to binary mining address */
+               word8 decoded[ADDR_TAG_LEN + 2];
+               if (base58_decode(argp, decoded) != 0) {
+                  perrno("base58(Mochimo Address) decode FAILURE");
+                  return EXIT_FAILURE;
                }
+               /* ensure integrity of data */
+               word16 crc = crc16(decoded, ADDR_TAG_LEN);
+               if (get16(decoded + ADDR_TAG_LEN) != crc) {
+                  perr("invalid Mochimo Address");
+                  return EXIT_FAILURE;
+               }
+               /* copy decoded data to Maddr */
+               memcpy(Maddr, decoded, ADDR_TAG_LEN);
             }
-            plog("Mining Address(hex): %s...", hash2hex32(Maddr, NULL));
+            plog("Mining Address: %s...", argp);
+            plog("Mining Address(hex): %02x%02x%02x%02x%02x%02x%02x%02x...",
+               Maddr[0], Maddr[1], Maddr[2], Maddr[3],
+               Maddr[4], Maddr[5], Maddr[6], Maddr[7]);
             Maddr_isset = 1;
             continue; /* next arg */
          }
