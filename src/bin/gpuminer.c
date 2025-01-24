@@ -846,6 +846,7 @@ MCM_DECL_UNUSED
       BTRAILER bt;
       time_t stime;
       time_t now;
+      int solving;
       int solve;
       int idx;
 
@@ -857,31 +858,34 @@ MCM_DECL_UNUSED
       #pragma omp critical
          idx = device_idx++;
 
+      solving = 0;
       /* mining loop handler */
       for (time(&stime); Running; millisleep(Dynasleep)) {
          time(&now);
          if (difftime(now, stime) > 20) {
             /* change status after bridge time */
-            if (difftime(now, get32(BT_curr.time0)) >= BRIDGEv3) {
-               plog("%s waiting for work...", device[idx].info);
-            } else {
+            if (solving) {
                double dtime = difftime(now, device[idx].last);
                double hps = (double) device[idx].work / (dtime ? dtime : 1);
                const char *m = metric_reduce(&hps);
                plog("%s %.02lf%sH/s", device[idx].info, hps, m);
-            }
+            } else plog("%s waiting for work...", device[idx].info);
             time(&stime);
          }
          /* deactivate mining after bridge time */
          if (difftime(now, get32(BT_curr.time0)) >= BRIDGEv3) {
+            solving = 1;
             millisleep(1000);
             continue;
          }
          /* more rest for the wicked... */
          if (BT_solve.nonce[0]) {
+            solving = 1;
             millisleep(100);
             continue;
          }
+         /* not waiting on anything */
+         solving = 1;
          /* execute solve protocol per device type */
          switch (device[idx].type) {
             case CUDA_DEVICE:
