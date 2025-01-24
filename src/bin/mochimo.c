@@ -14,12 +14,12 @@
 #define MOCHIMO_C
 
 
-/* define EXEC_NAME and GIT_VERSION (if not defined) */
-#ifndef GIT_VERSION
-   #define GIT_VERSION
+/* define EXEC_NAME and VERSION (if not defined) */
+#ifndef VERSION
+   #define VERSION "<no-version>"
 #endif
 #ifndef EXEC_NAME
-   #define EXEC_NAME "Mochimo Server " /* "Daemon " */ GIT_VERSION
+   #define EXEC_NAME "Mochimo Server " /* "Daemon " */ VERSION
 #endif
 
 /* system support */
@@ -230,7 +230,7 @@ void monitor(void)
     * Print banner if not single stepping.
     */
    if (runmode == 0) {
-      printf("\n\nMochimo System Monitor " GIT_VERSION "\n? for help\n\n");
+      printf("\n\nMochimo System Monitor " VERSION "\n? for help\n\n");
    }
 
    show("monitor");
