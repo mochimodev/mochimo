@@ -147,6 +147,7 @@ int recv_tx(NODE *np, double timeout)
          case (-1): {
             if (sock_waiting(sock_errno)) {
                if (difftime(time(NULL), start) >= timeout) {
+                  set_errno(ETIMEDOUT);
                   return VETIMEOUT;
                }
                /* wait patiently */
@@ -296,6 +297,7 @@ int send_tx(NODE *np, double timeout)
          case (-1): {
             if (sock_waiting(sock_errno)) {
                if (difftime(time(NULL), start) >= timeout) {
+                  set_errno(ETIMEDOUT);
                   return VETIMEOUT;
                }
                /* wait patiently */
