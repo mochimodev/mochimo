@@ -137,7 +137,7 @@ int catchup(word32 plist[], word32 count)
    }
 
    /* download/validate/update blocks from args */
-   OMP_PARALLEL_(private(bnum, fname, fname_dl, peer) num_threads(count))
+   OMP_PARALLEL_(private(bnum, ecode, fname, fname_dl, peer) num_threads(count))
    {  /* ... parallel block update handling */
       OMP_CRITICAL_()
          peer = *(ipp++);
@@ -173,27 +173,28 @@ int catchup(word32 plist[], word32 count)
                if (ecode != VEOK) {
                   perrno("b_update(%s) FAILURE", fname);
                   remove(fname);
+                  OMP_ATOMIC_()
+                     count--;
                   break;
                }
                /* check for next block */
                add64(Cblocknum, One, bnum);
                bnum2fname(bnum, fname);
             }
-            /* find next download */
-            bnum2hex(bnum, fname_dl);
-            while (fexists(fname_dl) || fexists(fname)) {
-               add64(bnum, ONE64, bnum);
-               if (bnum[0] == 0) add64(bnum, ONE64, bnum);
+            if (ecode == VEOK) {
+               /* find next download */
                bnum2hex(bnum, fname_dl);
-               bnum2fname(bnum, fname);
+               while (fexists(fname_dl) || fexists(fname)) {
+                  add64(bnum, ONE64, bnum);
+                  if (bnum[0] == 0) add64(bnum, ONE64, bnum);
+                  bnum2hex(bnum, fname_dl);
+                  bnum2fname(bnum, fname);
+               }
+               /* reserve download file(name) */
+               ftouch(fname_dl);
             }
-            /* reserve download file(name) */
-            ftouch(fname_dl);
          }  /* end OMP_CRITICAL_() */
       }  /* end while (!SYNC_interrupt_signal_... */
-      /* cleanup temporary files */
-      if (*fname_dl) remove(fname_dl);
-      if (*fname) remove(fname);
    }  /* end OMP parallel */
 
    /* restore signal handlers */
