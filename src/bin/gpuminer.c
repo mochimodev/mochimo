@@ -531,7 +531,7 @@ int network_handler_thread(void)
          perrno("network_send_solve() FAILURE");
       }
       /* wait for work, sleepy time (5 second timeout)... */
-      ecode = condition_timedwait(&Salarm, &Slock, 5000);
+      ecode = condition_timedwait(&Salarm, &Slock, Interval * 1000);
       if (ecode != 0 && errno != CONDITION_TIMEOUT) {
          perrno("CONDITION FAILURE");
          Running = 0;
