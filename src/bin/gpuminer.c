@@ -514,18 +514,10 @@ int network_handler_thread(void)
    while (Running) {
       /* send solve or check network */
       if (network_send_solve() == VEOK) {
-         ecode = network_recv_cblock();
-         switch (ecode) {
-            case VEOK:
-               plog("New work; %s:%"P16u" bnum:%u diff:%u mroot:%s...",
-                  ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
-                  BT_curr.difficulty[0], hash2hex32(BT_curr.mroot, NULL));
-               break;
-            case VERROR:
-               perrno("network_recv_cblock() FAILURE");
-               break;
-            default:
-               pdebug("No new work");
+         if (network_recv_cblock() == VEOK) {
+            plog("New work; %s:%"P16u" bnum:%u diff:%u mroot:%s...",
+               ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
+               BT_curr.difficulty[0], hash2hex32(BT_curr.mroot, NULL));
          }
       } else {
          perrno("network_send_solve() FAILURE");
