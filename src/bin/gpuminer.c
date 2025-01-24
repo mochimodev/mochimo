@@ -921,7 +921,12 @@ MCM_DECL_UNUSED
                break;
          }  /* end switch */
       }  /* end for */
-      pdebug("%s thread finished...", device[idx].info);
+      /* acquire (exclusive) lock */
+      MUTEX_LOCK_OR_ABORT(&Slock);
+      /* alert sleeping thread */
+      condition_signal(&Salarm);
+      /* release (exclusive) lock */
+      MUTEX_UNLOCK_OR_ABORT(&Slock);
    }  /* end parallel */
    pdebug("all threads finished...");
 
