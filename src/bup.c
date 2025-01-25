@@ -29,38 +29,41 @@
 #include "extmath.h"
 #include "extlib.h"
 
-void print_bup(BTRAILER *bt, char *solvestr)
+void print_bup(BTRAILER *bt)
 {
-   const char *blob_trigger = " \b-- ";
-   const char *blob_fix = "--";
    word32 bnum, btxs, btime, bdiff;
-   char haiku[256], *haiku1, *haiku2, *haiku3;
-   char hash[10];
-   char *cp;
+   char haiku[256], hash[10], *haiku1, *haiku2, *haiku3, *cp;
+   char *type = "Update";
+
+   /* determine alternate update type */
+   if (get32(bt->tcount) == 0) type = "Pseudo";
+   if (bt->bnum[0] == 0) type = "Neogen";
 
    /* prepare block stats */
    bnum = get32(bt->bnum);
    btxs = get32(bt->tcount);
    btime = get32(bt->stime) - get32(bt->time0);
    bdiff = get32(bt->difficulty);
-   /* print haiku if non-pseudo block */
-   if (!Insyncup && btxs) {
-      /* expand and split haiku into lines for printing */
+   /* print haiku if normal block */
+   if (!Insyncup && get32(bt->tcount) && bt->bnum[0]) {
       trigg_expand(bt->nonce, haiku);
+      /* remove backspace char -- causes issues in journalctl logs */
+      while (( cp = strchr(haiku, '\b') )) {
+         if (cp == haiku) memmove(cp, cp + 1, strlen(cp));
+         else memmove(cp - 1, cp + 1, strlen(cp));
+      }
+      /* split haiku into lines for printing */
       haiku1 = strtok(haiku, "\n");
       haiku2 = strtok(&haiku1[strlen(haiku1) + 1], "\n");
       haiku3 = strtok(&haiku2[strlen(haiku2) + 1], "\n");
-      /* remove backspace char -- causes issues in journalctl logs */
-      cp = strstr(haiku2, blob_trigger);
-      if (cp != NULL) strncpy(cp, blob_fix, strlen(blob_fix) + 1);
-      printf("\n/) %s\n(=: %s\n\\) %s\n", haiku1, haiku2, haiku3);
+      plog("\n/) %s\n(=: %s\n\\) %s\n", haiku1, haiku2, haiku3);
       /* print block update and details */
       plog("Time: %" P32u "s, Diff: %" P32u ", Txs: %" P32u,
          btime, bdiff, btxs);
    }
    /* print block identification */
    hash2hex32(bt->bhash, hash);
-   plog("%s-block: 0x%" P32x " #%s...", solvestr, bnum, hash);
+   plog("%s-block: 0x%" P32x " #%s...", type, bnum, hash);
 }  /* end print_bup() */
 
 /**
