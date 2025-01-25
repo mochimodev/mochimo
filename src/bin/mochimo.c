@@ -49,6 +49,7 @@
 #include "extmath.h"    /* 64-bit math support */
 #include "crc32.h"      /* for mirroring */
 #include "crc16.h"
+#include "base58.h"     /* for address encoding */
 #include "exttime.h"    /* for time functions */
 
 /* Include everything that we need */
@@ -332,15 +333,6 @@ int init(void)
    if (update_file(Opt_cplistfile, copyfile, 1) != VEOK) {
       perrno("failed to restore %s", Opt_cplistfile);
       return VERROR;
-   }
-   path_join(copyfile, "..", "maddr.dat");
-   if (update_file("maddr.dat", copyfile, 1) != VEOK) {
-      pwarn("using \"maddr.mat\" (NOT YOUR MINING ADDRESS)");
-      path_join(copyfile, "..", "maddr.mat");
-      if (update_file("maddr.dat", copyfile, 0) != VEOK) {
-         perrno("failed to restore maddr.dat");
-         return VERROR;
-      }
    }
    /* (IF NOT EXISTS) update blockchain files */
    path_join(fname, Bcdir, "b0000000000000000.bc");
@@ -1147,6 +1139,8 @@ int usage(void)
       "   -Tn        set Trustblock to n for tfval() speedup\n"
       "\n"
       "\n\nOPTIONS (advanced):"
+      "\n -m, --maddr <ADDR>"
+      "\n       set mining address to ADDR (Mochimo Wallet Address)"
       "\n   --reuse-addr"
       "\n       enable listening server socket option SO_REUSEADDR"
 #ifdef BX_MYSQL
@@ -1208,6 +1202,34 @@ int main(int argc, char **argv)
       pdebug("... parsing argument: %s", argv[j]);
       /* ADVANCED OPTIONS */
       if (argv[j][0] == '-') {
+         if (argument(argv[j], "-m", "--maddr")) {
+            word8 maddr_chk[ADDR_TAG_LEN + 2];
+            /* obtain maddr data or ask for file */
+            argp = argvalue(&j, argc, argv);
+            /* interpret Base58 mining address (+checksum) */
+            if (base58_decode(argp, NULL) != (ADDR_TAG_LEN + 2)) {
+               perr("invalid Mochimo Address length");
+               return EXIT_FAILURE;
+            }
+            /* convert Base58 to binary mining address */
+            if (base58_decode(argp, maddr_chk) != 0) {
+               perrno("base58(Mochimo Address) decode FAILURE");
+               return EXIT_FAILURE;
+            }
+            /* ensure integrity of data */
+            word16 crc = crc16(maddr_chk, ADDR_TAG_LEN);
+            if (get16(maddr_chk + ADDR_TAG_LEN) != crc) {
+               perr("invalid Mochimo Address");
+               return EXIT_FAILURE;
+            }
+            /* set and display mining address */
+            set_maddr(maddr_chk);
+            plog("Mining Address: %s", argp);
+            plog("Mining Address(hex): %02x%02x%02x%02x...%02x%02x%02x%02x",
+               maddr_chk[0], maddr_chk[1], maddr_chk[2], maddr_chk[3],
+               maddr_chk[16], maddr_chk[17], maddr_chk[18], maddr_chk[19]);
+            continue; /* next arg */
+         }
          if (argument(argv[j], NULL, "--reuse-addr")) {
             /* set reuse_addr option and continue */
             reuse_addr = 1;

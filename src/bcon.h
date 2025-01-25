@@ -17,6 +17,7 @@
 extern "C" {
 #endif
 
+void set_maddr(const void *maddr);
 int pseudo(const char *output);
 int neogen(const BTRAILER *bt, const char *lefile, const char *output);
 int b_con(const char *output);

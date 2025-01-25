@@ -28,6 +28,12 @@
 #include "extmath.h"
 #include "extlib.h"
 
+/* Standard block mining address tag (hexadecimal encoding) */
+static word8 Maddr[ADDR_TAG_LEN] = {
+   0x3f, 0x1f, 0xba, 0x70, 0x25, 0xc7, 0xd3, 0x74, 0x70, 0xe7,
+   0x26, 0x01, 0x17, 0xa7, 0x2b, 0x7d, 0xe9, 0xf5, 0xca, 0x59
+};
+
 /**
  * @private Transaction Position structure.
  * Contains a source and file position type pair.
@@ -47,6 +53,15 @@ static int txpos_compare(const void *va, const void *vb)
    TXPOS *b = (TXPOS *) vb;
 
    return memcmp(a->src, b->src, sizeof(a->src));
+}
+
+/**
+ * Set the mining address for all standard blocks.
+ * @param maddr Pointer to mining address to set
+ */
+void set_maddr(const void *maddr)
+{
+   memcpy(Maddr, maddr, ADDR_TAG_LEN);
 }
 
 /**
@@ -259,10 +274,7 @@ int b_con(const char *output)
    tx = NULL;
 
    /* get mining address tag */
-   if (addr_tag_readfile(bh.maddr, "maddr.dat") != VEOK) {
-      set_errno(EMCM_MADDR);
-      return VERROR;
-   }
+   memcpy(bh.maddr, Maddr, sizeof(bh.maddr));
 
    /* BEGIN TRANSACTION SORT */
 

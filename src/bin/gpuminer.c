@@ -26,6 +26,7 @@
 #include "global.h"  /* for global variables */
 #include "error.h"   /* for error codes */
 #include "bup.h"
+#include "bcon.h"
 
 /* external support */
 #include "base58.h"
@@ -738,6 +739,7 @@ MCM_DECL_UNUSED
             continue; /* next arg */
          }
          if (argument(argv[argi], "-m", "--maddr")) {
+            word8 maddr_chk[ADDR_TAG_LEN + 2];
             /* obtain maddr data or ask for file */
             argp = argvalue(&argi, argc, argv);
             if (argp == NULL) {
@@ -749,7 +751,7 @@ MCM_DECL_UNUSED
                }
                /* read mining address */
                pdebug("read mochimo address file: %s", maddrfile);
-               if (addr_tag_readfile(Maddr, maddrfile) != VEOK) {
+               if (addr_tag_readfile(maddr_chk, maddrfile) != VEOK) {
                   perrno("Failed to read mining address...");
                   return EXIT_FAILURE;
                }
@@ -761,25 +763,24 @@ MCM_DECL_UNUSED
                   return EXIT_FAILURE;
                }
                /* convert Base58 to binary mining address */
-               word8 decoded[ADDR_TAG_LEN + 2];
-               if (base58_decode(argp, decoded) != 0) {
+               if (base58_decode(argp, maddr_chk) != 0) {
                   perrno("base58(Mochimo Address) decode FAILURE");
                   return EXIT_FAILURE;
                }
                /* ensure integrity of data */
-               word16 crc = crc16(decoded, ADDR_TAG_LEN);
-               if (get16(decoded + ADDR_TAG_LEN) != crc) {
+               word16 crc = crc16(maddr_chk, ADDR_TAG_LEN);
+               if (get16(maddr_chk + ADDR_TAG_LEN) != crc) {
                   perr("invalid Mochimo Address");
                   return EXIT_FAILURE;
                }
-               /* copy decoded data to Maddr */
-               memcpy(Maddr, decoded, ADDR_TAG_LEN);
             }
-            plog("Mining Address: %s...", argp);
-            plog("Mining Address(hex): %02x%02x%02x%02x%02x%02x%02x%02x...",
-               Maddr[0], Maddr[1], Maddr[2], Maddr[3],
-               Maddr[4], Maddr[5], Maddr[6], Maddr[7]);
+            /* set and display mining address */
             Maddr_isset = 1;
+            set_maddr(maddr_chk);
+            plog("Mining Address: %s", argp);
+            plog("Mining Address(hex): %02x%02x%02x%02x...%02x%02x%02x%02x",
+               maddr_chk[0], maddr_chk[1], maddr_chk[2], maddr_chk[3],
+               maddr_chk[16], maddr_chk[17], maddr_chk[18], maddr_chk[19]);
             continue; /* next arg */
          }
          if (argument(argv[argi], "-N", "--node")) {
