@@ -352,24 +352,20 @@ DONE:
  */
 int tx_fread(TXENTRY *tx, FILE *stream)
 {
-   size_t len;
+   word8 options[4];
 
    /* prepare transaction container */
    memset(tx, 0, sizeof(TXENTRY));
 
-   /* read transaction header into buffer */
-   if (fread(tx->buffer, sizeof(TXHDR), 1, stream) != 1) {
-      return VERROR;
-   }
+   /* peek at transaction options */
+   if (fread(options, sizeof(options), 1, stream) != 1) return VERROR;
+   if (fseek(stream, -(sizeof(options)), SEEK_CUR) != 0) return VERROR;
 
-   /* initialize transaction entry already containing header */
-   tx__init(tx, NULL);
+   /* initialize transaction entry structure from options */
+   tx__init(tx, options);
 
-   /* read remaining transaction parts */
-   len = tx->tx_sz - sizeof(TXHDR);
-   if (fread(tx->buffer + sizeof(TXHDR), len, 1, stream) != 1) {
-      return VERROR;
-   }
+   /* read transaction data into buffer */
+   if (fread(tx->buffer, tx->tx_sz, 1, stream) != 1) return VERROR;
 
    return VEOK;
 }  /* end tx_fread() */
