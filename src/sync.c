@@ -376,12 +376,11 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    le_close();
 
    /* Backup TFILE, Ledger, and blocks to split-tree directory. */
-   /* system("mkdir split"); * already exists */
    pdebug("Backing up TFILE, ledger.dat, and blocks...");
-   system("rm -f split/*");  /* don't complain, just do it */
-   system("cp tfile.dat split");
-   system("cp ledger.dat split");
-   system("mv bc/*.bc split");
+   system("mkdir -p split/");
+   system("cp tfile.dat split/");
+   system("cp ledger.dat split/");
+   system("mv bc/*.bc split/");
 
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
@@ -461,7 +460,10 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
       add64(bnum, One, bnum);
    }
    system("cp split/b0000000000000000.bc bc");
-   system("rm split/*");
+   /* DO NOT DELETE BLOCKCHAIN FILES WITHOUT CONSENT -- ARCHIVE */
+   system("mkdir -p archive");
+   system("cp split/* archive/");
+   system("rm -f split/*");
    /* re-compute tfile weight */
    if(weigh_tfile("tfile.dat", bnum, tfweight)) {
       plog("tf_val() error");
@@ -477,7 +479,7 @@ badsyncup:
    system("mv split/tfile.dat .");
    system("mv split/ledger.dat .");
    system("rm *.bc bc/*");
-   system("mv split/* bc");
+   system("mv split/* bc/");
    reset_chain();  /* reset Difficulty and others */
    le_open("ledger.dat");
    Insyncup = 0;
