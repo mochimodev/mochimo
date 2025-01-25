@@ -36,6 +36,11 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 
+/* Startup Lookback ensures at least ~2 days (2048 blocks) of history
+ * are recognised for initial synchronization with the network
+ */
+#define LOOKBACK   (2 << 10)
+
 /* (long running) synchronization interrupt handler */
 static word8 SYNC_interrupt_signal_;
 static void SYNC_interrupt_(int sig)
@@ -261,7 +266,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    /* determine starting neo-genesis block -- bump to V30TRIGGER */
    put64(bnum, highbnum); bnum[0] = 0;
-   if (sub64(bnum, CL64_32(0x100), bnum)) memset(bnum, 0, 8);
+   if (sub64(bnum, CL64_32(LOOKBACK), bnum)) memset(bnum, 0, 8);
    if (cmp64(bnum, CL64_32(V30TRIGGER)) < 0) {
       pwarn("bumping neo-genesis block to V30TRIGGER");
       put64(bnum, CL64_32(V30TRIGGER));
