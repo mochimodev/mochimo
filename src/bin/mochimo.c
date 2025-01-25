@@ -311,9 +311,7 @@ int init(void)
    word32 qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
    word8 netweight[32], netbnum[8]; //, bnum[8];
-   FILE *fp;
    BTRAILER bt;
-   word32 hdrlen;
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
    int result, status, attempts, count;
 
@@ -515,20 +513,6 @@ int init(void)
          while (Running && !fexists(copyfile)) sleep(1);
          if (!Running) return VERROR;
       }
-
-      /* read file to check conversion */
-      fp = fopen(fname, "rb");
-      if (fp == NULL) {
-         perrno("fopen() FAILURE");
-         return VERROR;
-      }
-      if (fread(&hdrlen, 4, 1, fp) != 1) {
-         if (!ferror(fp)) set_errno(EMCM_EOF);
-         perrno("fread() FAILURE");
-         fclose(fp);
-         return VERROR;
-      }
-      fclose(fp);
 
       /* perform ledger extraction (compatible with legacy blocks) */
       plog("Extracting Ledger data...");
