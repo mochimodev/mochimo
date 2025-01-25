@@ -389,11 +389,13 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
-   put64(lastneo, sblock);
+   put64(lastneo, sblock); lastneo[0] = 0;
    /* Compute first previous NG block */
-   if (sub64(lastneo, CL64_32(0x100), lastneo)) {
-      memset(lastneo, 0, 8);
-   } else lastneo[0] = 0;
+   if (sub64(lastneo, CL64_32(0x100), lastneo)) memset(lastneo, 0, 8);
+   if (cmp64(lastneo, CL64_32(V30TRIGGER)) < 0) {
+      pwarn("bumping neo-genesis block to V30TRIGGER");
+      put64(lastneo, CL64_32(V30TRIGGER));
+   }
    bnum2fname(lastneo, bcfname);
    pdebug("Identified first previous NG block as %s", bcfname);
 
