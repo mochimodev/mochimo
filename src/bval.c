@@ -21,80 +21,13 @@
 #include "ledger.h"
 #include "global.h"
 #include "error.h"
+#include "bcon.h"
 
 /* external support */
 #include <string.h>
 #include <stdlib.h>
 #include "sha256.h"
 #include "extmath.h"
-
-/**
- * Validate a pseudo-block against current node state. Uses node state
- * (Cblocknum, Cblockhash, Difficulty, Time0).
- * @param pfile Filename of pseudo-block to validate
- * @return (int) value representing operation result
- * @retval VEBAD2 on malicious block; check errno for details
- * @retval VEBAD on block format violation; check errno for details
- * @retval VERROR on error; check errno for details
- * @retval VEOK on success
-*/
-int p_val(const char *pfile)
-{
-   BTRAILER bt, tft;
-   FILE *fp;
-   long long len;
-   word32 hdrlen;
-
-   /* open the pseudo-block to validate */
-   fp = fopen(pfile, "rb");
-   if (fp == NULL) return VERROR;
-   /* read pseudo-block data and jumpt to EOF for file length */
-   if (fread(&hdrlen, 4, 1, fp) != 1) goto RDERR_CLEANUP;
-   if (hdrlen != 4) {
-      set_errno(EMCM_HDRLEN);
-      goto ERROR_CLEANUP;
-   }
-
-   /* fseek to check pseudo-block file length */
-   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
-   len = ftell(fp);
-   if (len == (-1)) goto ERROR_CLEANUP;
-   if (len != sizeof(BTRAILER) + 4) {
-      set_errno(EMCM_FILELEN);
-      goto ERROR_CLEANUP;
-   }
-
-   /* read trailer */
-   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
-   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
-   /* cleanup (early) */
-   fclose(fp);
-
-   /* validate block trailer against tfile trailer */
-   if (read_trailer(&tft, "tfile.dat") != VEOK) return VERROR;
-   if (validate_trailer(&bt, &tft) != VEOK) return VEBAD2;
-
-   /* tcount cannot reliably be validated by (the current routines of)
-    * validate_trailer(), so we must ENSURE the validity of tcount here
-    */
-   if (get32(bt.tcount) != 0) {
-      set_errno(EMCM_TCOUNT);
-      return VEBAD2;
-   }
-
-   /* success */
-   return VEOK;
-
-   /* cleanup / error handling */
-RDERR_CLEANUP:
-   if (!ferror(fp)) {
-      set_errno(EMCM_EOF);
-   }
-ERROR_CLEANUP:
-   fclose(fp);
-
-   return VERROR;
-}  /* end p_val() */
 
 /**
  * Validate a neogenesis-block containing a hash-based ledger.
@@ -277,15 +210,16 @@ int b_val(const char *bcfile, const char *ltfile)
    BTRAILER bt;            /* fixed length block trailer */
    BHEADER bh;             /* fixed length block header */
    LTRAN lt;               /* ledger transaction */
-   long long len, min;
+   long len;
    word8 *mtree;
    FILE *fp, *ltfp;        /* input fname, output file ltran.tmp */
-   word8 prev_src_addr[ADDR_LEN];   /* source address sort check */
+   word8 prev[ADDR_LEN];   /* source address sort check */
    word8 mroot[HASHLEN];   /* computed Merkel root */
    word8 mreward[8];
    word32 mdstlen, tcount; /* multi-destination and transaction count */
    word32 j, k;            /* loop counters */
    int ecode, overflow;
+   int pseudo;
 
    /* init NULL for error handling */
    fp = ltfp = NULL;
@@ -295,26 +229,43 @@ int b_val(const char *bcfile, const char *ltfile)
    fp = fopen(bcfile, "rb");
    if (fp == NULL) goto ERROR_CLEANUP;
    /* read block trailer (fp left at EOF) */
-   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) return VERROR;
+   if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) return VERROR;
    if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
    /* read EOF file offset as file length */
-   len = ftell64(fp);
+   len = ftell(fp);
    if (len == (-1)) return VERROR;
+
+   /* check for pseudo-block */
+   tcount = get32(bt.tcount);
+   pseudo = (tcount == 0);
+
    /* ensure file contains the minimum amount of data */
-   min = sizeof(BHEADER) + TXLEN_MIN + sizeof(BTRAILER);
-   if (len < min) {
-      set_errno(EMCM_FILEDATA);
-      goto ERROR_CLEANUP;
+   if (len < (long) (sizeof(BHEADER) + TXLEN_MIN + sizeof(BTRAILER))) {
+      if (!pseudo || len < (long) (sizeof(BHEADER) + sizeof(BTRAILER))) {
+         set_errno(EMCM_FILEDATA);
+         goto ERROR_CLEANUP;
+      }
    }
    /* read and check regular fixed size block header */
-   if (fseek64(fp, 0LL, SEEK_SET) != 0) return VERROR;
+   if (fseek(fp, 0L, SEEK_SET) != 0) return VERROR;
    if (fread(&bh, sizeof(BHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+
+   /* ... fp is left at beginning of transactions ... */
+
+   /* check block header length */
    if (get32(bh.hdrlen) != sizeof(BHEADER)) {
       set_errno(EMCM_HDRLEN);
       goto DROP_CLEANUP;
    }
 
-   /* ... fp is left at beginning of transactions ... */
+   /* check mining address tag (PSEDUOBLOCK ONLY) */
+   if (pseudo) {
+      get_pseudo_maddr(prev);
+      if (tag_compare(bh.maddr, prev) != 0) {
+         set_errno(EMCM_MADDR);
+         goto DROP_CLEANUP;
+      }
+   }
 
    /* check mining reward/address */
    get_mreward(mreward, bt.bnum);
@@ -326,16 +277,7 @@ int b_val(const char *bcfile, const char *ltfile)
    /* validate block trailer (incl. PoW) against tfile trailer */
    if (read_trailer(&tft, "tfile.dat") != VEOK) goto ERROR_CLEANUP;
    if (validate_trailer(&bt, &tft) != VEOK) goto DROP_CLEANUP;
-   if (validate_pow(&bt) != VEOK) goto DROP_CLEANUP;
-
-   /* tcount cannot reliably be validated by (the current routines of)
-    * validate_trailer(), so we must ENSURE the validity of tcount here
-    */
-   tcount = get32(bt.tcount);
-   if (tcount == 0 || tcount > MAXBLTX) {
-      set_errno(EMCM_TCOUNT);
-      goto DROP_CLEANUP;
-   }
+   if (!pseudo && validate_pow(&bt) != VEOK) goto DROP_CLEANUP;
 
    /* malloc merkle tree (+1 for miner) */
    mtree = malloc((tcount + 1) * HASHLEN);
@@ -358,7 +300,7 @@ int b_val(const char *bcfile, const char *ltfile)
       /* skip first src_addr check */
       if (j > 0) {
          /* check src_addr is sorted, NO DUPLICATES */
-         if (memcmp(txe.src_addr, prev_src_addr, ADDR_LEN) <= 0) {
+         if (memcmp(txe.src_addr, prev, ADDR_LEN) <= 0) {
             set_errno(EMCM_TXSORT);
             goto DROP_CLEANUP;
          }
@@ -369,7 +311,7 @@ int b_val(const char *bcfile, const char *ltfile)
 
       /* add transaction id to merkel tree, store src_addr */
       memcpy(&mtree[(j + 1) * HASHLEN], txe.tx_id, HASHLEN);
-      memcpy(prev_src_addr, txe.src_addr, ADDR_LEN);
+      memcpy(prev, txe.src_addr, ADDR_LEN);
 
       /* sum fees for (additional) miner credit */
       if (add64(mreward, txe.tx_fee, mreward)) {
@@ -426,10 +368,10 @@ int b_val(const char *bcfile, const char *ltfile)
     * check the current offset (offset at which transactions end), plus
     * the size of a block trailer is equal to the EOF offset
     */
-   len = ftell64(fp);
+   len = ftell(fp);
    if (len == (-1)) goto ERROR_CLEANUP;
-   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
-   if (ftell64(fp) != len + (long long) sizeof(BTRAILER)) {
+   if (fseek(fp, 0L, SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (ftell(fp) != (long) (len + sizeof(BTRAILER))) {
       set_errno(EMCM_FILELEN);
       goto DROP_CLEANUP;
    }

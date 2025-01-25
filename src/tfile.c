@@ -108,17 +108,21 @@ int get_tfrewards(const char *tfile, word8 rewards[8], const word8 bnum[8])
 
    /* initialize premine, read trailer data and calculate rewards */
    put64(rewards, instamine);
+   /* read trailers and calculate rewards -- break after bnum */
    while (fread(&bt, sizeof(BTRAILER), 1, fp) == 1) {
-      /* no block reward if no transactions */
-      if (get32(bt.tcount)) {
-         get_mreward(reward, bt.bnum);
-         if (add64(rewards, reward, rewards)) {
-            set_errno(EMCM_MREWARDS_OVERFLOW);
-            goto ERROR_CLEANUP;
-         }
+      if (bnum && cmp64(bnum, bt.bnum) < 0) break;
+      /* skip all neogenesis blocks, and pre-v3.0 pseudoblocks */
+      if (bt.bnum[0] == 0) continue;
+      if (cmp64(bt.bnum, CL64_32(V30TRIGGER))) {
+         /* ... no pseudoblock reward pre-v3.0 */
+         if (get32(bt.tcount) == 0) continue;
       }
-      /* break when we reach specified bnum */
-      if (bnum && cmp64(bnum, bt.bnum) <= 0) break;
+      /* add mreward for bnum */
+      get_mreward(reward, bt.bnum);
+      if (add64(rewards, reward, rewards)) {
+         set_errno(EMCM_MREWARDS_OVERFLOW);
+         goto ERROR_CLEANUP;
+      }
    }
    /* check file errors -- close Tfile */
    if (ferror(fp)) goto ERROR_CLEANUP;

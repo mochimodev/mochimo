@@ -18,7 +18,6 @@
 extern "C" {
 #endif
 
-int p_val(const char *pfile);
 int ng_val(const char *ngfile, const word8 bnum[8]);
 int b_val(const char *bcfile, const char *ltfile);
 

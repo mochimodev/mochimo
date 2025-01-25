@@ -717,7 +717,7 @@ int server(int reuse_addr)
                stop_bcon();
                stop_found();
                /* update recv'd block */
-               if(b_update("rblock.dat", 0) == VEOK) {
+               if(b_update("rblock.dat") == VEOK) {
                   send_found();  /* start send_found() child */
                   addrecent(np->ip);   /* v.28 */
                   Stime = Ltime + 20;  /* hold status display */
@@ -862,7 +862,7 @@ int server(int reuse_addr)
             stop_bcon();
             stop_found();
             /* We found a pushed block! Update... */
-            if (b_update("mblock.dat", 1) == VEOK) {
+            if (b_update("mblock.dat") == VEOK) {
                send_found();  /* start send_found() child */
                Stime = Ltime + 20;  /* hold status display */
             }
@@ -885,7 +885,7 @@ int server(int reuse_addr)
             stop_bcon();
             stop_found();
             /* update pseudoblock */
-            if (b_update("pblock.dat", 2) != VEOK) {
+            if (b_update("pblock.dat") != VEOK) {
                restart("Failed to update pseudo-block");
             } else Stime = Ltime + 20;  /* hold status display */
             /* check txclean.dat contains transactions */

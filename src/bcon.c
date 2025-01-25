@@ -28,6 +28,12 @@
 #include "extmath.h"
 #include "extlib.h"
 
+/* Pseudoblock mining address tag (hexadecimal encoding) */
+static const word8 Maddr_pseudo[ADDR_TAG_LEN] = {
+   0x12, 0x60, 0x88, 0x7b, 0x0d, 0x36, 0x53, 0xf8, 0xac, 0x25,
+   0x59, 0x69, 0xcb, 0x4a, 0x60, 0x7f, 0x00, 0x6c, 0xf6, 0x73
+};
+
 /* Standard block mining address tag (hexadecimal encoding) */
 static word8 Maddr[ADDR_TAG_LEN] = {
    0x3f, 0x1f, 0xba, 0x70, 0x25, 0xc7, 0xd3, 0x74, 0x70, 0xe7,
@@ -56,6 +62,15 @@ static int txpos_compare(const void *va, const void *vb)
 }
 
 /**
+ * Get the mining address for pseudo-blocks.
+ * @param maddr Pointer to place pseudo-block mining address
+ */
+void get_pseudo_maddr(void *maddr)
+{
+   memcpy(maddr, Maddr_pseudo, ADDR_TAG_LEN);
+}
+
+/**
  * Set the mining address for all standard blocks.
  * @param maddr Pointer to mining address to set
  */
@@ -74,15 +89,17 @@ void set_maddr(const void *maddr)
 */
 int pseudo(const char *output)
 {
-   const word32 hdrlen = 4;
-
    BTRAILER bt;
+   BHEADER bh;
    FILE *fp;
 
-   /* open pseudo-block file and write hdrlen */
+   /* open pseudo-block file */
    fp = fopen(output, "wb");
    if (fp == NULL) return VERROR;
-   if (fwrite(&hdrlen, 4, 1, fp) != 1) goto ERROR_CLEANUP;
+
+   /* init block header with pseudo_maddr */
+   put32(bh.hdrlen, sizeof(BHEADER));
+   memcpy(bh.maddr, Maddr_pseudo, sizeof(bh.maddr));
 
    /* init block trailer (zero) and compute bnum */
    memset(&bt, 0, sizeof(BTRAILER));
@@ -91,6 +108,9 @@ int pseudo(const char *output)
       goto ERROR_CLEANUP;
    }
 
+   /* place mreward in block header */
+   get_mreward(bh.mreward, bt.bnum);
+
    /* fill block trailer with remaining data */
    memcpy(bt.phash, Cblockhash, HASHLEN);
    /* ... bt.bnum set earlier via add64() */
@@ -98,13 +118,14 @@ int pseudo(const char *output)
    /* ... bt.tcount left zero'd (no transactions) */
    put32(bt.time0, Time0);
    put32(bt.difficulty, Difficulty);
-   /* ... bt.mroot left zero'd (empty block) */
+   sha256(bh.maddr, sizeof(bh.maddr) + sizeof(bh.mreward), bt.mroot);
    /* ... bt.nonce left zero'd (solve abandoned) */
    put32(bt.stime, Time0 + BRIDGEv3);
    /* compute pseudo-block hash directly into block trailer */
    sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
 
-   /* write block trailer to pseudo-block file and close */
+   /* write pseudo-block file and close */
+   if (fwrite(&bh, sizeof(BHEADER), 1, fp) != 1) goto ERROR_CLEANUP;
    if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) goto ERROR_CLEANUP;
    fclose(fp);
 
@@ -244,6 +265,79 @@ ERROR_CLEANUP:
 
    return VERROR;
 }  /* end neogen() */
+
+/**
+ * Adjust a block to accommodate a new mining address. Uses existing state
+ * and updates the necessary components to reflect the new mining address.
+ * @param fp File pointer to candidate block file
+ * @param maddr New mining address to update block with
+ * @return (int) value representing operation result
+ * @retval VERROR on error; check errno for details
+ * @retval VEOK on success
+*/
+int b_adjust_maddr_fp(FILE *fp)
+{
+   TXENTRY txc;   /* for holding transaction data */
+   BTRAILER bt;   /* block trailers are fixed length */
+   BHEADER bh;    /* the minimal length block header */
+   word8 *mtree;  /* malloc'd merkle tree list */
+   size_t tcount; /* malloc'd transaction count */
+   size_t j;      /* loop counter and txclean count */
+
+   /* init pointers */
+   mtree = NULL;
+
+   /* read block trailer */
+   if (fseek(fp, (long) -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
+   tcount = get32(bt.tcount);
+
+   /* read/update block header */
+   if (fseek(fp, 0L, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   if (fread(&bh, sizeof(BHEADER), 1, fp) != 1) goto RDERR_CLEANUP;
+   memcpy(bh.maddr, Maddr, sizeof(bh.maddr));
+   if (fseek(fp, 0L, SEEK_SET) != 0) goto ERROR_CLEANUP;
+   if (fwrite(&bh, sizeof(BHEADER), 1, fp) != 1) goto ERROR_CLEANUP;
+
+   /* ... fp left at start of TXENTRY[] ...*/
+
+   /* malloc merkle tree (+1 for header data) */
+   mtree = malloc((tcount + 1) * HASHLEN);
+   if (mtree == NULL) goto ERROR_CLEANUP;
+
+   /* begin merkel hash with mining address + reward */
+   sha256(bh.maddr /* + bh.mreward */, sizeof(bh.maddr) + 8, mtree);
+
+   /* read transactions from txclean.dat using sorted TXPOS array */
+   for (j = 1; j < (tcount + 1); j++) {
+      /* add transaction id to merkel tree (++ prefix for miner) */
+      if (tx_fread(&txc, fp) != VEOK) goto RDERR_CLEANUP;
+      memcpy(&mtree[j * HASHLEN], txc.tx_id, HASHLEN);
+   }  /* end for() */
+
+   /* (re)compute merkel root hash straight into the trailer */
+   merkle_root(mtree, tcount + 1, bt.mroot);
+   /* ... bt.nonce left zero'd (not known) */
+   /* ... bt.stime left zero'd (not known) */
+   /* ... bt.bhash left zero'd (not known) */
+
+   /* write trailer to file */
+   if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) goto ERROR_CLEANUP;
+
+   /* cleanup */
+   free(mtree);
+
+   /* success */
+   return VEOK;
+
+   /* cleanup / error handling */
+RDERR_CLEANUP:
+   if (!ferror(fp)) set_errno(EMCM_EOF);
+ERROR_CLEANUP:
+   if (mtree) free(mtree);
+
+   return VERROR;
+}  /* end b_adjust_maddr_fp() */
 
 /**
  * Construct a candidate block from "txclean.dat". Uses node state

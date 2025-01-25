@@ -415,7 +415,7 @@ int network_recv_cblock(void)
    /* check maddr */
    if (Maddr_isset) {
       /* reconstruct block with own maddr */
-      ecode = b_adjust_maddr_fp(fp, Maddr);
+      ecode = b_adjust_maddr_fp(fp);
       if (ecode != VEOK) goto ECODE_CLEANUP;
    }
 
@@ -493,7 +493,7 @@ int network_send_solve(void)
       sock_close(node.sd);
       return VERROR;
    }
-   print_bup(&BT_solve, "Sent");
+   print_bup(&BT_solve);
    /* remove temporary files containing block data */
    if (FP_curr) {
       fclose(FP_curr);

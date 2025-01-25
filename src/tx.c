@@ -918,8 +918,8 @@ int txclean(const char *txfname, const char *bcfname)
          if (!ferror(fp)) set_errno(EMCM_EOF);
          goto ERROR_CLEANUP;
       }
-      /* allow transaction loop for all non-neogenesis type blocks */
-      if (hdrlen != sizeof(BHEADER) && hdrlen != 4) {
+      /* allow transaction loop for non-neogenesis blocks */
+      if (hdrlen != sizeof(BHEADER)) {
          set_errno(EMCM_HDRLEN);
          goto ERROR_CLEANUP;
       }

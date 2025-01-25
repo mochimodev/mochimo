@@ -169,7 +169,7 @@ int catchup(word32 plist[], word32 count)
             bnum2fname(bnum, fname);
             while (fexists(fname)) {
                pdebug("b_update(%s)...", fname);
-               ecode = b_update(fname, 0);
+               ecode = b_update(fname);
                if (ecode != VEOK) {
                   perrno("b_update(%s) FAILURE", fname);
                   remove(fname);
@@ -428,7 +428,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
       sprintf(buff, "cp split/%s spblock.tmp", bcfname);
       system(buff);
       /* use auto-mode update (0) */
-      if(b_update("spblock.tmp", 0) != VEOK) {
+      if(b_update("spblock.tmp") != VEOK) {
          pdebug("failed to update our own block.");
          goto badsyncup;
       }
@@ -454,7 +454,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
          j++;  /* retry counter */
          continue;
       }
-      if(b_update(buff, 0) != VEOK) {
+      if(b_update(buff) != VEOK) {
          pdebug("cannot update peer's block.");
          goto badsyncup;
       }
