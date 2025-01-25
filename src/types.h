@@ -181,7 +181,7 @@
 #define V23TRIGGER 0xd431  /* v2.3 pseudoblocks */
 #define V24TRIGGER 0x12851 /* v2.4 FPGA-Tough PoW algo */
 #define MIDTRIGGER 0x5b401 /* peak mining reward */
-#define V30TRIGGER 0x9e800 /* v3.0 blockchain reboot (MUST BE NEOGEN) */
+#define V30TRIGGER 0x9fd00 /* v3.0 blockchain reboot (MUST BE NEOGEN) */
 
 #define BRIDGEv3   238     /* post-V30TRIGGER BRIDGE time */
 #define BRIDGEv2   949     /* post-V23TRIGGER BRIDGE time */
