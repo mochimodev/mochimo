@@ -19,6 +19,7 @@
 extern "C" {
 #endif
 
+int reset_chain_data(void);
 int reset_chain(void);
 int catchup(word32 plist[], word32 count);
 int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum);

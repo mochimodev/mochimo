@@ -48,6 +48,29 @@ static void SYNC_interrupt_(int sig)
    SYNC_interrupt_signal_ = sig;
 }
 
+int reset_chain_data(void)
+{
+   BTRAILER bt;
+
+   /* obtain latest block trailer from Tfile */
+   if (read_trailer(&bt, "tfile.dat") != VEOK) return VERROR;
+   /* initialize chain data from block trailer */
+   put64(Cblocknum, bt.bnum);
+   Eon = get32(bt.bnum) >> 8;
+   Time0 = get32(bt.stime);
+   Difficulty = next_difficulty(&bt);
+   memcpy(Prevhash, bt.phash, HASHLEN);
+   memcpy(Cblockhash, bt.bhash, HASHLEN);
+
+   /* Re-compute Weight[] -- check double bnum */
+   if (weigh_tfile("tfile.dat", NULL, Weight) != VEOK) {
+      perrno("weight_tfile() FAILURE");
+      return VERROR;
+   }
+
+   return VEOK;
+}  /* end reset_chain_data() */
+
 /**
  * Reset chain data from Tfile. Deletes blockchain files above the last
  * Tfile entry, and logs warnings for missing blockchain files. Sets:
@@ -85,21 +108,8 @@ int reset_chain(void)
       }
    }  /* end for() */
 
-   /* initialize chain data from block trailer */
-   put64(Cblocknum, bt.bnum);
-   Eon = get32(bt.bnum) >> 8;
-   Time0 = get32(bt.stime);
-   Difficulty = next_difficulty(&bt);
-   memcpy(Prevhash, bt.phash, HASHLEN);
-   memcpy(Cblockhash, bt.bhash, HASHLEN);
-
-   /* Re-compute Weight[] -- check double bnum */
-   if (weigh_tfile("tfile.dat", bnum, Weight) != VEOK) {
-      perrno("weight_tfile() FAILURE");
-      return VERROR;
-   }
-
-   return VEOK;
+   /* initialize chain data from tfile */
+   return reset_chain_data();
 }  /* end reset_chain() */
 
 /**
@@ -356,7 +366,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 {
    word8 bnum[8], tfweight[HASHLEN];
    word8 lastneo[8], sblock[8];
-   char buff[256], bcfname[21];
+   FILENAME fname, bcfname;
    int j;
    NODE *np2;
    time_t lasttime;
@@ -385,7 +395,6 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    system("mkdir -p split/");
    system("cp tfile.dat split/");
    system("cp ledger.dat split/");
-   system("mv bc/*.bc split/");
 
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
@@ -411,16 +420,14 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    /* Extract first previous Neogenesis Block to ledger.dat */
    pdebug("Expanding Neo-genesis block to ledger.dat...");
-   sprintf(buff, "cp split/%s bc/%s", bcfname, bcfname);
-   system(buff);
-   sprintf(buff, "bc/%s", bcfname);
-   if(le_extract(buff, "ledger.dat") != VEOK) {
+   path_join(fname, Bcdir, bcfname);
+   if(le_extract(fname, "ledger.dat") != VEOK) {
       pdebug("failed!  Unable to extract ledger!");
       goto badsyncup;
    }
 
-   /* setup Difficulty and globals, based on neogenesis block */
-   if(reset_chain() != VEOK) {
+   /* setup Difficulty and globals, based on Tfile */
+   if(reset_chain_data() != VEOK) {
       pdebug("failed!  reset_chain() failed!");
       goto badsyncup;
    }
@@ -430,11 +437,9 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    add64(lastneo, One, bnum);
    for( ;cmp64(bnum, sblock) < 0; ) {
       bnum2fname(bnum, bcfname);
-      pdebug("Copying split/%s to spblock.tmp", bcfname);
-      sprintf(buff, "cp split/%s spblock.tmp", bcfname);
-      system(buff);
+      path_join(fname, Bcdir, bcfname);
       /* use auto-mode update (0) */
-      if(b_update("spblock.tmp") != VEOK) {
+      if(b_update(fname) != VEOK) {
          pdebug("failed to update our own block.");
          goto badsyncup;
       }
@@ -447,30 +452,25 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    put64(bnum, sblock);
    for(j = 0; ; ) {
       if(bnum[0] == 0) add64(bnum, One, bnum);  /* skip NG blocks */
-      sprintf(buff, "b%s.dat", bnum2hex64(bnum, bcfname));
+      sprintf(fname, "b%s.dat", bnum2hex64(bnum, bcfname));
       if(j == 60) {
          pdebug("failed while downloading %s from %s",
-                        buff, ntoa(&peerip, NULL));
+                        fname, ntoa(&peerip, NULL));
          goto badsyncup;
       }
       lasttime = time(NULL);
-      if(get_file(peerip, bnum, buff) != VEOK) {
+      if(get_file(peerip, bnum, fname) != VEOK) {
          if(cmp64(bnum, txcblock) >= 0) break;  /* success */
          if(time(NULL) == lasttime) sleep(1);
          j++;  /* retry counter */
          continue;
       }
-      if(b_update(buff) != VEOK) {
+      if(b_update(fname) != VEOK) {
          pdebug("cannot update peer's block.");
          goto badsyncup;
       }
       add64(bnum, One, bnum);
    }
-   system("cp split/b0000000000000000.bc bc");
-   /* DO NOT DELETE BLOCKCHAIN FILES WITHOUT CONSENT -- ARCHIVE */
-   system("mkdir -p archive");
-   system("cp split/* archive/");
-   system("rm -f split/*");
    /* re-compute tfile weight */
    if(weigh_tfile("tfile.dat", bnum, tfweight)) {
       plog("tf_val() error");
@@ -485,9 +485,8 @@ badsyncup:
    le_close();
    system("mv split/tfile.dat .");
    system("mv split/ledger.dat .");
-   system("rm *.bc bc/*");
-   system("mv split/* bc/");
-   reset_chain();  /* reset Difficulty and others */
+   system("rm split/*");
+   reset_chain_data();  /* reset Difficulty and others */
    le_open("ledger.dat");
    Insyncup = 0;
    return VEOK;
