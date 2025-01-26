@@ -946,7 +946,7 @@ int scan_network
                /* iterate peerlist adding to recent peers */
                for( ; len > 0; ipp++, len -= 4) {
                   if (Rplistidx >= RPLISTLEN) break;
-                  if (*ipp == 0) continue;
+                  if (*ipp == 0 || pinklisted(*ipp)) continue;
                   addrecent(*ipp);
                }
                /* check peer's chain weight against highweight */
