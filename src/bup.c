@@ -29,6 +29,55 @@
 #include "extmath.h"
 #include "extlib.h"
 
+/**
+ * @private
+ * Accept a block into the blockchain. If the block already exists in the
+ * blockchain, the block is moved to a split file. The block trailer is
+ * also appended to the master trailer file.
+ * @param bt Pointer to block trailer to accept
+ * @param fname File name of block to accept
+ * @return VEOK on success, else error code
+ */
+static int accept_block(BTRAILER *bt, char *fname)
+{
+   BTRAILER existing_bt;
+   FILENAME block_fname;
+   FILEPATH block_fpath;
+   FILEPATH split_fpath;
+   char bnumhex[17];
+
+   /* derive filenames for accept routine */
+   bnum2hex64(Cblocknum, bnumhex);
+   snprintf(block_fname, sizeof(block_fname), "b%s.sp", bnumhex);
+   path_join(split_fpath, Bcdir, block_fname);
+   bnum2fname(Cblocknum, block_fname);
+   path_join(block_fpath, Bcdir, block_fname);
+
+   /* check existing chain */
+   if (fexists(block_fpath)) {
+      if (read_trailer(&existing_bt, block_fpath) != VEOK) {
+         perrno("failed to read_trailer(%s)", block_fpath);
+         return VERROR;
+      }
+      /* backup chain split files */
+      if (memcmp(existing_bt.bhash, bt->bhash, HASHLEN) != 0) {
+         remove(split_fpath);
+         rename(block_fpath, split_fpath);
+      }
+   }
+   /* accept new block into chain */
+   remove(block_fpath);
+   if (rename(fname, block_fpath) != 0) {
+      perrno("failed to rename %s to %s", fname, block_fpath);
+      return VERROR;
+   } else if (append_tfile(bt, 1, "tfile.dat") != VEOK) {
+      perrno("failed to append_tfile()");
+      return VERROR;
+   }
+
+   return VEOK;
+}  /* end accept_block() */
+
 void print_bup(BTRAILER *bt)
 {
    word32 bnum, btxs, btime, bdiff;
@@ -79,10 +128,9 @@ void print_bup(BTRAILER *bt)
 int b_update(char *fname)
 {
    BTRAILER bt;
-   FILENAME fpath;
-   FILENAME cleanfile;
+   FILENAME block_fname;
+   FILENAME clean_fname;
    int ecode;
-   char bcfname[21];
 
    pdebug("updating block...");
 
@@ -101,7 +149,8 @@ int b_update(char *fname)
    ecode = b_val(fname, "ltran.dat");
    if (ecode != VEOK) {
       perrno("block -> ltran.dat validation FAILURE");
-      rename(fname, "block.last.fail");
+      remove("block.fail");
+      rename(fname, "block.fail");
       fname = NULL;
       goto CLEANUP;
    }
@@ -110,7 +159,8 @@ int b_update(char *fname)
    ecode = le_update("ltran.dat");
    if (ecode != VEOK) {
       perrno("ledger update FAILURE");
-      rename(fname, "ltran.last.fail");
+      remove("ltran.fail");
+      rename(fname, "ltran.fail");
       fname = NULL;
       goto CLEANUP;
    }
@@ -134,18 +184,14 @@ int b_update(char *fname)
    Difficulty = next_difficulty(&bt);
    Time0 = get32(bt.stime);
    /* add block trailer to tfile and accept block */
-   bnum2fname(Cblocknum, bcfname);
-   path_join(fpath, Bcdir, bcfname);
-   if (append_tfile(&bt, 1, "tfile.dat") != VEOK) {
-      restart("failed to append_tfile()");
-   } else if (rename(fname, fpath) != 0) {
-      perrno("failed on rename() %s to %s", fname, fpath);
+   if (accept_block(&bt, fname) != VEOK) {
       restart("failed to accept block");
    }
 
-   /* set cleanfile for (final) txclean requirement */
-   strncpy(cleanfile, fpath, FILENAME_MAX);
-   fname = cleanfile;
+   /* set clean_fname for (final) txclean requirement */
+   bnum2fname(Cblocknum, block_fname);
+   path_join(clean_fname, Bcdir, block_fname);
+   fname = clean_fname;
 
    /* update server data */
    remove("cblock.dat");
@@ -166,8 +212,6 @@ int b_update(char *fname)
        * Determine input block b...ff.bc file with Cblocknum.
        * Update Cblockhash, Cblocknum, Prevhash, Eon and tfile.dat
        */
-      bnum2fname(Cblocknum, bcfname);
-      path_join(fpath, Bcdir, bcfname);
       if (neogen(&bt, "ledger.dat", "ngblock.dat") != VEOK) {
          perrno("neogen() FAILURE");
          restart("failed to neogen()");
@@ -180,14 +224,10 @@ int b_update(char *fname)
       memcpy(Cblockhash, bt.bhash, HASHLEN);
       Eon++;
       /* add neogenesis block trailer to tfile and accept block */
-      bnum2fname(Cblocknum, bcfname);
-      path_join(fpath, Bcdir, bcfname);
-      if (append_tfile(&bt, 1, "tfile.dat") != VEOK) {
-         restart("failed to append_tfile(ngblock.dat)");
-      } else if (rename("ngblock.dat", fpath) != 0) {
-         perrno("failed on rename() ngblock.dat to %s", fpath);
+      if (accept_block(&bt, "ngblock.dat") != VEOK) {
          restart("failed to accept block");
       }
+
       /* check CAROUSEL() -- REMOVE SANCTUARY TRIGGER FOR NOW
       if (get32(Cblocknum) == Lastday) {
          plog("Lastday 0x%x.  Carousel begins...", Lastday);
@@ -225,9 +265,7 @@ CLEANUP:
       Txcount = 0;
    }
    if (fexistsnz("txclean.dat")) {
-      /* fname was set to cleanfile for transaction blocks, or
-       * NULL for non-transaction blocks and update failures
-       */
+      /* fname was set to clean_fname after successful block update */
       if (txclean("txclean.dat", fname) != VEOK) {
          perrno("post-update txclean() FAILURE");
          pwarn("txclean.dat integrity unknown, deleting...");
