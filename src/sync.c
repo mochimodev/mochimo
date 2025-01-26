@@ -160,7 +160,8 @@ int catchup(word32 plist[], word32 count)
          if (SYNC_interrupt_signal_) break;
          /* asynchronous block download (after set) */
          if (*fname_dl && fexists(fname_dl)) {
-            if (get_file(peer, bnum, fname_dl) != VEOK) {
+            ecode = get_file(peer, bnum, fname_dl);
+            if (ecode != VEOK) {
                pdebug("get_file(%s, %s) incomplete...",
                   ntoa(&peer, (char[16]){0}), fname_dl);
                remove(fname_dl);
