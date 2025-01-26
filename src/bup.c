@@ -235,7 +235,7 @@ CLEANUP:
       }
    }
 
-   return VEOK;
+   return ecode;
 }  /* end b_update() */
 
 /* end include guard */
