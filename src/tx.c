@@ -318,7 +318,7 @@ int tx_bot_process(void)
    put64(tx.hdr->send_total, le.balance);
    put64(tx.tx_fee, MFEE64);
    /* generate WOTS+ signature */
-   tx_hash(&tx, 0, hash);
+   tx_hash(&tx, TX_HASH_MESSAGE, hash);
    memcpy(adrs, Txbot.adrs[item], 32);
    wots_sign(tx.wots->signature, hash, secret, Txbot.public[item], adrs);
    memcpy(tx.wots->pub_seed, Txbot.public[item], 32);
@@ -393,20 +393,25 @@ int tx_fwrite(const TXENTRY *tx, FILE *stream)
 /**
  * Hash a Transaction Entry, @a txe.
  * @param txe Pointer to Transaction Entry data
- * @param full Set non-zero for a "full" Transaction ID hash or
- * set zero for a Transaction Signature Message hash.
+ * @param type Type of transaction hash to generate
  * @param out Pointer to place finalized hash
  */
-void tx_hash(const TXENTRY *tx, int full, void *out)
+void tx_hash(const TXENTRY *tx, tx_hash_t type, void *out)
 {
-   if (full) {
-      /* full transaction ID hash */
-      sha256(tx->buffer, tx->tx_sz - sizeof(TXTLR), out);
-      return;
-   }
-
-   /* transaction signature message hash (header + data) */
-   sha256(tx->buffer, (size_t) tx->dsa - (size_t) tx->hdr, out);
+   switch (type) {
+      case TX_HASH_MESSAGE:
+         /* transaction signature message hash (excl. DSA + trailer) */
+         sha256(tx->buffer, (size_t) tx->dsa - (size_t) tx->hdr, out);
+         return;
+      case TX_HASH_SIGNED:
+         /* signed transaction hash (excl. trailer) */
+         sha256(tx->buffer,  (size_t) tx->tlr - (size_t) tx->hdr, out);
+         return;
+      case TX_HASH_ID:
+         /* solved transaction hash (excl. trailer hash) */
+         sha256(tx->buffer, (size_t) tx->tlr->id - (size_t) tx->hdr, out);
+         return;
+   }  /* end switch() */
 }  /* end tx_hash() */
 
 /**
@@ -605,7 +610,7 @@ static int tx_val__wots(const TXENTRY *tx)
    wots = tx->wots;
 
    /* generate transaction signature message */
-   tx_hash(tx, 0, message);
+   tx_hash(tx, TX_HASH_MESSAGE, message);
 
    /* recreate WOTS+ public key from signature */
    memcpy(adrs, wots->adrs, 32);
@@ -756,7 +761,7 @@ int txe_val(const TXENTRY *txe, const void *bnum, const void *mfee)
    }
 
    /* check transaction ID hash is correct */
-   tx_hash(txe, 1, hash);
+   tx_hash(txe, TX_HASH_ID, hash);
    if (memcmp(txe->tx_id, hash, HASHLEN) != 0) {
       set_errno(EMCM_TXID);
       return VEBAD2;
@@ -1176,6 +1181,10 @@ int process_tx(NODE *np)
    /* Validate addresses, fee, signature, source balance, and total. */
    evilness = tx_val(&txe, Cblocknum, Myfee);
    if(evilness) return evilness;
+
+   /* place SIGNED Transaction hash in txID for Mesh API */
+   memset(txe.tlr->nonce, 0, sizeof(txe.tlr->nonce));
+   tx_hash(&txe, TX_HASH_SIGNED, txe.tlr->id);
 
    fp = fopen("txq1.dat", "ab");
    if (fp == NULL) return VERROR;

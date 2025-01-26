@@ -21,6 +21,19 @@
 
 #endif
 
+/**
+ * Transaction Hash type enumeration. For use with tx_hash().
+ * @enum tx_hash_t
+ * @param TX_HASH_MESSAGE  Hash the transaction mesage (excl. signature)
+ * @param TX_HASH_SIGNED   Hash the signed transaction (incl. signature)
+ * @param TX_HASH_ID       Hash the full transaction (incl. nonce)
+ */
+typedef enum {
+   TX_HASH_MESSAGE = 0,
+   TX_HASH_SIGNED,
+   TX_HASH_ID,
+} tx_hash_t;
+
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {
@@ -38,7 +51,7 @@ int tx_bot_process(void);
 
 int tx_fread(TXENTRY *tx, FILE *stream);
 int tx_fwrite(const TXENTRY *tx, FILE *stream);
-void tx_hash(const TXENTRY *tx, int full, void *out);
+void tx_hash(const TXENTRY *tx, tx_hash_t type, void *out);
 int tx_read(TXENTRY *tx, const void *buf, size_t bufsz);
 int tx_val(const TXENTRY *txe, const void *bnum, const void *mfee);
 int txe_val(const TXENTRY *txe, const void *bnum, const void *mfee);
