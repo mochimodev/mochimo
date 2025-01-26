@@ -48,29 +48,6 @@ static void SYNC_interrupt_(int sig)
    SYNC_interrupt_signal_ = sig;
 }
 
-int reset_chain_data(void)
-{
-   BTRAILER bt;
-
-   /* obtain latest block trailer from Tfile */
-   if (read_trailer(&bt, "tfile.dat") != VEOK) return VERROR;
-   /* initialize chain data from block trailer */
-   put64(Cblocknum, bt.bnum);
-   Eon = get32(bt.bnum) >> 8;
-   Time0 = get32(bt.stime);
-   Difficulty = next_difficulty(&bt);
-   memcpy(Prevhash, bt.phash, HASHLEN);
-   memcpy(Cblockhash, bt.bhash, HASHLEN);
-
-   /* Re-compute Weight[] -- check double bnum */
-   if (weigh_tfile("tfile.dat", NULL, Weight) != VEOK) {
-      perrno("weight_tfile() FAILURE");
-      return VERROR;
-   }
-
-   return VEOK;
-}  /* end reset_chain_data() */
-
 /**
  * Reset chain data from Tfile. Deletes blockchain files above the last
  * Tfile entry, and logs warnings for missing blockchain files. Sets:
@@ -82,34 +59,34 @@ int reset_chain_data(void)
 int reset_chain(void)
 {
    BTRAILER bt;
-   word8 bnum[8];
    char fname[FILENAME_MAX];
    char bcfname[FILENAME_MAX];
 
    /* obtain latest block trailer from Tfile */
    if (read_trailer(&bt, "tfile.dat") != VEOK) return VERROR;
-   /* check blockchain files -- delete overrun */
-   for (put64(bnum, bt.bnum); ; add64(bnum, ONE64, bnum)) {
-      bnum2fname(bnum, bcfname);
-      path_join(fname, Bcdir, bcfname);
-      if (cmp64(bnum, bt.bnum) == 0) {
-         /* check we have the latest block from Tfile */
-         if (!fexists(fname)) {
-            perrno("missing blockchain file %s", fname);
-            return VERROR;
-         }
-      } else {
-         /* delete blockchain files above Tfile */
-         if (!fexists(fname)) break;
-         if (remove(fname) != 0) {
-            perrno("failed to remove %s", fname);
-            return VERROR;
-         }
-      }
-   }  /* end for() */
+   /* check we have the latest block from Tfile */
+   bnum2fname(bt.bnum, bcfname);
+   path_join(fname, Bcdir, bcfname);
+   if (!fexists(fname)) {
+      perrno("missing blockchain file %s", fname);
+      return VERROR;
+   }
 
-   /* initialize chain data from tfile */
-   return reset_chain_data();
+   /* initialize chain data from block trailer */
+   put64(Cblocknum, bt.bnum);
+   Eon = get32(bt.bnum) >> 8;
+   Time0 = get32(bt.stime);
+   Difficulty = next_difficulty(&bt);
+   memcpy(Prevhash, bt.phash, HASHLEN);
+   memcpy(Cblockhash, bt.bhash, HASHLEN);
+
+   /* Re-compute Weight[] -- check double bnum */
+   if (weigh_tfile("tfile.dat", bt.bnum, Weight) != VEOK) {
+      perrno("weight_tfile() FAILURE");
+      return VERROR;
+   }
+
+   return VEOK;
 }  /* end reset_chain() */
 
 /**
@@ -428,7 +405,7 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    }
 
    /* setup Difficulty and globals, based on Tfile */
-   if(reset_chain_data() != VEOK) {
+   if (reset_chain() != VEOK) {
       pdebug("failed!  reset_chain() failed!");
       goto badsyncup;
    }
@@ -486,8 +463,8 @@ badsyncup:
    le_close();
    system("mv split/tfile.dat .");
    system("mv split/ledger.dat .");
-   system("rm split/*");
-   reset_chain_data();  /* reset Difficulty and others */
+   system("rm -r split/");
+   reset_chain();  /* reset Difficulty and others */
    le_open("ledger.dat");
    Insyncup = 0;
    return VEOK;
