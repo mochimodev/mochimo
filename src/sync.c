@@ -416,8 +416,12 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    for( ;cmp64(bnum, sblock) < 0; ) {
       bnum2fname(bnum, bcfname);
       path_join(fname, Bcdir, bcfname);
+      if (fcopy(fname, bcfname) != VEOK) {
+         pdebug("failed to copy block %s", bcfname);
+         goto badsyncup;
+      }
       /* use auto-mode update (0) */
-      if(b_update(fname) != VEOK) {
+      if(b_update(bcfname) != VEOK) {
          pdebug("failed to update our own block.");
          goto badsyncup;
       }
