@@ -59,6 +59,7 @@ int txcheck(const word8 *src_addr);
 int txclean(const char *txfname, const char *bcfname);
 pid_t mgc(word32 ip);
 pid_t mirror(void);
+int mirror_tx(NODE *np);
 int process_tx(NODE *np);
 
 #ifdef __cplusplus

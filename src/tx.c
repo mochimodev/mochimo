@@ -257,7 +257,7 @@ int tx_bot_process(void)
    word8 secret[HASHLEN];
    word32 adrs[8];
 
-   int item;
+   int item, errnum;
 
    /* zero transaction entry */
    memset(&tx, 0, sizeof(TXENTRY));
@@ -332,8 +332,17 @@ int tx_bot_process(void)
    memset(&node, 0, sizeof(NODE));
    memcpy(node.tx.buffer, &tx, TXLEN_MIN);
    put16(node.tx.len, TXLEN_MIN);
+
    if (process_tx(&node) != VEOK) {
-      perrno("Txbot transaction was not processed...");
+      errnum = errno;
+      perrno("process_tx(txbot) FAILURE");
+      if (errnum == EMCM_TXSRCDUP) {
+         pdebug("process_tx(txbot) DUPLICATE TX");
+         pdebug("mirror TX anyway...");
+         if (mirror_tx(&node) != VEOK) {
+            perrno("mirror_tx(txbot) FAILURE");
+         }
+      }
    }
 
 DONE:
@@ -1142,6 +1151,40 @@ pid_t mirror(void)
    exit(0);
 }  /* end mirror() */
 
+int mirror_tx(NODE *np)
+{
+   TX *tx;
+   FILE *fp;
+   int count, lockfd;
+   int ecode;
+
+   tx = &np->tx;
+
+   /* lock mirror file */
+   lockfd = lock("mq.lck", 20);
+   if (lockfd == -1) return VERROR;
+   fp = fopen("mq.dat", "ab");
+   if (fp == NULL) {
+      unlock(lockfd);
+      return VERROR;
+   }
+   ecode = VEOK;
+
+   /* If empty slot in mirror address map, fill it
+   * in and then write tx to mirror queue, mq.dat.
+   */
+   if(txmap(tx, np->ip) == VEOK) {
+      count = fwrite(tx, 1, sizeof(TX), fp);
+      if(count != sizeof(TX)) {
+         ecode = VERROR;
+      } else Mqcount++;
+   }
+   fclose(fp);      /* close mirror queue, mq.dat */
+   unlock(lockfd);  /* unlock mirror queue lock, mq.lck */
+
+   return ecode;
+}  /* end mirror_tx() */
+
 /**
  * Process a transaction received into a NODE structure's TX buffer.
  * Validate a TX, write clean TX to txq1.dat, and raw TX to
@@ -1160,7 +1203,6 @@ int process_tx(NODE *np)
    FILE *fp;
    TX *tx;
    int evilness;
-   int count, lockfd;
    int ecode;
 
    show("tx");
@@ -1197,27 +1239,7 @@ int process_tx(NODE *np)
    Txcount++;
    Nrec++;  /* total good TX received */
 
-   /* lock mirror file */
-   lockfd = lock("mq.lck", 20);
-   if (lockfd == -1) return VERROR;
-   fp = fopen("mq.dat", "ab");
-   if (fp == NULL) {
-      unlock(lockfd);
-      return VERROR;
-   }
-   ecode = VEOK;
-   /* If empty slot in mirror address map, fill it
-    * in and then write tx to mirror queue, mq.dat.
-    */
-   if(txmap(tx, np->ip) == VEOK) {
-      count = fwrite(tx, 1, sizeof(TX), fp);
-      if(count != sizeof(TX)) {
-         ecode = VERROR;
-      } else Mqcount++;
-   }
-   fclose(fp);      /* close mirror queue, mq.dat */
-   unlock(lockfd);  /* unlock mirror queue lock, mq.lck */
-   return ecode;
+   return mirror_tx(np);
 }  /* end process_tx() */
 
 /* end include guard */
