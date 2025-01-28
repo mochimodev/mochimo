@@ -541,6 +541,18 @@ ERROR_CLEANUP:
    return VERROR;
 }  /* end le_extract() */
 
+void print_n_bytes(const char *msg, const void *data, size_t len)
+{
+   size_t i;
+   const word8 *ptr = (const word8 *) data;
+
+   printf("%s: ", msg);
+   for (i = 0; i < len; i++) {
+      printf("%02x", ptr[i]);
+   }
+   printf("\n");
+}
+
 /**
  * Update the ledger by applying deltas from a ledger transaction file.
  * Ledger transaction file is sorted by addr+code, '-' comes before 'A'.
@@ -572,20 +584,21 @@ int le_update(const char *ltfname)
    if (ecode != 0) return VERROR;
 
    /* init for error handling */
-   fp = ltfp = NULL;
+   fp = lefp = ltfp = NULL;
 
-   /* "borrow" existing ledger file pointer */
-   lefp = Lefp;
-   if (lefp == NULL) return VERROR;
+   /* open and read ledger */
+   lefp = fopen(Lefile, "rb");
+   if (lefp == NULL) goto ERROR_CLEANUP;
    if (fseek64(lefp, 0LL, SEEK_SET) != 0) return VERROR;
    if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
       if (ferror(lefp)) return VERROR;
       /* allow empty ledger file */
+      fclose(lefp);
       lefp = NULL;
    }
    /* open and read initial ledger transaction */
    ltfp = fopen(ltfname, "rb");
-   if (ltfp == NULL) return VERROR;
+   if (ltfp == NULL) goto ERROR_CLEANUP;
    if (fread(&lt, sizeof(LTRAN), 1, ltfp) != 1) {
       if (!ferror(ltfp)) set_errno(EMCM_EOF);
       goto ERROR_CLEANUP;
@@ -694,27 +707,44 @@ int le_update(const char *ltfname)
             memcpy(&le_prev, &le, sizeof(LENTRY));
             if (fread(&le, sizeof(LENTRY), 1, lefp) != 1) {
                if (ferror(lefp)) goto ERROR_CLEANUP;
-               /* EOF -- DO NOT CLOSE, just decouple from Lefp */
-               /* fclose(lefp); */
+               /* EOF -- cleanup, continue processing */
+               fclose(lefp);
                lefp = NULL;
                continue;
             }
             /* check sort -- MUST BE ascending, NO duplicates */
             if (addr_compare(le_prev.addr, le.addr) >= 0) {
+               /* WTH IS HAPPENING */
+               perror("le_update() -- addr_compare()");
+               printf("-----------------------------\n");
+               printf("lefp: %p\n", (void *) lefp);
+               printf("ltfp: %p\n", (void *) ltfp);
+               printf("-----------------------------\n");
+               print_n_bytes("le_prev.addr ", le_prev.addr, ADDR_LEN);
+               print_n_bytes("le.addr      ", le.addr, ADDR_LEN);
+               printf("addr_compare(): %d\n", addr_compare(le_prev.addr, le.addr));
+               printf("condition: %d\n", addr_compare(le_prev.addr, le.addr) >= 0);
+               printf("-----------------------------\n");
+               print_n_bytes("lt_prev.addr ", lt_prev.addr, ADDR_LEN);
+               print_n_bytes("lt.addr      ", lt.addr, ADDR_LEN);
+               printf("addr_compare(): %d\n", addr_compare(lt_prev.addr, lt.addr));
+               printf("-----------------------------\n");
+               printf("addr_compare(le, lt): %d\n", addr_compare(le.addr, lt.addr));
+               /* end WTH IS HAPPENING */
                set_errno(EMCM_LESORT);
                goto ERROR_CLEANUP;
             }
          }  /* end  if (lefp != NULL) */
       }  /* end if (compare < 0... */
    }  /* end while () */
+   /* cleanup -- lefp, ltfp already closed */
+   fclose(fp);
+
    /* empty ledger check */
    if (empty) {
       set_errno(EMCM_LEEMPTY);
-      goto ERROR_CLEANUP;
+      return VERROR;
    }
-
-   /* cleanup -- ltfp already closed */
-   fclose(fp);
 
    /* close / replace ledger */
    le_close();
@@ -731,6 +761,7 @@ ERROR_CLEANUP:
 DROP_CLEANUP:
    ecode = VEBAD2;
 CLEANUP:
+   if (lefp) fclose(lefp);
    if (ltfp) fclose(ltfp);
    if (fp) {
       fclose(fp);
