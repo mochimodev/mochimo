@@ -189,9 +189,11 @@ int b_update(char *fname)
    }
 
    /* set clean_fname for (final) txclean requirement */
-   bnum2fname(Cblocknum, block_fname);
-   path_join(clean_fname, Bcdir, block_fname);
-   fname = clean_fname;
+   if (get32(bt.tcount)) {
+      bnum2fname(Cblocknum, block_fname);
+      path_join(clean_fname, Bcdir, block_fname);
+      fname = clean_fname;
+   } else fname = NULL;
 
    /* update server data */
    remove("cblock.dat");
