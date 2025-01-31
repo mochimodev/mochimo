@@ -198,7 +198,8 @@ static void tx_bot_get_wots
 int tx_bot_activate(const void *seeds, size_t seedlen)
 {
    word8 wots[WOTS_ADDR_LEN];
-   word8 addr[ADDR_LEN + 2];
+   word8 addr[ADDR_LEN];
+   word8 tag[ADDR_TAG_LEN + 2];
    char base58_tag[32];
 
    /* check for existing txbot data */
@@ -226,9 +227,9 @@ int tx_bot_activate(const void *seeds, size_t seedlen)
    /* print base58 tags for transaction bot */
    plog("Transactions will be sent back and forward between Tags...");
    for (int i = 0; i < 2; i++) {
-      memcpy(addr, Txbot.tag[i], ADDR_TAG_LEN);
-      put16(addr + ADDR_TAG_LEN, crc16(addr, ADDR_TAG_LEN));
-      base58_encode(Txbot.tag[i], ADDR_TAG_LEN, base58_tag);
+      memcpy(tag, Txbot.tag[i], ADDR_TAG_LEN);
+      put16(tag + ADDR_TAG_LEN, crc16(tag, ADDR_TAG_LEN));
+      base58_encode(tag, sizeof(tag), base58_tag);
       plog("Txbot Tag[%d]: %s", i, base58_tag);
    }
 
