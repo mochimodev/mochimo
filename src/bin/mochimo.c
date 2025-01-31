@@ -169,8 +169,10 @@ char *tgets(char *buff, int len)
 
 int veronica(void)
 {
-   char haiku[256];
-   trigg_generate(haiku);
+   char nonce[16];
+   unsigned char haiku[256];
+   /* NOTE: trigg_expand() EXPECTS a 256 byte array as output */
+   trigg_expand(trigg_generate(nonce), haiku);
    printf("\n%s\n\n", haiku);
    return VEOK;
 }
