@@ -45,7 +45,7 @@ extern "C" {
 
 #endif
 
-int tx_bot_activate(const char *filename);
+int tx_bot_activate(const void *seeds, size_t seedlen);
 int tx_bot_is_active(void);
 int tx_bot_process(void);
 

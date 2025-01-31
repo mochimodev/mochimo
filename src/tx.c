@@ -30,6 +30,7 @@
 #include "extlib.h"
 #include <ctype.h>
 #include "crc16.h"
+#include "base58.h"
 
 /**
  * @private Transaction Position structure.
@@ -141,8 +142,6 @@ static void tx__init(TXENTRY *tx, const void *opts)
 
 struct {
    word8 secret[32];
-   word8 public[2][32];
-   word8 adrs[2][32];
    word8 tag[2][ADDR_TAG_LEN];
    word8 count[8];
    word8 idx[8];
@@ -171,73 +170,66 @@ static void tx_bot_get_secret(word8 *secret, word8 *idx)
    }
 }
 
-static void tx_bot_get_addr(word8 *addr, word8 *secret, word8 *idx)
+static void tx_bot_get_wots
+   (word8 wots[WOTS_ADDR_LEN], word8 *secret, word8 *idx)
 {
    /* local copies */
-   word8 wots[WOTS_ADDR_LEN];
+   word32 *wots_adrs;
+   word8 *wots_pubseed;
    word8 private[32];
-   word32 adrs[8];
-   int item;
 
-   item = (*idx) % 2;
+   wots_pubseed = wots + WOTS_PK_LEN;
+   wots_adrs = (word32 *) (wots + WOTS_PK_LEN + SHA256LEN);
 
    if (secret == NULL) {
       tx_bot_get_secret(private, idx);
       secret = private;
    }
 
+   /* fill wots with sha256 using length expansion */
+   for (int len = 0; len < WOTS_ADDR_LEN; len += SHA256LEN) {
+      sha256(secret, HASHLEN, wots + len);
+   }
+
    /* update sacrificial adrs and generate public key */
-   memcpy(adrs, Txbot.adrs[item], HASHLEN);
-   wots_pkgen(wots, secret, Txbot.public[item], adrs);
-   /* update full wots address and convert to hash based */
-   memcpy(wots + WOTS_PK_LEN, Txbot.public[item], HASHLEN);
-   memcpy(wots + WOTS_PK_LEN + HASHLEN, Txbot.adrs[item], HASHLEN);
-   addr_from_wots(wots, addr);
+   wots_pkgen(wots, secret, wots_pubseed, wots_adrs);
 }
 
-int tx_bot_activate(const char *filename)
+int tx_bot_activate(const void *seeds, size_t seedlen)
 {
-   struct /* LEGACY_WOTS_EXPORT */ {
-      word8 addr[WOTS_ADDR_LEN];
-      word8 balance[8];
-      word8 secret[32];
-   } wots;
-   word8 addr[ADDR_LEN];
+   word8 wots[WOTS_ADDR_LEN];
+   word8 addr[ADDR_LEN + 2];
+   char base58_tag[32];
 
+   /* check for existing txbot data */
    if (!fexists("txbot.dat")) {
-      if (filename == NULL) return VERROR;
-      pdebug("Converting LEGACY address for Txbot...");
-      /* obtain Txbot secret and pub_seed/adrs values */
-      if (read_data(&wots, sizeof(wots), (char *) filename) != sizeof(wots)) return VERROR;
-      if (WOTS_TAG_PTR(wots.addr)[0] != 0x42) {
-         perr("Legacy Tagged WOTS+ address not supported");
-         return VERROR;
-      }
-      /* move data to Txbot global */
-      memcpy(Txbot.secret, wots.secret, 32);
-      memcpy(Txbot.public[0], wots.addr + WOTS_PK_LEN, 32);
-      memcpy(Txbot.adrs[0], wots.addr + WOTS_PK_LEN + 32, 32);
+      pdebug("Generating transaction bot data...");
+      sha256(seeds, seedlen, Txbot.secret);
       /* generate appropriate tag (item 0) */
-      tx_bot_get_addr(addr, NULL, ZERO64);
-      memcpy(Txbot.tag[0], ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
-      /* expand secondary public and adrs items */
-      sha256(Txbot.public[0], 32, Txbot.public[1]);
-      sha256(Txbot.adrs[0], 32, Txbot.adrs[1]);
-      /* ... force WOTS+ default */
-      put32(Txbot.adrs[1] + 20, 0x42);
-      put32(Txbot.adrs[1] + 24, 0x0e);
-      put32(Txbot.adrs[1] + 28, 0x01);
-      /* generate appropriate tag (item 1) */
-      tx_bot_get_addr(addr, NULL, ONE64);
-      memcpy(Txbot.tag[1], ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
+      for (int i = 0; i < 2; i++) {
+         tx_bot_get_wots(wots, NULL, i == 0 ? ZERO64 : ONE64);
+         addr_from_wots(wots, addr);
+         memcpy(Txbot.tag[i], ADDR_TAG_PTR(addr), ADDR_TAG_LEN);
+      }
       /* write Txbot file back to disk */
       pdebug("Writing Txbot...");
-      if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) return VERROR;
+      if (write_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
+         return VERROR;
+      }
    } else {
       pdebug("Reading existing Txbot...");
       if (read_data(&Txbot, sizeof(Txbot), "txbot.dat") != sizeof(Txbot)) {
-         return VEOK;
+         return VERROR;
       }
+   }
+
+   /* print base58 tags for transaction bot */
+   plog("Transactions will be sent back and forward between Tags...");
+   for (int i = 0; i < 2; i++) {
+      memcpy(addr, Txbot.tag[i], ADDR_TAG_LEN);
+      put16(addr + ADDR_TAG_LEN, crc16(addr, ADDR_TAG_LEN));
+      base58_encode(Txbot.tag[i], ADDR_TAG_LEN, base58_tag);
+      plog("Txbot Tag[%d]: %s", i, base58_tag);
    }
 
    /* set Txbot option and continue */
@@ -251,6 +243,9 @@ int tx_bot_process(void)
    LENTRY le;
    NODE node;
    TXENTRY tx;
+   word8 wots[WOTS_ADDR_LEN];
+   word8 src_pubseed[32];
+   word8 src_adrs[32];
    word8 src_addr[ADDR_LEN];
    word8 chg_addr[ADDR_LEN];
    word8 hash[HASHLEN];
@@ -265,8 +260,11 @@ int tx_bot_process(void)
 
    /* store source item, and secret for signature */
    tx_bot_get_secret(secret, Txbot.idx);
-   /* generate src_addr */
-   tx_bot_get_addr(src_addr, secret, Txbot.idx);
+   /* generate src_addr (store pubseed and adrs) */
+   tx_bot_get_wots(wots, secret, Txbot.idx);
+   memcpy(src_pubseed, wots + WOTS_PK_LEN, 32);
+   memcpy(src_adrs, wots + WOTS_PK_LEN + SHA256LEN, 32);
+   addr_from_wots(wots, src_addr);
    memcpy(ADDR_TAG_PTR(src_addr), Txbot.tag[item], ADDR_TAG_LEN);
    /* check for available funds */
    for (;;) {
@@ -292,7 +290,8 @@ int tx_bot_process(void)
 
    /* generate chg_addr (+2) -- force tag */
    add64(Txbot.idx, CL64_32(2), Txbot.idx);
-   tx_bot_get_addr(chg_addr, NULL, Txbot.idx);
+   tx_bot_get_wots(wots, NULL, Txbot.idx);
+   addr_from_wots(wots, chg_addr);
    memcpy(ADDR_TAG_PTR(chg_addr), Txbot.tag[item], ADDR_TAG_LEN);
    /* update count if necessary */
    if (cmp64(Txbot.count, Txbot.idx) < 0) {
@@ -319,10 +318,10 @@ int tx_bot_process(void)
    put64(tx.tx_fee, MFEE64);
    /* generate WOTS+ signature */
    tx_hash(&tx, TX_HASH_MESSAGE, hash);
-   memcpy(adrs, Txbot.adrs[item], 32);
-   wots_sign(tx.wots->signature, hash, secret, Txbot.public[item], adrs);
-   memcpy(tx.wots->pub_seed, Txbot.public[item], 32);
-   memcpy(tx.wots->adrs, Txbot.adrs[item], 32);
+   memcpy(adrs, src_adrs, 32);
+   wots_sign(tx.wots->signature, hash, secret, src_pubseed, adrs);
+   memcpy(tx.wots->pub_seed, src_pubseed, 32);
+   memcpy(tx.wots->adrs, src_adrs, 32);
    /* ... force WOTS+ default */
    put32(tx.wots->adrs + 20, 0x42);
    put32(tx.wots->adrs + 24, 0x0e);

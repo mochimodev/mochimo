@@ -1222,10 +1222,8 @@ int main(int argc, char **argv)
             continue;
          }
          if (argument(argv[j], NULL, "--tx-bot")) {
-            argp = argvalue(&j, argc, argv);
-            if (argp != NULL) pdebug("    argument value: %s", argp);
             /* set tx-bot option and continue */
-            if (tx_bot_activate(argp) != VEOK) {
+            if (tx_bot_activate(seeds, sizeof(seeds)) != VEOK) {
                perrno("tx_bot_activate() FAILURE");
                return EXIT_FAILURE;
             }
