@@ -113,7 +113,7 @@ int get_tfrewards(const char *tfile, word8 rewards[8], const word8 bnum[8])
       if (bnum && cmp64(bnum, bt.bnum) < 0) break;
       /* skip all neogenesis blocks, and pre-v3.0 pseudoblocks */
       if (bt.bnum[0] == 0) continue;
-      if (cmp64(bt.bnum, CL64_32(V30TRIGGER))) {
+      if (cmp64(bt.bnum, CL64_32(V30TRIGGER)) < 0) {
          /* ... no pseudoblock reward pre-v3.0 */
          if (get32(bt.tcount) == 0) continue;
       }
