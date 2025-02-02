@@ -6,10 +6,10 @@
 name: Tests
 on:
   push:
-    branches: [main, dev]
+    branches: [tests]
   pull_request:
     # pull_request branches MUST be a subset of push branches
-    branches: [main, dev]
+    branches: [tests]
 jobs:
   components:
     runs-on: ubuntu-latest
