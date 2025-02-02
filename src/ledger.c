@@ -438,7 +438,8 @@ int le_extract_legacy(const char *ngfile)
 
    /* process ledger transactions into empty ledger file */
    le_close();
-   Lefp = tmpfile();
+   remove(Lefile);
+   ftouch(Lefile);
    if (le_update("ltran.tmp") != VEOK) {
       return VERROR;
    }
@@ -572,12 +573,6 @@ int le_update(const char *ltfname)
    FILE *fp, *lefp, *ltfp; /* output, ledger, and ltran file pointers */
    word8 hold, empty;
    int compare, ecode;
-
-   /* ledger must be open */
-   if (Lefp == NULL) {
-      set_errno(EMCM_LECLOSED);
-      return VERROR;
-   }
 
    /* sort the ledger transaction file */
    ecode = filesort(ltfname, sizeof(LTRAN), LEBUFSZ, lt_compare);
