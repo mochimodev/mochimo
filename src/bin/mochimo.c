@@ -904,7 +904,7 @@ int server(int reuse_addr)
                if (tx_bot_process() == VEOK) {
                   /* update block number and Txbot data */
                   put64(Lblock, Cblocknum);
-                  mqtime = Ltime + 10;
+                  mqtime = Ltime + 5;
                }
             }
             /* check conditions for Transaction Queue processor */
