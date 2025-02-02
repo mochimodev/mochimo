@@ -8,7 +8,7 @@
 ### Defaults
 BRANCH="${1:-master}"
 BRANCH_OPT="${1:+-b $1}"
-WORKING_DIR="$HOME/.mcm/repo/$BRANCH"
+WORKING_DIR="$HOME/.mcm/repo"
 USE_LAST_TAG=$(test -z $1 && echo 1 || echo 0)
 
 # fn for sudo where appropriate
@@ -88,7 +88,7 @@ sudo_make_C() {
 check_deps || install_deps
 
 ### Check for existing installation
-if test -d $WORKING_DIR; then echo
+if test -d "$WORKING_DIR/"; then echo
    echo "   MOCHIMO DIRECTORY DETECTED."
    echo "   Performing mochimo update..." && echo
    ## perform update and check commit changes
@@ -102,7 +102,7 @@ if test -d $WORKING_DIR; then echo
    ok_restart "MOCHIMO UPDATE COMPLETE!"
 else
    # clone and build source
-   git clone $BRANCH_OPT https://github.com/mochimodev/mochimo.git $WORKING_DIR
+   git clone $BRANCH_OPT https://github.com/mochimodev/mochimo.git "$WORKING_DIR/"
    make_C mochimo || fail_exit "FAILED TO BUILD MOCHIMO FROM SOURCE!!!"
    sudo_make_C install service || fail_exit "FAILED TO INSTALL MOCHIMO SERVICE!!!"
    ok_restart "MOCHIMO INSTALLATION COMPLETE!"
