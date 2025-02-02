@@ -40,5 +40,5 @@ fi
 # Create and enter working directory
 mkdir -p $WDIR && cd $WDIR
 #../mochimo -x345678 -e -l -t1 -d  $2 $3 $4 $5 $6 $7 $8 $9
-../mochimo -x345678 -F -P -s1000 -p2098 -q2 $1 $2 $3 $4 $5 $6 $7 $8 $9
+../mochimo -x345678 -F -P -s1000 $1 $2 $3 $4 $5 $6 $7 $8 $9
 echo && echo "gomochi: Mochimo stopped..."
