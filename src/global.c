@@ -23,7 +23,7 @@
 #include <sys/wait.h>
 
 int Nonline;         /* number of pid's in Nodes[]                */
-word32 Quorum = 4;   /* Number of peers in get_eon() gang[MAXQUORUM] */
+word32 Quorum = 3;   /* Number of peers in get_eon() gang[MAXQUORUM] */
 word32 Trustblock;   /* trust block validity up to this block     */
 word32 Dynasleep;    /* sleep usec. per loop if Nonline < 1       */
 word32 Trace;        /* non-zero plog()  trace log                */
