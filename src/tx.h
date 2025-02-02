@@ -24,13 +24,11 @@
 /**
  * Transaction Hash type enumeration. For use with tx_hash().
  * @enum tx_hash_t
- * @param TX_HASH_MESSAGE  Hash the transaction mesage (excl. signature)
- * @param TX_HASH_SIGNED   Hash the signed transaction (incl. signature)
- * @param TX_HASH_ID       Hash the full transaction (incl. nonce)
+ * @param TX_HASH_MESSAGE  Hash the transaction mesage (up to signature)
+ * @param TX_HASH_ID       Hash the full transaction (up to transaction ID)
  */
 typedef enum {
    TX_HASH_MESSAGE = 0,
-   TX_HASH_SIGNED,
    TX_HASH_ID,
 } tx_hash_t;
 

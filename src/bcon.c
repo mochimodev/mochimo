@@ -474,7 +474,7 @@ int b_con(const char *output)
          }
       }
       /* set appropriate nonce and hash */
-      put64(txc.tx_nonce, bt.bnum);
+      memset(txc.tlr->nonce, 0, sizeof(txc.tlr->nonce));
       tx_hash(&txc, TX_HASH_ID, txc.tx_id);
       /* add transaction id to merkel tree (++ prefix for miner) */
       memcpy(&mtree[(++tcount) * HASHLEN], txc.tx_id, HASHLEN);

@@ -407,18 +407,18 @@ int tx_fwrite(const TXENTRY *tx, FILE *stream)
  */
 void tx_hash(const TXENTRY *tx, tx_hash_t type, void *out)
 {
+   size_t len;
+
    switch (type) {
       case TX_HASH_MESSAGE:
          /* transaction signature message hash (excl. DSA + trailer) */
-         sha256(tx->buffer, (size_t) tx->dsa - (size_t) tx->hdr, out);
-         return;
-      case TX_HASH_SIGNED:
-         /* signed transaction hash (excl. trailer) */
-         sha256(tx->buffer,  (size_t) tx->tlr - (size_t) tx->hdr, out);
+         len = (size_t) tx->dsa - (size_t) tx->hdr->options;
+         sha256(tx->buffer, len, out);
          return;
       case TX_HASH_ID:
          /* solved transaction hash (excl. trailer hash) */
-         sha256(tx->buffer, (size_t) tx->tlr->id - (size_t) tx->hdr, out);
+         len = (size_t) tx->tlr->id - (size_t) tx->hdr->options;
+         sha256(tx->buffer, len, out);
          return;
    }  /* end switch() */
 }  /* end tx_hash() */
@@ -763,8 +763,8 @@ int txe_val(const TXENTRY *txe, const void *bnum, const void *mfee)
 {
    word8 hash[HASHLEN];
 
-   /* check block number matches nonce */
-   if (cmp64(txe->tx_nonce, bnum) != 0) {
+   /* check nonce is zero */
+   if (!iszero(txe->tx_nonce, 8)) {
       set_errno(EMCM_TXNONCE);
       return VEBAD2;
    }
@@ -1224,9 +1224,9 @@ int process_tx(NODE *np)
    evilness = tx_val(&txe, Cblocknum, Myfee);
    if(evilness) return evilness;
 
-   /* place SIGNED Transaction hash in txID for Mesh API */
+   /* place Transaction ID (hash) in trailer for Mesh API */
    memset(txe.tlr->nonce, 0, sizeof(txe.tlr->nonce));
-   tx_hash(&txe, TX_HASH_SIGNED, txe.tlr->id);
+   tx_hash(&txe, TX_HASH_ID, txe.tlr->id);
 
    fp = fopen("txq1.dat", "ab");
    if (fp == NULL) return VERROR;
