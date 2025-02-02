@@ -1129,6 +1129,8 @@ int usage(void)
       "\n       set mining address to ADDR (Mochimo Wallet Address)"
       "\n   --reuse-addr"
       "\n       enable listening server socket option SO_REUSEADDR"
+      "\n   --txbot"
+      "\n       enable local transaction bot (REQUIRES FUNDING)"
 #ifdef BX_MYSQL
       "\n   -X         Export to MySQL database on block update"
 #endif
@@ -1221,7 +1223,7 @@ int main(int argc, char **argv)
             reuse_addr = 1;
             continue;
          }
-         if (argument(argv[j], NULL, "--tx-bot")) {
+         if (argument(argv[j], NULL, "--txbot")) {
             /* set tx-bot option and continue */
             if (tx_bot_activate(seeds, sizeof(seeds)) != VEOK) {
                perrno("tx_bot_activate() FAILURE");
