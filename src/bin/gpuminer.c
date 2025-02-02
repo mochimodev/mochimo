@@ -518,9 +518,10 @@ int network_handler_thread(void)
       /* send solve or check network */
       if (network_send_solve() == VEOK) {
          if (network_recv_cblock() == VEOK) {
-            plog("New work; %s:%"P16u" bnum:%u diff:%u mroot:%s...",
+            plog("New work; %s:%"P16u" %u(0x%x):%u:%s...",
                ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
-               BT_curr.difficulty[0], hash2hex32(BT_curr.mroot, NULL));
+               get32(BT_curr.bnum), BT_curr.difficulty[0],
+               hash2hex32(BT_curr.mroot, NULL));
          }
       } else {
          perrno("network_send_solve() FAILURE");
