@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ***
 
+## [3.0.0] - February 2nd, 2025
+
+Major improvements to Mochimo Addresses including Hash-based Leadger formatting, Base58 error checking perpetual account tags, and UX for account management. Improvements to transactions with the standard transaction capable of 256 destinations, each with their own reference, and easy implementation of additional Digital Signature Algortihms. Improvements to Merkle Root hash allowing for development of Transaction Receipts to validate a transaction was part of the chain without having access to the block data. Improvements to chain linkage and Tfile validation procedures. Improvements to network bandwidth with Variable (sized) Protocol Data Units.
+
 ## [2.4.3] - June 1st, 2023
 
 Service setup updates and improvements to miner for RTX4090 and future performance advancement of GPU architectures.
@@ -230,7 +234,8 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/v2.4.3...HEAD
+[Unreleased]: https://github.com/adequatesystems/build-c/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/adequatesystems/build-c/compare/v2.4.3...v3.0.0
 [2.4.3]: https://github.com/adequatesystems/build-c/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/adequatesystems/build-c/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/adequatesystems/build-c/compare/v2.4...v2.4.1
