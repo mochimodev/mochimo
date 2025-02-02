@@ -13,15 +13,14 @@
 prior to running the code.*
 
 **This repository is home to the Mochimo Cryptocurrency Engine code (main-net).**<br/>
-It includes a fully functional cryptocurrency network node and a text-based developer's wallet. The full node, and developer's wallet, will compile without issue on most 64-bit Linux-based machines with the GNU Makefile provided under the "src" directory. However, please note that the developer's wallet is provided for development use only. It is recommended to use [Mojo](https://github.com/mochimodev/mojo-java-wallet/releases) as your main wallet software.
+It includes a fully functional cryptocurrency network node and (NVIDIA-only) GPU Miner. Designed to compile for most 64-bit Linux-based machines using the provided GNU Makefile. However, please note that some systems may require additional compilation parameters to build successfully.
 
 </div>
 
 <hr><hr>
 <h1 align="center"><strong>REQUIREMENTS</strong></h1>
 
-## Recommended ~ <sub>![Ubuntu 20.04 LTS](https://img.shields.io/badge/Ubuntu-20.04_LTS-E95420?style=flat&logo=ubuntu&logoColor=white)
-- (OS) Ubuntu 20.04 LTS
+## Minimum Hardware
 - (CPU) Dual-core Processor
 - (RAM) 2GB of Random Access Memory
 - (SSD) 64GB of Solid State Drive Storage
@@ -31,21 +30,47 @@ It includes a fully functional cryptocurrency network node and a text-based deve
 <hr><hr>
 <h1 align="center"><strong>USAGE</strong></h1>
 
-## Quick Setup/Update (relay-node)
-The quick setup/update script can be used to quickly provision or update a Mochimo Server on a Ubuntu Machine. To use, simply run:
+## Automatic Install Service
+A setup script is provided to quickly provision or update a Mochimo Node on a Ubuntu Machine. The script will automatically download, build and install a Mochimo Node as a background service.
 ```sh
-sudo apt-get install -y curl # if not already installed
-curl -L mochimo.org/setup.x | sudo bash -
+curl -L mochimo.org/setup.x | bash -
+# ... requires curl (usually pre-installed)
 ```
 ... or to install a specific branch, run:
 ```sh
-curl -L mochimo.org/setup.x | sudo branch -s -- <branch>
+curl -L mochimo.org/setup.x | bash -s -- <branch>
 ```
 
-## Other Guides and Information
-<sup><i>NOTE: mining guides for v2.4.2 and above, are on the Community Wiki</i></sup>
-* [Mochimo Community Wiki](http://github.com/mochimodev/mochimo/wiki)
-* [Mochimo Official Wiki](http://www.mochiwiki.com)
+## Uninstall Service
+To uninstall a Mochimo Node installed as a service, find your mochimo repositories within `~/.mcm/repo` and change directory to the latest you installed, or `master`, and do `make uninstall` (requires sudo).
+```sh
+[sudo] make uninstall -C ~/.mcm/repo/master
+```
+
+## Build manually
+Whatever the reason, build manually with:
+```sh
+# clone repository, if not already, and change directory
+git clone https://github.com/mochimodev/mochimo.git
+# (optionally) select a version
+git -C mochimo/ checkout v3.0.0
+# build mochimo to mochimo/bin/
+make -C mochimo/ mochimo
+```
+
+## Build GPU Miner
+*GPU Miner ONLY supports SOLO mining with NVIDIA cards*<br/>
+Building GPU Miner from source requires an appropriate [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) installation compatible with your target GPUs.
+```sh
+git clone https://github.com/mochimodev/mochimo.git
+make -C mochimo/ miner
+# mochimo/bin/gpuminer --help
+```
+... if you have 10-series NVIDIA cards or lower, compile for your target architecture:
+```sh
+make -C mochimo/ miner NVCCARGS=-arch=sm_61 # 10-series cards
+# mochimo/bin/gpuminer --help
+```
 
 <hr><hr>
 <h1 align="center"><strong>LICENSE</strong></h1>
@@ -54,9 +79,6 @@ curl -L mochimo.org/setup.x | sudo branch -s -- <branch>
 The current version of the code is released under an MPL2.0 derivative Open Source license.<br/>
 The community is free to develop and change the code with the caveat that any changes must be for the benefit of the Mochimo cryptocurrency network (with a number of exclusions).<br/>
 Please read the [LICENSE](https://mochimo.org/license.pdf) for more details on limitations and restrictions.
-
-The Mochimo Package (main-net) is copyright 2022 Adequate Systems, LLC.<br/>
-Please read the license file in the package for additional restrictions.
 
 Contact: support@mochimo.org
 
