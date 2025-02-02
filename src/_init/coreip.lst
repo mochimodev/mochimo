@@ -1,6 +1,6 @@
-# Core Mochimo nodes in US, Asia & Europe
-v3.usc.mochimo.org
-v3.sgp.mochimo.org
-v3.deu.mochimo.org
-# Core development node AU
-167.179.167.186
+# Core Mochimo nodes across the globe
+core-usc.mochimo.org
+core-sgp.mochimo.org
+core-mex.mochimo.org
+core-esp.mochimo.org
+core-deu.mochimo.org
