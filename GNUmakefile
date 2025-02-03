@@ -50,7 +50,7 @@ COVERAGE := $(BUILDDIR)/coverage.info
 
 # library names: submodule, cuda, base
 SUBLIBRARIES := $(patsubst $(SUBDIR)/%,%,$(SUBDIRS))
-CULIBRARIES := $(if $(NVCC),cudart nvidia-ml)
+CULIBRARIES := $(if $(NVCC),cudart nvidia-ml stdc++)
 LIBRARY := $(lastword $(notdir $(realpath .)))
 
 # library files: submodule, base
@@ -194,6 +194,7 @@ $(SERVICE): .github/systemd/mochimo.service
 	@echo "$(SERVICE) was updated..."
 
 $(BINDIR)/gpuminer: $(BUILDDIR)/bin/gpuminer
+	@mkdir -p $(BINDIR)/
 	@cp $(BUILDDIR)/bin/gpuminer $(BINDIR)/
 	@echo "$(BUILDDIR)/bin/gpuminer was updated..."
 
