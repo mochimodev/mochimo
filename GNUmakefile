@@ -50,7 +50,7 @@ COVERAGE := $(BUILDDIR)/coverage.info
 
 # library names: submodule, cuda, base
 SUBLIBRARIES := $(patsubst $(SUBDIR)/%,%,$(SUBDIRS))
-CULIBRARIES := $(if $(NVCC),cudart nvidia-ml stdc++)
+CULIBRARIES := $(if $(NVCC),cudart_static stdc++)
 LIBRARY := $(lastword $(notdir $(realpath .)))
 
 # library files: submodule, base

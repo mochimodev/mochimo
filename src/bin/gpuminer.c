@@ -825,7 +825,7 @@ MCM_DECL_UNUSED
    printf("\n");
 
    device_count = init_cuda_devices(device, GPUMAX);
-   if (device_count == 0) {
+   if (device_count < 1) {
       perr("No CUDA devices found.");
       plog("Mining will not be possible...");
       return EXIT_FAILURE;
