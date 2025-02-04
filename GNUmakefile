@@ -185,10 +185,13 @@ test: $(SUBLIBRARYFILES) $(LIBRARYFILE) $(TESTOBJECTS)
 
 ################################################################
 
+require_sudo = $(if $(filter 0,$(shell id -u)),,$(error 'make $@' requires sudo))
+
 INSTALLDIR := /opt/mochimo
 SERVICE := /etc/systemd/system/mochimo.service
 
 $(SERVICE): .github/systemd/mochimo.service
+	@$(call require_sudo)
 	@cp .github/systemd/mochimo.service $(SERVICE)
 	@systemctl enable mochimo.service
 	@echo "$(SERVICE) was updated..."
@@ -207,6 +210,7 @@ $(BINDIR)/mochimo: $(BUILDDIR)/bin/mochimo
 	@echo "$(BUILDDIR)/mochimo was updated..."
 
 $(INSTALLDIR)/mochimo: $(BINDIR)/mochimo
+	@$(call require_sudo)
 	@mkdir -p /opt/mochimo/
 	@cp -r $(BINDIR)/* /opt/mochimo/
 	@useradd -M -r -s /usr/sbin/nologin mcm || true
@@ -244,10 +248,12 @@ service: $(INSTALLDIR)/mochimo $(SERVICE)
 	@echo && echo "... service (done)" && echo
 
 service-logs: /etc/systemd/system/mochimo.service
+	@$(call require_sudo)
 	@journalctl _SYSTEMD_INVOCATION_ID=`systemctl show -p InvocationID --value "mochimo"` >service.log
 	@echo && echo "... service-logs (done)" && echo
 
 uninstall:
+	@$(call require_sudo)
 	@systemctl stop mochimo.service || true
 	@systemctl disable mochimo.service || true
 	@rm /etc/systemd/system/mochimo.service || true
