@@ -1121,11 +1121,20 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
       }
    }
 
-   /* check for unsolved work in block trailer */
-   if (dev->status == DEV_IDLE && get32(bt->tcount)) {
-      if (cmp64(bt->bnum, btout->bnum)) {
+   /* switch to WORK mode when all conditions are satisfied:
+    * - transactions to solve
+    * - block NOT already solved
+    * - block NOT expired
+    */
+   switch (dev->status) {
+      case DEV_IDLE:{
+         if (get32(bt->tcount) == 0) break;
+         if (cmp64(bt->bnum, btout->bnum) == 0) break;
+         if (difftime(time(NULL), get32(bt->time0)) >= BRIDGEv3) break;
          dev->last = time(NULL);
          dev->status = DEV_WORK;
+         dev->work = 0;
+         break;
       }
    }
 
@@ -1139,7 +1148,7 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             dev->work = 0;
             break;
          }
-         /* switch to idle mode when reasonable:
+         /* switch to IDLE mode when reasonable:
           * - no transaction to solve
           * - block already solved
           * - block expired
