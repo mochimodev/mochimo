@@ -1,36 +1,46 @@
 #!/bin/bash
 ## setup.x - Mochimo Node setup script
+# Designed primarily for one-line curl execution
+#    curl -L <remote>/setup.x | sudo bash -s -- [branch]
 #
 # Copyright (c) 2022-2025 Adequate Systems, LLC. All Rights Reserved.
 # For more information, please refer to ../LICENSE
 #
 
+### Check permissions
+if test $(id -u) -ne 0; then
+   echo "This script requires superuser privileges."
+   echo "Please run with sudo or as root."
+   exit 1
+fi
+
 ### Defaults
 BRANCH="${1:-master}"
 BRANCH_OPT="${1:+-b $1}"
-WORKING_DIR="$HOME/.mcm/repo"
 USE_LAST_TAG=$(test -z $1 && echo 1 || echo 0)
+USER_ACTUAL=${SUDO_USER:-$USER}
+USER_HOME=$(getent passwd "$USER_ACTUAL" | cut -d: -f6)
+USER_HOME=${USER_HOME:-$HOME}
+USER_MCM_DIR="$USER_HOME/.mcm"
+USER_WORKING_DIR="$USER_MCM_DIR/repo"
 
-# fn for sudo where appropriate
-use_sudo() {
-   if command -v sudo >/dev/null 2>&1 \
-         && sudo -n true >/dev/null 2>&1; then
-      sudo $@
-   else
-      $@
-   fi
-}
-
+### Functions
 check_deps() {
    command -v git >/dev/null 2>&1 || return 1
    command -v make >/dev/null 2>&1 || return 1
+}
+
+clean_exit() {
+   # fix permissions
+   chown -R $USER_ACTUAL:$USER_ACTUAL "$USER_MCM_DIR/"
+   exit $1
 }
 
 fail_exit() {
    echo
    echo "   $@"
    echo
-   exit 1
+   clean_exit 1
 }
 
 fail_restart() {
@@ -44,7 +54,7 @@ ok_exit() {
    echo
    echo "   $@"
    echo
-   exit 0
+   clean_exit 0
 }
 
 ok_restart() {
@@ -55,15 +65,14 @@ ok_restart() {
 }
 
 install_deps() {
-   use_sudo apt update && use_sudo apt install -y build-essential git
+   apt update && apt install -y build-essential git
    test $? -ne 0 && fail_exit "Failed to install dependencies!!!"
 }
 
 git_C() {
-   git -C "$WORKING_DIR/" $@
+   git -C "$USER_WORKING_DIR/" $@
 }
 
-# fn for repository update
 git_update() {
    # obtain the latest branch state
    git_C fetch && git_C checkout $BRANCH && git_C pull || \
@@ -77,33 +86,32 @@ git_update() {
 }
 
 make_C() {
-   make -C "$WORKING_DIR/" $@
-}
-
-sudo_make_C() {
-   use_sudo make -C "$WORKING_DIR/" $@
+   make -C "$USER_WORKING_DIR/" $@
 }
 
 ### Ensure dependencies are installed
 check_deps || install_deps
 
 ### Check for existing installation
-if test -d "$WORKING_DIR/"; then echo
+if test -d "$USER_WORKING_DIR/"; then echo
    echo "   MOCHIMO DIRECTORY DETECTED."
    echo "   Performing mochimo update..." && echo
-   ## perform update and check commit changes
+   # perform update and check commit changes
    git_update || fail_exit "FAILED TO UPDATE MOCHIMO REPOSITORY!!!"
    echo "   Stopping Mochimo service."
    echo "   This can take up to 90 seconds..." && echo
-   use_sudo systemctl stop mochimo.service
-   ### Rebuild from source
+   systemctl stop mochimo.service
+   # rebuild from source
    make_C clean mochimo || fail_restart "FAILED TO REBUILD MOCHIMO SOURCE!!!"
-   sudo_make_C install service || fail_restart "FAILED TO INSTALL MOCHIMO SERVICE!!!"
+   make_C install service || fail_restart "FAILED TO INSTALL MOCHIMO SERVICE!!!"
    ok_restart "MOCHIMO UPDATE COMPLETE!"
 else
    # clone and build source
-   git clone $BRANCH_OPT https://github.com/mochimodev/mochimo.git "$WORKING_DIR/"
+   git clone $BRANCH_OPT https://github.com/mochimodev/mochimo.git "$USER_WORKING_DIR/"
    make_C mochimo || fail_exit "FAILED TO BUILD MOCHIMO FROM SOURCE!!!"
-   sudo_make_C install service || fail_exit "FAILED TO INSTALL MOCHIMO SERVICE!!!"
+   make_C install service || fail_exit "FAILED TO INSTALL MOCHIMO SERVICE!!!"
    ok_restart "MOCHIMO INSTALLATION COMPLETE!"
 fi
+
+### DONE
+clean_exit 0

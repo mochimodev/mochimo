@@ -33,12 +33,12 @@ It includes a fully functional cryptocurrency network node and (NVIDIA-only) GPU
 ## Automatic Install Service
 A setup script is provided to quickly provision or update a Mochimo Node on a Ubuntu Machine. The script will automatically download, build and install a Mochimo Node as a background service.
 ```sh
-curl -L mochimo.org/setup.x | bash -
+curl -L mochimo.org/setup.x | sudo bash -
 # ... requires curl (usually pre-installed)
 ```
 ... or to install a specific branch, run:
 ```sh
-curl -L mochimo.org/setup.x | bash -s -- <branch>
+curl -L mochimo.org/setup.x | sudo bash -s -- <branch>
 ```
 
 ## Uninstall Service
