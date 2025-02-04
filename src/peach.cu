@@ -51,7 +51,7 @@
          int _n = (-1); cudaGetDevice(&_n); \
          const char *_err = cudaGetErrorString(_cerr); \
          palert("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
-         peach_free_cuda_device(_dev, DEV_FAIL); \
+         if (_dev) ((DEVICE_CTX *) (_dev))->status = DEV_FAIL; \
          _exec; \
       } \
    } while(0)
@@ -1056,16 +1056,6 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
    id = dev->id;
    P = (PEACH_CUDA_CTX *) dev->peach;
 
-   /* check for GPU failure */
-   if (dev->status == DEV_FAIL && dev->last) {
-      /* recovery MAY be possible --- wait 5 seconds */
-      if (difftime(time(NULL), dev->last) >= 5) {
-         printf("CUDA#%d-> attempting failure recovery...", id);
-         peach_init_cuda_device(dev);
-      }
-      return VERROR;
-   }
-
    /* report unuseable GPUs */
    if (dev->status < DEV_NULL) return VETIMEOUT;
 
@@ -1133,7 +1123,10 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
 
    /* check for unsolved work in block trailer */
    if (dev->status == DEV_IDLE && get32(bt->tcount)) {
-      if (cmp64(bt->bnum, btout->bnum)) dev->status = DEV_WORK;
+      if (cmp64(bt->bnum, btout->bnum)) {
+         dev->last = time(NULL);
+         dev->status = DEV_WORK;
+      }
    }
 
    /* solve work in block trailer */
@@ -1146,8 +1139,13 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             dev->work = 0;
             break;
          }
-         /* switch to idle mode if no transactions or already solved bnum */
-         if (get32(bt->tcount) == 0 || cmp64(bt->bnum, btout->bnum) == 0) {
+         /* switch to idle mode when reasonable:
+          * - no transaction to solve
+          * - block already solved
+          * - block expired
+          */
+         if (get32(bt->tcount) == 0 || cmp64(bt->bnum, btout->bnum) == 0 ||
+               difftime(time(NULL), get32(bt->time0)) >= BRIDGEv3) {
             dev->status = DEV_IDLE;
             dev->work = 0;
             break;

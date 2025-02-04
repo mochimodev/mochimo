@@ -522,6 +522,8 @@ int network_handler_thread(void)
                ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
                get32(BT_curr.bnum), BT_curr.difficulty[0],
                hash2hex32(BT_curr.mroot, NULL));
+         } else if (errno != EAGAIN) {
+            perrno("network_recv_cblock() FAILURE");
          }
       } else {
          perrno("network_send_solve() FAILURE");
@@ -848,7 +850,6 @@ MCM_DECL_UNUSED
       BTRAILER bt;
       time_t stime;
       time_t now;
-      int solving;
       int solve;
       int idx;
 
@@ -860,34 +861,48 @@ MCM_DECL_UNUSED
       #pragma omp critical
          idx = device_idx++;
 
-      solving = 0;
       /* mining loop handler */
       for (time(&stime); Running; millisleep(Dynasleep)) {
+         /* just 5 more minutes Fern... */
+         if (device[idx].status != DEV_WORK) millisleep(Dynasleep * 10);
+         else if (BT_solve.nonce[0]) memcpy(&bt, &BT_solve, sizeof(bt));
+         /* ... ^^ mUlTiThReAdInG reasons ... */
+
          time(&now);
-         if (difftime(now, stime) > 20) {
-            /* change status after bridge time */
-            if (solving) {
-               double dtime = difftime(now, device[idx].last);
-               double hps = (double) device[idx].work / (dtime ? dtime : 1);
-               const char *m = metric_reduce(&hps);
-               plog("%s %.02lf%sH/s", device[idx].info, hps, m);
-            } else plog("%s waiting for work...", device[idx].info);
-            time(&stime);
-         }
-         /* deactivate mining after bridge time */
-         if (difftime(now, get32(BT_curr.time0)) >= BRIDGEv3) {
-            solving = 1;
-            millisleep(1000);
-            continue;
-         }
-         /* more rest for the wicked... */
-         if (BT_solve.nonce[0]) {
-            solving = 1;
-            millisleep(100);
-            continue;
-         }
-         /* not waiting on anything */
-         solving = 1;
+         /* report device status at different intervals */
+         switch (device[idx].status) {
+            case DEV_FAIL:
+               if (difftime(now, stime) > 60) {
+                  plog("%s failure detected...", device[idx].info);
+                  time(&stime);
+               }
+               break;
+            case DEV_IDLE:
+               if (difftime(now, stime) > 10) {
+                  plog("%s waiting for work...", device[idx].info);
+                  time(&stime);
+               }
+               break;
+            case DEV_INIT:
+               /* no logs on initialization... */
+               if (difftime(now, stime) > 1) time(&stime);
+               break;
+            case DEV_WORK: {
+               if (difftime(now, stime) > 20) {
+                  double dtime = difftime(now, device[idx].last);
+                  double hps = (double) device[idx].work / (dtime ? dtime : 1);
+                  const char *m = metric_reduce(&hps);
+                  plog("%s %.02lf%sH/s", device[idx].info, hps, m);
+                  time(&stime);
+               }
+               break;
+            }
+            default:
+               if (difftime(now, stime) > 10) {
+                  plog("%s unknown status...", device[idx].info);
+                  time(&stime);
+               }
+         }  /* end switch */
          /* execute solve protocol per device type */
          switch (device[idx].type) {
             case CUDA_DEVICE:
