@@ -40,7 +40,7 @@ int init_cuda_devices(DEVICE_CTX *ctx, int len)
       ctx[cuda_idx].id = cuda_idx;
       ctx[cuda_idx].type = CUDA_DEVICE;
       ctx[cuda_idx].status = DEV_NULL;
-      ctx[cuda_idx].work = ctx[cuda_idx].total = 0;
+      ctx[cuda_idx].work = ctx[cuda_idx].hps = 0;
       ctx[cuda_idx].last = time(NULL);
       ctx[cuda_idx].peach = NULL;
       snprintf(ctx[cuda_idx].info, sizeof(ctx[cuda_idx].info), "Unknown Device");

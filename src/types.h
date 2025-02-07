@@ -387,7 +387,7 @@ typedef struct {
    int id, type, status;
    int grid, block, threads;
    void *peach;
-   size_t work, total;
+   size_t work, hps;
    time_t last;
    char info[256];
 } DEVICE_CTX;

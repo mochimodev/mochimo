@@ -20,7 +20,7 @@
 __global__ void kcu_peach_build
    (word32 offset, word64 *d_map, word32 *d_phash);
 __global__ void kcu_peach_solve
-   (word64 *d_map, BTRAILER *d_bt, word8 *d_seed, word8 diff, word64 *d_solve);
+   (word64 *d_map, BTRAILER *d_bt, word64 *d_state, word8 diff, word64 *d_solve);
 __global__ void kcu_peach_checkhash
    (BTRAILER *d_bt, word8 *d_out, word8 *d_eval);
 

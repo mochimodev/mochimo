@@ -39,22 +39,11 @@
 #define cuSTRING(x) #x
 #define cuSTR(x) cuSTRING(x)
 
-/**
- * @private
- * Peach specific cuda error checking definition.
- * Destroys/frees resources on error.
-*/
-#define cuCHK(_cmd, _dev, _exec) \
+#define cu__log_error(err) \
    do { \
-      cudaError_t _cerr = _cmd; \
-      if (_cerr != cudaSuccess) { \
-         int _n = (-1); cudaGetDevice(&_n); \
-         const char *_err = cudaGetErrorString(_cerr); \
-         palert("CUDA#%d->%s: %s", _n, cuSTR(_cmd), _err); \
-         if (_dev) ((DEVICE_CTX *) (_dev))->status = DEV_FAIL; \
-         _exec; \
-      } \
-   } while(0)
+      palert("CUDA ERROR: (%d) %s", (int) err, cudaGetErrorString(err)); \
+      set_errno(EMCM_CUDA); \
+   } while(0);
 
 /* sm_61 performs MUCH better with the __constant__ qualifier */
 #if __CUDA_ARCH__ == 610
@@ -69,18 +58,43 @@
  * of DEVICE_CTX passed to functions.
 */
 typedef struct {
-   nvmlDevice_t nvml_device;           /**< nvml device for monitoring */
    cudaStream_t stream[2];             /**< asynchronous streams */
    BTRAILER *h_bt[2], *d_bt[2];        /**< BTRAILER (current) */
    word64 *h_solve[2], *d_solve[2];    /**< solve seeds */
-   word8 *h_seed[2], *d_seed[2];       /**< seed list */
+   word64 *d_state[2];                 /**< PRNG state */
    word64 *d_map;                      /**< Peach Map */
    word32 *d_phash;                    /**< previous hash */
-   int nvml_enabled;                   /**< Flags NVML capable */
 } PEACH_CUDA_CTX;
 
 /* pointer to peach CUDA context/s */
 static PEACH_CUDA_CTX *PeachCudaCTX;
+
+__device__ cuCONSTn860 static word64 Z_ING[32] = {
+   18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+   34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 23, 24, 31, 32, 33, 34
+};
+__device__ cuCONSTn860 static word64 Z_NS[64] = {
+   129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 145, 149, 154,
+   155, 156, 157, 177, 178, 179, 180, 182, 183, 184, 185, 186, 187,
+   188, 189, 190, 191, 192, 193, 194, 196, 197, 198, 199, 200, 201,
+   202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 241,
+   244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255
+};
+__device__ cuCONSTn860 static word64 Z_MASS[32] = {
+   214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224,
+   225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235,
+   236, 237, 238, 239, 240, 242, 214, 215, 216, 219
+};
+__device__ cuCONSTn860 static word64 Z_PREP[8] = {
+   12, 13, 14, 15, 16, 17, 12, 13
+};
+__device__ cuCONSTn860 static word64 Z_ADJ[64] = {
+   61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
+   76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90,
+   91, 92, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+   105, 107, 108, 109, 110, 112, 114, 115, 116, 117, 118,
+   119, 120, 121, 122, 123, 124, 125, 126, 127, 128
+};
 
 /**
  * @private
@@ -751,6 +765,33 @@ __global__ void kcu_peach_build
 }  /* end kcu_peach_build() */
 
 /**
+ * CUDA kernel to expand a seed into a long state for parallel cu_rand64().
+ * State generation based on SplitMix64 by Sebastiano Vigna.
+ * @param d_seed Device pointer to location of state
+ * @param seed 64-bit unsigned integer value of seed
+*/
+__global__ void kcu_srand64(word64 *d_state, word64 seed)
+{
+   word64 index = (blockDim.x * blockIdx.x) + threadIdx.x;
+   d_state[index] = (seed ^ (index * WORD64_C(0x9e3779b97f4a7c15))) * WORD64_C(0xc6bc279692b5c323);
+}  /* end kcu_srand64() */
+
+/**
+ * CUDA device function to generate a 64-bit random number.
+ * State generation based on SplitMix64 by Sebastiano Vigna.
+ * @param d_state Pointer to location of state
+ * @return (word64) value representing a 64-bit random number
+ */
+__device__ __forceinline__ word64 cu_rand64(word64 *d_state)
+{
+   word64 index = (blockIdx.x * blockDim.x) + threadIdx.x;
+   word64 z = (d_state[index] += WORD64_C(0x9e3779b97f4a7c15));
+	z = (z ^ (z >> 30)) * WORD64_C(0xbf58476d1ce4e5b9);
+	z = (z ^ (z >> 27)) * WORD64_C(0x94d049bb133111eb);
+	return (d_state[index] = z ^ (z >> 31));
+}  /* end cu_rand64() */
+
+/**
  * CUDA kernel for solving a tokenized haiku as nonce output for Peach proof
  * of work. Combine haiku protocols implemented in the Trigg Algorithm with
  * the memory intensive protocols of the Peach algorithm to generate haiku
@@ -760,22 +801,30 @@ __global__ void kcu_peach_build
  * @param d_solve Device pointer to location to place nonce on solve
 */
 __global__ void kcu_peach_solve
-   (word64 *d_map, BTRAILER *d_bt, word8 *d_seed, word8 diff, word64 *d_solve)
+   (word64 *d_map, BTRAILER *d_bt, word64 *d_state, word8 diff, word64 *d_solve)
 {
    SHA256_CTX ictx;
-   word64 nonce[4];
+   word64 nonce[4], seed;
    word8 hash[SHA256LEN];
-   word32 *x, mario, tid, i;
-   size_t seedidx;
-
-   tid = (blockIdx.x * blockDim.x) + threadIdx.x;
-   seedidx = (size_t) 16 * tid;
+   word32 *x, mario, i;
 
    /* extract nonce from trailer and seed list*/
    for (i = 0; i < 4; i++) {
       ((word32 *) nonce)[i] = ((word32 *) d_bt->nonce)[i];
-      ((word32 *) nonce)[i + 4] = ((word32 *) (d_seed + seedidx))[i];
    }
+
+   /* generate last half of nonce from seed (w/ largest known frame) */
+   seed = cu_rand64(d_state);
+   nonce[2] =    WORD64_C(0x10000050000) | /* nonce8bit[2,5] */
+          Z_ING[(seed     )  & 31]       | /* nonce8bit[0] */
+         Z_PREP[(seed >> 5)  &  7] <<  8 | /* nonce8bit[1] */
+          Z_ADJ[(seed >> 8)  & 63] << 24 | /* nonce8bit[3] */
+           Z_NS[(seed >> 14) & 63] << 32 | /* nonce8bit[4] */
+         Z_MASS[(seed >> 20) & 31] << 48 | /* nonce8bit[6] */
+          Z_ING[(seed >> 25) & 31] << 56;        /* nonce8bit[7] */
+   nonce[3] =  WORD64_C(0x50103) | /* nonce8bit[8:10] */
+          Z_ADJ[(seed >> 30) & 63] << 24 | /* nonce8bit[11] */
+           Z_NS[(seed >> 36) & 63] << 32;  /* nonce8bit[12] */
 
    /* sha256 hash trailer and nonce */
    cu_sha256_init(&ictx);
@@ -876,40 +925,49 @@ __global__ void kcu_peach_checkhash
 */
 int peach_checkhash_cuda(int count, BTRAILER bt[], void *out)
 {
+   size_t btsz = sizeof(BTRAILER) * count;
+   size_t outsz = SHA256LEN * count;
    BTRAILER *d_bt;
    word8 *d_out, *d_eval;
    word8 eval = 0;
    int cuda_count;
 
-   cuCHK(cudaGetDeviceCount(&cuda_count), NULL, return (-1));
+#undef cuCHK
+#define cuCHK(cuFN) \
+   do { \
+      cudaError_t err = (cuFN); \
+      if (err != cudaSuccess) { \
+         cu__log_error(err); \
+         return VERROR; \
+      } \
+   } while(0)
+
+   cuCHK(cudaGetDeviceCount(&cuda_count));
    if (cuda_count < 1) {
       palert("No CUDA devices...");
       return -1;
    }
-   cuCHK(cudaSetDevice(0), NULL, return (-1));
-   cuCHK(cudaMalloc(&d_bt, sizeof(BTRAILER) * count), NULL, return (-1));
-   cuCHK(cudaMalloc(&d_out, SHA256LEN * count), NULL, return (-1));
-   cuCHK(cudaMalloc(&d_eval, 1), NULL, return (-1));
+   cuCHK(cudaSetDevice(0));
+   cuCHK(cudaMalloc(&d_bt, btsz));
+   cuCHK(cudaMalloc(&d_out, outsz));
+   cuCHK(cudaMalloc(&d_eval, 1));
    /* transfer data to device */
-   cuCHK(cudaMemcpy(d_bt, bt, sizeof(BTRAILER) * count,
-      cudaMemcpyHostToDevice), NULL, return (-1));
-   cuCHK(cudaMemset(d_out, 0, SHA256LEN * count), NULL, return (-1));
-   cuCHK(cudaMemset(d_eval, 0, 1), NULL, return (-1));
+   cuCHK(cudaMemcpy(d_bt, bt, btsz, cudaMemcpyHostToDevice));
+   cuCHK(cudaMemset(d_out, 0, outsz));
+   cuCHK(cudaMemset(d_eval, 0, 1));
    /* launch kernel to check Peach */
    kcu_peach_checkhash<<<1, count>>>(d_bt, d_out, d_eval);
-   cuCHK(cudaGetLastError(), NULL, return (-1));
+   cuCHK(cudaGetLastError());
    /* retrieve hash/eval data */
-   cuCHK(cudaMemcpy(out, d_out, SHA256LEN * count,
-      cudaMemcpyDeviceToHost), NULL, return (-1));
-   cuCHK(cudaMemcpy(&eval, d_eval, 1,
-      cudaMemcpyDeviceToHost), NULL, return (-1));
+   cuCHK(cudaMemcpy(out, d_out, outsz, cudaMemcpyDeviceToHost));
+   cuCHK(cudaMemcpy(&eval, d_eval, 1, cudaMemcpyDeviceToHost));
    /* wait for device to finish */
-   cuCHK(cudaDeviceSynchronize(), NULL, return (-1));
+   cuCHK(cudaDeviceSynchronize());
    /* free memory */
-   cuCHK(cudaFree(d_bt), NULL, return (-1));
-   cuCHK(cudaFree(d_out), NULL, return (-1));
-   cuCHK(cudaFree(d_eval), NULL, return (-1));
-   /* return */
+   cuCHK(cudaFree(d_bt));
+   cuCHK(cudaFree(d_out));
+   cuCHK(cudaFree(d_eval));
+
    return (int) eval;
 }  /* end peach_checkhash_cuda() */
 
@@ -930,14 +988,12 @@ int peach_free_cuda_device(DEVICE_CTX *devp, int status)
    if (ctxp->stream[1]) cudaStreamDestroy(ctxp->stream[1]);
    if (ctxp->h_solve[0]) cudaFreeHost(ctxp->h_solve[0]);
    if (ctxp->h_solve[1]) cudaFreeHost(ctxp->h_solve[1]);
-   if (ctxp->h_seed[0]) cudaFreeHost(ctxp->h_seed[0]);
-   if (ctxp->h_seed[1]) cudaFreeHost(ctxp->h_seed[1]);
    if (ctxp->h_bt[0]) cudaFreeHost(ctxp->h_bt[0]);
    if (ctxp->h_bt[1]) cudaFreeHost(ctxp->h_bt[1]);
    if (ctxp->d_solve[0]) cudaFree(ctxp->d_solve[0]);
    if (ctxp->d_solve[1]) cudaFree(ctxp->d_solve[1]);
-   if (ctxp->d_seed[0]) cudaFree(ctxp->d_seed[0]);
-   if (ctxp->d_seed[1]) cudaFree(ctxp->d_seed[1]);
+   if (ctxp->d_state[0]) cudaFree(ctxp->d_state[0]);
+   if (ctxp->d_state[1]) cudaFree(ctxp->d_state[1]);
    if (ctxp->d_bt[0]) cudaFree(ctxp->d_bt[0]);
    if (ctxp->d_bt[1]) cudaFree(ctxp->d_bt[1]);
    if (ctxp->d_phash) cudaFree(ctxp->d_phash);
@@ -959,7 +1015,19 @@ int peach_free_cuda_device(DEVICE_CTX *devp, int status)
 */
 int peach_init_cuda_device(DEVICE_CTX *ctx)
 {
-   PEACH_CUDA_CTX *ctxp;
+   PEACH_CUDA_CTX *p_ctx;
+   size_t btsz, seedsz;
+
+#undef cuCHK
+#define cuCHK(cuFN) \
+   do { \
+      cudaError_t err = (cuFN); \
+      if (err != cudaSuccess) { \
+         ctx->status = DEV_FAIL; \
+         cu__log_error(err); \
+         return VERROR; \
+      } \
+   } while(0)
 
    /* check for double init */
    if (ctx->peach) {
@@ -968,12 +1036,12 @@ int peach_init_cuda_device(DEVICE_CTX *ctx)
    }
 
    /* allocate peach context */
-   ctxp = (PEACH_CUDA_CTX *) malloc(sizeof(PEACH_CUDA_CTX));
-   if (ctxp == NULL) return VERROR;
-   ctx->peach = ctxp;
+   p_ctx = (PEACH_CUDA_CTX *) malloc(sizeof(PEACH_CUDA_CTX));
+   if (p_ctx == NULL) return VERROR;
+   ctx->peach = p_ctx;
 
    /* set context to CUDA id */
-   cuCHK(cudaSetDevice(ctx->id), ctx, return VERROR);
+   cuCHK(cudaSetDevice(ctx->id));
    /* set CUDA configuration for device */
    if (cudaOccupancyMaxPotentialBlockSize(&(ctx->grid), &(ctx->block),
          kcu_peach_solve, 0, 0) != cudaSuccess) {
@@ -984,50 +1052,47 @@ int peach_init_cuda_device(DEVICE_CTX *ctx)
    }
    /* calculate total threads */
    ctx->threads = ctx->grid * ctx->block;
+   seedsz = sizeof(word64) * ctx->threads;
+   btsz = sizeof(BTRAILER);
+   /* create generator for unsigned long long */
    /* create streams for device */
-   cuCHK(cudaStreamCreate(&(ctxp->stream[0])), ctx, return VERROR);
-   cuCHK(cudaStreamCreate(&(ctxp->stream[1])), ctx, return VERROR);
+   cuCHK(cudaStreamCreate(&(p_ctx->stream[0])));
+   cuCHK(cudaStreamCreate(&(p_ctx->stream[1])));
    /* allocate pinned host memory for host/device transfers */
-   cuCHK(cudaMallocHost(&(ctxp->h_solve[0]), 32), ctx, return VERROR);
-   cuCHK(cudaMallocHost(&(ctxp->h_solve[1]), 32), ctx, return VERROR);
-   cuCHK(cudaMallocHost(&(ctxp->h_seed[0]), 16 * ctx->threads), ctx, return VERROR);
-   cuCHK(cudaMallocHost(&(ctxp->h_seed[1]), 16 * ctx->threads), ctx, return VERROR);
-   cuCHK(cudaMallocHost(&(ctxp->h_bt[0]), sizeof(BTRAILER)), ctx, return VERROR);
-   cuCHK(cudaMallocHost(&(ctxp->h_bt[1]), sizeof(BTRAILER)), ctx, return VERROR);
+   cuCHK(cudaMallocHost(&(p_ctx->h_solve[0]), 32));
+   cuCHK(cudaMallocHost(&(p_ctx->h_solve[1]), 32));
+   cuCHK(cudaMallocHost(&(p_ctx->h_bt[0]), btsz));
+   cuCHK(cudaMallocHost(&(p_ctx->h_bt[1]), btsz));
    /* allocate device memory for host/device transfers */
-   cuCHK(cudaMalloc(&(ctxp->d_solve[0]), 32), ctx, return VERROR);
-   cuCHK(cudaMalloc(&(ctxp->d_solve[1]), 32), ctx, return VERROR);
-   cuCHK(cudaMalloc(&(ctxp->d_seed[0]), 16 * ctx->threads), ctx, return VERROR);
-   cuCHK(cudaMalloc(&(ctxp->d_seed[1]), 16 * ctx->threads), ctx, return VERROR);
-   cuCHK(cudaMalloc(&(ctxp->d_bt[0]), sizeof(BTRAILER)), ctx, return VERROR);
-   cuCHK(cudaMalloc(&(ctxp->d_bt[1]), sizeof(BTRAILER)), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(p_ctx->d_solve[0]), 32));
+   cuCHK(cudaMalloc(&(p_ctx->d_solve[1]), 32));
+   cuCHK(cudaMalloc(&(p_ctx->d_state[0]), seedsz));
+   cuCHK(cudaMalloc(&(p_ctx->d_state[1]), seedsz));
+   cuCHK(cudaMalloc(&(p_ctx->d_bt[0]), btsz));
+   cuCHK(cudaMalloc(&(p_ctx->d_bt[1]), btsz));
    /* allocate memory for Peach map on device */
-   cuCHK(cudaMalloc(&(ctxp->d_phash), 32), ctx, return VERROR);
-   cuCHK(cudaMalloc(&(ctxp->d_map), PEACHMAPLEN), ctx, return VERROR);
+   cuCHK(cudaMalloc(&(p_ctx->d_phash), 32));
+   cuCHK(cudaMalloc(&(p_ctx->d_map), PEACHMAPLEN));
    /* clear device/host allocated memory */
-   cuCHK(cudaMemsetAsync(ctxp->d_bt[0], 0, sizeof(BTRAILER),
-      cudaStreamDefault), ctx, return VERROR);
-   cuCHK(cudaMemsetAsync(ctxp->d_bt[1], 0, sizeof(BTRAILER),
-      cudaStreamDefault), ctx, return VERROR);
-   cuCHK(cudaMemsetAsync(ctxp->d_seed[0], 0, 16 * ctx->threads,
-      cudaStreamDefault), ctx, return VERROR);
-   cuCHK(cudaMemsetAsync(ctxp->d_seed[1], 0, 16 * ctx->threads,
-      cudaStreamDefault), ctx, return VERROR);
-   cuCHK(cudaMemsetAsync(ctxp->d_solve[0], 0, 32,
-      cudaStreamDefault), ctx, return VERROR);
-   cuCHK(cudaMemsetAsync(ctxp->d_solve[1], 0, 32,
-      cudaStreamDefault), ctx, return VERROR);
-   cuCHK(cudaMemsetAsync(ctxp->d_phash, 0, 32,
-      cudaStreamDefault), ctx, return VERROR);
-   memset(ctxp->h_bt[0], 0, sizeof(BTRAILER));
-   memset(ctxp->h_bt[1], 0, sizeof(BTRAILER));
-   memset(ctxp->h_seed[0], 0, 16 * ctx->threads);
-   memset(ctxp->h_seed[1], 0, 16 * ctx->threads);
-   memset(ctxp->h_solve[0], 0, 32);
-   memset(ctxp->h_solve[1], 0, 32);
+   cuCHK(cudaMemsetAsync(p_ctx->d_bt[0], 0, btsz, cudaStreamDefault));
+   cuCHK(cudaMemsetAsync(p_ctx->d_bt[1], 0, btsz, cudaStreamDefault));
+   cuCHK(cudaMemsetAsync(p_ctx->d_state[0], 0, seedsz, cudaStreamDefault));
+   cuCHK(cudaMemsetAsync(p_ctx->d_state[1], 0, seedsz, cudaStreamDefault));
+   cuCHK(cudaMemsetAsync(p_ctx->d_solve[0], 0, 32, cudaStreamDefault));
+   cuCHK(cudaMemsetAsync(p_ctx->d_solve[1], 0, 32, cudaStreamDefault));
+   cuCHK(cudaMemsetAsync(p_ctx->d_phash, 0, 32, cudaStreamDefault));
+   memset(p_ctx->h_bt[0], 0, btsz);
+   memset(p_ctx->h_bt[1], 0, btsz);
+   memset(p_ctx->h_solve[0], 0, 32);
+   memset(p_ctx->h_solve[1], 0, 32);
 
    /* wait for all operations in cudaStreamDefault to complete */
-   cuCHK(cudaStreamSynchronize(cudaStreamDefault), ctx, return VERROR);
+   cuCHK(cudaStreamSynchronize(cudaStreamDefault));
+
+   /* generate prng state */
+   kcu_srand64<<<ctx->grid, ctx->block>>>(p_ctx->d_state[0], rand32());
+   kcu_srand64<<<ctx->grid, ctx->block>>>(p_ctx->d_state[1], rand32());
+   cudaDeviceSynchronize();
 
    /* set device as initialized */
    ctx->status = DEV_INIT;
@@ -1040,49 +1105,59 @@ int peach_init_cuda_device(DEVICE_CTX *ctx)
  * on CUDA devices. Combine haiku protocols implemented in the Trigg
  * Algorithm with the memory intensive protocols of the Peach algorithm to
  * generate haiku output as proof of work.
- * @param dev Pointer to DEVICE_CTX to perform work with
+ * @param ctx Pointer to DEVICE_CTX to perform work with
  * @param bt Pointer to block trailer to solve for
  * @param diff Difficulty to test against entropy of final hash
  * @param btout Pointer to location to place solved block trailer
  * @returns VEOK on solve, VERROR on no solve, or VETIMEOUT if GPU is
  * either stopped or unrecoverable.
 */
-int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
+int peach_solve_cuda(DEVICE_CTX *ctx, BTRAILER *bt, word8 diff, BTRAILER *btout)
 {
-   int i, id, sid, grid, block, build;
+   int id, sid, grid, block, build;
    PEACH_CUDA_CTX *P;
+   cudaError_t err;
+
+#undef cuCHK
+#define cuCHK(cuFN) \
+   do { \
+      err = (cuFN); \
+      if (err != cudaSuccess) { \
+         ctx->status = DEV_FAIL; \
+         cu__log_error(err); \
+         return VERROR; \
+      } \
+   } while(0)
 
    /* init */
-   id = dev->id;
-   P = (PEACH_CUDA_CTX *) dev->peach;
-
+   id = ctx->id;
+   P = (PEACH_CUDA_CTX *) ctx->peach;
    /* report unuseable GPUs */
-   if (dev->status < DEV_NULL) return VETIMEOUT;
+   if (ctx->status < DEV_NULL) return VETIMEOUT;
 
    /* set/check cuda device */
-   cuCHK(cudaSetDevice(id), dev, return VERROR);
-   cuCHK(cudaGetLastError(), dev, return VERROR);
+   cuCHK(cudaSetDevice(id));
+   cuCHK(cudaGetLastError());
 
    /* build peach map */
-   if (dev->status == DEV_INIT) {
+   if (ctx->status == DEV_INIT) {
       /* build peach map -- init */
-      if (dev->work == 0) {
+      if (ctx->work == 0) {
          /* ensure both streams have finished */
          if (cudaStreamQuery(P->stream[1]) == cudaSuccess
             && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
             /* synchronize device before initializing new peach map */
             cudaDeviceSynchronize();
             /* clear any late solves */
-            cuCHK(cudaMemset(P->d_solve[0], 0, 32), dev, return VERROR);
-            cuCHK(cudaMemset(P->d_solve[1], 0, 32), dev, return VERROR);
+            cuCHK(cudaMemset(P->d_solve[0], 0, 32));
+            cuCHK(cudaMemset(P->d_solve[1], 0, 32));
             memset(P->h_solve[0], 0, 32);
             memset(P->h_solve[1], 0, 32);
             /* update block trailer */
             memcpy(P->h_bt[0], bt, sizeof(BTRAILER));
             memcpy(P->h_bt[1], bt, sizeof(BTRAILER));
             /* update device phash */
-            cuCHK(cudaMemcpy(P->d_phash, P->h_bt[0]->phash, 32,
-               cudaMemcpyHostToDevice), dev, return VERROR);
+            cuCHK(cudaMemcpy(P->d_phash, P->h_bt[0]->phash, 32, cudaMemcpyHostToDevice));
             /* synchronize memory transfers before building peach map */
             cudaDeviceSynchronize();
             /* flag build ready */
@@ -1090,8 +1165,8 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          }
       }
       /* build peach map -- build */
-      if (dev->work < PEACHCACHELEN) {
-         for (sid = 0; sid < 2 && (build || dev->work > 0); sid++) {
+      if (ctx->work < PEACHCACHELEN) {
+         for (sid = 0; sid < 2 && (build || ctx->work > 0); sid++) {
             /* ensure stream is ready for next section of build */
             if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
             /* set CUDA configuration for generating peach map */
@@ -1104,19 +1179,19 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
             }
             /* launch kernel to generate map */
             kcu_peach_build<<<grid, block, 0, P->stream[sid]>>>
-               ((word32) dev->work, P->d_map, P->d_phash);
-            cuCHK(cudaGetLastError(), dev, return VERROR);
+               ((word32) ctx->work, P->d_map, P->d_phash);
+            cuCHK(cudaGetLastError());
             /* update build progress */
-            dev->work += grid * block;
+            ctx->work += grid * block;
          }
       } else {
          /* ensure both streams have finished */
          if (cudaStreamQuery(P->stream[1]) == cudaSuccess
             && cudaStreamQuery(P->stream[0]) == cudaSuccess) {
             /* build is complete */
-            dev->last = time(NULL);
-            dev->status = DEV_IDLE;
-            dev->work = 0;
+            ctx->last = time(NULL);
+            ctx->status = DEV_IDLE;
+            ctx->work = 0;
          }
       }
    }
@@ -1126,26 +1201,32 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
     * - block NOT already solved
     * - block NOT expired
     */
-   switch (dev->status) {
+   switch (ctx->status) {
       case DEV_IDLE:{
          if (get32(bt->tcount) == 0) break;
          if (cmp64(bt->bnum, btout->bnum) == 0) break;
          if (difftime(time(NULL), get32(bt->time0)) >= BRIDGEv3) break;
-         dev->last = time(NULL);
-         dev->status = DEV_WORK;
-         dev->work = 0;
+         ctx->last = time(NULL);
+         ctx->status = DEV_WORK;
+         ctx->work = 0;
          break;
       }
    }
 
    /* solve work in block trailer */
-   if (dev->status == DEV_WORK) {
+   if (ctx->status == DEV_WORK) {
       for(sid = 0; sid < 2; sid++) {
-         if (cudaStreamQuery(P->stream[sid]) != cudaSuccess) continue;
+         err = cudaStreamQuery(P->stream[sid]);
+         if (err == cudaErrorNotReady) continue;
+         if (err != cudaSuccess) {
+            ctx->status = DEV_FAIL;
+            cu__log_error(err);
+            return VERROR;
+         }
          /* check trailer for block update */
          if (memcmp(P->h_bt[sid]->phash, bt->phash, HASHLEN)) {
-            dev->status = DEV_INIT;
-            dev->work = 0;
+            ctx->status = DEV_INIT;
+            ctx->work = 0;
             break;
          }
          /* switch to IDLE mode when reasonable:
@@ -1155,13 +1236,13 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
           */
          if (get32(bt->tcount) == 0 || cmp64(bt->bnum, btout->bnum) == 0 ||
                difftime(time(NULL), get32(bt->time0)) >= BRIDGEv3) {
-            dev->status = DEV_IDLE;
-            dev->work = 0;
+            ctx->status = DEV_IDLE;
+            ctx->work = 0;
             break;
          }
          /* check for solves */
          if (*(P->h_solve[sid])) {
-            /* move solved nonce */
+            /* combine solved nonce with bt */
             memcpy(P->h_bt[sid]->nonce, P->h_solve[sid], 32);
             /* clear solve from host/device */
             cudaMemsetAsync(P->d_solve[sid], 0, 32, P->stream[sid]);
@@ -1173,31 +1254,26 @@ int peach_solve_cuda(DEVICE_CTX *dev, BTRAILER *bt, word8 diff, BTRAILER *btout)
          }
          /* check for "on-the-fly" difficulty changes */
          diff = diff && diff < bt->difficulty[0] ? diff : bt->difficulty[0];
-         /* ensure block trailer is updated */
-         memcpy(P->h_bt[sid], bt, sizeof(BTRAILER));
+         /* ensure host block trailer is updated */
+         memcpy(P->h_bt[sid], bt, 92);
          /* generate (first) nonce directly into block trailer */
          trigg_generate(P->h_bt[sid]->nonce);
-         /* generate (second) nonce seeds into seed list */
-         for(i = 0; i < dev->threads; i++) {
-            trigg_generate_fast(P->h_seed[sid] + (i * 16));
-         }
-         /* transfer block trailer and seeds to device */
-         cudaMemcpyAsync(P->d_bt[sid], P->h_bt[sid], sizeof(BTRAILER),
-            cudaMemcpyHostToDevice, P->stream[sid]);
-         cudaMemcpyAsync(P->d_seed[sid], P->h_seed[sid], 16 * dev->threads,
-            cudaMemcpyHostToDevice, P->stream[sid]);
-         cuCHK(cudaGetLastError(), dev, return VERROR);
+         /* copy trailer updates w/ nonce ELSE just nonce */
+         cuCHK(cudaMemcpyAsync(P->d_bt[sid], P->h_bt[sid],
+            92 + 16, cudaMemcpyHostToDevice, P->stream[sid]));
+         cuCHK(cudaGetLastError());
          /* launch kernel to solve Peach */
-         kcu_peach_solve<<<dev->grid, dev->block, 0, P->stream[sid]>>>
-            (P->d_map, P->d_bt[sid], P->d_seed[sid], diff, P->d_solve[sid]);
-         cuCHK(cudaGetLastError(), dev, return VERROR);
+         kcu_peach_solve<<<ctx->grid, ctx->block, 0, P->stream[sid]>>>
+            (P->d_map, P->d_bt[sid], P->d_state[sid], diff, P->d_solve[sid]);
+         cuCHK(cudaGetLastError());
          /* retrieve solve seed */
          cudaMemcpyAsync(P->h_solve[sid], P->d_solve[sid], 32,
             cudaMemcpyDeviceToHost, P->stream[sid]);
-         cuCHK(cudaGetLastError(), dev, return VERROR);
+         cuCHK(cudaGetLastError());
          /* increment progress counters */
-         dev->total += dev->threads;
-         dev->work += dev->threads;
+         ctx->work += ctx->threads;
+         double delta = difftime(time(NULL), ctx->last);
+         ctx->hps = ctx->work / (delta ? delta : 1);
       }
    }
 

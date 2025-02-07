@@ -23,7 +23,6 @@
 #include "network.h" /* for mochimo communication protocols */
 #include "peach.h"   /* for peach algorithm */
 #include "ledger.h"  /* for ledger support */
-#include "global.h"  /* for global variables */
 #include "error.h"   /* for error codes */
 #include "bup.h"
 #include "bcon.h"
@@ -98,11 +97,6 @@ enum mcm_miner_mode_t {
    POOL_MODE,
 };
 
-word8 Solo;
-word8 Getting;
-word8 Interval;
-
-
 /* solve handling thread lock/alarm */
 Condition Salarm = CONDITION_INITIALIZER;
 Mutex Slock = MUTEX_INITIALIZER;
@@ -112,10 +106,6 @@ BTRAILER BT_curr = {0};
 BTRAILER BT_prev = {0};
 FILE *FP_curr = NULL;
 FILE *FP_prev = NULL;
-/* store local mining address data */
-word8 Maddr[ADDR_TAG_LEN] = {0};
-int Maddr_isset = 0;
-
 
 /**
  * @private
@@ -412,12 +402,9 @@ int network_recv_cblock(void)
       goto ERROR_CLEANUP;
    }
 
-   /* check maddr */
-   if (Maddr_isset) {
-      /* reconstruct block with own maddr */
-      ecode = b_adjust_maddr_fp(fp);
-      if (ecode != VEOK) goto ECODE_CLEANUP;
-   }
+   /* reconstruct block with own maddr */
+   ecode = b_adjust_maddr_fp(fp);
+   if (ecode != VEOK) goto ECODE_CLEANUP;
 
    if (fseek(fp, -((long) sizeof(BTRAILER)), SEEK_CUR) != 0) {
       goto ERROR_CLEANUP;
@@ -506,42 +493,6 @@ int network_send_solve(void)
 
    return VEOK;
 }  /* end network_send_solve() */
-
-int network_handler_thread(void)
-{
-   int ecode;
-
-   /* acquire (exclusive) lock */
-   MUTEX_LOCK_OR_ABORT(&Slock);
-
-   while (Running) {
-      /* send solve or check network */
-      if (network_send_solve() == VEOK) {
-         if (network_recv_cblock() == VEOK) {
-            plog("New work; %s:%"P16u" %u(0x%x):%u:%s...",
-               ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
-               get32(BT_curr.bnum), BT_curr.difficulty[0],
-               hash2hex32(BT_curr.mroot, NULL));
-         } else if (errno != EAGAIN) {
-            perrno("network_recv_cblock() FAILURE");
-         }
-      } else {
-         perrno("network_send_solve() FAILURE");
-      }
-      /* wait for work, sleepy time (5 second timeout)... */
-      ecode = condition_timedwait(&Salarm, &Slock, Interval * 1000);
-      if (ecode != 0 && errno != CONDITION_TIMEOUT) {
-         perrno("CONDITION FAILURE");
-         Running = 0;
-         break;
-      }
-   }  /* end while */
-   pdebug("network thread finished...");
-   /* release (exclusive) lock */
-   MUTEX_UNLOCK_OR_ABORT(&Slock);
-
-   return ecode;
-}  /* end network_handler_thread() */
 
 /* print (and more importantly, log) server host information */
 void phostinfo(void)
@@ -637,6 +588,7 @@ int main(int argc, char *argv[])
    DEVICE_CTX device[GPUMAX];
    FILENAME maddrfile = {0};
    int device_count;
+   int interval_ms;
 MCM_DECL_UNUSED
    int miner_mode;
 
@@ -672,8 +624,8 @@ MCM_DECL_UNUSED
    /* init - defaults */
    miner_mode = NODE_MODE;
    Port = Dstport = PORT1;
+   interval_ms = 10000; /* ms */
    Dynasleep = 10; /* ms */
-   Interval = 10; /* s */
 
 /* ARGUMENT MACROs */
 #define GET_ARGP_OR_EXIT_FAILURE(ARGP) \
@@ -732,7 +684,8 @@ MCM_DECL_UNUSED
                perr("invalid interval value");
                return EXIT_FAILURE;
             }
-            Interval = (word8) argu;
+            interval_ms = (word8) argu;
+            interval_ms *= 1000;
             continue; /* next arg */
          }
          if (argument(argv[argi], "-l", "--log-level")) {
@@ -778,7 +731,6 @@ MCM_DECL_UNUSED
                }
             }
             /* set and display mining address */
-            Maddr_isset = 1;
             set_maddr(maddr_chk);
             plog("Mining Address: %s", argp);
             plog("Mining Address(hex): %02x%02x%02x%02x...%02x%02x%02x%02x",
@@ -842,112 +794,175 @@ MCM_DECL_UNUSED
       }
    }
 
+   int paused = 1;
+   int thread_idx = 1;
+
    /* enter (parallel) mining loop */
-   int device_idx = 0;
-
-   #pragma omp parallel num_threads(device_count + 1 /* network handler */)
+   #pragma omp parallel num_threads(3)
    {
-      BTRAILER bt;
-      time_t stime;
-      time_t now;
-      int solve;
-      int idx;
+      BTRAILER *bt = NULL;
+      int task_idx = -1;
+      int ecode;
 
-      /* network connection handler */
-      #pragma omp single nowait
-         network_handler_thread();
+      /* master thread takes first index (0) */
+      #pragma omp master
+         task_idx = 0;
+      /* distribute index to remaining threads */
+      if (task_idx < 0) {
+         #pragma omp atomic capture
+            task_idx = thread_idx++;
+      }
 
-      /* assign device index to thread */
-      #pragma omp critical
-         idx = device_idx++;
+      /* determine task */
+      switch (task_idx) {
+         case 2: {
+            BTRAILER bt_solve = {0};
+            time_t now;
 
-      /* mining loop handler */
-      for (time(&stime); Running; millisleep(Dynasleep)) {
-         /* just 5 more minutes Fern... */
-         if (device[idx].status != DEV_WORK) millisleep(Dynasleep * 10);
-         else if (BT_solve.nonce[0]) memcpy(&bt, &BT_solve, sizeof(bt));
-         /* ... ^^ mUlTiThReAdInG reasons ... */
+            /* set working block trailer to current */
+            bt = &BT_curr;
 
-         time(&now);
-         /* report device status at different intervals */
-         switch (device[idx].status) {
-            case DEV_FAIL:
-               if (difftime(now, stime) > 60) {
-                  plog("%s failure detected...", device[idx].info);
-                  time(&stime);
+            /* Task 2: Device handler */
+            thread_setname(thread_self(), "device_handler");
+            /* Device management loop */
+            for (time(&now); Running; millisleep(Dynasleep), time(&now)) {
+               /* pause solving when appropriate */
+               if (difftime(now, get32(bt->time0)) >= BRIDGEv3 ||
+                     BT_solve.nonce[0] || get32(bt->tcount) == 0) {
+                  if (!paused) {
+                     /* report reason for pause */
+                     if (difftime(now, get32(bt->time0)) >= BRIDGEv3) {
+                        plog("Work Expired; waiting for work...");
+                     } else if (get32(bt->tcount) == 0) {
+                        plog("No Transactions; waiting for work...");
+                     } else if (BT_solve.nonce[0]) {
+                        plog("Work Solved; waiting for work...");
+                     }
+                     /* pause solving */
+                     paused = 1;
+                  }  /* end if paused == 0 */
+               } else {
+                  /* reset paused and status time */
+                  if (paused) {
+                     pdebug("Resuming work...");
+                     paused = 0;
+                  }
                }
-               break;
-            case DEV_IDLE:
-               if (difftime(now, stime) > 10) {
-                  plog("%s waiting for work...", device[idx].info);
-                  time(&stime);
+               /* manage devices solving */
+               for (int idx = 0; idx < device_count && !paused; idx++) {
+                  /* execute solve protocol per device type */
+                  switch (device[idx].type) {
+                     case CUDA_DEVICE:
+                        ecode = peach_solve_cuda(&device[idx], &BT_curr, 0, &bt_solve);
+                        break;
+                  /* case OPENCL_DEVICE:
+                        solve = peach_solve_opencl(&device[idx], &BT_curr, 0, &bt);
+                        break; */
+                     default:
+                        /* skip */
+                        continue;
+                  }
+                  /* check for solve */
+                  if (ecode == VEOK) {
+                     /* (double) check solve is valid */
+                     if (peach_check(&bt_solve) != VEOK) {
+                        perr("peach_check() failed to verify solve!");
+                        continue;  /* ... device loop */
+                     }
+                     /* acquire (exclusive) lock */
+                     MUTEX_LOCK_OR_ABORT(&Slock);
+                     /* embed (valid) solve time and block hash */
+                     put32(bt_solve.stime, (word32) time(NULL));
+                     if (get32(bt_solve.time0) == get32(bt_solve.stime)) {
+                        put32(bt_solve.stime, (word32) time(NULL) + 1);
+                     }
+                     sha256(&bt_solve, sizeof(BTRAILER) - HASHLEN, bt_solve.bhash);
+                     memcpy(&BT_solve, &bt_solve, sizeof(BTRAILER));
+                     pdebug("solve handed to network thread...");
+                     /* alert (sleeping) network thread */
+                     condition_signal(&Salarm);
+                     /* release (exclusive) lock */
+                     MUTEX_UNLOCK_OR_ABORT(&Slock);
+                  }  /* end if solve */
+               }  /* end device loop */
+            }  /* end while */
+            break;
+         }  /* end Device Handler */
+         case 1: {
+            double hps, total;
+            const char *m;
+
+            /* Task 1: Network handler */
+            thread_setname(thread_self(), "network_handler");
+            /* exclusive "Running" loop... */
+            MUTEX_LOCK_OR_ABORT(&Slock);
+            while (Running) {
+               /* send solve or check network */
+               if (network_send_solve() == VEOK) {
+                  if (network_recv_cblock() == VEOK) {
+                     /* ... currently there is a period of time between
+                      * a block transition where a Node does not have
+                      * transactions to produce a candidate block and
+                      * will simply abort the connection. This results
+                      * in miners continuing to mine the previous block
+                      * until transactions appear on the next block, or
+                      * the BRIDGE time is reached... */
+                     /* report stats, or set block trailer to previous */
+                     if (bt) {
+                        /* only report on block changes */
+                        if (get32(bt->bnum) != get32(BT_curr.bnum)) {
+                           total = 0.0;
+                           /* report block summary */
+                           plog("Old work stats; %u(0x%x), diff:%u",
+                              get32(bt->bnum), get32(bt->bnum), bt->difficulty[0]);
+                           /* print block work stats and hashrate per device */
+                           for (int idx = 0; idx < device_count; idx++) {
+                              if (device[idx].status <= DEV_NULL) {
+                                 plog(" - %s failure...", device[idx].info);
+                                 continue;
+                              }
+                              total += (double) device[idx].hps;
+                              hps = (double) device[idx].hps;
+                              m = metric_reduce(&hps);
+                              plog(" - %s %.02lf%sH/s", device[idx].info, hps, m);
+                           }  /* end device loop */
+                           /* repoort total hashrate if device count > 1 */
+                           if (device_count > 1) {
+                              m = metric_reduce(&total);
+                              plog(" - Total %.02lf%sH/s", total, m);
+                           }
+                        }  /* end if bt */
+                     } else bt = &BT_prev;
+                     plog("New work; %s:%"P16u" %u(0x%x):%u:%s...",
+                        ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
+                        get32(BT_curr.bnum), BT_curr.difficulty[0],
+                        hash2hex32(BT_curr.mroot, NULL));
+                  } else if (errno != EAGAIN) {
+                     perrno("network_recv_cblock() FAILURE");
+                  }
+               } else {
+                  perrno("network_send_solve() FAILURE");
                }
-               break;
-            case DEV_INIT:
-               /* no logs on initialization... */
-               if (difftime(now, stime) > 1) time(&stime);
-               break;
-            case DEV_WORK: {
-               if (difftime(now, stime) > 20) {
-                  double dtime = difftime(now, device[idx].last);
-                  double hps = (double) device[idx].work / (dtime ? dtime : 1);
-                  const char *m = metric_reduce(&hps);
-                  plog("%s %.02lf%sH/s", device[idx].info, hps, m);
-                  time(&stime);
-               }
-               break;
-            }
-            default:
-               if (difftime(now, stime) > 10) {
-                  plog("%s unknown status...", device[idx].info);
-                  time(&stime);
-               }
-         }  /* end switch */
-         /* execute solve protocol per device type */
-         switch (device[idx].type) {
-            case CUDA_DEVICE:
-               solve = peach_solve_cuda(&device[idx], &BT_curr, 0, &bt);
-               break;
-         /* case OPENCL_DEVICE:
-               solve = peach_solve_opencl(&device[idx], &BT_curr, 0, &bt);
-               break; */
-            default:
-               /* skip */
-               continue;
-         }
-         switch (solve) {
-            case VEOK:
-               /* (double) check solve is valid */
-               if (peach_check(&bt) != VEOK) {
-                  perr("peach_check() failed to verify solve!");
+               /* wait for work, sleepy time (5 second timeout)... */
+               ecode = condition_timedwait(&Salarm, &Slock, interval_ms);
+               if (ecode != 0 && errno != CONDITION_TIMEOUT) {
+                  perrno("CONDITION FAILURE");
+                  Running = 0;
                   break;
                }
-
-               /* acquire (exclusive) lock */
-               MUTEX_LOCK_OR_ABORT(&Slock);
-               /* avoide double solves... */
-               if (BT_solve.nonce[0] == 0) {
-                  /* embed (valid) solve time and block hash */
-                  put32(bt.stime, (word32) time(NULL));
-                  if (get32(bt.time0) == get32(bt.stime)) {
-                     put32(bt.stime, (word32) time(NULL) + 1);
-                  }
-                  sha256(&bt, sizeof(BTRAILER) - HASHLEN, bt.bhash);
-                  memcpy(&BT_solve, &bt, sizeof(BTRAILER));
-                  pdebug("solve handed to network thread...");
-               } else pdebug("duplicate solve rejected...");
-               /* alert sleeping thread */
-               condition_signal(&Salarm);
-               /* release (exclusive) lock */
-               MUTEX_UNLOCK_OR_ABORT(&Slock);
-
-               break;
-            case VETIMEOUT:
-               pwarn("%s timed out...", device[idx].info);
-               millisleep(60000);
-               break;
-         }  /* end switch */
-      }  /* end for */
+            }  /* end while */
+            pdebug("network thread finished...");
+            /* release (exclusive) lock */
+            MUTEX_UNLOCK_OR_ABORT(&Slock);
+            break;
+         }  /* end Network Handler */
+         default: {
+            /* Remaining Threads: Idle */
+         /* thread_setname(thread_self(), "idle"); */
+            while (Running) millisleep(100);
+            break;
+         }  /* end Idle */
+      }  /* end switch */
       /* acquire (exclusive) lock */
       MUTEX_LOCK_OR_ABORT(&Slock);
       /* alert sleeping thread */
