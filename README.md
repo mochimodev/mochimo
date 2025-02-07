@@ -7,7 +7,7 @@
 ![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest?logo=github&logoColor=lightgrey&labelColor=2d3339&color=%230059ff)<br>
 [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml)
 [![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml)
-[![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml)
+[![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml)  
 ***Mochimo Services***  
 [![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/fkogefgjocnflhankmffnibdofdiiiho?logo=chromewebstore&label=Chromium%20Wallet&logoColor=lightgrey&labelColor=2d3339)](https://chromewebstore.google.com/detail/mochimo-wallet/fkogefgjocnflhankmffnibdofdiiiho)
 [![GitHub Release](https://img.shields.io/github/v/release/adequatesystems/mochimo-meshapi?include_prereleases&logo=github&logoColor=lightgrey&label=MeshAPI%20Upon%20Request&labelColor=2d3339&)](https://github.com/adequatesystems/mochimo-meshapi)
@@ -30,7 +30,7 @@ Chromium Wallet that can be installed on your choice of Chromium Web Browser as 
 An API written in Go, intended to comply with the Rosetta Mesh API standard.
 
 <hr><hr>
-<h1 align="center"><strong>REQUIREMENTS</strong></h1>
+<h1 align="center"><strong>NODE REQUIREMENTS</strong></h1>
 
 ## Minimum Hardware
 - (CPU) Dual-core Processor
@@ -40,7 +40,7 @@ An API written in Go, intended to comply with the Rosetta Mesh API standard.
   - *may require router [port forwarding](https://portforward.com/)*
 
 <hr><hr>
-<h1 align="center"><strong>USAGE</strong></h1>
+<h1 align="center"><strong>NODE INSTRUCTIONS</strong></h1>
 
 ## Automatic Install Service
 A setup script is provided to quickly provision or update a Mochimo Node on a Ubuntu Machine. The script will automatically download, build and install a Mochimo Node as a background service.
@@ -53,13 +53,18 @@ curl -L mochimo.org/setup.x | sudo bash -
 curl -L mochimo.org/setup.x | sudo bash -s -- <branch>
 ```
 
+If the automatic install completes successfully, the background service will automatically start and your node will start syncing with the network. Please note, this can take some time, depending on the core count of your machine, and you can monitor it with `journalctl`.
+```sh
+sudo journalctl -u mochimo -f
+```
+
 ## Uninstall Service
 To uninstall a Mochimo Node installed as a service, find your mochimo repositories within `~/.mcm/repo` and change directory to the latest you installed, or `master`, and do `make uninstall` (requires sudo).
 ```sh
 [sudo] make uninstall -C ~/.mcm/repo/master
 ```
 
-## Build manually
+## Build Manually
 Whatever the reason, build manually with:
 ```sh
 # clone repository, if not already, and change directory
@@ -69,6 +74,15 @@ git -C mochimo/ checkout v3.0.0
 # build mochimo to mochimo/bin/
 make -C mochimo/ mochimo
 ```
+
+## Run Manually
+
+```sh
+mochimo/bin/gomochi
+```
+
+<hr><hr>
+<h1 align="center"><strong>MINER BUILD/USAGE</strong></h1>
 
 ## Build GPU Miner
 *GPU Miner ONLY supports SOLO mining with NVIDIA cards*<br/>
@@ -84,8 +98,14 @@ make -C mochimo/ miner NVCCARGS=-arch=sm_61 # 10-series cards
 # mochimo/bin/gpuminer --help
 ```
 
+## Run GPU Miner
+
+```
+mochimo/bin/gpuminer -N <YOUR_NODE_IP> -m <YOUR_ACCOUNT_TAG>
+```
+
 <hr><hr>
-<h1 align="center"><strong>LICENSE</strong></h1>
+<h1 align="center"><strong>MOCHIMO LICENSE</strong></h1>
 
 <sup>**The license to use versions of the code prior to v2.0 expired on December 31st, 2018. Use of the old code is strictly prohibited.**</sup><br/>
 The current version of the code is released under an MPL2.0 derivative Open Source license.<br/>
