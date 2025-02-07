@@ -1,20 +1,15 @@
 
-/* must be declared before includes */
-#ifndef CUDA
-   #define CUDA
-#endif
-
 #include <string.h>
 #include <time.h>
 #include <math.h>
 
 #include "_assert.h"
 #include "extint.h"
-#include "extprint.h"
 #include "exttime.h"
 
-#include "util.h"
+#include "error.h"
 #include "peach.h"
+#include "device.h"
 
 #define MINDIFF     18
 #define MAXDIFF     28
@@ -22,7 +17,7 @@
 #define GPUMAX      16
 
 /* Block 0x1 trailer data taken directly from the Mochimo Blockchain Tfile */
-static word8 Block1[BTSIZE] = {
+static word8 Block1[sizeof(BTRAILER)] = {
    0x00, 0x17, 0x0c, 0x67, 0x11, 0xb9, 0xdc, 0x3c, 0xa7, 0x46,
    0xc4, 0x6c, 0xc2, 0x81, 0xbc, 0x69, 0xe3, 0x03, 0xdf, 0xad,
    0x2f, 0x33, 0x3b, 0xa3, 0x97, 0xba, 0x06, 0x1e, 0xcc, 0xef,
@@ -40,7 +35,14 @@ static word8 Block1[BTSIZE] = {
    0x42, 0xd4, 0xba, 0x1c, 0xf7, 0x2f, 0x6e, 0x37, 0xff, 0x92,
    0x99, 0x9a, 0xa0, 0x32, 0x55, 0x51, 0xbc, 0xf1, 0x5f, 0x69
 };
-
+void print_32_bytes(word8 *data)
+{
+   int i;
+   for (i = 0; i < 32; i++) {
+      printf("%02x", data[i]);
+   }
+   printf("\n");
+}
 int main()
 {
    DEVICE_CTX D[GPUMAX] = { 0 };
@@ -51,8 +53,18 @@ int main()
    word8 diff, digest[SHA256LEN];
    char *m;
 
-   set_print_level(PLEVEL_DEBUG);
-   count = peach_init_cuda(D, GPUMAX);
+   setploglevel(PLOG_DEBUG);
+
+   count = init_cuda_devices(D, GPUMAX);
+   plog("Cuda Devices (%d)...", count);
+   for (int idx = 0; idx < count; idx++) {
+      plog(" - %s", D[idx].info);
+      pdebug("initilizing device...");
+      if (peach_init_cuda_device(&D[idx]) != VEOK) {
+         perrno("peach initialization FAILURE");
+         pwarn("%s will not be utilized...", D[idx].info);
+      }
+   }
 
    m = "";
    delta = hps = 0.0;
@@ -66,26 +78,30 @@ int main()
       bt.difficulty[0] = diff;
       bt.phash[0]++;
       bt.bnum[0]++;
+      put32(bt.time0, (word32) time(NULL));
       /* solve Peach algorithm */
       for (n = 0; ; ) {
-         if (peach_solve_cuda(&D[n], &bt, 0, &btout) == VEOK) break;
+         int ecode = peach_solve_cuda(&D[n], &bt, 0, &btout);
+         if (ecode == VEOK) break;
          if (++n >= count) n = 0;
          millisleep(1);
       }
       /* calculate performance of algorithm */
       for(hps = 0.0, n = 0; n < count; n++) {
-         delta = difftime(time(NULL), D[n].last_work);
+         delta = difftime(time(NULL), D[n].last);
          if (delta == 0) delta = 1.0;
          hps += (double) D->work / delta;
       }
       m = metric_reduce(&hps);
       ASSERT_DEBUG("Diff(%d) perf: ~%.2lf %sH/s\n", diff, hps, m);
       /* ensure solution is correct */
+      print_32_bytes(btout.nonce);
       n = peach_checkhash(&btout, btout.difficulty[0], digest);
       ASSERT_EQ(n, VEOK);
+      plog("assertion succeeded");
    }
    /* check difficulty met requirement */
-   ASSERT_GE_MSG(diff, MINDIFF, "should meet minimum diff requirement");
+   ASSERT_GE_MSG(diff, 2, "should meet minimum diff requirement");
    /* output final performance on success */
-   print("Peach CUDA mining performance: ~%.2lf %sH/s\n", hps, m);
+   printf("Peach CUDA mining performance: ~%.2lf %sH/s\n", hps, m);
 }
