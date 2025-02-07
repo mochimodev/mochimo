@@ -8,6 +8,9 @@
 [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml)
 [![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml)
 [![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml)
+***Mochimo Services***  
+[![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/fkogefgjocnflhankmffnibdofdiiiho?logo=chromewebstore&label=Chromium%20Wallet&logoColor=lightgrey&labelColor=2d3339)](https://chromewebstore.google.com/detail/mochimo-wallet/fkogefgjocnflhankmffnibdofdiiiho)
+[![GitHub Release](https://img.shields.io/github/v/release/adequatesystems/mochimo-meshapi?include_prereleases&logo=github&logoColor=lightgrey&label=MeshAPI%20Upon%20Request&labelColor=2d3339&)](https://github.com/adequatesystems/mochimo-meshapi)
 
 *You must read and agree to the [LICENSE](https://mochimo.org/license.pdf)
 prior to running the code.*
@@ -16,6 +19,15 @@ prior to running the code.*
 It includes a fully functional cryptocurrency network node and (NVIDIA-only) GPU Miner. Designed to compile for most 64-bit Linux-based machines using the provided GNU Makefile. However, please note that some systems may require additional compilation parameters to build successfully.
 
 </div>
+
+<hr><hr>
+<h1 align="center"><strong>OTHER SERVICES</strong></h1>
+
+### [Mochimo Wallet](https://chromewebstore.google.com/detail/mochimo-wallet/fkogefgjocnflhankmffnibdofdiiiho)
+Chromium Wallet that can be installed on your choice of Chromium Web Browser as an extension. Legacy Mojo Wallets can be imported into the Chromium Wallet as individual accounts.
+
+### [Mochimo Mesh API](https://github.com/NickP005/mochimo-mesh)
+An API written in Go, intended to comply with the Rosetta Mesh API standard.
 
 <hr><hr>
 <h1 align="center"><strong>REQUIREMENTS</strong></h1>
