@@ -12,7 +12,6 @@
 
 
 #include <cuda_runtime.h>
-#include <nvml.h>
 
 #include <stdint.h>
 #include <time.h>

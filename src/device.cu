@@ -4,7 +4,6 @@
 #include "error.h"
 
 #include <cuda_runtime.h>
-#include <nvml.h>
 
 /* personal preference macros */
 #define CUDA_SUCCESS cudaSuccess
