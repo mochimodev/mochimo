@@ -972,39 +972,6 @@ int peach_checkhash_cuda(int count, BTRAILER bt[], void *out)
 }  /* end peach_checkhash_cuda() */
 
 /**
- * Free CUDA memory allocated to a previously initialized device context.
- * @param devp Pointer to DEVICE_CTX to free
- * @returns VEOK on valid DEVICE_CTX pointer, else VERROR
-*/
-int peach_free_cuda_device(DEVICE_CTX *devp, int status)
-{
-   /* check device pointer */
-   if (devp == NULL) return VERROR;
-   /* set device status */
-   devp->status = status;
-   /* free pointers -- if set */
-   PEACH_CUDA_CTX *ctxp = &PeachCudaCTX[devp->id];
-   if (ctxp->stream[0]) cudaStreamDestroy(ctxp->stream[0]);
-   if (ctxp->stream[1]) cudaStreamDestroy(ctxp->stream[1]);
-   if (ctxp->h_solve[0]) cudaFreeHost(ctxp->h_solve[0]);
-   if (ctxp->h_solve[1]) cudaFreeHost(ctxp->h_solve[1]);
-   if (ctxp->h_bt[0]) cudaFreeHost(ctxp->h_bt[0]);
-   if (ctxp->h_bt[1]) cudaFreeHost(ctxp->h_bt[1]);
-   if (ctxp->d_solve[0]) cudaFree(ctxp->d_solve[0]);
-   if (ctxp->d_solve[1]) cudaFree(ctxp->d_solve[1]);
-   if (ctxp->d_state[0]) cudaFree(ctxp->d_state[0]);
-   if (ctxp->d_state[1]) cudaFree(ctxp->d_state[1]);
-   if (ctxp->d_bt[0]) cudaFree(ctxp->d_bt[0]);
-   if (ctxp->d_bt[1]) cudaFree(ctxp->d_bt[1]);
-   if (ctxp->d_phash) cudaFree(ctxp->d_phash);
-   if (ctxp->d_map) cudaFree(ctxp->d_map);
-   /* attempt to clear last error */
-   (void) cudaGetLastError();
-
-   return VEOK;
-}  /* end peach_free_cuda_device() */
-
-/**
  * (re)Initialize a device context with a CUDA device.
  * @param devp Pointer to DEVICE_CTX to initialize
  * @param id Index of CUDA device to initialize to DEVICE_CTX
