@@ -709,23 +709,6 @@ int le_update(const char *ltfname)
             }
             /* check sort -- MUST BE ascending, NO duplicates */
             if (addr_compare(le_prev.addr, le.addr) >= 0) {
-               /* WTH IS HAPPENING */
-               perror("le_update() -- addr_compare()");
-               printf("-----------------------------\n");
-               printf("lefp: %p\n", (void *) lefp);
-               printf("ltfp: %p\n", (void *) ltfp);
-               printf("-----------------------------\n");
-               print_n_bytes("le_prev.addr ", le_prev.addr, ADDR_LEN);
-               print_n_bytes("le.addr      ", le.addr, ADDR_LEN);
-               printf("addr_compare(): %d\n", addr_compare(le_prev.addr, le.addr));
-               printf("condition: %d\n", addr_compare(le_prev.addr, le.addr) >= 0);
-               printf("-----------------------------\n");
-               print_n_bytes("lt_prev.addr ", lt_prev.addr, ADDR_LEN);
-               print_n_bytes("lt.addr      ", lt.addr, ADDR_LEN);
-               printf("addr_compare(): %d\n", addr_compare(lt_prev.addr, lt.addr));
-               printf("-----------------------------\n");
-               printf("addr_compare(le, lt): %d\n", addr_compare(le.addr, lt.addr));
-               /* end WTH IS HAPPENING */
                set_errno(EMCM_LESORT);
                goto ERROR_CLEANUP;
             }
