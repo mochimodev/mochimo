@@ -35,14 +35,7 @@ static word8 Block1[sizeof(BTRAILER)] = {
    0x42, 0xd4, 0xba, 0x1c, 0xf7, 0x2f, 0x6e, 0x37, 0xff, 0x92,
    0x99, 0x9a, 0xa0, 0x32, 0x55, 0x51, 0xbc, 0xf1, 0x5f, 0x69
 };
-void print_32_bytes(word8 *data)
-{
-   int i;
-   for (i = 0; i < 32; i++) {
-      printf("%02x", data[i]);
-   }
-   printf("\n");
-}
+
 int main()
 {
    DEVICE_CTX D[GPUMAX] = { 0 };
@@ -95,10 +88,7 @@ int main()
       m = metric_reduce(&hps);
       ASSERT_DEBUG("Diff(%d) perf: ~%.2lf %sH/s\n", diff, hps, m);
       /* ensure solution is correct */
-      print_32_bytes(btout.nonce);
-      n = peach_checkhash(&btout, btout.difficulty[0], digest);
-      ASSERT_EQ(n, VEOK);
-      plog("assertion succeeded");
+      ASSERT_EQ(peach_checkhash(&btout, btout.difficulty[0], digest), 0);
    }
    /* check difficulty met requirement */
    ASSERT_GE_MSG(diff, 2, "should meet minimum diff requirement");
