@@ -69,8 +69,8 @@ int get_file(word32 ip, word8 *bnum, char *fname);
 int get_ipl(NODE *np, word32 ip);
 int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash);
 int gettx(NODE *np, SOCKET sd);
-int scan_network
-(word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum);
+int scan_quorum
+   (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum);
 int refresh_ipl(void);
 
 #ifdef __cplusplus
