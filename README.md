@@ -64,25 +64,8 @@ To uninstall a Mochimo Node installed as a service, find your mochimo repositori
 [sudo] make uninstall -C ~/.mcm/repo/master
 ```
 
-## Build Manually
-Whatever the reason, build manually with:
-```sh
-# clone repository, if not already, and change directory
-git clone https://github.com/mochimodev/mochimo.git
-# (optionally) select a version
-git -C mochimo/ checkout v3.0.0
-# build mochimo to mochimo/bin/
-make -C mochimo/ mochimo
-```
-
-## Run Manually
-
-```sh
-mochimo/bin/gomochi
-```
-
 <hr><hr>
-<h1 align="center"><strong>MINER BUILD/USAGE</strong></h1>
+<h1 align="center"><strong>MINER INSTRUCTIONS</strong></h1>
 
 ## Build GPU Miner
 *GPU Miner ONLY supports SOLO mining with NVIDIA cards*<br/>
