@@ -12,10 +12,23 @@
 
 
 #include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 
 #include <stdint.h>
 #include <time.h>
 #include "peach.h"
+
+/* WORKAROUND for annoying limitations of intellisense, due to the arguably
+ * questionable choice of CUDA delimiter for Kernel Function Arguments.
+ * Based on contributions to a stackoverflow question here:
+ *    https://stackoverflow.com/a/63084481
+ */
+#ifdef __INTELLISENSE__
+#define CUDA_KERNEL(...)
+#else
+#define CUDA_KERNEL(FN, ...) FN <<< __VA_ARGS__ >>>
+#endif
+/* end WORKAROUND */
 
 __global__ void kcu_peach_build
    (word32 offset, word64 *d_map, word32 *d_phash);
