@@ -449,9 +449,16 @@ int send_balance(NODE *np)
  */
 int send_ipl(NODE *np)
 {
-   int count = RPLISTLEN;
+   word32 count;
 
-   if (count > 32) count = 32;
+   /* count peers in Rplist */
+   for (count = 0; count < RPLISTLEN; count++) {
+      if (Rplist[count] == 0) break;
+   }
+   /* limit count to space available in buffer size */
+   if (count > (sizeof(np->tx.buffer) / sizeof(word32))) {
+      count = (sizeof(np->tx.buffer) / sizeof(word32));
+   }
    /* copy recent peer list to TX */
    memcpy(np->tx.buffer, Rplist, sizeof(word32) * count);
    put16(np->tx.len, sizeof(word32) * count);
