@@ -6,7 +6,7 @@
 [![GitHub release (latest by date)](https://img.shields.io/github/release/mochimodev/mochimo.svg?logo=github&logoColor=lightgrey&&labelColor=2d3339&label=&color=%230059ff)](https://github.com/mochimodev/mochimo/releases)
 ![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/mochimodev/mochimo/latest?logo=github&logoColor=lightgrey&labelColor=2d3339&color=%230059ff)<br>
 [![Tests workflow](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/tests.yaml)
-[![Builds workflow](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/builds.yaml)
+[![Approved Build workflow](https://github.com/mochimodev/mochimo/actions/workflows/build-ubuntu-x64.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/build-ubuntu-x64.yaml)
 [![CodeQL workflow](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/codeql.yaml)  
 ***Mochimo Services***  
 [![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/fkogefgjocnflhankmffnibdofdiiiho?logo=chromewebstore&label=Chromium%20Wallet&logoColor=lightgrey&labelColor=2d3339)](https://chromewebstore.google.com/detail/mochimo-wallet/fkogefgjocnflhankmffnibdofdiiiho)
@@ -32,7 +32,12 @@ An API written in Go, intended to comply with the Rosetta Mesh API standard.
 <hr><hr>
 <h1 align="center"><strong>NODE REQUIREMENTS</strong></h1>
 
-## Minimum Hardware
+## Builds on Latest Target Runners
+- [![Ubuntu x64 Build](https://github.com/mochimodev/mochimo/actions/workflows/build-ubuntu-x64.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/build-ubuntu-x64.yaml)
+- [![Ubuntu arm64 Build](https://github.com/mochimodev/mochimo/actions/workflows/build-ubuntu-arm64.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/build-ubuntu-arm64.yaml)
+- [![MacOS arm64 Build](https://github.com/mochimodev/mochimo/actions/workflows/build-macos-arm64.yaml/badge.svg)](https://github.com/mochimodev/mochimo/actions/workflows/build-macos-arm64.yaml)
+
+## System Preconfiguration
 - (CPU) Dual-core Processor
 - (RAM) 2GB of Random Access Memory
 - (SSD) 64GB of Solid State Drive Storage
@@ -64,25 +69,8 @@ To uninstall a Mochimo Node installed as a service, find your mochimo repositori
 [sudo] make uninstall -C ~/.mcm/repo/master
 ```
 
-## Build Manually
-Whatever the reason, build manually with:
-```sh
-# clone repository, if not already, and change directory
-git clone https://github.com/mochimodev/mochimo.git
-# (optionally) select a version
-git -C mochimo/ checkout v3.0.0
-# build mochimo to mochimo/bin/
-make -C mochimo/ mochimo
-```
-
-## Run Manually
-
-```sh
-mochimo/bin/gomochi
-```
-
 <hr><hr>
-<h1 align="center"><strong>MINER BUILD/USAGE</strong></h1>
+<h1 align="center"><strong>MINER INSTRUCTIONS</strong></h1>
 
 ## Build GPU Miner
 *GPU Miner ONLY supports SOLO mining with NVIDIA cards*<br/>

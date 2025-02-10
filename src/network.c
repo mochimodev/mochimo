@@ -449,9 +449,16 @@ int send_balance(NODE *np)
  */
 int send_ipl(NODE *np)
 {
-   int count = RPLISTLEN;
+   word32 count;
 
-   if (count > 32) count = 32;
+   /* count peers in Rplist */
+   for (count = 0; count < RPLISTLEN; count++) {
+      if (Rplist[count] == 0) break;
+   }
+   /* limit count to space available in buffer size */
+   if (count > (sizeof(np->tx.buffer) / sizeof(word32))) {
+      count = (sizeof(np->tx.buffer) / sizeof(word32));
+   }
    /* copy recent peer list to TX */
    memcpy(np->tx.buffer, Rplist, sizeof(word32) * count);
    put16(np->tx.len, sizeof(word32) * count);
@@ -901,69 +908,53 @@ bad2: pinklist(np->ip);
  * Qualifying Quorum members are placed in quorum[qlen].
  * Returns number of qualifying quorum members, or number of
  * consensus nodes on the highest chain, if quorum is NULL. */
-int scan_network
+int scan_quorum
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum)
 {
-   TX *tx;
    NODE node;
-   word32 done = 0;
-   word32 next = 0;
+   word32 peer;
+   word32 scanidx = 0;
    word32 qcount = 0;
-   word32 peer, *ipp;
-   word16 len;
+   int result;
    word8 highhash[HASHLEN] = { 0 };
    word8 highweight[32] = { 0 };
    word8 highbnum[8] = { 0 };
-   char weighthex[65], bnumhex[17];
-   int result;
+   char ipstr[16];
+   word16 len;
 
-   plog("begin network scan... ");
+   /* iterate through batches of peers */
+   plog("expand network peers... ");
+   while (Running && scanidx < Rplistidx) {
+      if (Rplistidx >= RPLISTLEN) break;
+      pdebug("scan progress %u/%u...", scanidx, Rplistidx);
 
-   OMP_PARALLEL_(private(tx, node, peer, ipp, len, result))
-   {
-      while (Running && next < RPLISTLEN && Rplist[next]) {
-         OMP_CRITICAL_()
-         {
-            peer = Rplist[next];
-            if (peer) next++;
-         }
-         /* idle condition */
-         if (peer == 0) {
-            if (done < next) {
-               millisleep(100);
-               continue;
-            }
-            break;
-         }
-         /* get ip list from peer */
+      /* prepare parallel processing scope, limit threads to 16 */
+      OMP_PARALLEL_(for num_threads(16) private(node, peer, len, ipstr))
+      for (word32 idx = scanidx; idx < Rplistidx; idx++) {
+         if (Rplistidx >= RPLISTLEN) continue;
+         /* get IP list from peer */
+         peer = Rplist[idx];
          if (get_ipl(&node, peer) == VEOK) {
-            /* get ip list from TX */
-            tx = &(node.tx);
-            len = get16(tx->len);
-            ipp = (word32 *) tx->buffer;
             OMP_CRITICAL_()
             {
-               /* iterate peerlist adding to recent peers */
-               for( ; len > 0; ipp++, len -= 4) {
-                  if (Rplistidx >= RPLISTLEN) break;
-                  if (*ipp == 0 || pinklisted(*ipp)) continue;
-                  addrecent(*ipp);
-               }
                /* check peer's chain weight against highweight */
-               result = cmp256(tx->weight, highweight);
-               if (result >= 0) {  /* higher or same chain detection */
-                  if (result > 0) {  /* higher chain detection */
+               result = cmp256(node.tx.weight, highweight);
+               if (result >= 0) {
+                  /* higher or same chain detected */
+                  if (result > 0) {
+                     /* higher chain detected */
                      pdebug("new highweight");
-                     memcpy(highhash, tx->cblockhash, HASHLEN);
-                     memcpy(highweight, tx->weight, 32);
-                     put64(highbnum, tx->cblock);
+                     memcpy(highhash, node.tx.cblockhash, HASHLEN);
+                     memcpy(highweight, node.tx.weight, 32);
+                     put64(highbnum, node.tx.cblock);
                      qcount = 0;
                      if (quorum) {
                         memset(quorum, 0, qlen);
                         pdebug("higher chain found, quourum reset...");
                      }
-                  }  /* check block hash and add to quorum */
-                  if (memcmp(tx->cblockhash, highhash, HASHLEN) >= 0) {
+                  }
+                  /* check block hash and add to quorum */
+                  if (memcmp(node.tx.cblockhash, highhash, HASHLEN) >= 0) {
                      /* add ip to quorum, or q consensus */
                      if (quorum && qcount < qlen) {
                         quorum[qcount++] = peer;
@@ -972,13 +963,26 @@ int scan_network
                   }
                }  /* end if higher or same chain */
             }  /* end OMP_CRITICAL_() */
-         }  /* end if get_ipl() == VEOK */
+            /* inspect peer list */
+            for (len = 0; len < get16(node.tx.len); len += 4) {
+               peer = *((word32 *) &node.tx.buffer[len]);
+               if (peer == 0 || pinklisted(peer)) continue;
+               /* add to recent list */
+               OMP_CRITICAL_()
+               if (Rplistidx < RPLISTLEN) {
+                  if (addpeer(peer, Rplist, RPLISTLEN, &Rplistidx)) {
+                     pdebug("Added %s to recent list", ntoa(&peer, ipstr));
+                  }
+               }
+            }
+         }  /* end if get_ipl() */
+         /* atomic increment scan index */
          OMP_ATOMIC_()
-            done++;
-      }  /* end while() */
-   }  /* end OMP_PARALLEL_() */
-   pdebug("qualifying weight 0x...%s", weight2hex(highweight, weighthex));
-   pdebug("qualifying block 0x%s", bnum2hex(highbnum, bnumhex));
+            scanidx++;
+      }  /* end OMP_PARALLEL_() */
+   }  /* end while() */
+   pdebug("qualifying weight 0x...%s", weight2hex(highweight, NULL));
+   pdebug("qualifying block 0x%s", bnum2hex(highbnum, NULL));
    pdebug("qualifying nodes %d...", qcount);
    print_ipl(quorum, qcount);
 
@@ -988,7 +992,7 @@ int scan_network
    if (bnum) put64(bnum, highbnum);
 
    return qcount;
-}  /* end scan_network() */
+}  /* end scan_quorum() */
 
 /* Refresh the ip list and send_found() to low-weight peer if needed.
  * Called from server().

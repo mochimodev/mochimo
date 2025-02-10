@@ -9,10 +9,10 @@ defaults:
     shell: bash
 on:
   push:
-    branches: [main, dev]
+    branches: [dev, master]
   pull_request:
     # pull_request branches MUST be a subset of push branches
-    branches: [main, dev]
+    branches: [dev, master]
 jobs:
   audit:
     runs-on: ubuntu-latest

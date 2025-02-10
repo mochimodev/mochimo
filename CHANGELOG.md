@@ -5,6 +5,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ***
 
+## [3.0.1] - February 10th, 2025
+
+The latest update focuses on improving GPU mining efficiency and network performance. Key improvements include moving (last half) nonce generation to GPU with parallel PRNG implementation, which significantly reduces CPU usage on multi-GPU systems. Network scanning was enhanced with better thread utilization and increased peer sharing capabilities. The update also includes several CUDA-specific improvements, such as error handling, device counting fixes, and migration to static runtime library for the miner. Development workflows were streamlined with individual build targets and updated CI/CD runners. Non-essential features like NVML support and testnet troubleshooting code were removed to improve codebase maintainability.
+
+### Added
+- Device launch parameters header for CUDA
+- Individual build target workflows in CI/CD
+- Links to Wallet and API releases in README
+- Manual execution instructions in README
+
+### Changed
+- Increased peer sharing capabilities beyond 32 peers
+- Improved CPU efficiency of GPU miner
+  - Moved nonce generation to GPU with parallel PRNG
+  - Better device handling and status output
+  - Stabilized hashrate display
+- Enhanced network scanning with better thread utilization
+- Updated CI/CD runners to latest versions
+- Changed CUDA runtime library to static version
+
+### Fixed
+- CUDA-specific error handling and checking
+- GPU miner (makefile) target dependencies
+- Sudo handling in setup script
+- CUDA device counting when no GPUs present
+- Bridge time check for GPU IDLE->WORK mode
+
+### Removed
+- NVML support (wasn't providing useful data)
+- Testnet troubleshooting from production code
+
 ## [3.0.0] - February 2nd, 2025
 
 Major improvements to Mochimo Addresses including Hash-based Leadger formatting, Base58 error checking perpetual account tags, and UX for account management. Improvements to transactions with the standard transaction capable of 256 destinations, each with their own reference, and easy implementation of additional Digital Signature Algortihms. Improvements to Merkle Root hash allowing for development of Transaction Receipts to validate a transaction was part of the chain without having access to the block data. Improvements to chain linkage and Tfile validation procedures. Improvements to network bandwidth with Variable (sized) Protocol Data Units.
@@ -234,13 +265,14 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/v3.0.0...HEAD
-[3.0.0]: https://github.com/adequatesystems/build-c/compare/v2.4.3...v3.0.0
-[2.4.3]: https://github.com/adequatesystems/build-c/compare/v2.4.2...v2.4.3
-[2.4.2]: https://github.com/adequatesystems/build-c/compare/v2.4.1...v2.4.2
-[2.4.1]: https://github.com/adequatesystems/build-c/compare/v2.4...v2.4.1
-[2.4.0]: https://github.com/adequatesystems/build-c/compare/v2.3...v2.4
-[2.3.0]: https://github.com/adequatesystems/build-c/compare/v2.2...v2.3
-[2.2.0]: https://github.com/adequatesystems/build-c/compare/v2.1...v2.2
-[2.1.0]: https://github.com/adequatesystems/build-c/compare/v2.0...v2.1
-[2.0.0]: https://github.com/adequatesystems/build-c/releases/tag/v2.0
+[Unreleased]: https://github.com/mochimodev/mochimo/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/mochimodev/mochimo/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/mochimodev/mochimo/compare/v2.4.3...v3.0.0
+[2.4.3]: https://github.com/mochimodev/mochimo/compare/v2.4.2...v2.4.3
+[2.4.2]: https://github.com/mochimodev/mochimo/compare/v2.4.1...v2.4.2
+[2.4.1]: https://github.com/mochimodev/mochimo/compare/v2.4...v2.4.1
+[2.4.0]: https://github.com/mochimodev/mochimo/compare/v2.3...v2.4
+[2.3.0]: https://github.com/mochimodev/mochimo/compare/v2.2...v2.3
+[2.2.0]: https://github.com/mochimodev/mochimo/compare/v2.1...v2.2
+[2.1.0]: https://github.com/mochimodev/mochimo/compare/v2.0...v2.1
+[2.0.0]: https://github.com/mochimodev/mochimo/releases/tag/v2.0

@@ -377,7 +377,7 @@ int init(void)
       shuffle32(Rplist, RPLISTLEN);
       /* scan network for quorum and highest hash/weight/bnum */
       plog("Init network...");
-      qlen = scan_network(quorum, MAXQUORUM, nethash, netweight, netbnum);
+      qlen = scan_quorum(quorum, MAXQUORUM, nethash, netweight, netbnum);
       plog(" - %d/%d 0x%s 0x...%s", qlen, MAXQUORUM,
          bnum2hex(netbnum, bnumhex), weight2hex(netweight, weighthex));
       if (qlen == 0) break; /* all alone... */

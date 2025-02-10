@@ -1,0 +1,16 @@
+
+name: Ubuntu x64
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Make Mochimo Install
+        run: make mochimo -C ${{ github.workspace }}

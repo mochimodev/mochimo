@@ -913,7 +913,7 @@ MCM_DECL_UNUSED
                         if (get32(bt->bnum) != get32(BT_curr.bnum)) {
                            total = 0.0;
                            /* report block summary */
-                           plog("Old work stats; %u(0x%x), diff:%u",
+                           plog("Work summary; block %u(0x%x), difficulty %u",
                               get32(bt->bnum), get32(bt->bnum), bt->difficulty[0]);
                            /* print block work stats and hashrate per device */
                            for (int idx = 0; idx < device_count; idx++) {
