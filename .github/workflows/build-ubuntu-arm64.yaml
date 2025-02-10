@@ -1,5 +1,5 @@
 
-name: Ubuntu 24.04 (arm64)
+name: Ubuntu arm64
 on:
   push:
     branches: [master, dev]
