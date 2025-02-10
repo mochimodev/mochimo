@@ -1,9 +1,5 @@
-##
-# builds.yaml - Build workflow for testing software builds.
-# Copyright 2021-2025 Adequate Systems, LLC. All Rights Reserved.
-#
 
-name: Ubuntu Build
+name: Ubuntu 24.04 (x64)
 on:
   push:
     branches: [master, dev]
@@ -11,8 +7,8 @@ on:
     branches: [master, dev]
   workflow_dispatch:
 jobs:
-  mochimo:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
