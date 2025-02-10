@@ -234,13 +234,13 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/adequatesystems/build-c/compare/v3.0.0...HEAD
-[3.0.0]: https://github.com/adequatesystems/build-c/compare/v2.4.3...v3.0.0
-[2.4.3]: https://github.com/adequatesystems/build-c/compare/v2.4.2...v2.4.3
-[2.4.2]: https://github.com/adequatesystems/build-c/compare/v2.4.1...v2.4.2
-[2.4.1]: https://github.com/adequatesystems/build-c/compare/v2.4...v2.4.1
-[2.4.0]: https://github.com/adequatesystems/build-c/compare/v2.3...v2.4
-[2.3.0]: https://github.com/adequatesystems/build-c/compare/v2.2...v2.3
-[2.2.0]: https://github.com/adequatesystems/build-c/compare/v2.1...v2.2
-[2.1.0]: https://github.com/adequatesystems/build-c/compare/v2.0...v2.1
-[2.0.0]: https://github.com/adequatesystems/build-c/releases/tag/v2.0
+[Unreleased]: https://github.com/mochimodev/mochimo/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/mochimodev/mochimo/compare/v2.4.3...v3.0.0
+[2.4.3]: https://github.com/mochimodev/mochimo/compare/v2.4.2...v2.4.3
+[2.4.2]: https://github.com/mochimodev/mochimo/compare/v2.4.1...v2.4.2
+[2.4.1]: https://github.com/mochimodev/mochimo/compare/v2.4...v2.4.1
+[2.4.0]: https://github.com/mochimodev/mochimo/compare/v2.3...v2.4
+[2.3.0]: https://github.com/mochimodev/mochimo/compare/v2.2...v2.3
+[2.2.0]: https://github.com/mochimodev/mochimo/compare/v2.1...v2.2
+[2.1.0]: https://github.com/mochimodev/mochimo/compare/v2.0...v2.1
+[2.0.0]: https://github.com/mochimodev/mochimo/releases/tag/v2.0
