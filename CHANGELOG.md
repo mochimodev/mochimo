@@ -5,6 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ***
 
+## [3.0.2] - February 11th, 2025
+
+This release focuses on improving the build system compatibility and CI/CD workflows. Key changes include build fixes for Ubuntu 20.04 systems and refined GitHub Actions workflows for better release management and code quality checks.
+
+### Added
+- Release workflow for attaching miner binary to GitHub releases
+- Build system compatibility with Ubuntu 20.04
+  - Added libdl and librt dependencies for cudart_static
+
+### Changed
+- Refined CI/CD workflow triggers
+  - Build workflows now only trigger on version tags, pull requests, and manual triggers
+- Updated CodeQL analysis
+  - Upgraded to CodeQL Action v3
+  - Configured to use security-and-quality suite only
+  - Enhanced query suite options for database analysis
+
 ## [3.0.1] - February 10th, 2025
 
 The latest update focuses on improving GPU mining efficiency and network performance. Key improvements include moving (last half) nonce generation to GPU with parallel PRNG implementation, which significantly reduces CPU usage on multi-GPU systems. Network scanning was enhanced with better thread utilization and increased peer sharing capabilities. The update also includes several CUDA-specific improvements, such as error handling, device counting fixes, and migration to static runtime library for the miner. Development workflows were streamlined with individual build targets and updated CI/CD runners. Non-essential features like NVML support and testnet troubleshooting code were removed to improve codebase maintainability.
@@ -265,7 +282,8 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/mochimodev/mochimo/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/mochimodev/mochimo/compare/v3.0.2...HEAD
+[3.0.2]: https://github.com/mochimodev/mochimo/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/mochimodev/mochimo/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/mochimodev/mochimo/compare/v2.4.3...v3.0.0
 [2.4.3]: https://github.com/mochimodev/mochimo/compare/v2.4.2...v2.4.3
