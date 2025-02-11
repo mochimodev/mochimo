@@ -29,24 +29,23 @@ jobs:
       fail-fast: false
       matrix:
         language: [ 'c-cpp' ]
-        query-suite: [ 'security', 'security-extended', 'security-and-quality' ]
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-        queries: ${{ matrix.query-suite }}
+        queries: security-and-quality
 
     - name: Build Project
       run: |
         make all -C ${{ github.workspace }}
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{ matrix.language }}"
         upload: true
