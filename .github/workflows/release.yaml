@@ -11,7 +11,6 @@ defaults:
 jobs:
   miner:
     runs-on: ubuntu-20.04
-    needs: release
     steps:
       - name: Setup CUDA 12.8
         run: | # CUDA 12.8 on Ubuntu-20.04 for NVIDIA 570.86.10 (Blackwell)
