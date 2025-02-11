@@ -1,11 +1,17 @@
 
 name: Ubuntu x64
+
+defaults:
+  run:
+    shell: bash
+
 on:
   push:
-    branches: [master, dev]
-  pull_request:
-    branches: [master, dev]
-  workflow_dispatch:
+    tags:
+      - 'v*'  # Trigger on "version" tags
+  pull_request: # Trigger on PRs from any branch
+  workflow_dispatch: # Allow manual trigger
+
 jobs:
   build:
     runs-on: ubuntu-latest
