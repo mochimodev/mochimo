@@ -1,46 +1,52 @@
 ##
-# codeql.yaml - CodeQL workflow for static code analysis.
-# Copyright 2021-2022 Adequate Systems, LLC. All Rights Reserved.
+# codeql.yaml
+# CodeQL workflow for static code analysis.
 #
 
 name: CodeQL
+
+on:
+  push:
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+
 defaults:
   run:
     shell: bash
-on:
-  push:
-    branches: [dev, master]
-  pull_request:
-    # pull_request branches MUST be a subset of push branches
-    branches: [dev, master]
+
 jobs:
-  audit:
+  analyze:
+    name: Analysis
     runs-on: ubuntu-latest
     permissions:
       security-events: write
       # actions and contents are only required for private repo
       #actions: read
       #contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'c-cpp' ]
+        query-suite: [ 'security', 'security-extended', 'security-and-quality' ]
+
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
+
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v1
+      uses: github/codeql-action/init@v2
       with:
-        languages: 'cpp'
-        # If necessary, multiple languages can be setup with a matrix strategy.
-        # Support: [ 'cpp', 'csharp', 'go', 'java', 'javascript', 'python' ]
-    - name: Make project files
+        languages: ${{ matrix.language }}
+        queries: ${{ matrix.query-suite }}
+
+    - name: Build Project
       run: |
         make all -C ${{ github.workspace }}
+
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v1
-    - name: Check CodeQL Analysis
-      run: |
-        results="${{ github.workspace }}/../results/cpp.sarif"
-        resultsArray=($(cat $results | jq -r '.runs[].results[].ruleId'))
-        if test ${#resultsArray[@]} -gt 0; then
-            echo -e "\nCodeQL Analysis found problems that need addressing..."
-            echo -e "Details in Repository->Security->Code scanning alerts.\n"
-            exit -1
-        fi
+      uses: github/codeql-action/analyze@v2
+      with:
+        category: "/language:${{ matrix.language }}"
+        upload: true
