@@ -1,0 +1,42 @@
+name: release
+
+on:
+  release:
+    types: [created]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  miner:
+    runs-on: ubuntu-20.04
+    needs: release
+    steps:
+      - name: Setup CUDA 12.8
+        run: | # CUDA 12.8 on Ubuntu-20.04 for NVIDIA 570.86.10 (Blackwell)
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda-toolkit-12-8
+
+      - name: Checkout Mochimo
+        uses: actions/checkout@v3
+        with:
+          repository: mochimodev/mochimo
+          fetch-depth: 0
+
+      - name: Build/Package Miner Binaries
+        run: |
+          make miner NVCCARGS=-arch=sm_61
+          mv bin/gpuminer mcmminer-pascal
+          make clean miner
+          mv bin/gpuminer mcmminer
+          tar -zcvf mcmminer-${{ github.event.release.tag_name }}.ubuntu.cuda-12.8-570.86.10.tar.gz mcmminer*
+
+      - name: Upload release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ github.token }}
+          file: mcmminer-${{ github.event.release.tag_name }}.ubuntu.cuda-12.8-570.86.10.tar.gz
+          tag: ${{ github.ref }}
