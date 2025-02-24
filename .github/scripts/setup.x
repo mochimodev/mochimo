@@ -74,8 +74,11 @@ git_C() {
 }
 
 git_update() {
-   # obtain the latest branch state
-   git_C fetch && git_C checkout $BRANCH && git_C pull || \
+   # checkout the specified branch...
+   git_C fetch && git_C checkout $BRANCH || \
+      return $? # return failures
+   # ... pull latest branch state (if not detached)
+   test $(git_C branch --show-current) == $BRANCH && git_C pull || \
       return $? # return failures
 
    # rewind to last tag if not branch request
