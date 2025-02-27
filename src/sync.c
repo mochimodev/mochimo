@@ -219,6 +219,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    show("gettfile");  /* get tfile */
    pdebug("fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
+   pdebug("... this is a large file, please be patient !!!");
    while(Running && *quorum) {
       remove("tfile.dat");
       if (get_file(*quorum, NULL, "tfile.tmp") == VEOK) {
@@ -232,7 +233,9 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    if (!Running) resign("gettfile exiting");
 
    show("tfval");  /* validate tfile */
-   pdebug("validating tfile...");
+   /* do some quick maths to estimate time for tfile validation */
+   pdebug("validating tfile (est. %u seconds)...",
+      (word32) (*((word64 *) highbnum) / 400 / OMP_NUM_THREADS));
    if (validate_tfile("tfile.dat", bnum, weight, 0) != VEOK) {
       remove("tfile.dat.fail");
       rename("tfile.dat", "tfile.dat.fail");
