@@ -916,6 +916,8 @@ int scan_quorum
    word32 peer;
    word32 scanidx = 0;
    word32 qcount = 0;
+   word32 netplist[1024];
+   word32 netplistidx = 0;
    int result;
    word8 highhash[HASHLEN] = { 0 };
    word8 highweight[32] = { 0 };
@@ -923,18 +925,24 @@ int scan_quorum
    char ipstr[16];
    word16 len;
 
+   /* copy current recent peers to netplist */
+   for (word32 idx = 0; idx < RPLISTLEN && netplistidx < 1024; idx++) {
+      if (Rplist[idx] == 0) break;
+      if (addpeer(Rplist[idx], netplist, 1024, &netplistidx)) {
+         pdebug("Added %s to netplist", ntoa(&Rplist[idx], ipstr));
+      }
+   }
+
    /* iterate through batches of peers */
    plog("expand network peers... ");
-   while (Running && scanidx < Rplistidx) {
-      if (Rplistidx >= RPLISTLEN) break;
-      pdebug("scan progress %u/%u...", scanidx, Rplistidx);
+   while (Running && scanidx < netplistidx) {
+      pdebug("scan index %u/%u...", scanidx, netplistidx);
 
-      /* prepare parallel processing scope, limit threads to 16 */
-      OMP_PARALLEL_(for num_threads(16) private(node, peer, len, ipstr))
-      for (word32 idx = scanidx; idx < Rplistidx; idx++) {
-         if (Rplistidx >= RPLISTLEN) continue;
+      /* prepare parallel processing scope */
+      OMP_PARALLEL_(for private(node, peer, len, ipstr))
+      for (word32 idx = scanidx; idx < netplistidx; idx++) {
          /* get IP list from peer */
-         peer = Rplist[idx];
+         peer = netplist[idx];
          if (get_ipl(&node, peer) == VEOK) {
             OMP_CRITICAL_()
             {
@@ -965,15 +973,23 @@ int scan_quorum
                }  /* end if higher or same chain */
             }  /* end OMP_CRITICAL_() */
             /* inspect peer list */
-            for (len = 0; len < get16(node.tx.len); len += 4) {
+            for (len = 0, result = 0; len < get16(node.tx.len); len += 4) {
+               if (netplistidx >= 1024) break;
+               /* check (and recognise contribution of) valid peers */
                peer = *((word32 *) &node.tx.buffer[len]);
                if (peer == 0 || pinklisted(peer)) continue;
-               /* add to recent list */
+               if (!isprivate(peer) || !Noprivate) result++;
+               /* add to network list */
                OMP_CRITICAL_()
-               if (Rplistidx < RPLISTLEN) {
-                  if (addpeer(peer, Rplist, RPLISTLEN, &Rplistidx)) {
-                     pdebug("Added %s to recent list", ntoa(&peer, ipstr));
-                  }
+               if (addpeer(peer, netplist, 1024, &netplistidx)) {
+                  pdebug("Added %s to netplist", ntoa(&peer, ipstr));
+               }
+            }
+            /* add peer to recent peers on contribution */
+            if (result) {
+               OMP_CRITICAL_()
+               if (addpeer(peer, Rplist, RPLISTLEN, &Rplistidx)) {
+                  pdebug("Added %s to Rplist", ntoa(&peer, ipstr));
                }
             }
          }  /* end if get_ipl() */

@@ -30,7 +30,11 @@
    #define OMP_CRITICAL_(X) DO_PRAGMA(omp critical X)
    #define OMP_ATOMIC_(X)   DO_PRAGMA(omp atomic X)
    #define OMP_SINGLE_(X)   DO_PRAGMA(omp single X)
-   #define OMP_FOR_(X)      DO_PRAGMA(omp for X)
+
+   /* define number of threads */
+   #ifndef OMP_NUM_THREADS
+      #define OMP_NUM_THREADS omp_get_num_procs()
+   #endif
 
 #else
    /* OpenMP not supported */
@@ -38,7 +42,11 @@
    #define OMP_CRITICAL_(X)
    #define OMP_ATOMIC_(X)
    #define OMP_SINGLE_(X)
-   #define OMP_FOR_(X)
+
+   /* define single thread */
+   #ifndef OMP_NUM_THREADS
+      #define OMP_NUM_THREADS 1
+   #endif
 
 #endif
 
