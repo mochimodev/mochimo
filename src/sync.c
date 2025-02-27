@@ -539,11 +539,11 @@ int contention(NODE *np)
    /* read our Tfile data and compare their low trailer -- MUST MATCH */
    if (read_tfile(our_bt, bt->bnum, NTFTX, "tfile.dat") <= 0) {
       perrno("read_tfile() FAILURE");
-      return 0;
+      return (-1);
    }
    if (memcmp(bt, our_bt, sizeof(BTRAILER)) != 0) {
       pdebug("Trailer mismatch");
-      return 0;
+      return (-1);
    }
 
    /* compute previous weight for add_weight() */

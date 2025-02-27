@@ -867,6 +867,7 @@ int gettx(NODE *np, SOCKET sd)
          /* getblock child, catchup, re-sync, or ignore */
          if(Blockfound) return 1;  /* Already found one so ignore.  */
          status = contention(np);  /* Do we want this block? */
+         if (status == (-1)) pwarn("node may require restart to sync...");
          if(status != 1) return 1; /* nothing to do: contention() fixed it */
 
          /* Get block */
