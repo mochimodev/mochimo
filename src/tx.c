@@ -550,8 +550,7 @@ static int mdst_val(const TXENTRY *txe)
    for (j = 0; j < count; j++) {
       if (j > 0) {
          /* check sort -- allow duplicates */
-         if (tag_compare(mdst[j].tag, mdst[j - 1].tag) < 0 \
-            || memcmp(mdst[j].ref, mdst[j - 1].ref, ADDR_REF_LEN) < 0) {
+         if (memcmp(&mdst[j], &mdst[j - 1], sizeof(MDST)) < 0) {
             set_errno(EMCM_TXMDSTSORT);
             return VEBAD;
          }
