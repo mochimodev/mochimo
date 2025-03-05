@@ -386,7 +386,7 @@ int network_recv_cblock(void)
 
    /* obtain latest cblock */
    fp = tmpfile();
-   if (fp == NULL) goto ERROR_CLEANUP;
+   if (fp == NULL) return VERROR;
    ecode = callserver(&node, Rplist[0]);
    if (ecode == VEOK) ecode = send_op(&node, OP_GET_CBLOCK);
    if (ecode == VEOK) ecode = recv_fp(&node, fp);
