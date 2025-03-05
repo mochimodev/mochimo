@@ -25,10 +25,10 @@ SUBSOURCEDIRS := $(addsuffix /$(SOURCEDIR),$(SUBDIRS))
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null)
 VERSION := \"$(or $(VERSION),$(shell date +u%g%j))\" # untracked version
 
-# compilers
-NVCC := $(if $(NO_CUDA),,$(shell ls $(CUDADIR)/bin/nvcc 2>/dev/null | head -n 1))
-GCC := $(shell ls /usr/{,local/}bin/gcc-[0-9]* 2>/dev/null | sort -t- -k2,2V | tail -n 1)
-CC := $(or $(GCC),$(CC)) # some systems alias gcc elsewhere
+# additional compilers
+NVCC := $(if $(NO_CUDA),,$(or $(shell command -v nvcc), $(CUDADIR)/bin/nvcc))
+# ... to use latest available gcc compiler do:
+#	export CC=`ls /usr/{,local/}bin/gcc-[0-9]* 2>/dev/null | sort -t- -k2,2V | tail -n 1`
 
 # source files: test (base/cuda), base, cuda
 BCSRCS:= $(sort $(wildcard $(BINSOURCEDIR)/*.c))
@@ -80,7 +80,7 @@ NVCCFLAGS := $(IFLAGS) $(DFLAGS) $(NVCFLAGS) $(NVCCARGS)
 ################################################################
 
 .SUFFIXES: # disable rules predefined by MAKE
-.PHONY: all clean coverage docs help library test
+.PHONY: all clean coverage debug docs help library test
 
 # default rule builds (local) library file containing all objects
 all: $(SOURCEDIR) $(SUBLIBRARYFILES) $(LIBRARYFILE)
@@ -93,6 +93,12 @@ clean:
 # build test coverage (requires lcov); depends on coverage file
 coverage: $(COVERAGE)
 	genhtml $(COVERAGE) --output-directory $(BUILDDIR)
+
+# debug GNUmakefile variables
+debug:
+	@$(foreach V,$(sort $(.VARIABLES)),\
+		$(if $(filter-out environment% default automatic, $(origin $V)),\
+			$(info $V = $($V))))
 
 # build documentation files (requires doxygen)
 docs:
@@ -129,6 +135,7 @@ help:
 	@echo '   make [all]       build all object files into a library'
 	@echo '   make clean       remove build files (incl. within submodules)'
 	@echo '   make coverage    build test coverage file and generate report'
+	@echo '   make debug       display all GNUmakefile variables'
 	@echo '   make docs        build documentation files'
 	@echo '   make echo-*      show the value of a variable matching *'
 	@echo '   make help        prints this usage information'
