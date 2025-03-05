@@ -74,11 +74,10 @@
 /* Windows support */
 #ifdef _WIN32
    #pragma comment(lib, "Comdlg32.lib")
+   #pragma comment(lib, "Advapi32.lib")
    #include <commdlg.h> /* for GetOpenFileName() */
    #include "win32lean.h"
    #include <wincrypt.h>
-   #define getpid()  _getpid()
-   #define pid_t     int
 
 #else
    #include <execinfo.h>   /* for backtrace() */
@@ -161,7 +160,7 @@ void open_dialog(char *filepath, size_t len)
    filepath[0] = '\0';
    ofn.lStructSize = sizeof(OPENFILENAME);
    ofn.lpstrFile = filepath;
-   ofn.nMaxFile = len;
+   ofn.nMaxFile = (DWORD) len;
    ofn.lpstrTitle = "Select Mochimo address file...";
    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
    GetOpenFileName((LPOPENFILENAME) &ofn);
@@ -221,7 +220,8 @@ void check_push_peers(void)
 {
    /* function scope */
    word32 allpeers[RPLISTLEN], allidx, scanidx;
-   word32 pushpeers[RPLISTLEN], pushidx;
+   word32 pushpeers[RPLISTLEN], pushidx, idx;
+
    /* thread local scope */
    NODE node;
    word32 peer;
@@ -252,7 +252,7 @@ void check_push_peers(void)
 
       /* prepare parallel processing scope */
       #pragma omp for private(node, peer, len, ipstr)
-      for (word32 idx = scanidx; idx < allidx; idx++) {
+      for (idx = scanidx; idx < allidx; idx++) {
          /* get IP list from peer */
          if (get_ipl(&node, allpeers[idx]) == VEOK) {
             /* check compatibility */
@@ -937,15 +937,17 @@ MCM_DECL_UNUSED
                         ntoa(Rplist, NULL), Dstport, get32(BT_curr.bnum),
                         get32(BT_curr.bnum), BT_curr.difficulty[0],
                         hash2hex32(BT_curr.mroot, NULL));
-                  } else if (errno != EAGAIN) {
-                     perrno("network_recv_cblock() FAILURE");
+                  } else {
+                     ecode = sock_errno;
+                     if (ecode && !sock_waiting(ecode)) {
+                        perrno("network_recv_cblock() FAILURE");
+                     }
                   }
                } else {
                   perrno("network_send_solve() FAILURE");
                }
                /* wait for work, sleepy time (5 second timeout)... */
-               ecode = condition_timedwait(&Salarm, &Slock, interval_ms);
-               if (ecode != 0 && errno != CONDITION_TIMEOUT) {
+               if (condition_timedwait(&Salarm, &Slock, interval_ms)) {
                   perrno("CONDITION FAILURE");
                   Running = 0;
                   break;

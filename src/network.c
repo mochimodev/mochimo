@@ -30,6 +30,11 @@
 #include "extinet.h"
 #include "crc16.h"
 
+#ifdef _WIN32
+#define getpid()  ((int) GetCurrentProcessId())
+
+#endif
+
 #define valid_op(op)  ((op) >= FIRST_OP && (op) <= LAST_OP)
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
 #define can_fork_tx() (Nonline <= (MAXNODES - 5))
@@ -97,6 +102,8 @@ int freeslot(NODE *np)
    return VEOK;
 }  /* end freeslot() */
 
+#ifndef _WIN32
+
 /* Return child status of pid.
  * Add peer ip to lists if needed.
  * Increment counts.
@@ -120,6 +127,8 @@ int child_status(NODE *np, pid_t pid, int status)
    return 1;  /* error if child caught signal */
 }  /* end child_status() */
 
+#endif /* !_WIN32 */
+
 /**
  * Receive next packet from NODE *np.
  * SOCKET np->sd is already set non-blocking.
@@ -142,7 +151,7 @@ int recv_tx(NODE *np, double timeout)
 #define recv_len(lenp) ( TXHDRLEN + get16((lenp)) + TXTLRLEN )
    len = recv_len(tx->len);
    for (n = 0; n < len; n += count, len = recv_len(tx->len)) {
-      count = recv(np->sd, (word8 *) tx + n, len - n, 0);
+      count = recv(np->sd, (char *) tx + n, len - n, 0);
       switch (count) {
          case (-1): {
             if (sock_waiting(sock_errno)) {
@@ -292,7 +301,7 @@ int send_tx(NODE *np, double timeout)
 
    len = TXHDRLEN + get16(tx->len) + TXTLRLEN;
    for (n = 0; n < len; n += count) {
-      count = send(np->sd, (word8 *) tx + n, len - n, 0);
+      count = send(np->sd, (char *) tx + n, len - n, 0);
       switch (count) {
          case (-1): {
             if (sock_waiting(sock_errno)) {
@@ -320,7 +329,7 @@ int send_tx(NODE *np, double timeout)
 }  /* end send_tx() */
 
 
-int send_op(NODE *np, int opcode)
+int send_op(NODE *np, word16 opcode)
 {
    put16(np->tx.opcode, opcode);
    return send_tx(np, STD_TIMEOUT);
@@ -358,7 +367,7 @@ int send_nack(NODE *np, int errnum)
    mcm_strerror(errnum, error + 8 + 32, 256);
 
    /* check length of description and send NACK */
-   put16(np->tx.len, 8 + 32 + strlen(error + 40) + 1);
+   put16(np->tx.len, (word16) (8 + 32 + strlen(error + 40) + 1));
    return send_op(np, OP_NACK);
 }  /* end send_nack() */
 
@@ -461,7 +470,7 @@ int send_ipl(NODE *np)
    }
    /* copy recent peer list to TX */
    memcpy(np->tx.buffer, Rplist, sizeof(word32) * count);
-   put16(np->tx.len, sizeof(word32) * count);
+   put16(np->tx.len, (word16) (sizeof(word32) * count));
    return send_op(np, OP_SEND_IPL);  /* send ip list */
 }
 
@@ -518,6 +527,8 @@ int send_identify(NODE *np)
    put16(np->tx.len, (word16) strlen((char *) np->tx.buffer));
    return send_op(np, OP_IDENTIFY);
 }
+
+#ifndef _WIN32
 
 /* Creates child to send OP_FOUND to all recent peers */
 int send_found(void)
@@ -591,6 +602,8 @@ bad:
 
    exit(0);
 }  /* end send_found() */
+
+#endif /* !_WIN32 */
 
 /**
  * Call peer and complete Three-Way handshake */
@@ -778,6 +791,8 @@ int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash)
    return VEOK;
 }  /* end get_hash() */
 
+#ifndef _WIN32
+
 /**
  * Handle an incoming packets from the Mochimo network. Reads a TX structure
  * from SOCKET sd.  Handles 3-way handshake and validates crc and id's.
@@ -902,6 +917,8 @@ bad2: pinklist(np->ip);
    return VEBAD;
 }  /* end gettx() */
 
+#endif /* !_WIN32 */
+
 /**
  * Perform a network scan, refreshing Rplist[] with available nodes.
  * The highest advertised network hash, weight and bnum is placed in
@@ -913,6 +930,7 @@ int scan_quorum
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum)
 {
    NODE node;
+   word32 idx;
    word32 peer;
    word32 scanidx = 0;
    word32 qcount = 0;
@@ -940,11 +958,11 @@ int scan_quorum
 
       /* prepare parallel processing scope */
       OMP_PARALLEL_(for private(node, peer, len, ipstr))
-      for (word32 idx = scanidx; idx < netplistidx; idx++) {
+      for (idx = scanidx; idx < netplistidx; idx++) {
          /* get IP list from peer */
          peer = netplist[idx];
          if (get_ipl(&node, peer) == VEOK) {
-            OMP_CRITICAL_()
+            OMP_CRITICAL_(NO_ARGS)
             {
                /* check peer's chain weight against highweight */
                result = cmp256(node.tx.weight, highweight);
@@ -980,21 +998,21 @@ int scan_quorum
                if (peer == 0 || pinklisted(peer)) continue;
                if (!isprivate(peer) || !Noprivate) result++;
                /* add to network list */
-               OMP_CRITICAL_()
+               OMP_CRITICAL_(NO_ARGS)
                if (addpeer(peer, netplist, 1024, &netplistidx)) {
                   pdebug("Added %s to netplist", ntoa(&peer, ipstr));
                }
             }
             /* add peer to recent peers on contribution */
             if (result) {
-               OMP_CRITICAL_()
+               OMP_CRITICAL_(NO_ARGS)
                if (addpeer(peer, Rplist, RPLISTLEN, &Rplistidx)) {
                   pdebug("Added %s to Rplist", ntoa(&peer, ipstr));
                }
             }
          }  /* end if get_ipl() */
          /* atomic increment scan index */
-         OMP_ATOMIC_()
+         OMP_ATOMIC_(NO_ARGS)
             scanidx++;
       }  /* end OMP_PARALLEL_() */
    }  /* end while() */
@@ -1018,7 +1036,8 @@ int scan_quorum
 int refresh_ipl(void)
 {
    NODE node;
-   int j, count;
+   size_t count;
+   int j;
    word32 ip, *ipp;
    word16 len;
    TX tx;
@@ -1048,7 +1067,7 @@ int refresh_ipl(void)
       if (read_tfile(tx.buffer, Cblocknum, 54, "tfile.dat") == 0) goto FAIL;
       if(callserver(&node, ip) != VEOK) goto FAIL;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
-      put16(node.tx.len, (word16) count * sizeof(BTRAILER));
+      put16(node.tx.len, (word16) (count * sizeof(BTRAILER)));
       send_op(&node, OP_FOUND);
       sock_close(node.sd);
    }

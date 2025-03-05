@@ -16,18 +16,19 @@
 #include "extio.h"
 #include <time.h>
 
-/* internal helper MACROs */
-#define VA_NUMBER 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, \
-   50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, \
-   33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, \
-   16, 15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
-#define VA_SELECT(_1,  _2,  _3,  _4,  _5,  _6,  _7,  _8,  _9, _10, _11, \
-   _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, \
-   _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, \
-   _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, \
-   _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, N, ...) N
-#define VA_SHIFT(...) VA_SELECT(__VA_ARGS__)
-#define VA_COUNT(...) VA_SHIFT(__VA_ARGS__, VA_NUMBER)
+/* macro helpers; clean va args counter based on Eric Raible's answer at:
+ * https://stackoverflow.com/questions/66556552/a-way-to-count-the-number-of-va-args-arguments-including-0-without-compile
+*/
+#define ALEN_(array)    ( sizeof(array) / sizeof(*array) )
+#define ARGC_ARGV_(cla) ALEN_(cla) - 1, cla + (ALEN_(cla) > 1)
+
+/**
+ * Convert __VA_ARGS__ into "int argc, char *argv[]" for use in functions.
+ * @warning This MACRO is not designed to handle zero arguments.
+ * @param ... Arguments to convert into argc, argv[]
+ * @returns int argc, char *argv[]
+*/
+#define ARGC_ARGV(...)  ARGC_ARGV_(((char*[]){"", __VA_ARGS__}))
 
 /* Mochimo declaration MACROs; compiler specific */
 #if defined(__GNUC__) || defined(__clang__)
@@ -63,6 +64,8 @@
 
 #endif
 
+#define OS_PATH_SEP PREFERRED_PATH_SEP
+
 typedef char FILENAME[FILENAME_MAX];
 
 /* STATIC ASSERTION MACRO, for compile time assertion. */
@@ -85,7 +88,7 @@ typedef char FILENAME[FILENAME_MAX];
  * @param ... Strings to join together
 */
 #define path_join(path, ...) \
-   path_join_count(path, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+   path_join_count(path, ARGC_ARGV(__VA_ARGS__))
 
 /**
  * Print an alert level log.
@@ -299,7 +302,7 @@ char *hash2hex32(word8 hash[4], char hex[9]);
 char *metric_reduce(double *value);
 char *op2str(unsigned op);
 char *ve2str(int ve);
-char *path_join_count(char path[FILENAME_MAX], int count, ...);
+char *path_join_count(FILENAME path, int argc, char *argv[]);
 char *mcm_strerror(int errnum, char *buf, size_t bufsz);
 char *mcm_strerrorname(int errnum, char *buf, size_t bufsz);
 unsigned int perrcount(void);

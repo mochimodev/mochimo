@@ -30,8 +30,15 @@
 #include <signal.h>
 #include <string.h>
 
+#ifdef _WIN32
+   #include <io.h>   /* for _chsize_s() */
+   #define ftruncate_stream(fp, len) _chsize_s(_fileno(fp), len)
+#else
+   #define ftruncate_stream(fp, len) ftruncate(fileno(fp), len)
+#endif
+
 /* (long running) Proof of Work interrupt handler */
-static word8 POW_interrupt_signal_;
+static int POW_interrupt_signal_;
 static void POW_interrupt_(int sig)
 {
    POW_interrupt_signal_ = sig;
@@ -318,7 +325,9 @@ int read_trailer(BTRAILER *bt, const char *file)
    /* open file and read Trailer */
    fp = fopen(file, "rb");
    if (fp == NULL) return VERROR;
-   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fseek64(fp, -((long long) sizeof(BTRAILER)), SEEK_END) != 0) {
+      goto ERROR_CLEANUP;
+   }
    if (fread(bt, sizeof(BTRAILER), 1, fp) != 1) {
       if (ferror(fp)) goto ERROR_CLEANUP;
    }
@@ -505,12 +514,8 @@ int trim_tfile(const char* tfile, const word8 highbnum[8])
       goto ERROR_CLEANUP;
    }
 
-#ifdef _WIN32
-   #define ftruncate(fd, len) _chsize_s(fd, len)
-#endif
-
    /* truncate file at current position */
-   if (ftruncate(fileno(fp), ftell64(fp)) != 0) goto ERROR_CLEANUP;
+   if (ftruncate_stream(fp, ftell64(fp)) != 0) goto ERROR_CLEANUP;
 
    /* cleanup */
    fclose(fp);
@@ -824,10 +829,8 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
    void (*SIGINT_old)(int);
    BTRAILER bt;
    long long len, skip;
-   int ecode, errnum;
-
-   /* init */
-   ecode = VEOK;
+   int ecode = VEOK;
+   int errnum = 0;
 
    /* seek to EOF for Tfile length */
    fseek64(fp, 0LL, SEEK_END);
@@ -852,7 +855,7 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
    {
       while (ecode == VEOK) {
          if (POW_interrupt_signal_) break;
-         OMP_CRITICAL_()
+         OMP_CRITICAL_(NO_ARGS)
          {
             if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
                ecode = VEWAITING;
@@ -868,7 +871,7 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
          if (bt.bnum[0] == 0 || get32(bt.tcount) == 0) continue;
          /* validate trailer Proof-of-Work */
          if (validate_pow(&bt) != VEOK) {
-            OMP_CRITICAL_()
+            OMP_CRITICAL_(NO_ARGS)
             {
                errnum = errno;
                ecode = VERROR;

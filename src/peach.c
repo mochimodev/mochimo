@@ -147,7 +147,7 @@ static word32 peach_dmemtx(void *data, size_t len, word32 op)
             for (z = 0; z < len; z++) bp[z] += (z & 1) ? -1 : 1;
             break;
          case 4:  /* Alternate -i and +i on all bytes */
-            for (z = 0; z < len; z++) bp[z] += (word8) ((z & 1) ? i : -i);
+            for (z = 0; z < len; z++) bp[z] += (word8) ((z & 1) ? i : -((char) i));
             break;
          case 5:  /* Replace every occurrence of 104 with 72 */ 
             for (z = 0; z < len; z++) if(bp[z] == 104) bp[z] = 72;

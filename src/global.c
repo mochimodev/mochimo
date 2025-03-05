@@ -20,7 +20,10 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
+#ifndef _WIN32
+   #include <sys/wait.h>
+
+#endif
 
 int Nonline;         /* number of pid's in Nodes[]                */
 word32 Quorum = 3;   /* Number of peers in get_eon() gang[MAXQUORUM] */
@@ -84,6 +87,8 @@ int Mqcount;            /* count of mq.dat records */
 
 word8 One[8] = { 1 };   /* for 64-bit maths */
 
+#ifndef _WIN32
+
 /**
  * Terminate services and exit with @a ecode.
  * @param ecode value to supply to exit()
@@ -146,6 +151,14 @@ void stop_mirror(void)
       Mqpid = 0;
    }
 }  /* end stop_mirror() */
+
+#else
+
+void kill_services_exit(int ecode) { exit(ecode); }
+int stop_bcon(void) { exit(1); }
+int stop_found(void) { exit(1); }
+
+#endif
 
 /* end include guard */
 #endif

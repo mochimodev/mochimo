@@ -167,7 +167,7 @@ static void base_w(int *output, const int out_len, const word8 *input)
 {
     int in = 0;
     int out = 0;
-    word8 total;
+    word8 total = 0;
     int bits = 0;
     int consumed;
 

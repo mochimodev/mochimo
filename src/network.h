@@ -14,9 +14,6 @@
 
 /* system support */
 #include <sys/types.h>  /* for pid_t */
-#ifdef _WIN32  /* Windows no likey */
-   #define pid_t  int
-#endif
 
 /* extended-c support */
 #include "extinet.h"
@@ -55,7 +52,7 @@ int child_status(NODE *np, pid_t pid, int status);
 int recv_tx(NODE *np, double timeout);
 int recv_file(NODE *np, char *fname);
 int send_tx(NODE *np, double timeout);
-int send_op(NODE *np, int opcode);
+int send_op(NODE *np, word16 opcode);
 int send_nack(NODE *np, int errnum);
 int send_file(NODE *np, char *fname);
 int send_balance(NODE *np);

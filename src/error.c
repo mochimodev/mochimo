@@ -256,26 +256,22 @@ char *ve2str(int ve)
  * @returns Pointer to provided @a path or (if not provided)
  * internal static buffer containing the resulting output.
 */
-char *path_join_count(char path[FILENAME_MAX], int count, ...)
+char *path_join_count(FILENAME path, int argc, char *argv[])
 {
-   va_list args;
-   char *next;
-   static char sbuf[FILENAME_MAX];
+   static FILENAME sbuf;
+   int argi;
 
-   /* static buffer and usage check */
+   /* prepare path or static buffer */
    if (path == NULL) path = sbuf;
+   *path = '\0';
 
    /* join variable arguments together */
-   va_start(args, count);
-   for (*path = '\0'; count > 0; count --) {
-      next = va_arg(args, char *);
-      if (next == NULL || *next == '\0') continue;
+   for (argi = 0; argi < argc; argi++) {
       if (*path != '\0') {
-         strncat(path, PREFERRED_PATH_SEP, FILENAME_MAX - strlen(path) - 1);
+         strncat(path, OS_PATH_SEP, FILENAME_MAX - strlen(path) - 1);
       }
-      strncat(path, next, FILENAME_MAX - strlen(path) - 1);
+      strncat(path, argv[argi], FILENAME_MAX - strlen(path) - 1);
    }
-   va_end(args);
 
    return path;
 }
@@ -393,7 +389,7 @@ void plogx(int ll, const char *file, int line, const char *fmt, ...)
    va_list args;
    FILE *stream;
    int ecode;
-   char error[64];
+   char error[128];
    char timestamp[28];
    char *filename;
 
@@ -427,7 +423,7 @@ void plogx(int ll, const char *file, int line, const char *fmt, ...)
    /* print file reference on error or debug type logs */
    if (ll <= PLOG_ERROR || ll == PLOG_DEBUG) {
       /* __FILE__ MAY contain a filepath */
-      filename = strrchr(file, PREFERRED_PATH_SEP[0]);
+      filename = strrchr(file, OS_PATH_SEP[0]);
       if (filename) filename++; else filename = (char *) file;
       fprintf(stream, "[%s:%d] ", filename, line);
    }

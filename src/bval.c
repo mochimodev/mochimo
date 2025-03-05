@@ -68,7 +68,9 @@ int ng_val(const char *ngfile, const word8 bnum[8])
    fp = fopen(ngfile, "rb");
    if (fp == NULL) return VERROR;
    /* read block trailer (fp left at EOF) */
-   if (fseek64(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fseek64(fp, -((long long) sizeof(BTRAILER)), SEEK_END) != 0) {
+      goto ERROR_CLEANUP;
+   }
    if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
    /* read EOF file offset as file length */
    len = ftell64(fp);
@@ -229,7 +231,7 @@ int b_val(const char *bcfile, const char *ltfile)
    fp = fopen(bcfile, "rb");
    if (fp == NULL) goto ERROR_CLEANUP;
    /* read block trailer (fp left at EOF) */
-   if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) return VERROR;
+   if (fseek(fp, -((long) sizeof(BTRAILER)), SEEK_END) != 0) return VERROR;
    if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
    /* read EOF file offset as file length */
    len = ftell(fp);

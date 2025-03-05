@@ -288,7 +288,7 @@ int b_adjust_maddr_fp(FILE *fp)
    mtree = NULL;
 
    /* read block trailer */
-   if (fseek(fp, (long) -(sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (fseek(fp, -((long) sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
    if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
    tcount = get32(bt.tcount);
 
@@ -321,6 +321,8 @@ int b_adjust_maddr_fp(FILE *fp)
    /* ... bt.stime left zero'd (not known) */
    /* ... bt.bhash left zero'd (not known) */
 
+   /* explicit seek is required for switching between input and output */
+   if (fseek(fp, -((long) sizeof(BTRAILER)), SEEK_END) != 0) goto ERROR_CLEANUP;
    /* write trailer to file */
    if (fwrite(&bt, sizeof(BTRAILER), 1, fp) != 1) goto ERROR_CLEANUP;
 
@@ -358,8 +360,8 @@ int b_con(const char *output)
    word8 *mtree;           /* malloc'd merkle tree list */
    fpos_t pos;             /* file position offset indicator */
    long long offset;       /* file position offset value (ftell) */
-   size_t count, tcount;   /* malloc'd space and transaction count */
-   size_t j, actual;       /* loop counter and txclean count */
+   word32 count, tcount;   /* malloc'd space and transaction count */
+   word32 j, actual;       /* loop counter and txclean count */
    int cond;               /* loop condition */
 
    /* init pointers */

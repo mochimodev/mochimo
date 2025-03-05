@@ -12,6 +12,9 @@
 
 /* external support */
 #include "types.h"
+#ifdef _WIN32  /* Windows no likey */
+   typedef int pid_t;
+#endif
 
 /* emergency stops */
 #define restart(msg) { palert(msg); kill_services_exit(1); }

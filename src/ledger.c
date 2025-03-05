@@ -13,7 +13,6 @@
 #include "ledger.h"
 
 /* internal support */
-#include "global.h"
 #include "error.h"
 
 /* external support */
@@ -572,7 +571,8 @@ int le_update(const char *ltfname)
    LTRAN lt, lt_prev;      /* for ledger tran and sequence check data */
    FILE *fp, *lefp, *ltfp; /* output, ledger, and ltran file pointers */
    word8 hold, empty;
-   int compare, ecode;
+   int compare = 0;
+   int ecode;
 
    /* sort the ledger transaction file */
    ecode = filesort(ltfname, sizeof(LTRAN), LEBUFSZ, lt_compare);

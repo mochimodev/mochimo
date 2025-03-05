@@ -22,7 +22,6 @@
 #include "error.h"
 
 /* external support */
-#include <sys/wait.h>
 #include <string.h>
 #include "sha256.h"
 #include "exttime.h"
@@ -31,6 +30,11 @@
 #include <ctype.h>
 #include "crc16.h"
 #include "base58.h"
+
+#ifndef _WIN32
+   #include <sys/wait.h>
+
+#endif
 
 /**
  * @private Transaction Position structure.
@@ -98,7 +102,8 @@ static int txpos_compare(const void *va, const void *vb)
  */
 static void tx__init(TXENTRY *tx, const void *opts)
 {
-   size_t dsaoff, tlroff;
+   size_t dsaoff = 0;
+   size_t tlroff = 0;
 
    if (opts == NULL) {
       opts = tx->buffer;
@@ -139,6 +144,8 @@ static void tx__init(TXENTRY *tx, const void *opts)
    tx->tx_nonce = tx->tlr->nonce;
    tx->tx_id = tx->tlr->id;
 }  /* end tx__init() */
+
+#ifndef _WIN32
 
 struct {
    word8 secret[32];
@@ -349,6 +356,8 @@ DONE:
    return VEOK;
 }
 
+#endif
+
 /**
  * Read a single Transaction Entry in to the provided container, @a txe,
  * from the given input @a stream. The file position indicator is
@@ -368,7 +377,7 @@ int tx_fread(TXENTRY *tx, FILE *stream)
 
    /* peek at transaction options */
    if (fread(options, sizeof(options), 1, stream) != 1) return VERROR;
-   if (fseek(stream, -(sizeof(options)), SEEK_CUR) != 0) return VERROR;
+   if (fseek(stream, -((long) sizeof(options)), SEEK_CUR) != 0) return VERROR;
 
    /* initialize transaction entry structure from options */
    tx__init(tx, options);
@@ -846,7 +855,8 @@ FAIL:
  */
 int txclean(const char *txfname, const char *bcfname)
 {
-   TXENTRY txe, txc;       /* block entry and txclean transactions */
+   TXENTRY txe = {0};      /* block entry transactions */
+   TXENTRY txc = {0};      /* txclean transactions */
    FILE *fp, *bfp, *tfp;   /* input, blockchain and temporary files */
    void *ptr;              /* realloc pointer */
    TXPOS *tx;              /* malloc'd transaction positions */
@@ -954,7 +964,7 @@ int txclean(const char *txfname, const char *bcfname)
     * Merkel Array in new block is sorted on src_addr (checked in bval).
     * Clean queue, txclean.dat, is sorted by reference array above.
     */
-   for (cond = j = nout = 0; j < actual; j++) {
+   for (cond = 0, j = nout = 0; j < actual; j++) {
       if (bfp != NULL) {
          do {
             /* if src from block compares AFTER reference, hold... */
@@ -1039,6 +1049,8 @@ static int txmap(TX *tx, word32 src_ip)
 
    return VEOK;
 }  /* end txmap() */
+
+#ifndef _WIN32
 
 /* Create a grandchild to send TX's in mirror.dat to ip... */
 pid_t mgc(word32 ip)
@@ -1155,13 +1167,13 @@ int mirror_tx(NODE *np)
 {
    TX *tx;
    FILE *fp;
-   int count, lockfd;
+   int count;
    int ecode;
 
    tx = &np->tx;
 
    /* lock mirror file */
-   lockfd = lock("mq.lck", 20);
+   int lockfd = lock("mq.lck", 20);
    if (lockfd == -1) return VERROR;
    fp = fopen("mq.dat", "ab");
    if (fp == NULL) {
@@ -1174,7 +1186,7 @@ int mirror_tx(NODE *np)
    * in and then write tx to mirror queue, mq.dat.
    */
    if(txmap(tx, np->ip) == VEOK) {
-      count = fwrite(tx, 1, sizeof(TX), fp);
+      count = (int) fwrite(tx, 1, sizeof(TX), fp);
       if(count != sizeof(TX)) {
          ecode = VERROR;
       } else Mqcount++;
@@ -1222,7 +1234,12 @@ int process_tx(NODE *np)
 
    /* Validate addresses, fee, signature, source balance, and total. */
    evilness = tx_val(&txe, Cblocknum, Myfee);
-   if(evilness) return evilness;
+   if(evilness) {
+      if (errno != EMCM_TXIDDUP) {
+         perrno("invalid transaction");
+      }
+      return evilness;
+   }
 
    /* place Transaction ID (hash) in trailer for Mesh API */
    memset(txe.tlr->nonce, 0, sizeof(txe.tlr->nonce));
@@ -1241,6 +1258,8 @@ int process_tx(NODE *np)
 
    return mirror_tx(np);
 }  /* end process_tx() */
+
+#endif
 
 /* end include guard */
 #endif

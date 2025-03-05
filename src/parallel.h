@@ -18,6 +18,8 @@
  * For example, `export CC=gcc-14` or `make <recipe> CC=gcc-14.
  */
 
+#define NO_ARGS
+
 #ifdef _OPENMP
    /* OpenMP supported */
    #include <omp.h>
