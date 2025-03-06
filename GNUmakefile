@@ -26,7 +26,8 @@ VERSION := $(shell git describe --always --dirty --tags 2>/dev/null)
 VERSION := \"$(or $(VERSION),$(shell date +u%g%j))\" # untracked version
 
 # additional compilers
-NVCC := $(if $(NO_CUDA),,$(or $(shell command -v nvcc), $(CUDADIR)/bin/nvcc))
+NVCC := $(if $(NO_CUDA),,$(or $(shell command -v nvcc),\
+	$(shell command -v $(CUDADIR)/bin/nvcc)))
 # ... to use latest available gcc compiler do:
 #	export CC=`ls /usr/{,local/}bin/gcc-[0-9]* 2>/dev/null | sort -t- -k2,2V | tail -n 1`
 
