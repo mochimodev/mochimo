@@ -939,7 +939,7 @@ int scan_quorum
       pdebug("scan index %u/%u...", scanidx, netplistidx);
 
       /* prepare parallel processing scope */
-      OMP_PARALLEL_(for private(node, peer, len, ipstr))
+      OMP_PARALLEL_(for private(node, peer, len, ipstr) num_threads(qlen))
       for (word32 idx = scanidx; idx < netplistidx; idx++) {
          /* get IP list from peer */
          peer = netplist[idx];

@@ -42,7 +42,7 @@
 #define RPLISTLEN    64       /**< recent peer list v.28 */
 #define TPLISTLEN    32       /**< trusted peer list */
 #define CRCLISTLEN   1024     /**< recent tx crc's */
-#define MAXQUORUM    16       /**< for init */
+#define MAXQUORUM    32       /**< for init */
 #define BCONFREQ     3        /**< Run con at least */
 #define CBITS        0        /**< 8 capability bits for TX */
 #define MFEE         500

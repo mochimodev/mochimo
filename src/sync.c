@@ -36,11 +36,6 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 
-/* Startup Lookback ensures at least ~2 days (2048 blocks) of history
- * are recognised for initial synchronization with the network
- */
-#define LOOKBACK   (2 << 10)
-
 /* (long running) synchronization interrupt handler */
 static word8 SYNC_interrupt_signal_;
 static void SYNC_interrupt_(int sig)
@@ -98,10 +93,7 @@ int catchup(word32 plist[], word32 count)
    void (*SIGINT_old)(int);
    FILENAME fname_dl = {0};
    FILENAME fname = {0};
-   word32 *ipp = plist;
-   word32 peer;
    word8 bnum[8];
-   int ecode = VEOK;
 
    /* initialize... */
    show("getblock");  /* get blockchain files */
@@ -129,21 +121,25 @@ int catchup(word32 plist[], word32 count)
    }
 
    /* download/validate/update blocks from args */
-   OMP_PARALLEL_(private(bnum, ecode, fname, fname_dl, peer) num_threads(count))
+   OMP_PARALLEL_(private(bnum, fname, fname_dl) num_threads(count))
    {  /* ... parallel block update handling */
-      OMP_CRITICAL_()
-         peer = *(ipp++);
+      word32 peer = plist[OMP_THREADNUM];
+      int ecode = VEOK;
+
       while (count && ecode == VEOK) {
          if (SYNC_interrupt_signal_) break;
          /* asynchronous block download (after set) */
          if (*fname_dl && fexists(fname_dl)) {
+            /* multiple */
             ecode = get_file(peer, bnum, fname_dl);
             if (ecode != VEOK) {
-               pdebug("get_file(%s, %s) incomplete...",
-                  ntoa(&peer, (char[16]){0}), fname_dl);
-               remove(fname_dl);
-               OMP_ATOMIC_()
+               OMP_CRITICAL_()
+               {
+                  pdebug("get_file(%s, %s) incomplete...",
+                     ntoa(&peer, (char[16]){0}), fname_dl);
+                  remove(fname_dl);
                   count--;
+               }
                break;
             }
          }
@@ -166,8 +162,7 @@ int catchup(word32 plist[], word32 count)
                if (ecode != VEOK) {
                   perrno("b_update(%s) FAILURE", fname);
                   remove(fname);
-                  OMP_ATOMIC_()
-                     count--;
+                  count--;
                   break;
                }
                /* check for next block */
@@ -200,7 +195,7 @@ int catchup(word32 plist[], word32 count)
       return VERROR;
    }
 
-   return ecode;
+   return VEOK;
 }  /* end catchup() */
 
 /**
@@ -235,7 +230,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    show("tfval");  /* validate tfile */
    /* do some quick maths to estimate time for tfile validation */
    pdebug("validating tfile (est. %u seconds)...",
-      (word32) (*((word64 *) highbnum) / 400 / OMP_NUM_THREADS));
+      (word32) (*((word64 *) highbnum) / 300 / OMP_MAX_THREADS));
    if (validate_tfile("tfile.dat", bnum, weight, 0) != VEOK) {
       remove("tfile.dat.fail");
       rename("tfile.dat", "tfile.dat.fail");

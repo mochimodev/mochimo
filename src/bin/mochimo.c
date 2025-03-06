@@ -312,15 +312,14 @@ int init(void)
    char weighthex[65], bnumhex[17];
    word32 qlen, quorum[MAXQUORUM];
    word8 nethash[HASHLEN], peerhash[HASHLEN];
-   word8 netweight[32], netbnum[8]; //, bnum[8];
+   word8 netweight[32], netbnum[8], bnum[8];
    BTRAILER bt;
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
-   int result, status, attempts, count;
+   int result, status, count;
 
    /* init */
    show("init");
    status = VEOK;
-   attempts = 0;
    Ininit = 1;
 
    plog("Init core...");
@@ -401,79 +400,80 @@ int init(void)
          plog("check network port...");
          break;
       }
-      if (!iszero(Cblocknum, 8)) {  /* we've got a chain */
-         status = VEOK;  /* don't panic... EVERYTHING IS FINE! */
-         result = cmp256(Weight, netweight);  /* compare network weight */
-         if (result < 0) {
-            pdebug("network weight compares higher");
-            printf("\n");
-            printf(" ┌────────────────────────────────────┐\n");
-            printf(" │ an overwhelming sense of confusion │\n");
-            printf(" └────────────────────────────────────┘\n\n");
-         } else if (result > 0) {
-            pdebug("network weight compares lower");
-            printf("\n");
-            printf(" ┌────────────────────────────────────┐\n");
-            printf(" │   an overwhelming sense of power   │\n");
-            printf(" └────────────────────────────────────┘\n\n");
-            break;  /* we're heavier, finish */
-         } else if (memcmp(Cblockhash, nethash, HASHLEN) == 0) {
-            pdebug("network weight and hash compares equal");
-            printf("\n");
-            printf(" ┌────────────────────────────────────┐\n");
-            printf(" │ an overwhelming sense of belonging │\n");
-            printf(" └────────────────────────────────────┘\n\n");
-            break;  /* we're in sync, finish */
-         }
-         /* have we fallen behind or split from the chain? */
-         while (Running && *quorum) {  /* use quorum to check... */
-            if (status == VEOK) {  /* chain status not yet known... */
-               plog("Checking blockchain alignment...");
-               if (get_hash(&node, *quorum, Cblocknum, peerhash) == VEOK) {
-                  if (memcmp(Cblockhash, peerhash, HASHLEN)) {
-                     status = VEBAD; /* 2319! Foreign entity (block) */
-                  } else status = VERROR;  /* we're just behind */
-                  continue;  /* restart loop with new status */
-               } else break;
-            } else if (status == VERROR) {  /* chain is fallen... */
-               plog("Blockchain is aligned, catchup...");
-               /* check "catchup" doesn't cross v3 trigger */
-               if (cmp64(Cblocknum, CL64_32(V30TRIGGER)) < 0) {
-                  perr("catchup() cannot cross v3.0 trigger...");
+      if (iszero(Cblocknum, 8)) {
+         /* we're starting from scratch... */
+         resync(quorum, &qlen, netweight, netbnum);
+      }
+      status = VEOK;  /* don't panic... EVERYTHING IS FINE! */
+      result = cmp256(Weight, netweight);  /* compare network weight */
+      if (result < 0) {
+         pdebug("network weight compares higher");
+         printf("\n");
+         printf(" ┌────────────────────────────────────┐\n");
+         printf(" │ an overwhelming sense of confusion │\n");
+         printf(" └────────────────────────────────────┘\n\n");
+      } else if (result > 0) {
+         pdebug("network weight compares lower");
+         printf("\n");
+         printf(" ┌────────────────────────────────────┐\n");
+         printf(" │   an overwhelming sense of power   │\n");
+         printf(" └────────────────────────────────────┘\n\n");
+         break;  /* we're heavier, finish */
+      } else if (memcmp(Cblockhash, nethash, HASHLEN) == 0) {
+         pdebug("network weight and hash compares equal");
+         printf("\n");
+         printf(" ┌────────────────────────────────────┐\n");
+         printf(" │ an overwhelming sense of belonging │\n");
+         printf(" └────────────────────────────────────┘\n\n");
+         break;  /* we're in sync, finish */
+      }
+      /* have we fallen behind or split from the chain? */
+      while (Running && *quorum) {  /* use quorum to check... */
+         if (status == VEOK) {  /* chain status not yet known... */
+            plog("Checking blockchain alignment...");
+            if (get_hash(&node, *quorum, Cblocknum, peerhash) == VEOK) {
+               if (memcmp(Cblockhash, peerhash, HASHLEN)) {
+                  status = VEBAD; /* 2319! Foreign entity (block) */
+               } else status = VERROR;  /* we're just behind */
+               continue;  /* restart loop with new status */
+            } else remove32(*quorum, quorum, MAXQUORUM, &qlen);
+         } else if (status == VERROR) {  /* chain is fallen... */
+            plog("Blockchain is aligned, catchup...");
+            /* check for reasonable catchup */
+            if (cmp64(Cblocknum, CL64_32(V30TRIGGER)) >= 0) {
+               sub64(netbnum, Cblocknum, bnum);
+               pdebug("bnum diff: %u", get32(bnum));
+               if (cmp64(bnum, CL64_32(LOOKBACK)) < 0) {
+                  /* try to catchup with blockchain */
+                  catchup(quorum, qlen);
                   break;
                }
-               catchup(quorum, qlen);  /* try to catchup with blockchain */
-               break;
-            } else if (status == VEBAD) {  /* chain is split... */
-               plog("2319!!! CHAIN FORK DETECTED...");
-               /* attempt chain recovery... DISABLED FOR NOW
-               put64(bnum, cmp64(Cblocknum, netbnum) > 0 ? netbnum : Cblocknum);
-               if (sub64(bnum, FortyEight, bnum)) break;
-               count = readtf(&bt, get32(bnum), get32(FortyEight));
-               if (count % sizeof(BTRAILER)){
-                  perr("error reading tfile, count= %s", count);
-                  break;
-               } else {
-                  // acquire same segment of Tfile as above and compare
-                  if (get_hash(&node, peer, bnum, peerhash) == VEOK) {}
-                  if (memcmp(Cblockhash, peerhash, HASHLEN) == 0) {
-                     if (syncup(bnum, netbnum, peer) == VEOK) break;
-                  } else continue;
-               } */
-               break;
             }
-            remove32(*quorum, quorum, MAXQUORUM, &qlen);
-         }  /* ... did we catch up? */
-         if (cmp256(Weight, netweight) >= 0) {
-            if (cmp64(Cblocknum, netbnum) >= 0) break;
-         }  /* ... whatever we did, it didn't work... */
-      }  /* ... at this point, we might as well resync */
+         } else if (status == VEBAD) {  /* chain is split... */
+            plog("2319!!! CHAIN FORK DETECTED...");
+            /* attempt chain recovery... DISABLED FOR NOW
+            put64(bnum, cmp64(Cblocknum, netbnum) > 0 ? netbnum : Cblocknum);
+            if (sub64(bnum, FortyEight, bnum)) break;
+            count = readtf(&bt, get32(bnum), get32(FortyEight));
+            if (count % sizeof(BTRAILER)){
+               perr("error reading tfile, count= %s", count);
+               break;
+            } else {
+               // acquire same segment of Tfile as above and compare
+               if (get_hash(&node, peer, bnum, peerhash) == VEOK) {}
+               if (memcmp(Cblockhash, peerhash, HASHLEN) == 0) {
+                  if (syncup(bnum, netbnum, peer) == VEOK) break;
+               } else continue;
+            } */
+         }
+         pdebug("...attempting resync()...");
+         resync(quorum, &qlen, netweight, netbnum);
+         break;
+      }  /* ... did we catch up? */
+      if (cmp256(Weight, netweight) >= 0) {
+         if (cmp64(Cblocknum, netbnum) >= 0) break;
+      }  /* ... whatever we did, it didn't work... */
       if (!qlen) plog("Quorum members exhausted...");
-      else {
-         if (attempts++) plog("Blockchain recovery failed: resync...");
-         if (resync(quorum, &qlen, netweight, netbnum) == VEOK) break;
-      }
-      /* we're either out of quorum members, or our resync failed */
       plog("Resync failure: try again...\n\n");
    }
 

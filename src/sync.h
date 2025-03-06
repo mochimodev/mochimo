@@ -14,6 +14,11 @@
 #include "network.h"
 #include "types.h"
 
+/* Startup Lookback ensures at least ~2 days (2048 blocks) of history
+ * are recognised for initial synchronization with the network
+ */
+#define LOOKBACK   (2 << 10)
+
 /* C/C++ compatible function prototypes */
 #ifdef __cplusplus
 extern "C" {

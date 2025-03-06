@@ -31,9 +31,17 @@
    #define OMP_ATOMIC_(X)   DO_PRAGMA(omp atomic X)
    #define OMP_SINGLE_(X)   DO_PRAGMA(omp single X)
 
-   /* define number of threads */
+   /* get maximum number of threads */
+   #ifndef OMP_MAX_THREADS
+      #define OMP_MAX_THREADS omp_get_max_threads()
+   #endif
+   /* get current number of threads, within parallel region */
    #ifndef OMP_NUM_THREADS
-      #define OMP_NUM_THREADS omp_get_num_procs()
+      #define OMP_NUM_THREADS omp_get_num_threads()
+   #endif
+   /* get thread number, within parallel region */
+   #ifndef OMP_THREADNUM
+      #define OMP_THREADNUM omp_get_thread_num()
    #endif
 
 #else
@@ -43,9 +51,17 @@
    #define OMP_ATOMIC_(X)
    #define OMP_SINGLE_(X)
 
-   /* define single thread */
+   /* get maximum number of threads */
+   #ifndef OMP_MAX_THREADS
+      #define OMP_MAX_THREADS 1
+   #endif
+   /* get current number of threads, within parallel region */
    #ifndef OMP_NUM_THREADS
       #define OMP_NUM_THREADS 1
+   #endif
+   /* get thread number, within parallel region */
+   #ifndef OMP_THREADNUM
+      #define OMP_THREADNUM 0
    #endif
 
 #endif
