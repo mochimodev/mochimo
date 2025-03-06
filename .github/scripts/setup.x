@@ -74,8 +74,8 @@ git_C() {
 }
 
 git_update() {
-   # checkout the specified branch...
-   git_C fetch && git_C checkout $BRANCH || \
+   # checkout the specified branch (prune old branches)...
+   git_C fetch --prune && git_C checkout $BRANCH || \
       return $? # return failures
    # ... pull latest branch state (if not detached)
    test $(git_C branch --show-current) == $BRANCH && git_C pull || \
