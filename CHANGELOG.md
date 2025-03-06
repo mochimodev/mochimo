@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ***
 
+## [3.0.3] - March 6th, 2025
+
+This release focuses on improving network synchronization, build system flexibility, and fixing various issues identified in previous versions. Key improvements include enhanced node synchronization procedures, better network scanning when network size grows, and several build system enhancements for greater flexibility and debugging capabilities.
+
+### Changed
+- Improved node (re)synchronization and catchup procedures
+- Updated setup script to prune old branches during git updates
+- Removed forced compiler selection (CC/GCC) for better build flexibility
+- Enhanced fallback mechanism for NVCC in build system
+
+### Fixed
+- Issue with selecting specific (tag) version in setup script
+- Network scan limitation when network size grows beyond RPLISTLEN
+- Incorrect sorting on transaction destinations
+
 ## [3.0.2] - February 11th, 2025
 
 This release focuses on improving the build system compatibility and CI/CD workflows. Key changes include build fixes for Ubuntu 20.04 systems and refined GitHub Actions workflows for better release management and code quality checks.
@@ -282,7 +297,8 @@ October 27th, 2018
 - removed default maddr.dat
 - removed txq1.lck (process_tx() is now synchronous)
 
-[Unreleased]: https://github.com/mochimodev/mochimo/compare/v3.0.2...HEAD
+[Unreleased]: https://github.com/mochimodev/mochimo/compare/v3.0.3...HEAD
+[3.0.3]: https://github.com/mochimodev/mochimo/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/mochimodev/mochimo/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/mochimodev/mochimo/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/mochimodev/mochimo/compare/v2.4.3...v3.0.0
