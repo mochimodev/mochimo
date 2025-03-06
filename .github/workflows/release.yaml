@@ -3,6 +3,7 @@ name: release
 on:
   release:
     types: [created]
+  workflow_dispatch: # Allow manual trigger
 
 defaults:
   run:
