@@ -204,7 +204,7 @@ int catchup(word32 plist[], word32 count)
 int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 {
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
-   word8 bnum[8], weight[HASHLEN];
+   word8 bnum[8], weight[HASHLEN] = { 0 };
 
    /* resync from quorum bnum must be higher than V30TRIGGER */
    if (cmp64(highbnum, CL64_32(V30TRIGGER)) < 0) {
