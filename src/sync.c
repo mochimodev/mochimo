@@ -310,7 +310,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       pdebug("Cblocknum 0x%s", bnum2hex(Cblocknum, NULL));
       return VERROR;
    }
-   if (cmp64(Cblocknum, highbnum) < 0) {
+   if (cmp256(Weight, highweight) < 0) {
       perr("chain catchup did not meet advertised weight");
       pdebug("highweight 0x%s", weight2hex(highweight, NULL));
       pdebug("    Weight 0x%s", weight2hex(Weight, NULL));
