@@ -572,7 +572,7 @@ int le_update(const char *ltfname)
    LTRAN lt, lt_prev;      /* for ledger tran and sequence check data */
    FILE *fp, *lefp, *ltfp; /* output, ledger, and ltran file pointers */
    word8 hold, empty;
-   int compare, ecode;
+   int compare = 0, ecode;
 
    /* sort the ledger transaction file */
    ecode = filesort(ltfname, sizeof(LTRAN), LEBUFSZ, lt_compare);
@@ -613,7 +613,7 @@ int le_update(const char *ltfname)
 
          /* if ledger entry compares AFTER ledger transaction, OR
           * if ledger entry file is EOF... */
-         if (compare > 0 || lefp == NULL) {
+         if (lefp == NULL || compare > 0) {
             /* ... this is a "brand new" destination/address */
             /* assume malicious intent where non-CREDIT ('A') code here */
             if (lt.trancode[0] != 'A') {
