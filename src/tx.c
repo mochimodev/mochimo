@@ -1024,14 +1024,14 @@ ERROR_CLEANUP:
 static int txmap(TX *tx, word32 src_ip)
 {
    int j;
-   word32 *ipp;
 
    /* Apply Matt's Algorithm v1.0 to control mirroring... */
    if (tx->version[1] & C_OPTIN) {
       /* try to put src_ip in map */
-      for(ipp = (word32 *) tx->weight, j = 0; j < 8; ipp++, j++) {
-         if(*ipp == 0) {
-            *ipp = src_ip;
+      for(j = 0; j < 8; j++) {
+         if(get32(tx->weight + j * 4) == 0) {
+            put32(tx->weight + j * 4, src_ip);
+            pdebug("txmap: %s -> slot %d", ntoa(&src_ip, NULL), j);
             break;
          }
       }
@@ -1047,7 +1047,8 @@ pid_t mgc(word32 ip)
    pid_t pid;
    FILE *fp;
    long offset;
-   int lockfd, count;
+   int lockfd, count, k;
+   word32 mapped_ip;
    TX mtx;
    NODE node;
 
@@ -1087,7 +1088,15 @@ pid_t mgc(word32 ip)
       /* if not in -v modes... */
       if(Port == Dstport) {
          /* Skip this TX if ip address is already in map. */
-         if(search32(ip, (word32 *) mtx.weight, 8)) continue;
+         for(k = 0; k < 8; k++) {
+            mapped_ip = get32(mtx.weight + k * 4);
+            if(mapped_ip == 0) break;
+            if(mapped_ip == ip) {
+               pdebug("mgc: skip %s (in slot %d)", ntoa(&ip, NULL), k);
+               break;
+            }
+         }
+         if(k < 8 && mapped_ip == ip) continue;
       }
       if(callserver(&node, ip) != VEOK) break;
       memcpy(node.tx.buffer, mtx.buffer, get16(mtx.len));
