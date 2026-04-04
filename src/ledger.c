@@ -45,13 +45,8 @@ word32 Lastday;
  */
 static inline int equality_check_20bytes(const void *a, const void *b)
 {
-   return (
-      ((word32 *) a)[0] == ((word32 *) b)[0] &&
-      ((word32 *) a)[1] == ((word32 *) b)[1] &&
-      ((word32 *) a)[2] == ((word32 *) b)[2] &&
-      ((word32 *) a)[3] == ((word32 *) b)[3] &&
-      ((word32 *) a)[4] == ((word32 *) b)[4]
-   );
+   if (memcmp(a, b, 20) != 0) return 0;
+   return 1; /* values match */
 }
 
 /**
