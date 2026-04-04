@@ -467,7 +467,9 @@ int b_con(const char *output)
          if (!ferror(fp)) set_errno(EMCM_EOF);
          goto ERROR_CLEANUP;
       }
-      /* skip duplicate source address */
+      /* skip duplicate source address (defensive; txcheck() prevents
+       * duplicates at intake). HASHLEN (32) is intentional, not ADDR_LEN.
+       * See: https://github.com/mochimodev/mochimo/issues/106 */
       if (j > 0) {
          if (memcmp(txc.src_addr, tx[j - 1].src, HASHLEN) == 0) {
             continue;
