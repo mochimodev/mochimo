@@ -408,6 +408,7 @@ int le_extract_legacy(const char *ngfile)
 
    /* open temp ltran */
    ltfp = fopen("ltran.tmp", "wb");
+   if (ltfp == NULL) goto ERROR_CLEANUP;
    /* process ledger data from fp, check sort, write to ltran.tmp */
    if (fseek64(fp, 4LL, SEEK_SET) != 0) goto ERROR_CLEANUP;
    lcount = llen / sizeof(WOTS_LENTRY);
