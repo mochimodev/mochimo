@@ -976,7 +976,7 @@ int scan_quorum
             for (len = 0, result = 0; len < get16(node.tx.len); len += 4) {
                if (netplistidx >= 1024) break;
                /* check (and recognise contribution of) valid peers */
-               peer = *((word32 *) &node.tx.buffer[len]);
+               peer = get32(&node.tx.buffer[len]);
                if (peer == 0 || pinklisted(peer)) continue;
                if (!isprivate(peer) || !Noprivate) result++;
                /* add to network list */
@@ -1019,7 +1019,7 @@ int refresh_ipl(void)
 {
    NODE node;
    int j, count;
-   word32 ip, *ipp;
+   word32 ip, peer;
    word16 len;
    TX tx;
    word8 bnum[8];
@@ -1030,11 +1030,11 @@ int refresh_ipl(void)
    if (get_ipl(&node, ip) == VEOK) {
       /* add iplist to recent peers */
       len = get16(node.tx.len);
-      ipp = (word32 *) node.tx.buffer;
-      for( ; len > 0; ipp++, len -= 4) {
-         if (*ipp == 0) continue;
+      for(j = 0; len > 0; j += 4, len -= 4) {
+         peer = get32(node.tx.buffer + j);
+         if (peer == 0) continue;
          if (Rplist[RPLISTLEN - 1]) break;
-         addrecent(*ipp);
+         addrecent(peer);
       }
    } else goto FAIL;
    /* Check peer's chain weight against ours. */
