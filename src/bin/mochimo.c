@@ -1149,6 +1149,7 @@ int main(int argc, char **argv)
 /* unsigned long argu;     argument unsigned value */
 
    unsigned seeds[8];   /* random seed values */
+   unsigned long long seed64;
    int reuse_addr;
    char *cp;
    int j;
@@ -1176,7 +1177,8 @@ int main(int argc, char **argv)
    /* seed random generators with urandom (or equivalent) */
    srand16fast(urandom(seeds, sizeof(seeds)));
    srand16(seeds[1], seeds[2], seeds[3]);
-   srand32(*((unsigned long long *) &seeds[4]));
+   memcpy(&seed64, &seeds[4], sizeof(seed64));
+   srand32(seed64);
    /* enable socket support */
    sock_startup();
 
