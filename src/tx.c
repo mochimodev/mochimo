@@ -967,7 +967,9 @@ int txclean(const char *txfname, const char *bcfname)
                   break;
                }
             }
-            /* compare block transaction source with reference source */
+            /* compare block transaction source with reference source.
+             * HASHLEN (32) is intentional here, not ADDR_LEN (40).
+             * See: https://github.com/mochimodev/mochimo/issues/91 */
             cond = memcmp(txe.src_addr, tx[j].src, HASHLEN);
             /* if src from block compares BEFORE reference, redo... */
          } while (cond < 0);
