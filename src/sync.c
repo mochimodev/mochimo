@@ -205,6 +205,7 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 {
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN] = { 0 };
+   word64 hb;
 
    /* resync from quorum bnum must be higher than V30TRIGGER */
    if (cmp64(highbnum, CL64_32(V30TRIGGER)) < 0) {
@@ -229,8 +230,9 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
 
    show("tfval");  /* validate tfile */
    /* do some quick maths to estimate time for tfile validation */
+   memcpy(&hb, highbnum, sizeof(hb));
    pdebug("validating tfile (est. %u seconds)...",
-      (word32) (*((word64 *) highbnum) / 300 / OMP_MAX_THREADS));
+      (word32) (hb / 300 / OMP_MAX_THREADS));
    if (validate_tfile("tfile.dat", bnum, weight, 0) != VEOK) {
       remove("tfile.dat.fail");
       rename("tfile.dat", "tfile.dat.fail");
