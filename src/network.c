@@ -958,7 +958,7 @@ int scan_quorum
                      put64(highbnum, node.tx.cblock);
                      qcount = 0;
                      if (quorum) {
-                        memset(quorum, 0, qlen);
+                        memset(quorum, 0, qlen * sizeof(word32));
                         pdebug("higher chain found, quourum reset...");
                      }
                   }
