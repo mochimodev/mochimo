@@ -22,6 +22,7 @@
 #include "error.h"
 #include "bval.h"
 #include "bcon.h"
+#include "util.h"
 
 /* external support */
 #include <string.h>
@@ -261,7 +262,9 @@ CLEANUP:
 
    /* ... combine transaction queues before a clean */
    if (fexists("txq1.dat")) {
-      system("cat txq1.dat >>txclean.dat 2>/dev/null");
+      if (fappend("txq1.dat", "txclean.dat") != 0) {
+         perrno("failed to append txq1.dat to txclean.dat");
+      }
       remove("txq1.dat");
       /* txq1.dat is empty now */
       Txcount = 0;
