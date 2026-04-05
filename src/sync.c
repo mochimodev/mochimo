@@ -456,8 +456,10 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    /* re-compute tfile weight */
    if(weigh_tfile("tfile.dat", bnum, tfweight)) {
       plog("tf_val() error");
-   } else plog("syncup() is good!");
-   memcpy(Weight, tfweight, HASHLEN);
+   } else {
+      plog("syncup() is good!");
+      memcpy(Weight, tfweight, HASHLEN);
+   }
    Insyncup = 0;
    return VEOK;
 
