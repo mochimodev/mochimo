@@ -210,7 +210,7 @@ int b_val(const char *bcfile, const char *ltfile)
    BTRAILER bt;            /* fixed length block trailer */
    BHEADER bh;             /* fixed length block header */
    LTRAN lt;               /* ledger transaction */
-   long len;
+   long long len;
    word8 *mtree;
    FILE *fp, *ltfp;        /* input fname, output file ltran.tmp */
    word8 prev[ADDR_LEN];   /* source address sort check */
@@ -232,7 +232,7 @@ int b_val(const char *bcfile, const char *ltfile)
    if (fseek(fp, -(sizeof(BTRAILER)), SEEK_END) != 0) return VERROR;
    if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) goto RDERR_CLEANUP;
    /* read EOF file offset as file length */
-   len = ftell(fp);
+   len = ftell64(fp);
    if (len == (-1)) return VERROR;
 
    /* check for pseudo-block */
@@ -240,8 +240,8 @@ int b_val(const char *bcfile, const char *ltfile)
    pseudo = (tcount == 0);
 
    /* ensure file contains the minimum amount of data */
-   if (len < (long) (sizeof(BHEADER) + TXLEN_MIN + sizeof(BTRAILER))) {
-      if (!pseudo || len < (long) (sizeof(BHEADER) + sizeof(BTRAILER))) {
+   if (len < (long long) (sizeof(BHEADER) + TXLEN_MIN + sizeof(BTRAILER))) {
+      if (!pseudo || len < (long long) (sizeof(BHEADER) + sizeof(BTRAILER))) {
          set_errno(EMCM_FILEDATA);
          goto ERROR_CLEANUP;
       }
@@ -368,10 +368,10 @@ int b_val(const char *bcfile, const char *ltfile)
     * check the current offset (offset at which transactions end), plus
     * the size of a block trailer is equal to the EOF offset
     */
-   len = ftell(fp);
+   len = ftell64(fp);
    if (len == (-1)) goto ERROR_CLEANUP;
-   if (fseek(fp, 0L, SEEK_END) != 0) goto ERROR_CLEANUP;
-   if (ftell(fp) != (long) (len + sizeof(BTRAILER))) {
+   if (fseek64(fp, 0LL, SEEK_END) != 0) goto ERROR_CLEANUP;
+   if (ftell64(fp) != (long long) (len + sizeof(BTRAILER))) {
       set_errno(EMCM_FILELEN);
       goto DROP_CLEANUP;
    }
