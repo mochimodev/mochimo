@@ -22,6 +22,7 @@
 #include "error.h"
 #include "bval.h"
 #include "bup.h"
+#include "util.h"
 
 /* external support */
 #include "extthrd.h"
@@ -370,9 +371,12 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    /* Backup TFILE, Ledger, and blocks to split-tree directory. */
    pdebug("Backing up TFILE, ledger.dat, and blocks...");
-   system("mkdir -p split/");
-   system("cp tfile.dat split/");
-   system("cp ledger.dat split/");
+   if (mkdir_p(SPDIR) != 0
+      || fcopy("tfile.dat", SPDIR "/tfile.dat") != 0
+      || fcopy("ledger.dat", SPDIR "/ledger.dat") != 0) {
+      perrno("state backup failed");
+      goto badsyncup;
+   }
 
    put32(sblock + 4, 0);
    put32(sblock, splitblock);
@@ -467,9 +471,11 @@ badsyncup:
    /* Restore block chain from saved state after a bad re-sync attempt. */
    pdebug("bad sync: restoring saved state...");
    le_close();
-   system("mv split/tfile.dat .");
-   system("mv split/ledger.dat .");
-   system("rm -r split/");
+   if (rename(SPDIR "/tfile.dat", "tfile.dat") != 0)
+      perrno("failed to restore tfile.dat");
+   if (rename(SPDIR "/ledger.dat", "ledger.dat") != 0)
+      perrno("failed to restore ledger.dat");
+   rmdir_r(SPDIR);
    reset_chain();  /* reset Difficulty and others */
    le_open("ledger.dat");
    Insyncup = 0;
