@@ -23,6 +23,7 @@
 
 /* external support */
 #include <string.h>
+#include <fcntl.h>
 #include "exttime.h"
 #include "extthrd.h"
 #include "extmath.h"
@@ -492,7 +493,10 @@ int send_tf(NODE *np)
 {
    int status;
    word32 first, count;
-   char cmd[128], fname[32];
+   char fname[32];
+   BTRAILER bt;
+   FILE *ifp, *ofp;
+   word32 j;
 
    sprintf(fname, "tf%u.tmp", (int) getpid());
 
@@ -500,10 +504,28 @@ int send_tf(NODE *np)
    count = get32(&np->tx.blocknum[4]);  /* count of trailers to send */
 
    /* limit tfile extract to 1000 trailers */
-   if(count > 1000) return VERROR;
-   sprintf(cmd, "dd if=tfile.dat of=%s bs=%u skip=%u count=%u 2>/dev/null",
-                fname, (int) sizeof(BTRAILER), first, count);
-   system(cmd);
+   if (count > 1000) return VERROR;
+
+   /* extract trailers from tfile.dat to temp file */
+   ifp = fopen("tfile.dat", "rb");
+   if (ifp == NULL) return VERROR;
+   if (fseek64(ifp, (long long) first * sizeof(BTRAILER), SEEK_SET) != 0) {
+      fclose(ifp);
+      return VERROR;
+   }
+   {  int fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+   ofp = (fd != -1) ? fdopen(fd, "wb") : NULL; }
+   if (ofp == NULL) {
+      fclose(ifp);
+      return VERROR;
+   }
+   for (j = 0; j < count && Running; j++) {
+      if (fread(&bt, sizeof(BTRAILER), 1, ifp) != 1) break;
+      if (fwrite(&bt, sizeof(BTRAILER), 1, ofp) != 1) break;
+   }
+   fclose(ifp);
+   fclose(ofp);
+
    status = send_file(np, fname);  /* returns VEOK or VERROR */
    remove(fname);
    return status;
@@ -573,6 +595,7 @@ bad:
    /* get proof from tfile.dat (!!! (NTFTX - 1) ) */
    if (sub64(Cblocknum, CL64_32(NTFTX - 1), bnum)) memset(bnum, 0, 8);
    count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
+   /* TODO: add (count != NTFTX) check, see refresh_ipl() */
 
    /* build peerlist with Rplist (shuffled) */
    memset(plist, 0, sizeof(plist));
@@ -1039,13 +1062,11 @@ int refresh_ipl(void)
    } else goto FAIL;
    /* Check peer's chain weight against ours. */
    if(cmp256(node.tx.weight, Weight) < 0) {
-      /* get proof from tfile.dat */
-      memset(tx.buffer, 0, sizeof(tx.buffer));
-      if (sub64(Cblocknum, CL64_32(NTFTX), bnum)) memset(bnum, 0, 8);
+      /* get proof from tfile.dat, consistent with send_found() */
+      if (sub64(Cblocknum, CL64_32(NTFTX - 1), bnum)) memset(bnum, 0, 8);
       count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
+      if (count != NTFTX) goto FAIL;
       /* Send found message to low weight peer */
-      memset(tx.buffer, 0, sizeof(tx.buffer));
-      if (read_tfile(tx.buffer, Cblocknum, 54, "tfile.dat") == 0) goto FAIL;
       if(callserver(&node, ip) != VEOK) goto FAIL;
       memcpy(&node.tx, &tx, sizeof(TX));  /* copy in tfile proof */
       put16(node.tx.len, (word16) count * sizeof(BTRAILER));
