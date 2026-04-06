@@ -46,6 +46,13 @@ int epinklist(word32 ip);
 void mergepinklists(void);
 void purge_epoch(void);
 
+/* provisional peer management */
+int addprovisional(word32 ip, word32 source_ip);
+int harvest_provisional(void);
+int start_provisional_verifier(void);
+void stop_provisional_verifier(void);
+void purge_provisional(void);
+
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif

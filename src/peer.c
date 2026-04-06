@@ -12,11 +12,15 @@
 #include "peer.h"
 
 /* internal support */
+#include "network.h"
 #include "error.h"
 
 /* external support */
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
+#include "exttime.h"
+#include "extthrd.h"
 #include "extlib.h"
 #include "extinet.h"
 
@@ -344,6 +348,252 @@ void purge_epoch(void)
    memset(Epinklist, 0, sizeof(Epinklist));
    Epinkidx = 0;
 }
+
+/* ----------------------------------------------------------------
+ * Provisional Peer Management
+ * ---------------------------------------------------------------- */
+
+/* provisional peer list and synchronization */
+static PROVPEER Provlist[PROVPEERSLEN];
+static word32 Provcount = 0;
+static RWLock Provlock = RWLOCK_INITIALIZER;
+
+/* verification thread state */
+static Thread Provthread;
+static volatile int Provrunning = 0;
+
+/**
+ * @private
+ * Check source reputation within the recent time window.
+ * Must be called with at least a read lock held.
+ * @param source_ip IP of the source to evaluate
+ * @param now Current time
+ * @return 1 if source has bad reputation, 0 if acceptable
+ */
+static int source_is_bad(word32 source_ip, word32 now)
+{
+   word32 i, total, failures, last_attempt;
+
+   total = failures = 0;
+   for (i = 0; i < Provcount; i++) {
+      if (Provlist[i].source_ip != source_ip) continue;
+      if (Provlist[i].status == PROVSTATUS_EXPIRED) {
+         /* derive last_attempt from next_attempt and fail_count */
+         last_attempt = Provlist[i].next_attempt
+            - (PROVBACKOFF * Provlist[i].fail_count);
+         /* only count entries within the reputation window */
+         if (now > last_attempt && (now - last_attempt) > PROVREPUTIME) {
+            continue;
+         }
+         total++;
+         failures++;
+      } else if (Provlist[i].status == PROVSTATUS_PENDING) {
+         total++;
+      }
+   }
+   if (total < PROVREPUTHR) return 0;
+   if ((failures * 100 / total) >= PROVREPUFAIL) return 1;
+   return 0;
+}
+
+/**
+ * Add an IP to the provisional peer list.
+ * Deduplicates against existing provisional entries and Rplist.
+ * Checks source reputation -- silently drops IPs from sources with
+ * high failure rates in the recent time window.
+ * @param ip Candidate peer IP address
+ * @param source_ip IP of the peer that advertised this candidate
+ * @return 0 on success (appended or deduplicated), -1 if list full
+ */
+int addprovisional(word32 ip, word32 source_ip)
+{
+   word32 i, now;
+
+   if (ip == 0) return 0;
+
+   rwlock_wrlock(&Provlock);
+
+   /* check if already in provisional list */
+   for (i = 0; i < Provcount; i++) {
+      if (Provlist[i].ip == ip) {
+         rwlock_wrunlock(&Provlock);
+         return 0;  /* duplicate */
+      }
+   }
+
+   /* check if already in Rplist */
+   if (search32(ip, Rplist, RPLISTLEN) != NULL) {
+      rwlock_wrunlock(&Provlock);
+      return 0;  /* already a known peer */
+   }
+
+   /* check source reputation */
+   now = (word32) time(NULL);
+   if (source_is_bad(source_ip, now)) {
+      rwlock_wrunlock(&Provlock);
+      return 0;  /* source has bad reputation */
+   }
+
+   /* check capacity */
+   if (Provcount >= PROVPEERSLEN) {
+      rwlock_wrunlock(&Provlock);
+      return -1;  /* list full */
+   }
+
+   /* append new entry */
+   memset(&Provlist[Provcount], 0, sizeof(PROVPEER));
+   Provlist[Provcount].ip = ip;
+   Provlist[Provcount].source_ip = source_ip;
+   Provlist[Provcount].status = PROVSTATUS_PENDING;
+   Provcount++;
+
+   rwlock_wrunlock(&Provlock);
+   return 0;
+}  /* end addprovisional() */
+
+/**
+ * Harvest verified peers from the provisional list into Rplist.
+ * Scans for entries with status=VERIFIED, calls addrecent() for each,
+ * and clears them. Also compacts expired entries to reclaim space.
+ * @return Number of peers promoted, or -1 on error
+ */
+int harvest_provisional(void)
+{
+   word32 i, j, promoted;
+
+   rwlock_wrlock(&Provlock);
+
+   promoted = 0;
+   for (i = 0; i < Provcount; i++) {
+      if (Provlist[i].status == PROVSTATUS_VERIFIED) {
+         addrecent(Provlist[i].ip);
+         promoted++;
+         Provlist[i].status = PROVSTATUS_EXPIRED;  /* mark for removal */
+      }
+   }
+
+   /* compact: remove expired entries by shifting remaining down */
+   j = 0;
+   for (i = 0; i < Provcount; i++) {
+      if (Provlist[i].status == PROVSTATUS_EXPIRED) continue;
+      if (i != j) memcpy(&Provlist[j], &Provlist[i], sizeof(PROVPEER));
+      j++;
+   }
+   Provcount = j;
+
+   rwlock_wrunlock(&Provlock);
+   return (int) promoted;
+}  /* end harvest_provisional() */
+
+/**
+ * @private
+ * Verification thread routine.
+ * Processes pending entries in batches, sleeping between passes. */
+static ThreadProc provpeer_thread(void *arg)
+{
+   NODE node;
+   word32 i, ip, now, batch;
+   int ecode;
+
+   (void) arg;
+
+   while (Provrunning && Running) {
+      batch = 0;
+
+      for (i = 0; i < PROVPEERSLEN && batch < PROVBATCHSIZE; i++) {
+         if (!Provrunning || !Running) break;
+
+         /* read lock to check entry */
+         rwlock_rdlock(&Provlock);
+         if (i >= Provcount) {
+            rwlock_rdunlock(&Provlock);
+            break;
+         }
+         if (Provlist[i].status != PROVSTATUS_PENDING) {
+            rwlock_rdunlock(&Provlock);
+            continue;
+         }
+         now = (word32) time(NULL);
+         if (Provlist[i].next_attempt > now) {
+            rwlock_rdunlock(&Provlock);
+            continue;
+         }
+         ip = Provlist[i].ip;
+         rwlock_rdunlock(&Provlock);
+
+         /* attempt connection (blocking -- OK in background thread) */
+         memset(&node, 0, sizeof(NODE));
+         ecode = callserver(&node, ip);
+         if (ecode == VEOK) {
+            sock_close(node.sd);
+            node.sd = INVALID_SOCKET;
+         }
+
+         /* update entry with result */
+         rwlock_wrlock(&Provlock);
+         if (i < Provcount && Provlist[i].ip == ip) {
+            if (ecode == VEOK) {
+               Provlist[i].status = PROVSTATUS_VERIFIED;
+            } else {
+               Provlist[i].fail_count++;
+               now = (word32) time(NULL);
+               Provlist[i].next_attempt =
+                  now + (PROVBACKOFF * Provlist[i].fail_count);
+               if (Provlist[i].fail_count >= PROVMAXFAILS) {
+                  Provlist[i].status = PROVSTATUS_EXPIRED;
+               }
+            }
+         }
+         rwlock_wrunlock(&Provlock);
+         batch++;
+      }  /* end for */
+
+      /* sleep between passes (check Running every second) */
+      for (i = 0; i < 30 && Provrunning && Running; i++) {
+         millisleep(1000);
+      }
+   }  /* end while */
+
+   return 0;
+}  /* end provpeer_thread() */
+
+/**
+ * Start the background provisional peer verification thread.
+ * The thread processes up to PROVBATCHSIZE entries per pass,
+ * attempting callserver() on each pending entry whose
+ * next_attempt time has passed. Sleeps between passes.
+ * @return 0 on success, -1 on error
+ */
+int start_provisional_verifier(void)
+{
+   if (Provrunning) return 0;  /* already running */
+   Provrunning = 1;
+   if (thread_create(&Provthread, provpeer_thread, NULL) != 0) {
+      Provrunning = 0;
+      return -1;
+   }
+   return 0;
+}  /* end start_provisional_verifier() */
+
+/**
+ * Stop the background provisional peer verification thread.
+ * Signals the thread to exit and waits for it to finish. */
+void stop_provisional_verifier(void)
+{
+   if (!Provrunning) return;
+   Provrunning = 0;
+   thread_join(Provthread);
+}  /* end stop_provisional_verifier() */
+
+/**
+ * Clear the entire provisional peer list. */
+void purge_provisional(void)
+{
+   rwlock_wrlock(&Provlock);
+   memset(Provlist, 0, sizeof(Provlist));
+   Provcount = 0;
+   rwlock_wrunlock(&Provlock);
+}  /* end purge_provisional() */
 
 /* end include guard */
 #endif
