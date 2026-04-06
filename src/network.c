@@ -748,10 +748,18 @@ int get_ipl(NODE *np, word32 ip)
       /* send OP_GET_IPL and receive single packet response */
       ecode = send_op(np, OP_GET_IPL);
       if (ecode == VEOK) ecode = recv_tx(np, STD_TIMEOUT);
+      /* reject oversized peer lists (DoS mitigation) */
+      if (ecode == VEOK
+         && get16(np->tx.len) > RPLISTLEN * sizeof(word32)) {
+         ecode = VEBAD;
+      }
       /* cleanup */
       sock_close(np->sd);
       np->sd = INVALID_SOCKET;
    }
+   /* TODO: received peer IPs should be treated as unverified candidates
+    * until confirmed as real nodes, rather than added directly to the
+    * scan/recent peer lists. See: https://github.com/mochimodev/mochimo/issues/107 */
 
    return ecode;
 }  /* end get_ipl() */
