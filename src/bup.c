@@ -252,7 +252,9 @@ int b_update(char *fname)
    mergepinklists();
    /* trigger synchronous external update - if available */
    if (Ininit == 0 && fexists("../update-external.sh")) {
-      system("../update-external.sh");
+      if (system("../update-external.sh") != 0) {
+         pwarn("../update-external.sh returned error");
+      }
    }
 
 CLEANUP:

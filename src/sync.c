@@ -324,7 +324,9 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
    /* Shell script in /bin directory */
    if(Exportflag && fexists("../init-external.sh")) {
      plog("Calling ../init-external.sh\n");  /* first time call */
-     system("../init-external.sh");
+     if (system("../init-external.sh") != 0) {
+        pwarn("../init-external.sh returned error");
+     }
    }
 
    if(!Running) resign("quorum update");
