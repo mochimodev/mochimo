@@ -529,13 +529,14 @@ static int mdst_val__reference(const char *reference)
  * @private
  * Validate a Multi-Destination Transaction (incl. reference field).
  * @param txe Pointer to Transaction Entry to validate
+ * @param mfee Pointer to minimum fee (64-bit) to validate against
  * @return (int) value representing the validation result
  * @retval VEBAD2 on bad signature; check errno for details
  * @retval VEBAD on bad transaction; check errno for details
  * @retval VERROR on error; check errno for details
  * @retval VEOK on success
  */
-static int mdst_val(const TXENTRY *txe)
+static int mdst_val(const TXENTRY *txe, const void *mfee)
 {
    MDST *mdst = txe->mdst;
    word8 total[8] = {0};
@@ -570,7 +571,7 @@ static int mdst_val(const TXENTRY *txe)
          set_errno(EMCM_MATH64_OVERFLOW);
          return VEBAD;
       }
-      if (add64(mfees, Myfee, mfees)) {
+      if (add64(mfees, mfee, mfees)) {
          set_errno(EMCM_MFEES_OVERFLOW);
          return VEBAD;
       }
@@ -706,7 +707,7 @@ int tx_val(const TXENTRY *txe, const void *bnum, const void *mfee)
    switch (TXDAT_TYPE(txe->hdr)) {
       case TXDAT_MDST:
          /* ... validate destination array */
-         if (mdst_val(txe) != VEOK) return VEBAD;
+         if (mdst_val(txe, mfee) != VEOK) return VEBAD;
          break;
       default:
          set_errno(EMCM_XTXUNDEF);
