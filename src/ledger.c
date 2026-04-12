@@ -640,10 +640,8 @@ int le_update(const char *ltfname)
                case 'A':
                   /* transaction CREDIT operation */
                   if (add64(le.balance, lt.amount, le.balance)) {
-                     /** @todo: reconsider math overflow as error? */
-                     /* set_errno(EMCM_MATH64_OVERFLOW); */
-                     /* goto FAIL_DROP; */
-                     memset(le.balance, 0, sizeof(le.balance));
+                     set_errno(EMCM_MATH64_OVERFLOW);
+                     goto DROP_CLEANUP;
                   }
                   break;
                case '-':
