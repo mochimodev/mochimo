@@ -216,10 +216,13 @@ int resync(word32 quorum[], word32 *qidx, void *highhash, void *highweight,
       return VERROR;
    }
 
-   /* Phase 3: reset session-local caches at the start of each resync
-    * attempt. Bad-tfile and bad-chain caches are only meaningful within
-    * the scope of a single sync attempt. */
-   sg_session_reset();
+   /* NOTE: session-local caches (bad-chain, bad-tfile, proofs) are not
+    * reset here. The proof cache was populated by scan_quorum() and must
+    * persist through the gettfile loop for the spot-check below to work.
+    * bad-chain and bad-tfile caches must persist across resync retries
+    * within the same process so we don't fall into repeated failures
+    * on the same malicious peers. All caches are zero-initialized at
+    * process start via static storage duration. */
 
    show("gettfile");  /* get tfile */
    pdebug("fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
@@ -273,12 +276,15 @@ int resync(word32 quorum[], word32 *qidx, void *highhash, void *highweight,
          continue;
       }
 
-      /* Phase 3 tail spot-check: the peer's validated proof segment
-       * from scan_quorum() must appear byte-exactly at the tail of
-       * the tfile they just served. Mismatch = they served a
-       * different chain than they advertised. */
-      if (sg_proof_match_tfile_tail(*quorum, "tfile.dat", NTFTX) != VEOK) {
-         pdebug("gettfile: %s tfile tail does NOT match its advertised "
+      /* Phase 3 spot-check: the peer's validated proof segment from
+       * scan_quorum() must appear byte-exactly at the corresponding
+       * bnum offset in the tfile they just served. The tfile may have
+       * advanced past the proof's tip if the peer received new blocks
+       * between scan_quorum() and resync(); we only require that the
+       * historical trailers at the proof's bnum range match exactly.
+       * Mismatch = they served a different chain than they advertised. */
+      if (sg_proof_match_tfile(*quorum, "tfile.dat") != VEOK) {
+         pdebug("gettfile: %s tfile does NOT match its advertised "
             "proof -- marking tfile bad", ntoa(quorum, ipaddr));
          sg_bad_tfile_add(tfile_hash);
          remove("tfile.dat");

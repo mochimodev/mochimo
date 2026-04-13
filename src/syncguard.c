@@ -17,6 +17,7 @@
 
 /* external support */
 #include "extmath.h"  /* cmp64 */
+#include "extlib.h"   /* get32 */
 #include "sha256.h"
 #include "extio.h"    /* plog/perr */
 
@@ -186,39 +187,63 @@ void sg_proof_clear_all(void)
    memset(Proofs, 0, sizeof(Proofs));
 }
 
-/* Compare the tail of tfile at fname byte-exactly against the cached
- * proof segment for ip. Returns VEOK on match, VERROR on any mismatch
- * or I/O failure.
- * Caller should sg_bad_tfile_add() on mismatch. */
-int sg_proof_match_tfile_tail(word32 ip, const char *tfname, word32 count)
+/* Compare the cached proof segment for ip against the corresponding
+ * range of trailers in the tfile at fname. The proof's first trailer
+ * should appear at offset proof[0].bnum * sizeof(BTRAILER) in the
+ * tfile (trailers are stored in bnum order starting from the genesis
+ * block). The tfile may have advanced past the proof's tip if the
+ * peer mined or received new blocks between scan_quorum() and
+ * resync(); we only care that the proof's historical trailers match
+ * the corresponding positions in the tfile.
+ *
+ * Returns VEOK on byte-exact match, VERROR on any mismatch, I/O
+ * failure, or if the tfile does not contain the proof's range. */
+int sg_proof_match_tfile(word32 ip, const char *tfname)
 {
    sg_proof_t *p;
    FILE *fp;
    long long len, off;
    BTRAILER bt;
    word32 i;
+   word64 first_bnum;
 
    p = sg_proof_find(ip);
-   if (p == NULL) return VERROR;
-   if (count == 0 || count > p->count) count = p->count;
+   if (p == NULL) {
+      pdebug("sg_proof_match_tfile: no cached proof for peer");
+      return VERROR;
+   }
+   if (p->count == 0) return VERROR;
+
+   /* compute byte offset for proof[0].bnum */
+   memcpy(&first_bnum, p->proof[0].bnum, 8);
 
    fp = fopen(tfname, "rb");
    if (fp == NULL) return VERROR;
+
+   /* check tfile length covers the proof range */
    if (fseek64(fp, 0LL, SEEK_END) != 0) { fclose(fp); return VERROR; }
    len = ftell64(fp);
-   if (len < (long long)(count * sizeof(BTRAILER))) {
+   off = (long long)(first_bnum * sizeof(BTRAILER));
+   if (len < off + (long long)(p->count * sizeof(BTRAILER))) {
+      pdebug("sg_proof_match_tfile: tfile too short (len=%lld, need=%lld)",
+         len, off + (long long)(p->count * sizeof(BTRAILER)));
       fclose(fp);
       return VERROR;
    }
-   off = len - (long long)(count * sizeof(BTRAILER));
    if (fseek64(fp, off, SEEK_SET) != 0) { fclose(fp); return VERROR; }
 
-   for (i = 0; i < count; i++) {
+   for (i = 0; i < p->count; i++) {
       if (fread(&bt, sizeof(BTRAILER), 1, fp) != 1) {
+         pdebug("sg_proof_match_tfile: fread failed at proof[%u]", i);
          fclose(fp);
          return VERROR;
       }
       if (memcmp(&bt, &p->proof[i], sizeof(BTRAILER)) != 0) {
+         word32 tfile_bnum = (word32) get32(bt.bnum);
+         word32 proof_bnum = (word32) get32(p->proof[i].bnum);
+         pdebug("sg_proof_match_tfile: mismatch at proof[%u] "
+            "(tfile bnum=0x%x, proof bnum=0x%x)",
+            i, tfile_bnum, proof_bnum);
          fclose(fp);
          return VERROR;
       }

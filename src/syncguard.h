@@ -12,8 +12,15 @@
  *   - Session-local cache of known-bad (weight, hash) chain pairs used
  *     as an exclusion list when re-scanning after a quorum fails
  *
- * All caches are in-memory and cleared at the start of each resync()
- * attempt. No on-disk persistence.
+ * All caches are in-memory and live for the lifetime of the process.
+ * They are zero-initialized at startup via static storage duration.
+ * Bad-chain and bad-tfile caches intentionally persist across resync()
+ * retries so the node does not repeatedly fall into the same bad
+ * actors. Proofs are populated by scan_quorum() and consumed by
+ * resync(); stale proof entries are harmless (only used in lookups
+ * keyed by current quorum-member IP) and are naturally overwritten on
+ * subsequent scans of the same peer. sg_session_reset() is provided
+ * for explicit clearing if ever required.
  */
 
 /* include guard */
@@ -52,7 +59,7 @@ int  sg_hash_file(const char *fname, word8 out[HASHLEN]);
 /* Per-peer proof segment cache (session-local) */
 void sg_proof_store(word32 ip, const BTRAILER *proof, word32 count);
 int  sg_proof_get(word32 ip, BTRAILER *out, word32 count);
-int  sg_proof_match_tfile_tail(word32 ip, const char *tfname, word32 count);
+int  sg_proof_match_tfile(word32 ip, const char *tfname);
 void sg_proof_clear_all(void);
 
 /* Proof validation: structural chain climb + tip hash match against advertised.
