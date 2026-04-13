@@ -602,7 +602,10 @@ bad:
    /* get proof from tfile.dat (!!! (NTFTX - 1) ) */
    if (sub64(Cblocknum, CL64_32(NTFTX - 1), bnum)) memset(bnum, 0, 8);
    count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
-   /* TODO: add (count != NTFTX) check, see refresh_ipl() */
+   if (count != NTFTX) {
+      perrno("send_found: read_tfile() incomplete (%d/%d)", count, NTFTX);
+      exit(1);  /* send_found() runs in a forked child */
+   }
 
    /* build peerlist with Rplist (shuffled) */
    memset(plist, 0, sizeof(plist));
