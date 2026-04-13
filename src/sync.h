@@ -26,7 +26,8 @@ extern "C" {
 
 int reset_chain(void);
 int catchup(word32 plist[], word32 count);
-int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum);
+int resync(word32 quorum[], word32 *qidx, void *highhash, void *highweight,
+           void *highbnum);
 int syncup(word32 splitblock, word8 *txcblock, word32 peerip);
 int contention(NODE *np);
 

@@ -23,6 +23,7 @@
 #include "bval.h"
 #include "bup.h"
 #include "util.h"
+#include "syncguard.h"
 
 /* external support */
 #include "extthrd.h"
@@ -202,7 +203,8 @@ int catchup(word32 plist[], word32 count)
 /**
  * Resynchronize blockchain up to network weight/bnum using quorum[qidx].
  * Returns VEOK on success, else restarts. */
-int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
+int resync(word32 quorum[], word32 *qidx, void *highhash, void *highweight,
+           void *highbnum)
 {
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN] = { 0 };
@@ -214,44 +216,135 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       return VERROR;
    }
 
+   /* NOTE: session-local caches (bad-chain, bad-tfile, proofs) are not
+    * reset here. The proof cache was populated by scan_quorum() and must
+    * persist through the gettfile loop for the spot-check below to work.
+    * bad-chain and bad-tfile caches must persist across resync retries
+    * within the same process so we don't fall into repeated failures
+    * on the same malicious peers. All caches are zero-initialized at
+    * process start via static storage duration. */
+
    show("gettfile");  /* get tfile */
    pdebug("fetching tfile.dat from %s", ntoa(&quorum[0], ipaddr));
    pdebug("... this is a large file, please be patient !!!");
-   while(Running && *quorum) {
-      remove("tfile.dat");
-      if (get_file(*quorum, NULL, "tfile.tmp") == VEOK) {
-         if (rename("tfile.tmp", "tfile.dat") == 0) break;
-         perrno("failed to rename tfile.dat");
-      }
-      /* remove quorum member, and try again */
-      remove32(*quorum, quorum, *qidx, qidx);
-   }
-   if (!(*quorum)) restart("gettfile no quorum");
-   if (!Running) resign("gettfile exiting");
 
-   show("tfval");  /* validate tfile */
-   /* do some quick maths to estimate time for tfile validation */
-   memcpy(&hb, highbnum, sizeof(hb));
-   pdebug("validating tfile (est. %u seconds)...",
-      (word32) (hb / 300 / OMP_MAX_THREADS));
-   if (validate_tfile("tfile.dat", bnum, weight, 0) != VEOK) {
-      remove("tfile.dat.fail");
-      rename("tfile.dat", "tfile.dat.fail");
-      perrno("validate_tfile(tfile.dat, 0x%s, 0x%s, 0) FAILURE",
-         bnum2hex(bnum, NULL), weight2hex(weight, NULL));
-      return VERROR;
-   } else if (validate_tfile_pow("tfile.dat", Trustblock) != VEOK) {
-      remove("tfile.pow.fail");
-      rename("tfile.dat", "tfile.pow.fail");
-      perrno("validate_tfile_pow(tfile.dat, 0) FAILURE");
+   /* Download and validate tfile from quorum members in turn. Apply
+    * defense-in-depth checks before accepting a tfile:
+    *   1. Bad-tfile hash cache: skip downloads whose hash matches a
+    *      previously-failed tfile from an earlier quorum member.
+    *   2. Tail spot-check: the last NTFTX trailers of the downloaded
+    *      tfile must byte-exactly match the proof segment that this
+    *      peer provided during scan_quorum(). A mismatch means the
+    *      peer served a different chain than it advertised.
+    *   3. Structural validation (existing validate_tfile).
+    *   4. PoW validation (existing validate_tfile_pow).
+    * Any failure adds the tfile hash to the bad-tfile cache and drops
+    * the peer from the quorum before trying the next member. */
+   while(Running && *quorum) {
+      word8 tfile_hash[HASHLEN];
+      int tfile_fetched = 0;
+
+      remove("tfile.dat");
+      remove("tfile.tmp");
+      if (get_file(*quorum, NULL, "tfile.tmp") != VEOK) {
+         pdebug("gettfile: %s get_file() failed", ntoa(quorum, ipaddr));
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+      tfile_fetched = 1;
+
+      /* hash the downloaded tfile and consult the bad-tfile cache */
+      if (sg_hash_file("tfile.tmp", tfile_hash) != VEOK) {
+         pdebug("gettfile: failed to hash tfile.tmp");
+         remove("tfile.tmp");
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+      if (sg_bad_tfile_check(tfile_hash)) {
+         pdebug("gettfile: %s served a known-bad tfile (cached)",
+            ntoa(quorum, ipaddr));
+         remove("tfile.tmp");
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+
+      /* rename into place for subsequent validation */
+      if (rename("tfile.tmp", "tfile.dat") != 0) {
+         perrno("failed to rename tfile.dat");
+         remove("tfile.tmp");
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+
+      /* Phase 3 spot-check: the peer's validated proof segment from
+       * scan_quorum() must appear byte-exactly at the corresponding
+       * bnum offset in the tfile they just served. The tfile may have
+       * advanced past the proof's tip if the peer received new blocks
+       * between scan_quorum() and resync(); we only require that the
+       * historical trailers at the proof's bnum range match exactly.
+       * Mismatch = they served a different chain than they advertised. */
+      if (sg_proof_match_tfile(*quorum, "tfile.dat") != VEOK) {
+         pdebug("gettfile: %s tfile does NOT match its advertised "
+            "proof -- marking tfile bad", ntoa(quorum, ipaddr));
+         sg_bad_tfile_add(tfile_hash);
+         remove("tfile.dat");
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+
+      show("tfval");
+      memcpy(&hb, highbnum, sizeof(hb));
+      pdebug("validating tfile (est. %u seconds)...",
+         (word32) (hb / 300 / OMP_MAX_THREADS));
+      if (validate_tfile("tfile.dat", bnum, weight, 0) != VEOK) {
+         sg_bad_tfile_add(tfile_hash);
+         remove("tfile.dat.fail");
+         rename("tfile.dat", "tfile.dat.fail");
+         perrno("validate_tfile(tfile.dat, 0x%s, 0x%s, 0) FAILURE",
+            bnum2hex(bnum, NULL), weight2hex(weight, NULL));
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+      if (validate_tfile_pow("tfile.dat", Trustblock) != VEOK) {
+         sg_bad_tfile_add(tfile_hash);
+         remove("tfile.pow.fail");
+         rename("tfile.dat", "tfile.pow.fail");
+         perrno("validate_tfile_pow(tfile.dat, 0) FAILURE");
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+      pdebug("tfile.dat is valid");
+      if (cmp256(weight, highweight) < 0 || cmp64(bnum, highbnum) < 0) {
+         sg_bad_tfile_add(tfile_hash);
+         pdebug("tfile.dat does NOT match advertised bnum and weight");
+         remove("tfile.dat");
+         remove32(*quorum, quorum, *qidx, qidx);
+         continue;
+      }
+      pdebug("tfile.dat matches advertised bnum and weight.");
+
+      /* tfile accepted */
+      (void)tfile_fetched;  /* suppress unused warning on some builds */
+      break;
+   }  /* end while (Running && *quorum) */
+
+   /* Phase 4: if all quorum members failed, mark this chain as bad for
+    * the remainder of this session and return VERROR so the bootstrap
+    * loop can re-scan and select a different chain. This replaces the
+    * previous restart() call which exit()ed the process entirely and
+    * lost the bad-chain cache along with it. */
+   if (!(*quorum)) {
+      if (highhash && highweight) {
+         sg_bad_chain_add((const word8 *)highweight, (const word8 *)highhash);
+         perr("gettfile: all quorum members exhausted for chain 0x%s - "
+            "marking bad and returning for re-scan",
+            weight2hex((void *)highweight, NULL));
+      } else {
+         perr("gettfile: all quorum members exhausted");
+      }
       return VERROR;
    }
-   pdebug("tfile.dat is valid");
-   if (cmp256(weight, highweight) >= 0 && cmp64(bnum, highbnum) >= 0) {
-      pdebug("tfile.dat matches advertised bnum and weight.");
-   } else return VERROR;
-   if (!(*quorum)) restart("tfval no quorum");
-   if (!Running) resign("tfval exiting");
+   if (!Running) resign("gettfile exiting");
 
    /* determine starting neo-genesis block -- bump to V30TRIGGER */
    put64(bnum, highbnum); bnum[0] = 0;
@@ -281,7 +374,15 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
          /* remove quorum member, and try again */
          remove32(*quorum, quorum, *qidx, qidx);
       }
-      if (!(*quorum)) restart("getneo no quorum");
+      if (!(*quorum)) {
+         if (highhash && highweight) {
+            sg_bad_chain_add((const word8 *)highweight,
+               (const word8 *)highhash);
+            perr("getneo: all quorum members exhausted - marking chain bad "
+               "and returning for re-scan");
+         }
+         return VERROR;
+      }
       if (!Running) resign("getneo exiting");
       /* transfer neo-genesis block to bcdir */
       bnum2fname(bnum, bcfname);

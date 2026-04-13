@@ -402,7 +402,7 @@ int init(void)
       }
       if (iszero(Cblocknum, 8)) {
          /* we're starting from scratch... */
-         resync(quorum, &qlen, netweight, netbnum);
+         resync(quorum, &qlen, nethash, netweight, netbnum);
       }
       status = VEOK;  /* don't panic... EVERYTHING IS FINE! */
       result = cmp256(Weight, netweight);  /* compare network weight */
@@ -467,7 +467,7 @@ int init(void)
             } */
          }
          pdebug("...attempting resync()...");
-         resync(quorum, &qlen, netweight, netbnum);
+         resync(quorum, &qlen, nethash, netweight, netbnum);
          break;
       }  /* ... did we catch up? */
       if (cmp256(Weight, netweight) >= 0) {
