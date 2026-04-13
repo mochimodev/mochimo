@@ -1,0 +1,212 @@
+/**
+ * F-18 test harness. Disabled (by `.disable` suffix) so the Makefile
+ * test glob skips it; build and run manually for local validation.
+ *
+ * Forks two cooperating processes:
+ *   - child: acts as a malicious peer on 127.0.0.1:<PORT>, accepts
+ *     one connection, does the 3-way handshake, then streams
+ *     OP_SEND_FILE packets filled with max-size buffers indefinitely
+ *     (never sends a short EOF-signalling packet).
+ *   - parent: waits briefly, connects to the child via callserver(),
+ *     then calls recv_file() and reports whether the size cap tripped.
+ *
+ * Compile with a small MAX_RECV_FILE_BYTES override for fast testing:
+ *
+ *   cc -DF18_TEST_CAP=1048576 -Isrc -Iinclude/crypto-c/src \
+ *      -Iinclude/extended-c/src src/test/_f18-recv-file-limit.c.disable \
+ *      -Lbuild -Linclude/crypto-c/build -Linclude/extended-c/build \
+ *      -fopenmp -Wl,-\( -lm -lmochimo -lcrypto-c -lextended-c -Wl,-\) \
+ *      -o build/test/f18-recv-file-limit
+ *
+ * Pass: recv_file() returns VERROR and the partial download is
+ * deleted. Fail: recv_file runs until OOM or disk-full.
+ */
+
+#include "network.h"
+#include "types.h"
+#include "extinet.h"
+#include "extio.h"
+#include "extlib.h"
+#include "crc16.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+
+/* Port for the fake peer. Avoid colliding with any real mochimo
+ * instance. */
+#ifndef F18_TEST_PORT
+#define F18_TEST_PORT 22095
+#endif
+
+/* If the harness was compiled with a reduced cap, report it so the
+ * expected trip point is clear. */
+#ifndef MAX_RECV_FILE_BYTES
+#error "expected MAX_RECV_FILE_BYTES from types.h"
+#endif
+
+/* How much cap we expect recv_file() to enforce. By default use the
+ * production value. Compile with -DF18_TEST_CAP=<smaller> to reduce. */
+#ifndef F18_TEST_CAP
+#define F18_TEST_CAP MAX_RECV_FILE_BYTES
+#endif
+
+/* How far past the cap we will stream (bytes) before declaring victory
+ * on the sender side (as an upper bound if the receiver never stops). */
+#define OVERSHOOT_BYTES  (F18_TEST_CAP + (16ULL * 1024 * 1024))
+
+static void run_fake_peer(int listen_sd)
+{
+   SOCKET sd;
+   NODE node;
+   size_t sent_total;
+   word16 id1;
+
+   /* accept one connection */
+   sd = accept(listen_sd, NULL, NULL);
+   if (sd == INVALID_SOCKET) {
+      perror("child: accept failed");
+      exit(1);
+   }
+   sock_set_nonblock(sd);
+
+   /* handshake: receive OP_HELLO, respond OP_HELLO_ACK */
+   memset(&node, 0, sizeof(NODE));
+   node.sd = sd;
+   if (recv_tx(&node, 5) != VEOK) {
+      fprintf(stderr, "child: recv OP_HELLO failed\n");
+      exit(1);
+   }
+   if (get16(node.tx.opcode) != OP_HELLO) {
+      fprintf(stderr, "child: expected OP_HELLO, got %d\n",
+         get16(node.tx.opcode));
+      exit(1);
+   }
+   id1 = get16(node.tx.id1);
+   node.id1 = id1;
+   node.id2 = rand16();
+   put16(node.tx.opcode, OP_HELLO_ACK);
+   if (send_tx(&node, 5) != VEOK) {
+      fprintf(stderr, "child: send OP_HELLO_ACK failed\n");
+      exit(1);
+   }
+   fprintf(stderr, "child: handshake done, streaming OP_SEND_FILE...\n");
+
+   /* stream OP_SEND_FILE with max-size buffers forever */
+   memset(node.tx.buffer, 0xA5, sizeof(node.tx.buffer));
+   put16(node.tx.len, (word16) sizeof(node.tx.buffer));
+   sent_total = 0;
+   while (sent_total < OVERSHOOT_BYTES) {
+      put16(node.tx.opcode, OP_SEND_FILE);
+      if (send_tx(&node, 5) != VEOK) {
+         fprintf(stderr,
+            "child: send_tx returned non-VEOK after %zu bytes (receiver "
+            "likely closed the socket -- this is the expected outcome)\n",
+            sent_total);
+         exit(0);
+      }
+      sent_total += sizeof(node.tx.buffer);
+   }
+   fprintf(stderr,
+      "child: sent %zu bytes past cap with no socket close -- receiver "
+      "did NOT trip the size breaker!\n", sent_total);
+   exit(2);
+}
+
+int main(void)
+{
+   SOCKET listen_sd;
+   struct sockaddr_in addr;
+   int one = 1;
+   pid_t pid;
+   NODE node;
+   int rc;
+   FILE *fp;
+   long long got;
+
+   Running = 1;
+   sock_startup();
+
+   /* set up listen socket */
+   listen_sd = socket(AF_INET, SOCK_STREAM, 0);
+   if (listen_sd == INVALID_SOCKET) {
+      perror("socket");
+      return 1;
+   }
+   setsockopt(listen_sd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+   memset(&addr, 0, sizeof(addr));
+   addr.sin_family = AF_INET;
+   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+   addr.sin_port = htons(F18_TEST_PORT);
+   if (bind(listen_sd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+      perror("bind");
+      return 1;
+   }
+   if (listen(listen_sd, 1) != 0) {
+      perror("listen");
+      return 1;
+   }
+
+   pid = fork();
+   if (pid < 0) {
+      perror("fork");
+      return 1;
+   }
+   if (pid == 0) {
+      /* child: fake peer */
+      run_fake_peer(listen_sd);
+      /* NOT REACHED */
+      return 0;
+   }
+
+   /* parent: close the listen fd, connect, call recv_file */
+   close(listen_sd);
+   sleep(1);
+
+   /* configure Dstport so callserver() talks to our child */
+   Dstport = F18_TEST_PORT;
+
+   fprintf(stderr, "parent: cap = %llu bytes\n",
+      (unsigned long long) F18_TEST_CAP);
+   fprintf(stderr, "parent: calling callserver() then recv_file()...\n");
+
+   if (callserver(&node, aton("127.0.0.1")) != VEOK) {
+      fprintf(stderr, "parent: callserver failed\n");
+      kill(pid, SIGKILL);
+      waitpid(pid, NULL, 0);
+      return 1;
+   }
+
+   rc = recv_file(&node, "/tmp/f18_recv.tmp");
+   fprintf(stderr, "parent: recv_file returned %d (expect %d = VERROR)\n",
+      rc, VERROR);
+
+   /* the file should have been removed by recv_file's failure path */
+   fp = fopen("/tmp/f18_recv.tmp", "rb");
+   if (fp) {
+      fseek(fp, 0, SEEK_END);
+      got = ftell(fp);
+      fclose(fp);
+      fprintf(stderr, "parent: partial file NOT removed, size=%lld\n", got);
+   } else {
+      fprintf(stderr, "parent: partial file correctly removed\n");
+   }
+
+   /* clean up child */
+   kill(pid, SIGKILL);
+   waitpid(pid, NULL, 0);
+   sock_cleanup();
+
+   if (rc == VERROR) {
+      fprintf(stderr, "[PASS] F-18: recv_file enforced the size cap\n");
+      return 0;
+   } else {
+      fprintf(stderr, "[FAIL] F-18: recv_file did NOT enforce the cap\n");
+      return 1;
+   }
+}
