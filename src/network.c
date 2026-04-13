@@ -980,22 +980,26 @@ int scan_quorum
                /* check peer's chain weight against highweight */
                result = cmp256(node.tx.weight, highweight);
                if (result >= 0) {
-                  /* higher or same chain detected */
-                  if (result > 0) {
-                     /* higher chain detected */
-                     pdebug("new highweight");
+                  /* new best chain: strictly higher weight, OR equal weight
+                   * with numerically higher block hash (deterministic
+                   * tiebreaker to ensure quorum members share a single chain,
+                   * regardless of peer scan order) */
+                  if (result > 0 ||
+                      memcmp(node.tx.cblockhash, highhash, HASHLEN) > 0) {
+                     pdebug("new high chain");
                      memcpy(highhash, node.tx.cblockhash, HASHLEN);
                      memcpy(highweight, node.tx.weight, 32);
                      put64(highbnum, node.tx.cblock);
                      qcount = 0;
                      if (quorum) {
                         memset(quorum, 0, qlen * sizeof(word32));
-                        pdebug("higher chain found, quourum reset...");
+                        pdebug("new high chain found, quorum reset...");
                      }
                   }
-                  /* check block hash and add to quorum */
-                  if (memcmp(node.tx.cblockhash, highhash, HASHLEN) >= 0) {
-                     /* add ip to quorum, or q consensus */
+                  /* add ip to quorum only if it shares the exact high chain
+                   * hash -- peers on different chains of equal weight must
+                   * not be combined into a single quorum */
+                  if (memcmp(node.tx.cblockhash, highhash, HASHLEN) == 0) {
                      if (quorum && qcount < qlen) {
                         quorum[qcount++] = peer;
                         pdebug("%s qualified", ntoa(&peer, NULL));
