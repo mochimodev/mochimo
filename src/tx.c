@@ -28,9 +28,25 @@
 #include "exttime.h"
 #include "extmath.h"
 #include "extlib.h"
-#include <ctype.h>
 #include "crc16.h"
 #include "base58.h"
+
+/* Locale-independent ASCII classifiers used by mdst_val__reference().
+ * <ctype.h>'s isdigit()/isupper() are locale-sensitive and exhibit UB
+ * when passed a signed char value with the high bit set. These wrappers
+ * take an unsigned char and perform a pure ASCII range check, giving
+ * identical behavior across all locales and avoiding the UB entirely.
+ *
+ * TODO: move this to extlib.h when convenient */
+static inline int ascii_isdigit(unsigned char c)
+{
+   return c >= '0' && c <= '9';
+}
+
+static inline int ascii_isupper(unsigned char c)
+{
+   return c >= 'A' && c <= 'Z';
+}
 
 /**
  * @private Transaction Position structure.
@@ -92,11 +108,15 @@ static int txpos_compare(const void *va, const void *vb)
 /**
  * @private
  * Initialize a Transaction Entry structure per the given header options.
+ * Rejects payloads whose TXDAT_TYPE or TXDSA_TYPE byte is not one of
+ * the recognised values, and payloads whose declared counts would
+ * produce offsets outside the TXENTRY buffer.
  * @param tx Pointer to TXENTRY structure to initialize
- * @param hdr Pointer to TXHDR structure to analyze, or NULL where the
- * Transaction Header is contained within the TXENTRY buffer
+ * @param opts Pointer to TXHDR-prefixed option bytes to analyze, or
+ * NULL when the Transaction Header is contained within the TXENTRY buffer
+ * @return VEOK on success; VERROR on unsupported type byte or overflow
  */
-static void tx__init(TXENTRY *tx, const void *opts)
+static int tx__init(TXENTRY *tx, const void *opts)
 {
    size_t dsaoff, tlroff;
 
@@ -104,19 +124,36 @@ static void tx__init(TXENTRY *tx, const void *opts)
       opts = tx->buffer;
    }
 
-   /* determine validation data offset */
+   /* determine validation data offset -- reject unknown types BEFORE
+    * any further arithmetic so that uninitialized offsets are never
+    * read or used in pointer computations.
+    *
+    * Note: dsaoff and tlroff do not need runtime bounds checks. The
+    * TXENTRY.buffer is declared as exactly
+    *    sizeof(TXHDR) + sizeof(TXDAT) + sizeof(TXDSA) + sizeof(TXTLR)
+    * and the compile-time STATIC_ASSERT()s in types.h guarantee that
+    *    sizeof(TXDAT) == 256 * sizeof(MDST)    (types.h:501)
+    *    sizeof(TXDSA) == sizeof(WOTSVAL)       (types.h:518)
+    * Combined with MDST_COUNT(opts) = opts[2] + 1 having a word8-bound
+    * maximum of 256, the largest possible (dsaoff + sizeof(WOTSVAL) +
+    * sizeof(TXTLR)) equals sizeof(tx->buffer) exactly -- always in
+    * bounds by construction. */
    switch (TXDAT_TYPE(opts)) {
       case TXDAT_MDST:
          /* offset depends on destination count (+1) */
          dsaoff = sizeof(TXHDR) + (sizeof(MDST) * MDST_COUNT(opts));
          break;
+      default:
+         return VERROR;
    }
 
-   /* determine trailer data offset */
+   /* determine trailer data offset -- same defensive pattern */
    switch (TXDSA_TYPE(opts)) {
       case TXDSA_WOTS:
          tlroff = dsaoff + sizeof(WOTSVAL);
          break;
+      default:
+         return VERROR;
    }
 
    /* initialize structure properties */
@@ -138,6 +175,8 @@ static void tx__init(TXENTRY *tx, const void *opts)
    tx->wots = &(tx->dsa->wots);
    tx->tx_nonce = tx->tlr->nonce;
    tx->tx_id = tx->tlr->id;
+
+   return VEOK;
 }  /* end tx__init() */
 
 struct {
@@ -443,8 +482,12 @@ int tx_read(TXENTRY *tx, const void *buf, size_t bufsz)
    /* prepare transaction container */
    memset(tx, 0, sizeof(TXENTRY));
 
-   /* compute offsets */
-   tx__init(tx, buf);
+   /* compute offsets -- rejects unknown types and oversize declarations
+    * before any pointer arithmetic is performed on them */
+   if (tx__init(tx, buf) != VEOK) {
+      set_errno(EMCM_TXINVAL);
+      return VERROR;
+   }
 
    /* check transaction size -- valid with or without trailer data */
    if (bufsz > tx->tx_sz || bufsz < (tx->tx_sz - sizeof(TXTLR))) {
@@ -483,33 +526,37 @@ static int mdst_val__reference(const char *reference)
     *   - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
     */
 
-   /* validate reference format */
+   /* validate reference format using locale-independent classifiers
+    * (see ascii_isdigit / ascii_isupper definitions at the top of this
+    * file -- these replace <ctype.h>'s isdigit()/isupper() to avoid
+    * locale dependence and UB on high-bit-set signed chars). */
    for (state = START, j = 0; j < ADDR_REF_LEN; j++) {
+      unsigned char c = (unsigned char) reference[j];
       /* state determines the next allowed characters */
       switch (state) {
          /* NOTE: "continue" here is associated with for() loop */
          case START:  /* allow either null, digit, or uppercase */
-            if (reference[j] == '\0') { state = ZERO; continue; }
-            if (isdigit(reference[j])) { state = DIGIT; continue; }
+            if (c == '\0') { state = ZERO; continue; }
+            if (ascii_isdigit(c)) { state = DIGIT; continue; }
             /* fallthrough */
          case DIGIT_DASH:  /* allow only uppercase (follows "[0-9]-") */
-            if (isupper(reference[j])) { state = UPPER; continue; }
+            if (ascii_isupper(c)) { state = UPPER; continue; }
             break;  /* switch() */
          case UPPER_DASH:  /* allow only numeric (follows "[A-Z]-") */
-            if (isdigit(reference[j])) { state = DIGIT; continue; }
+            if (ascii_isdigit(c)) { state = DIGIT; continue; }
             break;  /* switch() */
          case DIGIT:  /* allow either numeric, dash, or ZERO */
-            if (isdigit(reference[j])) continue;  /* for() */
-            if (reference[j] == '-') { state = DIGIT_DASH; continue; }
-            if (reference[j] == '\0') { state = ZERO; continue; }
+            if (ascii_isdigit(c)) continue;  /* for() */
+            if (c == '-') { state = DIGIT_DASH; continue; }
+            if (c == '\0') { state = ZERO; continue; }
             break;  /* switch() */
          case UPPER:  /* allow either uppercase, dash, or ZERO */
-            if (isupper(reference[j])) continue;  /* for() */
-            if (reference[j] == '-') { state = UPPER_DASH; continue; }
-            if (reference[j] == '\0') { state = ZERO; continue; }
+            if (ascii_isupper(c)) continue;  /* for() */
+            if (c == '-') { state = UPPER_DASH; continue; }
+            if (c == '\0') { state = ZERO; continue; }
             break;  /* switch() */
          case ZERO:  /* allow only ZERO (end of reference) */
-            if (reference[j] == '\0') continue;  /* for() */
+            if (c == '\0') continue;  /* for() */
       }  /* end switch(state) */
 
       /* no valid character for current state */
