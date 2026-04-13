@@ -203,7 +203,8 @@ int catchup(word32 plist[], word32 count)
 /**
  * Resynchronize blockchain up to network weight/bnum using quorum[qidx].
  * Returns VEOK on success, else restarts. */
-int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
+int resync(word32 quorum[], word32 *qidx, void *highhash, void *highweight,
+           void *highbnum)
 {
    char ipaddr[16], fname[FILENAME_MAX], bcfname[21];
    word8 bnum[8], weight[HASHLEN] = { 0 };
@@ -321,10 +322,23 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
       break;
    }  /* end while (Running && *quorum) */
 
-   if (!(*quorum)) restart("gettfile no quorum");
+   /* Phase 4: if all quorum members failed, mark this chain as bad for
+    * the remainder of this session and return VERROR so the bootstrap
+    * loop can re-scan and select a different chain. This replaces the
+    * previous restart() call which exit()ed the process entirely and
+    * lost the bad-chain cache along with it. */
+   if (!(*quorum)) {
+      if (highhash && highweight) {
+         sg_bad_chain_add((const word8 *)highweight, (const word8 *)highhash);
+         perr("gettfile: all quorum members exhausted for chain 0x%s - "
+            "marking bad and returning for re-scan",
+            weight2hex((void *)highweight, NULL));
+      } else {
+         perr("gettfile: all quorum members exhausted");
+      }
+      return VERROR;
+   }
    if (!Running) resign("gettfile exiting");
-   if (!(*quorum)) restart("tfval no quorum");
-   if (!Running) resign("tfval exiting");
 
    /* determine starting neo-genesis block -- bump to V30TRIGGER */
    put64(bnum, highbnum); bnum[0] = 0;
@@ -354,7 +368,15 @@ int resync(word32 quorum[], word32 *qidx, void *highweight, void *highbnum)
          /* remove quorum member, and try again */
          remove32(*quorum, quorum, *qidx, qidx);
       }
-      if (!(*quorum)) restart("getneo no quorum");
+      if (!(*quorum)) {
+         if (highhash && highweight) {
+            sg_bad_chain_add((const word8 *)highweight,
+               (const word8 *)highhash);
+            perr("getneo: all quorum members exhausted - marking chain bad "
+               "and returning for re-scan");
+         }
+         return VERROR;
+      }
       if (!Running) resign("getneo exiting");
       /* transfer neo-genesis block to bcdir */
       bnum2fname(bnum, bcfname);
