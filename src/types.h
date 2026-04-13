@@ -43,6 +43,13 @@
 #define TPLISTLEN    32       /**< trusted peer list */
 #define CRCLISTLEN   1024     /**< recent tx crc's */
 #define MAXQUORUM    32       /**< for init */
+#define PROVPEERSLEN 4096     /**< max provisional peer entries */
+#define PROVBATCHSIZE 32      /**< peers verified per thread pass */
+#define PROVMAXFAILS 5        /**< max failures before expiry */
+#define PROVBACKOFF  300      /**< base backoff seconds per fail */
+#define PROVREPUTHR  10       /**< min entries to evaluate reputation */
+#define PROVREPUFAIL 80       /**< failure % to reject source */
+#define PROVREPUTIME 3600     /**< reputation window in seconds */
 #define BCONFREQ     3        /**< Run con at least */
 #define CBITS        0        /**< 8 capability bits for TX */
 #define MFEE         500
@@ -699,6 +706,30 @@ typedef struct {
 } LTRAN;
 /* structure packing assertion required ... */
 STATIC_ASSERT(sizeof(LTRAN) == ( ADDR_LEN + 1 + 8 ), LTRAN_size);
+
+/**
+ * Provisional peer entry.
+ * Tracks unverified peer IPs received from network peers.
+ * All fields are word32 for 4-byte alignment.
+ * @property PROVPEER::ip Candidate peer IP address
+ * @property PROVPEER::source_ip IP of the peer that advertised this
+ * @property PROVPEER::next_attempt Unix timestamp of next attempt (0=untried)
+ * @property PROVPEER::fail_count Number of failed contact attempts
+ * @property PROVPEER::status 0=pending, 1=verified, 2=expired
+ */
+typedef struct {
+   word32 ip;
+   word32 source_ip;
+   word32 next_attempt;
+   word32 fail_count;
+   word32 status;
+} PROVPEER;
+STATIC_ASSERT(sizeof(PROVPEER) == 20, PROVPEER_size);
+
+/* provisional peer status values */
+#define PROVSTATUS_PENDING   0
+#define PROVSTATUS_VERIFIED  1
+#define PROVSTATUS_EXPIRED   2
 
 /* end include guard */
 #endif

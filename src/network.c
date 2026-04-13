@@ -944,7 +944,7 @@ int scan_quorum
 (word32 quorum[], word32 qlen, void *hash, void *weight, void *bnum)
 {
    NODE node;
-   word32 peer;
+   word32 peer, source;
    word32 scanidx = 0;
    word32 qcount = 0;
    word32 netplist[1024];
@@ -970,7 +970,7 @@ int scan_quorum
       pdebug("scan index %u/%u...", scanidx, netplistidx);
 
       /* prepare parallel processing scope */
-      OMP_PARALLEL_(for private(node, peer, len, ipstr) num_threads(qlen))
+      OMP_PARALLEL_(for private(node, peer, source, len, ipstr) num_threads(qlen))
       for (word32 idx = scanidx; idx < netplistidx; idx++) {
          /* get IP list from peer */
          peer = netplist[idx];
@@ -1008,17 +1008,20 @@ int scan_quorum
                }  /* end if higher or same chain */
             }  /* end OMP_CRITICAL_() */
             /* inspect peer list */
+            source = netplist[idx]; /* save source before overwrite */
             for (len = 0, result = 0; len < get16(node.tx.len); len += 4) {
                if (netplistidx >= 1024) break;
                /* check (and recognise contribution of) valid peers */
                peer = get32(&node.tx.buffer[len]);
                if (peer == 0 || pinklisted(peer)) continue;
                if (!isprivate(peer) || !Noprivate) result++;
-               /* add to network list */
+               /* add to network list for immediate scanning */
                OMP_CRITICAL_()
                if (addpeer(peer, netplist, 1024, &netplistidx)) {
                   pdebug("Added %s to netplist", ntoa(&peer, ipstr));
                }
+               /* add to provisional list for verification */
+               addprovisional(peer, source);
             }
             /* add peer to recent peers on contribution */
             if (result) {
@@ -1063,13 +1066,12 @@ int refresh_ipl(void)
       ip = Rplist[rand16() % RPLISTLEN];
    if(ip == 0) goto FAIL;
    if (get_ipl(&node, ip) == VEOK) {
-      /* add iplist to recent peers */
+      /* add iplist to provisional peers for verification */
       len = get16(node.tx.len);
       for(j = 0; len > 0; j += 4, len -= 4) {
          peer = get32(node.tx.buffer + j);
          if (peer == 0) continue;
-         if (Rplist[RPLISTLEN - 1]) break;
-         addrecent(peer);
+         addprovisional(peer, ip);
       }
    } else goto FAIL;
    /* Check peer's chain weight against ours. */

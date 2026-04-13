@@ -687,6 +687,11 @@ int server(int reuse_addr)
 
    remove("vstart.lck");  /* signal Verisimility that we are up. */
 
+   /* start provisional peer verification thread */
+   if (start_provisional_verifier() != 0) {
+      pwarn("failed to start provisional peer verifier");
+   }
+
    /*
     * Main server loop.
     */
@@ -1010,6 +1015,7 @@ int server(int reuse_addr)
 
       if(Ltime >= ipltime) {
          refresh_ipl();  /* refresh ip list */
+         harvest_provisional();  /* promote verified provisional peers */
          ipltime = Ltime + (rand16() % 300) + 10;
       }
 
@@ -1025,6 +1031,7 @@ int server(int reuse_addr)
 
    /* cleanup */
    plog("Server exiting, please wait...");
+   stop_provisional_verifier();
    sock_close(lsd);  /* close listening socket */
 
    return 0;
