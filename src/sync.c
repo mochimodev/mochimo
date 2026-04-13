@@ -88,13 +88,15 @@ int reset_chain(void)
 /**
  * Catch up by getting blocks from peers in plist[count].
  * Returns VEOK if updates made, else b_update() error code. */
-int catchup(word32 plist[], word32 count)
+int catchup(word32 plist[], word32 count_in)
 {
    void (*SIGTERM_old)(int);
    void (*SIGINT_old)(int);
    FILENAME fname_dl = {0};
    FILENAME fname = {0};
    word8 bnum[8];
+   /* volatile: while-loop reads below are outside OMP_CRITICAL_ */
+   volatile word32 count = count_in;
    /* thread-local working state (made private via the OMP private() clause
     * below; assigned inside the parallel region since OMP private does
     * not initialize) */
