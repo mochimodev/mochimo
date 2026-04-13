@@ -46,6 +46,7 @@
 #define BCONFREQ     3        /**< Run con at least */
 #define CBITS        0        /**< 8 capability bits for TX */
 #define MFEE         500
+#define MAX_RECV_FILE_BYTES  ((size_t)(1024ULL * 1024 * 1024))
 
 #define UBANDWIDTH   14300    /**< Dynamic upload bandwidth -- not zero */
 
