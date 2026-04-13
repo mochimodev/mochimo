@@ -214,10 +214,12 @@ int recv_file(NODE *np, char *fname)
    FILE *fp;
    time_t prevtime;
    word16 len;
+   size_t total;
 
    /* init recv_file() */
    time(&prevtime);
    tx = &(np->tx);
+   total = 0;
 
    /* open file for writing recv'd data */
    fp = fopen(fname, "wb");
@@ -235,6 +237,11 @@ int recv_file(NODE *np, char *fname)
          break;
       }
       len = get16(tx->len);
+      total += len;
+      if (total > MAX_RECV_FILE_BYTES) {
+         pdebug("(%s, %s) *** exceeded MAX_RECV_FILE_BYTES", np->id, fname);
+         break;
+      }
       if (len && fwrite(tx->buffer, len, 1, fp) != 1) {
          pdebug("(%s, %s) *** I/O error", np->id, fname);
          break;
