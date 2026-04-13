@@ -275,9 +275,11 @@ void merkle_root(const word8 *hashlist, size_t count, word8 *root)
  * @param bnum Start block number to read from Tfile
  * @param count Number of trailers to read from Tfile
  * @param tfile Filename of Tfile to read from
- * @return (int) number of records read from Tfile, which may be less
- * than count if an error ocurrs; check errno for details
-*/
+ * @return (size_t) number of records read from Tfile; check errno for
+ * details when the return is less than @a count
+ * @retval 0 on error (fopen/fseek failure, or zero records read);
+ * errno is set by the failing call (or EMCM_EOF on short read)
+ */
 size_t read_tfile
    (void *buffer, const word8 bnum[8], size_t count, const char *tfile)
 {
@@ -285,9 +287,12 @@ size_t read_tfile
    size_t n = 0;
    FILE *fp;
 
-   /* open Tfile and read trailer from offset */
+   /* open Tfile and read trailer from offset. Return 0 on error --
+    * NOT VERROR (==1), because VERROR would be indistinguishable from
+    * "successfully read one trailer" for callers that check != 1 or
+    * <= 0. 0 is the unambiguous error signal for this size_t API. */
    fp = fopen(tfile, "rb");
-   if (fp == NULL) return VERROR;
+   if (fp == NULL) return 0;
    /* seek to read offset for bnum */
    put64(&offset, bnum);
    offset *= sizeof(BTRAILER);

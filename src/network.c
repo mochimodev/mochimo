@@ -602,7 +602,10 @@ bad:
    /* get proof from tfile.dat (!!! (NTFTX - 1) ) */
    if (sub64(Cblocknum, CL64_32(NTFTX - 1), bnum)) memset(bnum, 0, 8);
    count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
-   /* TODO: add (count != NTFTX) check, see refresh_ipl() */
+   if (count != NTFTX) {
+      perrno("send_found: read_tfile() incomplete (%d/%d)", count, NTFTX);
+      exit(1);  /* send_found() runs in a forked child */
+   }
 
    /* build peerlist with Rplist (shuffled) */
    memset(plist, 0, sizeof(plist));
@@ -792,28 +795,31 @@ int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash)
       put64(tx->blocknum, tx->cblock);
    } else put64(tx->blocknum, bnum);
 
-   /* perform OP_HASH request and receive -- close socket */
+   /* perform OP_HASH request and receive */
    pdebug("%s sending OP_HASH...", np->id);
    ecode = send_op(np, OP_HASH);
-   if (ecode != VEOK) return ecode;
+   if (ecode != VEOK) goto CLEANUP;
    ecode = recv_tx(np, STD_TIMEOUT);
-   if (ecode != VEOK) return ecode;
+   if (ecode != VEOK) goto CLEANUP;
 
-   /* cleanup -- check response */
-   sock_close(np->sd);
-   np->sd = INVALID_SOCKET;
+   /* check response */
    if (get16(tx->opcode) != OP_HASH) {
       pdebug("%s unexpected opcode...", np->id);
-      return VERROR;
-   } else if (get16(tx->len) != HASHLEN) {
+      ecode = VERROR;
+      goto CLEANUP;
+   }
+   if (get16(tx->len) != HASHLEN) {
       pdebug("%s unexpected len...", np->id);
-      return VERROR;
+      ecode = VERROR;
+      goto CLEANUP;
    }
    /* pass blockhash on success, if not NULL */
    if (blockhash) memcpy(blockhash, tx->buffer, HASHLEN);
 
-   /* success */
-   return VEOK;
+CLEANUP:
+   sock_close(np->sd);
+   np->sd = INVALID_SOCKET;
+   return ecode;
 }  /* end get_hash() */
 
 /**
