@@ -28,9 +28,25 @@
 #include "exttime.h"
 #include "extmath.h"
 #include "extlib.h"
-#include <ctype.h>
 #include "crc16.h"
 #include "base58.h"
+
+/* Locale-independent ASCII classifiers used by mdst_val__reference().
+ * <ctype.h>'s isdigit()/isupper() are locale-sensitive and exhibit UB
+ * when passed a signed char value with the high bit set. These wrappers
+ * take an unsigned char and perform a pure ASCII range check, giving
+ * identical behavior across all locales and avoiding the UB entirely.
+ *
+ * TODO: move this to extlib.h when convenient */
+static inline int ascii_isdigit(unsigned char c)
+{
+   return c >= '0' && c <= '9';
+}
+
+static inline int ascii_isupper(unsigned char c)
+{
+   return c >= 'A' && c <= 'Z';
+}
 
 /**
  * @private Transaction Position structure.
@@ -510,33 +526,37 @@ static int mdst_val__reference(const char *reference)
     *   - (e.g. INVALID "AB-CD-EF", "123-456-789", "ABC-", "-123")
     */
 
-   /* validate reference format */
+   /* validate reference format using locale-independent classifiers
+    * (see ascii_isdigit / ascii_isupper definitions at the top of this
+    * file -- these replace <ctype.h>'s isdigit()/isupper() to avoid
+    * locale dependence and UB on high-bit-set signed chars). */
    for (state = START, j = 0; j < ADDR_REF_LEN; j++) {
+      unsigned char c = (unsigned char) reference[j];
       /* state determines the next allowed characters */
       switch (state) {
          /* NOTE: "continue" here is associated with for() loop */
          case START:  /* allow either null, digit, or uppercase */
-            if (reference[j] == '\0') { state = ZERO; continue; }
-            if (isdigit(reference[j])) { state = DIGIT; continue; }
+            if (c == '\0') { state = ZERO; continue; }
+            if (ascii_isdigit(c)) { state = DIGIT; continue; }
             /* fallthrough */
          case DIGIT_DASH:  /* allow only uppercase (follows "[0-9]-") */
-            if (isupper(reference[j])) { state = UPPER; continue; }
+            if (ascii_isupper(c)) { state = UPPER; continue; }
             break;  /* switch() */
          case UPPER_DASH:  /* allow only numeric (follows "[A-Z]-") */
-            if (isdigit(reference[j])) { state = DIGIT; continue; }
+            if (ascii_isdigit(c)) { state = DIGIT; continue; }
             break;  /* switch() */
          case DIGIT:  /* allow either numeric, dash, or ZERO */
-            if (isdigit(reference[j])) continue;  /* for() */
-            if (reference[j] == '-') { state = DIGIT_DASH; continue; }
-            if (reference[j] == '\0') { state = ZERO; continue; }
+            if (ascii_isdigit(c)) continue;  /* for() */
+            if (c == '-') { state = DIGIT_DASH; continue; }
+            if (c == '\0') { state = ZERO; continue; }
             break;  /* switch() */
          case UPPER:  /* allow either uppercase, dash, or ZERO */
-            if (isupper(reference[j])) continue;  /* for() */
-            if (reference[j] == '-') { state = UPPER_DASH; continue; }
-            if (reference[j] == '\0') { state = ZERO; continue; }
+            if (ascii_isupper(c)) continue;  /* for() */
+            if (c == '-') { state = UPPER_DASH; continue; }
+            if (c == '\0') { state = ZERO; continue; }
             break;  /* switch() */
          case ZERO:  /* allow only ZERO (end of reference) */
-            if (reference[j] == '\0') continue;  /* for() */
+            if (c == '\0') continue;  /* for() */
       }  /* end switch(state) */
 
       /* no valid character for current state */
