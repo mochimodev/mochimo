@@ -92,11 +92,15 @@ static int txpos_compare(const void *va, const void *vb)
 /**
  * @private
  * Initialize a Transaction Entry structure per the given header options.
+ * Rejects payloads whose TXDAT_TYPE or TXDSA_TYPE byte is not one of
+ * the recognised values, and payloads whose declared counts would
+ * produce offsets outside the TXENTRY buffer.
  * @param tx Pointer to TXENTRY structure to initialize
- * @param hdr Pointer to TXHDR structure to analyze, or NULL where the
- * Transaction Header is contained within the TXENTRY buffer
+ * @param opts Pointer to TXHDR-prefixed option bytes to analyze, or
+ * NULL when the Transaction Header is contained within the TXENTRY buffer
+ * @return VEOK on success; VERROR on unsupported type byte or overflow
  */
-static void tx__init(TXENTRY *tx, const void *opts)
+static int tx__init(TXENTRY *tx, const void *opts)
 {
    size_t dsaoff, tlroff;
 
@@ -104,19 +108,36 @@ static void tx__init(TXENTRY *tx, const void *opts)
       opts = tx->buffer;
    }
 
-   /* determine validation data offset */
+   /* determine validation data offset -- reject unknown types BEFORE
+    * any further arithmetic so that uninitialized offsets are never
+    * read or used in pointer computations.
+    *
+    * Note: dsaoff and tlroff do not need runtime bounds checks. The
+    * TXENTRY.buffer is declared as exactly
+    *    sizeof(TXHDR) + sizeof(TXDAT) + sizeof(TXDSA) + sizeof(TXTLR)
+    * and the compile-time STATIC_ASSERT()s in types.h guarantee that
+    *    sizeof(TXDAT) == 256 * sizeof(MDST)    (types.h:501)
+    *    sizeof(TXDSA) == sizeof(WOTSVAL)       (types.h:518)
+    * Combined with MDST_COUNT(opts) = opts[2] + 1 having a word8-bound
+    * maximum of 256, the largest possible (dsaoff + sizeof(WOTSVAL) +
+    * sizeof(TXTLR)) equals sizeof(tx->buffer) exactly -- always in
+    * bounds by construction. */
    switch (TXDAT_TYPE(opts)) {
       case TXDAT_MDST:
          /* offset depends on destination count (+1) */
          dsaoff = sizeof(TXHDR) + (sizeof(MDST) * MDST_COUNT(opts));
          break;
+      default:
+         return VERROR;
    }
 
-   /* determine trailer data offset */
+   /* determine trailer data offset -- same defensive pattern */
    switch (TXDSA_TYPE(opts)) {
       case TXDSA_WOTS:
          tlroff = dsaoff + sizeof(WOTSVAL);
          break;
+      default:
+         return VERROR;
    }
 
    /* initialize structure properties */
@@ -138,6 +159,8 @@ static void tx__init(TXENTRY *tx, const void *opts)
    tx->wots = &(tx->dsa->wots);
    tx->tx_nonce = tx->tlr->nonce;
    tx->tx_id = tx->tlr->id;
+
+   return VEOK;
 }  /* end tx__init() */
 
 struct {
@@ -443,8 +466,12 @@ int tx_read(TXENTRY *tx, const void *buf, size_t bufsz)
    /* prepare transaction container */
    memset(tx, 0, sizeof(TXENTRY));
 
-   /* compute offsets */
-   tx__init(tx, buf);
+   /* compute offsets -- rejects unknown types and oversize declarations
+    * before any pointer arithmetic is performed on them */
+   if (tx__init(tx, buf) != VEOK) {
+      set_errno(EMCM_TXINVAL);
+      return VERROR;
+   }
 
    /* check transaction size -- valid with or without trailer data */
    if (bufsz > tx->tx_sz || bufsz < (tx->tx_sz - sizeof(TXTLR))) {
