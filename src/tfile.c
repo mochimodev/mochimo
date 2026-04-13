@@ -824,7 +824,15 @@ int validate_tfile_pow_fp(FILE *fp, int trust)
    void (*SIGINT_old)(int);
    BTRAILER bt;
    long long len, skip;
-   int ecode, errnum;
+   /* ecode is read outside a critical section (the `while (ecode == VEOK)`
+    * loop condition) and written inside OMP critical sections. volatile
+    * prevents the compiler from caching it in a register and forces each
+    * loop iteration to re-read from memory. Combined with the memory
+    * barriers implicit in OMP critical section entry/exit, this gives
+    * correct shared-flag semantics across threads on all real hardware,
+    * including weakly-ordered architectures (ARM64, RISC-V). */
+   volatile int ecode;
+   int errnum;
 
    /* init */
    ecode = VEOK;
