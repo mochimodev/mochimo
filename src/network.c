@@ -949,12 +949,18 @@ int scan_quorum
    word32 qcount = 0;
    word32 netplist[1024];
    word32 netplistidx = 0;
-   int result;
    word8 highhash[HASHLEN] = { 0 };
    word8 highweight[32] = { 0 };
    word8 highbnum[8] = { 0 };
    char ipstr[16];
    word16 len;
+   /* thread-local working state (made private via the OMP private() clause
+    * below). Previously a single shared `result` was used for BOTH the
+    * weight-comparison inside the critical section AND the peer-contribution
+    * count outside it -- conflating two values into one shared variable and
+    * producing a data race between threads. Splitting them fixes the race. */
+   int weight_cmp;
+   int contrib;
 
    /* copy current recent peers to netplist */
    for (word32 idx = 0; idx < RPLISTLEN && netplistidx < 1024; idx++) {
@@ -970,7 +976,8 @@ int scan_quorum
       pdebug("scan index %u/%u...", scanidx, netplistidx);
 
       /* prepare parallel processing scope */
-      OMP_PARALLEL_(for private(node, peer, len, ipstr) num_threads(qlen))
+      OMP_PARALLEL_(for private(node, peer, len, ipstr, weight_cmp, contrib) \
+         num_threads(qlen))
       for (word32 idx = scanidx; idx < netplistidx; idx++) {
          /* get IP list from peer */
          peer = netplist[idx];
@@ -978,13 +985,13 @@ int scan_quorum
             OMP_CRITICAL_()
             {
                /* check peer's chain weight against highweight */
-               result = cmp256(node.tx.weight, highweight);
-               if (result >= 0) {
+               weight_cmp = cmp256(node.tx.weight, highweight);
+               if (weight_cmp >= 0) {
                   /* new best chain: strictly higher weight, OR equal weight
                    * with numerically higher block hash (deterministic
                    * tiebreaker to ensure quorum members share a single chain,
                    * regardless of peer scan order) */
-                  if (result > 0 ||
+                  if (weight_cmp > 0 ||
                       memcmp(node.tx.cblockhash, highhash, HASHLEN) > 0) {
                      pdebug("new high chain");
                      memcpy(highhash, node.tx.cblockhash, HASHLEN);
@@ -1008,12 +1015,12 @@ int scan_quorum
                }  /* end if higher or same chain */
             }  /* end OMP_CRITICAL_() */
             /* inspect peer list */
-            for (len = 0, result = 0; len < get16(node.tx.len); len += 4) {
+            for (len = 0, contrib = 0; len < get16(node.tx.len); len += 4) {
                if (netplistidx >= 1024) break;
                /* check (and recognise contribution of) valid peers */
                peer = get32(&node.tx.buffer[len]);
                if (peer == 0 || pinklisted(peer)) continue;
-               if (!isprivate(peer) || !Noprivate) result++;
+               if (!isprivate(peer) || !Noprivate) contrib++;
                /* add to network list */
                OMP_CRITICAL_()
                if (addpeer(peer, netplist, 1024, &netplistidx)) {
@@ -1021,7 +1028,7 @@ int scan_quorum
                }
             }
             /* add peer to recent peers on contribution */
-            if (result) {
+            if (contrib) {
                OMP_CRITICAL_()
                if (addpeer(peer, Rplist, RPLISTLEN, &Rplistidx)) {
                   pdebug("Added %s to Rplist", ntoa(&peer, ipstr));

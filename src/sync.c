@@ -95,6 +95,11 @@ int catchup(word32 plist[], word32 count)
    FILENAME fname_dl = {0};
    FILENAME fname = {0};
    word8 bnum[8];
+   /* thread-local working state (made private via the OMP private() clause
+    * below; assigned inside the parallel region since OMP private does
+    * not initialize) */
+   word32 peer;
+   int ecode;
 
    /* initialize... */
    show("getblock");  /* get blockchain files */
@@ -122,10 +127,11 @@ int catchup(word32 plist[], word32 count)
    }
 
    /* download/validate/update blocks from args */
-   OMP_PARALLEL_(private(bnum, fname, fname_dl) num_threads(count))
+   OMP_PARALLEL_(private(bnum, fname, fname_dl, peer, ecode) \
+      num_threads(count))
    {  /* ... parallel block update handling */
-      word32 peer = plist[OMP_THREADNUM];
-      int ecode = VEOK;
+      peer = plist[OMP_THREADNUM];
+      ecode = VEOK;
 
       while (count && ecode == VEOK) {
          if (SYNC_interrupt_signal_) break;
