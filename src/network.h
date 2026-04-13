@@ -66,6 +66,8 @@ int send_identify(NODE *np);
 int send_found(void);
 int callserver(NODE *np, word32 ip);
 int get_file(word32 ip, word8 *bnum, char *fname);
+int get_tf_proof(word32 ip, const word8 first_bnum[8], word32 count,
+   BTRAILER *out_proof);
 int get_ipl(NODE *np, word32 ip);
 int get_hash(NODE *np, word32 ip, void *bnum, void *blockhash);
 int gettx(NODE *np, SOCKET sd);

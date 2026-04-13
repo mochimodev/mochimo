@@ -20,6 +20,7 @@
 #include "ledger.h"
 #include "global.h"
 #include "error.h"
+#include "syncguard.h"
 
 /* external support */
 #include <string.h>
@@ -732,6 +733,66 @@ int get_file(word32 ip, word8 *bnum, char *fname)
 }  /* end get_file() */
 
 /**
+ * Get a proof segment (partial tfile) from a peer via OP_TF.
+ * Fetches `count` trailers starting at `first_bnum` into `out_proof`.
+ * Returns VEOK on success with proof buffer filled, else VERROR.
+ *
+ * Used by scan_quorum() to spot-check candidate quorum members before
+ * admitting them. Does NOT validate the contents — caller should run
+ * sg_validate_proof_chain() to verify structural integrity.
+ *
+ * Uses a per-IP temp file on disk to avoid collisions when called from
+ * within the scan_quorum() OMP parallel loop. */
+int get_tf_proof(word32 ip, const word8 first_bnum[8], word32 count,
+   BTRAILER *out_proof)
+{
+   NODE node;
+   FILE *fp;
+   char fname[32];
+   char ipstr[16];
+   int ecode;
+   word32 i;
+
+   if (out_proof == NULL || count == 0 || count > NTFTX) return VERROR;
+
+   ntoa(&ip, ipstr);
+   snprintf(fname, sizeof(fname), "tfp_%s.tmp", ipstr);
+   /* replace dots so it is a safe filename */
+   for (i = 0; fname[i]; i++) if (fname[i] == '.') fname[i] = '_';
+
+   ecode = callserver(&node, ip);
+   if (ecode != VEOK) return ecode;
+
+   put64(node.tx.blocknum, first_bnum);
+   put32(&node.tx.blocknum[4], count);
+
+   ecode = send_op(&node, OP_TF);
+   if (ecode == VEOK) ecode = recv_file(&node, fname);
+
+   sock_close(node.sd);
+   node.sd = INVALID_SOCKET;
+
+   if (ecode != VEOK) {
+      remove(fname);
+      return VERROR;
+   }
+
+   fp = fopen(fname, "rb");
+   if (fp == NULL) {
+      remove(fname);
+      return VERROR;
+   }
+   if (fread(out_proof, sizeof(BTRAILER), count, fp) != count) {
+      fclose(fp);
+      remove(fname);
+      return VERROR;
+   }
+   fclose(fp);
+   remove(fname);
+   return VEOK;
+}  /* end get_tf_proof() */
+
+/**
  * Get an ip list from ip, and call addrecent() on the list.
  * Return VEOK if successful, else error code.
  * NOTE: DOES NOT call addrecent() when Rplist is full. */
@@ -972,24 +1033,67 @@ int scan_quorum
       /* prepare parallel processing scope */
       OMP_PARALLEL_(for private(node, peer, len, ipstr) num_threads(qlen))
       for (word32 idx = scanidx; idx < netplistidx; idx++) {
+         /* per-iteration thread-private state */
+         word8 peer_weight[32];
+         word8 peer_hash[HASHLEN];
+         word8 peer_bnum[8];
+         word8 proof_first[8];
+         BTRAILER proof_buf[NTFTX];
+         int proof_ok;
+         int excluded;
+
          /* get IP list from peer */
          peer = netplist[idx];
          if (get_ipl(&node, peer) == VEOK) {
+            /* capture peer's advertised chain identity */
+            memcpy(peer_weight, node.tx.weight, 32);
+            memcpy(peer_hash, node.tx.cblockhash, HASHLEN);
+            put64(peer_bnum, node.tx.cblock);
+
+            /* Phase 4: check bad-chain exclusion list before expensive
+             * proof fetch — skip if this chain has already been marked bad
+             * in the current sync session */
+            OMP_CRITICAL_()
+            excluded = sg_bad_chain_check(peer_weight, peer_hash);
+
+            /* Phase 2: spot-check the peer's proof segment BEFORE we admit
+             * them to the quorum. Request their last NTFTX trailers; verify
+             * structural integrity (bnum chain-climb, phash linkage, tip
+             * matches advertised). Full PoW validation is skipped here
+             * because it is too expensive per-peer and is validated
+             * downstream in validate_tfile_pow(). */
+            proof_ok = 0;
+            if (!excluded && cmp64(peer_bnum, CL64_32(NTFTX)) >= 0) {
+               /* compute first_bnum = peer_bnum - (NTFTX - 1) */
+               memcpy(proof_first, peer_bnum, 8);
+               if (sub64(proof_first, CL64_32(NTFTX - 1), proof_first) == 0) {
+                  if (get_tf_proof(peer, proof_first, NTFTX, proof_buf)
+                      == VEOK &&
+                      sg_validate_proof_chain(proof_buf, NTFTX,
+                         peer_hash, peer_bnum) == VEOK) {
+                     proof_ok = 1;
+                  } else {
+                     pdebug("%s proof spot-check FAILED",
+                        ntoa(&peer, (char[16]){0}));
+                  }
+               }
+            }
+
             OMP_CRITICAL_()
             {
                /* check peer's chain weight against highweight */
-               result = cmp256(node.tx.weight, highweight);
-               if (result >= 0) {
+               result = cmp256(peer_weight, highweight);
+               if (!excluded && result >= 0) {
                   /* new best chain: strictly higher weight, OR equal weight
                    * with numerically higher block hash (deterministic
                    * tiebreaker to ensure quorum members share a single chain,
                    * regardless of peer scan order) */
                   if (result > 0 ||
-                      memcmp(node.tx.cblockhash, highhash, HASHLEN) > 0) {
+                      memcmp(peer_hash, highhash, HASHLEN) > 0) {
                      pdebug("new high chain");
-                     memcpy(highhash, node.tx.cblockhash, HASHLEN);
-                     memcpy(highweight, node.tx.weight, 32);
-                     put64(highbnum, node.tx.cblock);
+                     memcpy(highhash, peer_hash, HASHLEN);
+                     memcpy(highweight, peer_weight, 32);
+                     put64(highbnum, peer_bnum);
                      qcount = 0;
                      if (quorum) {
                         memset(quorum, 0, qlen * sizeof(word32));
@@ -997,12 +1101,17 @@ int scan_quorum
                      }
                   }
                   /* add ip to quorum only if it shares the exact high chain
-                   * hash -- peers on different chains of equal weight must
-                   * not be combined into a single quorum */
-                  if (memcmp(node.tx.cblockhash, highhash, HASHLEN) == 0) {
+                   * hash AND passed the proof spot-check -- peers on
+                   * different chains of equal weight must not be combined
+                   * into a single quorum, and peers with fabricated or
+                   * inconsistent chain state must not be trusted */
+                  if (proof_ok &&
+                      memcmp(peer_hash, highhash, HASHLEN) == 0) {
                      if (quorum && qcount < qlen) {
                         quorum[qcount++] = peer;
-                        pdebug("%s qualified", ntoa(&peer, NULL));
+                        sg_proof_store(peer, proof_buf, NTFTX);
+                        pdebug("%s qualified (proof verified)",
+                           ntoa(&peer, NULL));
                      } else if (quorum == NULL) qcount++;
                   }
                }  /* end if higher or same chain */
