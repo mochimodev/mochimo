@@ -66,6 +66,7 @@
 #include "error.h"
 #include "bup.h"
 #include "bcon.h"
+#include "super_debug.h"
 
 char *Opt_cplistfile = "coreip.lst";
 char *Opt_rplistfile = "recent.lst";
@@ -1021,6 +1022,10 @@ int server(int reuse_addr)
 
       /* dynamic sleep function */
       if(Dynasleep != 0 && Nonline < 1) usleep(Dynasleep);
+
+      /* super_debug heartbeat: emits ~once per 60s and drains pending
+       * SIGUSR1 state-dump requests. Cheap no-op otherwise. */
+      SDEBUG_HEARTBEAT();
    } /* end while(Running) */
 
    /* cleanup */
@@ -1174,6 +1179,9 @@ int main(int argc, char **argv)
 #ifndef _WIN32
    signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
 #endif
+   /* super_debug init: installs SIGUSR1 handler and creates /data/mochimo-debug
+    * tree. No-op when built without -DSUPER_DEBUG. */
+   SDEBUG_INIT();
    /* seed random generators with urandom (or equivalent) */
    srand16fast(urandom(seeds, sizeof(seeds)));
    srand16(seeds[1], seeds[2], seeds[3]);
