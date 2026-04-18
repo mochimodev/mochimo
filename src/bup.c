@@ -23,10 +23,12 @@
 #include "bval.h"
 #include "bcon.h"
 #include "util.h"
+#include "super_debug.h"
 
 /* external support */
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "extmath.h"
 #include "extlib.h"
 
@@ -132,12 +134,31 @@ int b_update(char *fname)
    FILENAME block_fname;
    FILENAME clean_fname;
    int ecode;
+#ifdef SUPER_DEBUG
+   long long sd_block_size = 0;
+   struct timespec sd_t0, sd_t1;
+   {
+      FILE *fp = fopen(fname, "rb");
+      if (fp != NULL) {
+         if (fseek(fp, 0, SEEK_END) == 0) sd_block_size = ftell(fp);
+         fclose(fp);
+      }
+      clock_gettime(CLOCK_MONOTONIC, &sd_t0);
+   }
+   SDEBUG("b_update.enter",
+      "fname=%s block_size=%lld cblocknum_le=%08x%08x",
+      fname, sd_block_size,
+      (unsigned) get32((void *)(Cblocknum + 4)),
+      (unsigned) get32((void *)Cblocknum));
+#endif
 
    pdebug("updating block...");
 
    /* check block file exists */
    if (!fexists(fname)) {
       pdebug("%s missing...", fname);
+      SDEBUG("b_update.fail",
+         "fname=%s reason=file_missing", fname);
       return VERROR;
    }
 
@@ -150,6 +171,8 @@ int b_update(char *fname)
    ecode = b_val(fname, "ltran.dat");
    if (ecode != VEOK) {
       perrno("block -> ltran.dat validation FAILURE");
+      SDEBUG("b_update.bval_fail",
+         "fname=%s ecode=%d errno=%d", fname, ecode, errno);
       remove("block.fail");
       rename(fname, "block.fail");
       fname = NULL;
@@ -160,6 +183,8 @@ int b_update(char *fname)
    ecode = le_update("ltran.dat");
    if (ecode != VEOK) {
       perrno("ledger update FAILURE");
+      SDEBUG("b_update.le_update_fail",
+         "fname=%s ecode=%d errno=%d", fname, ecode, errno);
       remove("ltran.fail");
       rename(fname, "ltran.fail");
       fname = NULL;
@@ -208,6 +233,55 @@ int b_update(char *fname)
 
    /* print update log */
    if (!Bgflag) print_bup(&bt);
+
+#ifdef SUPER_DEBUG
+   /* emit maddr_trail entry. Determine block type from trailer. */
+   {
+      const char *sd_type = "update";
+      word8 sd_maddr[20] = {0};
+      word32 sd_hdrlen = 0;
+      FILEPATH sd_fpath;
+      FILE *sd_fp;
+
+      if (get32(bt.tcount) == 0) sd_type = "pseudo";
+      if (bt.bnum[0] == 0) sd_type = "neogen";
+
+      /* Block file was moved by accept_block() into Bcdir with the
+       * canonical filename. Read BHEADER to extract maddr. */
+      bnum2fname(Cblocknum, block_fname);
+      path_join(sd_fpath, Bcdir, block_fname);
+      sd_fp = fopen(sd_fpath, "rb");
+      if (sd_fp != NULL) {
+         if (fread(&sd_hdrlen, 4, 1, sd_fp) == 1 && sd_hdrlen >= 32) {
+            /* BHEADER layout: [hdrlen:4][maddr:20][mreward:8]. */
+            if (fread(sd_maddr, 20, 1, sd_fp) != 1) {
+               memset(sd_maddr, 0, sizeof(sd_maddr));
+            }
+         }
+         fclose(sd_fp);
+      }
+
+      clock_gettime(CLOCK_MONOTONIC, &sd_t1);
+      super_debug_maddr_trail(
+         bt.bnum, bt.bhash,
+         sd_hdrlen >= 32 ? sd_maddr : NULL,
+         get32(bt.difficulty),
+         get32(bt.tcount),
+         (size_t) sd_block_size,
+         sd_type,
+         (int)((sd_t1.tv_sec - sd_t0.tv_sec) * 1000 +
+               (sd_t1.tv_nsec - sd_t0.tv_nsec) / 1000000));
+      SDEBUG("b_update.accepted",
+         "type=%s bnum_le=%08x%08x diff=%u tcount=%u size=%lld "
+         "weight_updated=1",
+         sd_type,
+         (unsigned) get32((void *)(bt.bnum + 4)),
+         (unsigned) get32((void *)bt.bnum),
+         (unsigned) get32(bt.difficulty),
+         (unsigned) get32(bt.tcount),
+         sd_block_size);
+   }
+#endif
 
    /* perform neogenesis block update -- as necessary */
    if (Cblocknum[0] == 0xff) {
@@ -280,6 +354,7 @@ CLEANUP:
       }
    }
 
+   SDEBUG("b_update.exit", "ecode=%d", ecode);
    return ecode;
 }  /* end b_update() */
 

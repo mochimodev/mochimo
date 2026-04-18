@@ -11,6 +11,7 @@
 
 
 #include "sync.h"
+#include "super_debug.h"
 
 /* internal support */
 #include "types.h"
@@ -97,6 +98,7 @@ int catchup(word32 plist[], word32 count_in)
    word8 bnum[8];
    /* volatile: while-loop reads below are outside OMP_CRITICAL_ */
    volatile word32 count = count_in;
+   SDEBUG("catchup.enter", "initial_peers=%u", (unsigned) count_in);
    /* thread-local working state (made private via the OMP private() clause
     * below; assigned inside the parallel region since OMP private does
     * not initialize) */
@@ -146,6 +148,10 @@ int catchup(word32 plist[], word32 count_in)
                {
                   pdebug("get_file(%s, %s) incomplete...",
                      ntoa(&peer, (char[16]){0}), fname_dl);
+                  SDEBUG("catchup.get_file_fail",
+                     "peer=%s fname=%s remaining=%u",
+                     ntoa(&peer, (char[16]){0}), fname_dl,
+                     (unsigned)(count - 1));
                   remove(fname_dl);
                   count--;
                }
@@ -167,13 +173,22 @@ int catchup(word32 plist[], word32 count_in)
             bnum2fname(bnum, fname);
             while (fexists(fname)) {
                pdebug("b_update(%s)...", fname);
+               SDEBUG("catchup.b_update.enter",
+                  "peer=%s fname=%s",
+                  ntoa(&peer, (char[16]){0}), fname);
                ecode = b_update(fname);
                if (ecode != VEOK) {
                   perrno("b_update(%s) FAILURE", fname);
+                  SDEBUG("catchup.b_update_fail",
+                     "peer=%s fname=%s ecode=%d errno=%d",
+                     ntoa(&peer, (char[16]){0}), fname, ecode, errno);
                   remove(fname);
                   count--;
                   break;
                }
+               SDEBUG("catchup.b_update.ok",
+                  "peer=%s fname=%s",
+                  ntoa(&peer, (char[16]){0}), fname);
                /* check for next block */
                add64(Cblocknum, One, bnum);
                bnum2fname(bnum, fname);
@@ -201,9 +216,11 @@ int catchup(word32 plist[], word32 count_in)
       raise(SYNC_interrupt_signal_);
       SYNC_interrupt_signal_ = 0;
       set_errno(EINTR);
+      SDEBUG("catchup.exit", "result=VERROR reason=interrupt");
       return VERROR;
    }
 
+   SDEBUG("catchup.exit", "result=VEOK remaining=%u", (unsigned) count);
    return VEOK;
 }  /* end catchup() */
 
@@ -362,6 +379,13 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
 
    Insyncup = 1;
    show("syncup");
+   SDEBUG("syncup.enter",
+      "splitblock=%u peer=%s txcblock_le=%08x%08x",
+      (unsigned) splitblock,
+      ntoa(&peerip, NULL),
+      (unsigned) get32((void *)(txcblock + 4)),
+      (unsigned) get32((void *)txcblock));
+   super_debug_state_dump("syncup.enter");
 
    /* Stop constructing and sending update blocks, since we're behind */
    stop_bcon();
@@ -470,14 +494,18 @@ int syncup(word32 splitblock, word8 *txcblock, word32 peerip)
    /* re-compute tfile weight */
    if(weigh_tfile("tfile.dat", bnum, tfweight)) {
       plog("tf_val() error");
+      SDEBUG("syncup.exit", "result=weigh_tfile_fail");
    } else {
       plog("syncup() is good!");
       memcpy(Weight, tfweight, HASHLEN);
+      SDEBUG("syncup.exit", "result=ok new_weight=set");
    }
    Insyncup = 0;
    return VEOK;
 
 badsyncup:
+   SDEBUG("syncup.bad",
+      "peer=%s restoring=saved_state", ntoa(&peerip, NULL));
    /* Restore block chain from saved state after a bad re-sync attempt. */
    pdebug("bad sync: restoring saved state...");
    le_close();
@@ -509,46 +537,84 @@ int contention(NODE *np)
 
    tx = &np->tx;
    splitblock = 0;
+   SDEBUG("contention.enter",
+      "peer=%s peer_bnum_le=%08x%08x our_bnum_le=%08x%08x",
+      ntoa(&np->ip, NULL),
+      (unsigned) get32((void *)((word8 *)tx->cblock + 4)),
+      (unsigned) get32((void *)tx->cblock),
+      (unsigned) get32((void *)(Cblocknum + 4)),
+      (unsigned) get32((void *)Cblocknum));
    /* ignore low weight */
    if(cmp256(tx->weight, Weight) <= 0) {
       pdebug("Ignore insufficient weight");
       pdebug("...tx->weight(0x%s)", weight2hex(tx->weight, NULL));
       pdebug("...Weight(0x%s)", weight2hex(Weight, NULL));
+      SDEBUG("contention.gate",
+         "peer=%s gate=weight result=skip cmp=%d",
+         ntoa(&np->ip, NULL), cmp256(tx->weight, Weight));
       return 0;
    }
    /* ignore NG blocks */
    if(tx->cblock[0] == 0) {
       pdebug("Epinklisted %s...", ntoa(&np->ip, NULL));
       epinklist(np->ip);
+      SDEBUG("contention.gate",
+         "peer=%s gate=ng_block result=epinklist",
+         ntoa(&np->ip, NULL));
       return 0;
    }
 
    if(memcmp(Cblockhash, tx->pblockhash, HASHLEN) == 0) {
       pdebug("get the expected block");
+      SDEBUG("contention.gate",
+         "peer=%s gate=pblockhash_match result=fetch_child",
+         ntoa(&np->ip, NULL));
       return 1;  /* get block */
    }
 
    /* Try to do a simple catchup() of more than 1 block on our own chain. */
    pdebug("Trying simple catchup()");
    j = get32(tx->cblock) - get32(Cblocknum);
+   SDEBUG("contention.fastpath",
+      "peer=%s gap=%u (NTFTX=%d) eligible=%s",
+      ntoa(&np->ip, NULL), (unsigned) j, NTFTX,
+      (j > 1 && j <= NTFTX) ? "yes" : "no");
    if(j > 1 && j <= NTFTX) {
         bt = (BTRAILER *) tx->buffer;  /* top of tx proof array */
         /* Check for matching previous hash in the array. */
         if(memcmp(Cblockhash, bt[NTFTX - j].phash, HASHLEN) == 0) {
+           SDEBUG("contention.catchup_try",
+              "peer=%s phash_match=yes calling=catchup",
+              ntoa(&np->ip, NULL));
            result = catchup(&np->ip, 1);
+           SDEBUG("contention.catchup_result",
+              "peer=%s result=%d", ntoa(&np->ip, NULL), result);
            if(result == VEOK) goto done;  /* we updated */
            if(result == VEBAD) {
             perrno("catchup() VEBAD");
             return 0;  /* EVIL: ignore bad bval2() */
            }
+        } else {
+           SDEBUG("contention.fastpath_skip",
+              "peer=%s phash_match=no",
+              ntoa(&np->ip, NULL));
         }
    }
    /* Catchup failed so check the tx proof and chain weight. */
 
    /* check existance of, and that we've received enough proof */
-   if (cmp64(tx->cblock, CL64_32(NTFTX)) < 0) return 0;
+   if (cmp64(tx->cblock, CL64_32(NTFTX)) < 0) {
+      SDEBUG("contention.gate",
+         "peer=%s gate=cblock_below_NTFTX result=skip",
+         ntoa(&np->ip, NULL));
+      return 0;
+   }
    if ((get16(tx->len) / sizeof(BTRAILER)) < NTFTX) {
       pdebug("not enough proof provided");
+      SDEBUG("contention.gate",
+         "peer=%s gate=short_proof tx_len=%u required=%zu result=skip",
+         ntoa(&np->ip, NULL), get16(tx->len),
+         (size_t)(NTFTX * sizeof(BTRAILER)));
       return 0;
    }
 
@@ -557,10 +623,19 @@ int contention(NODE *np)
    /* read our Tfile data and compare their low trailer -- MUST MATCH */
    if (read_tfile(our_bt, bt->bnum, NTFTX, "tfile.dat") <= 0) {
       perrno("read_tfile() FAILURE");
+      SDEBUG("contention.gate",
+         "peer=%s gate=read_tfile_fail proof_low_bnum=%08x%08x errno=%d",
+         ntoa(&np->ip, NULL),
+         (unsigned) get32((void *)(bt->bnum + 4)),
+         (unsigned) get32((void *)bt->bnum),
+         errno);
       return (-1);
    }
    if (memcmp(bt, our_bt, sizeof(BTRAILER)) != 0) {
       pdebug("Trailer mismatch");
+      SDEBUG("contention.gate",
+         "peer=%s gate=trailer_mismatch result=reject",
+         ntoa(&np->ip, NULL));
       return (-1);
    }
 
@@ -579,10 +654,16 @@ int contention(NODE *np)
       /* ... validate their trailer proof (incl. PoW), and add weight */
       if (validate_trailer(bt, prev_bt) != VEOK) {
          pdebug("trailer validation failure");
+         SDEBUG("contention.proof_reject",
+            "peer=%s step=%u reason=trailer_invalid",
+            ntoa(&np->ip, NULL), (unsigned) j);
          return 0;
       }
       if (get32(bt->tcount) && validate_pow(bt) != VEOK) {
          pdebug("pow validation failure");
+         SDEBUG("contention.proof_reject",
+            "peer=%s step=%u reason=pow_invalid",
+            ntoa(&np->ip, NULL), (unsigned) j);
          return 0;
       }
       if (bt->bnum[0] != 0xff) add_weight(weight, bt->difficulty[0]);
@@ -597,19 +678,32 @@ int contention(NODE *np)
    /* check weight weight is as advertised and non-zero splitblock */
    if (splitblock == 0) {
       pdebug("splitblock not found");
+      SDEBUG("contention.proof_reject",
+         "peer=%s reason=no_splitblock", ntoa(&np->ip, NULL));
       return 0;
    }
    if (memcmp(weight, tx->weight, 32) != 0) {
       pdebug("advertised weight mismatch failure");
+      SDEBUG("contention.proof_reject",
+         "peer=%s reason=advertised_weight_mismatch",
+         ntoa(&np->ip, NULL));
       return 0;
    }
 
+   SDEBUG("contention.proof_ok",
+      "peer=%s splitblock=%u attempting=syncup",
+      ntoa(&np->ip, NULL), (unsigned) splitblock);
    /* Proof is good so try to re-sync to peer */
    if(syncup(splitblock, tx->cblock, np->ip) != VEOK)  {
       pdebug("syncup() failure");
+      SDEBUG("contention.syncup_fail",
+         "peer=%s splitblock=%u", ntoa(&np->ip, NULL),
+         (unsigned) splitblock);
       return 0;
    }
 done:
+   SDEBUG("contention.done",
+      "peer=%s status=ok", ntoa(&np->ip, NULL));
    /* send_found on good catchup or syncup */
    send_found();  /* start send_found() child */
    addrecent(np->ip);
