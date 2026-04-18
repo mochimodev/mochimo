@@ -11,6 +11,7 @@
 
 
 #include "network.h"
+#include "super_debug.h"
 
 /* internal support */
 #include "tx.h"
@@ -220,11 +221,14 @@ int recv_file(NODE *np, char *fname)
    time(&prevtime);
    tx = &(np->tx);
    total = 0;
+   SDEBUG("recv_file.enter", "peer=%s fname=%s", np->id, fname);
 
    /* open file for writing recv'd data */
    fp = fopen(fname, "wb");
    if (fp == NULL) {
       perrno("(%s, %s) fopen() failed", np->id, fname);
+      SDEBUG("recv_file.fopen_fail",
+         "peer=%s fname=%s errno=%d", np->id, fname, errno);
       return VERROR;
    }
 
@@ -234,22 +238,33 @@ int recv_file(NODE *np, char *fname)
       /* check recv'd packet */
       if (get16(tx->opcode) != OP_SEND_FILE) {
          pdebug("(%s, %s) *** invalid opcode", np->id, fname);
+         SDEBUG("recv_file.bad_opcode",
+            "peer=%s fname=%s opcode=%u total=%zu",
+            np->id, fname, get16(tx->opcode), total);
          break;
       }
       len = get16(tx->len);
       total += len;
       if (total > MAX_RECV_FILE_BYTES) {
          pdebug("(%s, %s) *** exceeded MAX_RECV_FILE_BYTES", np->id, fname);
+         SDEBUG("recv_file.cap_exceeded",
+            "peer=%s fname=%s total=%zu cap=%zu",
+            np->id, fname, total, (size_t) MAX_RECV_FILE_BYTES);
          break;
       }
       if (len && fwrite(tx->buffer, len, 1, fp) != 1) {
          pdebug("(%s, %s) *** I/O error", np->id, fname);
+         SDEBUG("recv_file.io_error",
+            "peer=%s fname=%s total=%zu errno=%d",
+            np->id, fname, total, errno);
          break;
       }
       /* check EOF */
       if (len < sizeof(tx->buffer)) {
          fclose(fp);
          pdebug("(%s, %s) EOF", np->id, fname);
+         SDEBUG("recv_file.complete",
+            "peer=%s fname=%s total=%zu", np->id, fname, total);
          return VEOK;
       } /* end if EOF */
    }  /* end for */
@@ -257,6 +272,8 @@ int recv_file(NODE *np, char *fname)
    /* delete partial downloads */
    remove(fname);
 
+   SDEBUG("recv_file.fail",
+      "peer=%s fname=%s total=%zu", np->id, fname, total);
    return VERROR;
 }  /* end recv_file() */
 
@@ -598,12 +615,18 @@ bad:
 
    pdebug("send_found(0x%s)", bnum2hex(Cblocknum, bnumhex));
    pdebug("...weight(0x%s)", weight2hex(Weight, NULL));
+   SDEBUG("send_found.begin",
+      "bnum_le=%08x%08x",
+      (unsigned) get32((void *)(Cblocknum + 4)),
+      (unsigned) get32((void *)Cblocknum));
 
    /* get proof from tfile.dat (!!! (NTFTX - 1) ) */
    if (sub64(Cblocknum, CL64_32(NTFTX - 1), bnum)) memset(bnum, 0, 8);
    count = read_tfile(tx.buffer, bnum, NTFTX, "tfile.dat");
    if (count != NTFTX) {
       perrno("send_found: read_tfile() incomplete (%d/%d)", count, NTFTX);
+      SDEBUG("send_found.read_tfile_fail",
+         "count=%d required=%d errno=%d", count, NTFTX, errno);
       exit(1);  /* send_found() runs in a forked child */
    }
 
@@ -878,6 +901,9 @@ int gettx(NODE *np, SOCKET sd)
    status = recv_tx(np, INIT_TIMEOUT);
    opcode = get16(tx->opcode);  /* execute() will check opcode */
    pdebug("%s got opcode = %d  status = %d", np->id, opcode, status);
+   super_debug_peer_event(np->ip, id1, id2, opcode, status, VEOK,
+      tx->weight, tx->cblock, tx->cblockhash, get16(tx->len),
+      "opcode_recv");
    if (status == VEBAD) goto bad2;
    if (status != VEOK) return VERROR;  /* bad packet -- timeout? */
    opcode = get16(tx->opcode);  /* execute() will check opcode */
@@ -897,6 +923,8 @@ int gettx(NODE *np, SOCKET sd)
       case OP_TX: {
          Nlogins++;  /* raw TX in */
          status = process_tx(np);
+         SDEBUG("gettx.op_tx.result",
+            "peer=%s process_tx=%d", np->id, status);
          if (status != VEOK) {
             if (status == VEBAD2) goto bad1;
             if (status == VEBAD) goto bad2;
@@ -909,8 +937,13 @@ int gettx(NODE *np, SOCKET sd)
       }
       case OP_FOUND: {
          /* getblock child, catchup, re-sync, or ignore */
+         SDEBUG("gettx.op_found",
+            "peer=%s id1=%04x id2=%04x blockfound_already=%d",
+            np->id, (unsigned) id1, (unsigned) id2, (int) Blockfound);
          if(Blockfound) return 1;  /* Already found one so ignore.  */
          status = contention(np);  /* Do we want this block? */
+         SDEBUG("gettx.op_found.result",
+            "peer=%s contention=%d", np->id, status);
          if (status == (-1)) pwarn("node may require restart to sync...");
          if(status != 1) return 1; /* nothing to do: contention() fixed it */
 
@@ -939,7 +972,13 @@ int gettx(NODE *np, SOCKET sd)
    return VEOK;  /* success -- fork() child in server() */
 
 bad1: epinklist(np->ip);
+      SDEBUG("gettx.epinklist",
+         "peer=%s id1=%04x id2=%04x opcode=%d",
+         np->id, (unsigned) id1, (unsigned) id2, (int) opcode);
 bad2: pinklist(np->ip);
+      SDEBUG("gettx.pinklist",
+         "peer=%s id1=%04x id2=%04x opcode=%d",
+         np->id, (unsigned) id1, (unsigned) id2, (int) opcode);
       Nbadlogs++;
       pdebug("%s pinklisted, opcode = %d", np->id, opcode);
 
@@ -1057,6 +1096,24 @@ int scan_quorum
    pdebug("qualifying block 0x%s", bnum2hex(highbnum, NULL));
    pdebug("qualifying nodes %d...", qcount);
    print_ipl(quorum, qcount);
+#ifdef SUPER_DEBUG
+   {
+      char weight_buf[65], hash_buf[9], bnum_buf[17];
+      char our_weight_buf[65], our_bnum_buf[17];
+      /* hash2hex32 emits only the first 4 bytes (8 hex chars) -- enough
+       * for identification; full hashes are in peer_events channel. */
+      SDEBUG("scan_quorum.result",
+         "qcount=%u high_bnum=0x%s high_weight=0x%s high_hash_pre=%s "
+         "our_bnum=0x%s our_weight=0x%s netplistidx=%u",
+         (unsigned) qcount,
+         bnum2hex(highbnum, bnum_buf),
+         weight2hex(highweight, weight_buf),
+         hash2hex32(highhash, hash_buf),
+         bnum2hex(Cblocknum, our_bnum_buf),
+         weight2hex(Weight, our_weight_buf),
+         (unsigned) netplistidx);
+   }
+#endif
 
    /* set highest hash, weight and block number */
    if (hash) memcpy(hash, highhash, HASHLEN);
