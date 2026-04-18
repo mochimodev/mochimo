@@ -5,6 +5,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ***
 
+## [3.1.0-beta] - April 18th, 2026
+
+This pre-release consolidates the F-series audit remediations merged into `master` over the past weeks. The audit covered variability-induced failures, data races, error-handling gaps, and locale/platform determinism in consensus-critical and network-handling paths. No protocol or consensus rule changes are included; all changes are behavioral corrections on existing code paths. Operators running mainnet nodes are encouraged to test this release in a non-production environment and report any regressions prior to a stable `3.1.0` tag.
+
+### Fixed
+
+- **F-02** (#93): `mdst_val()` now validates multi-destination fee structure against the block-declared `mfee` instead of the node-local `Myfee`, preventing divergence between nodes configured with different fee policies.
+- **F-07** (#95): Ledger credit-operation 64-bit balance overflow now triggers block rejection (`VEBAD2`) instead of silently zeroing the account.
+- **F-09** (#100): `scan_quorum()` quorum membership is now deterministic under peer-list shuffling — only peers whose hash matches the highest observed are included; ties no longer depend on scan order.
+- **F-10** (#104): `ecode` in `validate_tfile_pow_fp()` is now `volatile`, closing the data race between the OpenMP critical-section writers and the while-loop reader.
+- **F-11**: 32-bit platforms now use `long long` with `ftell64`/`fseek64` in `b_val()` for file-offset consistency with 64-bit builds.
+- **F-12**: `send_tf()` no longer shells out to `dd`; uses a native C copy loop instead.
+- **F-13** (#90): `tx__init()` now rejects unsupported `TXDAT_TYPE` / `TXDSA_TYPE` values instead of leaving buffer offsets uninitialized, removing a remote-triggered memory-corruption vector.
+- **F-14** (#104): Transaction reference validation (`mdst_val__reference`) replaces locale-dependent `isdigit()`/`isupper()` with explicit ASCII range checks, eliminating locale-induced inter-node disagreement.
+- **F-15**: Unaligned `word32` casts in `scan_quorum()` and `refresh_ipl()` replaced with `get32()`, removing undefined behavior on strict-alignment architectures.
+- **F-16**: Unaligned `word32` casts in `txmap()` and `mgc()` replaced with `get32()`/`put32()`.
+- **F-18** (#92): `recv_file()` now caps cumulative bytes at 1 GiB (`MAX_RECV_FILE_BYTES`), preventing a malicious peer from exhausting local disk via unbounded `OP_SEND_FILE` streaming.
+- **F-06**: `system()` calls in `sync`/`bup` replaced with native C file operations.
+- **F-20**: Remaining `system()` calls in `bup`/`sync` now check return values, ensuring failed external-script steps do not silently pass.
+- **F-21**: `syncup()` only updates `Weight` on successful `weigh_tfile()`, preventing corrupt weight promotion on tfile read errors.
+- **F-23** (#99): `read_tfile()` now returns `0` on `fopen()` failure instead of `VERROR` (==1), which was previously indistinguishable from a legitimate one-trailer read. Pre-existing TODO in `send_found()` wired up to check `count != NTFTX`.
+- **F-26**: Dead double-read of `OP_FOUND` proof in `refresh_ipl()` removed.
+- **F-27**: Unaligned cast for `srand32()` seed in `main` replaced with `memcpy`.
+- **F-29** (#92): `get_ipl()` rejects oversized peer-list responses from peers (DoS mitigation).
+- **F-30** (#110): `scan_quorum()` OpenMP shared-variable data race on `result` resolved by splitting into per-thread-private weight-comparison and contribution-counting variables. Matching refactor applied to `catchup()` in `sync.c`.
+- **F-31** (#117): `get_hash()` now closes the socket on every exit path via a single `CLEANUP:` label, fixing a file-descriptor leak on `send_op()`/`recv_tx()` failure.
+- **F-32** (#112): `catchup()` shared `count` read race closed via a local `volatile` shadow, pairing with the OpenMP flush on critical-exit.
+
+### Notes
+
+- **F-01** (#86) and **F-04** (#94) were analyzed and closed as not-a-bug; see the respective GitHub issues for rationale.
+- **F-08** (#98) was reclassified as a feature request (transaction rate-limiting) and tracked separately.
+
 ## [3.0.3] - March 6th, 2025
 
 This release focuses on improving network synchronization, build system flexibility, and fixing various issues identified in previous versions. Key improvements include enhanced node synchronization procedures, better network scanning when network size grows, and several build system enhancements for greater flexibility and debugging capabilities.
