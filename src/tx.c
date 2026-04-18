@@ -14,6 +14,7 @@
 
 
 #include "tx.h"
+#include "super_debug.h"
 
 /* internal support */
 #include "wots.h"
@@ -1269,33 +1270,51 @@ int process_tx(NODE *np)
 
    /* read transaction entry from buffer */
    ecode = tx_read(&txe, tx->buffer, get16(tx->len));
-   if (ecode != VEOK) return VEBAD;
+   if (ecode != VEOK) {
+      super_debug_tx_trail(np->ip, NULL, NULL, VEBAD, "tx_read_failed");
+      return VEBAD;
+   }
 
    /* (quick) check for duplicate transactions */
    ecode = txcheck(txe.src_addr);
    if (ecode != VEOK) {
       Ndups++;
+      super_debug_tx_trail(np->ip, NULL, NULL, ecode, "duplicate");
       return ecode;
    }
 
    /* Validate addresses, fee, signature, source balance, and total. */
    evilness = tx_val(&txe, Cblocknum, Myfee);
-   if(evilness) return evilness;
+   if(evilness) {
+      char reason[64];
+      snprintf(reason, sizeof(reason), "tx_val_evil errno=%d", errno);
+      super_debug_tx_trail(np->ip, NULL, NULL, evilness, reason);
+      return evilness;
+   }
 
    /* place Transaction ID (hash) in trailer for Mesh API */
    memset(txe.tlr->nonce, 0, sizeof(txe.tlr->nonce));
    tx_hash(&txe, TX_HASH_ID, txe.tlr->id);
 
    fp = fopen("txq1.dat", "ab");
-   if (fp == NULL) return VERROR;
+   if (fp == NULL) {
+      super_debug_tx_trail(np->ip, txe.tlr->id, NULL, VERROR,
+         "txq1_fopen_fail");
+      return VERROR;
+   }
 
    /* write transaction (incl. nonce and id) to txq1.dat */
    ecode = tx_fwrite(&txe, fp);
    fclose(fp);  /* close txq1.dat */
-   if (ecode != VEOK) return VERROR;
+   if (ecode != VEOK) {
+      super_debug_tx_trail(np->ip, txe.tlr->id, NULL, VERROR,
+         "tx_fwrite_fail");
+      return VERROR;
+   }
 
    Txcount++;
    Nrec++;  /* total good TX received */
+   super_debug_tx_trail(np->ip, txe.tlr->id, NULL, VEOK, "accepted");
 
    return mirror_tx(np);
 }  /* end process_tx() */

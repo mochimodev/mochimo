@@ -11,6 +11,7 @@
 
 
 #include "ledger.h"
+#include "super_debug.h"
 
 /* internal support */
 #include "global.h"
@@ -724,14 +725,19 @@ int le_update(const char *ltfname)
    if (rename("ledger.update", Lefile) != 0) return VERROR;
 
    /* return result of reopen ledger */
+   SDEBUG("le_update.ok", "ltfile=%s", ltfname);
    return le_open(Lefile);
 
    /* cleanup / error handling */
 ERROR_CLEANUP:
    ecode = VERROR;
+   SDEBUG("le_update.reject",
+      "ltfile=%s result=VERROR errno=%d", ltfname, errno);
    goto CLEANUP;
 DROP_CLEANUP:
    ecode = VEBAD2;
+   SDEBUG("le_update.reject",
+      "ltfile=%s result=VEBAD2 errno=%d", ltfname, errno);
 CLEANUP:
    if (lefp) fclose(lefp);
    if (ltfp) fclose(ltfp);

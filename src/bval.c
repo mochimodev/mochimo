@@ -11,6 +11,7 @@
 
 
 #include "bval.h"
+#include "super_debug.h"
 
 /* internal support */
 #include "wots.h"
@@ -183,9 +184,11 @@ RDERR_CLEANUP:
    }
 ERROR_CLEANUP:
    ecode = VERROR;
+   SDEBUG("ng_val.reject", "result=VERROR errno=%d", errno);
    goto CLEANUP;
 DROP_CLEANUP:
    ecode = VEBAD2;
+   SDEBUG("ng_val.reject", "result=VEBAD2 errno=%d", errno);
 CLEANUP:
    if (mtree) free(mtree);
    fclose(fp);
@@ -411,9 +414,11 @@ RDERR_CLEANUP:
    }
 ERROR_CLEANUP:
    ecode = VERROR;
+   SDEBUG("b_val.reject", "result=VERROR errno=%d", errno);
    goto CLEANUP;
 DROP_CLEANUP:
    ecode = VEBAD2;
+   SDEBUG("b_val.reject", "result=VEBAD2 errno=%d", errno);
 CLEANUP:
    if (mtree) free(mtree);
    if (fp) fclose(fp);

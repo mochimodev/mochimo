@@ -287,7 +287,6 @@ size_t read_tfile
    long long offset;
    size_t n = 0;
    FILE *fp;
-   int saved_errno = 0;
 
    /* open Tfile and read trailer from offset. Return 0 on error --
     * NOT VERROR (==1), because VERROR would be indistinguishable from
@@ -295,10 +294,9 @@ size_t read_tfile
     * <= 0. 0 is the unambiguous error signal for this size_t API. */
    fp = fopen(tfile, "rb");
    if (fp == NULL) {
-      saved_errno = errno;
 #ifdef SUPER_DEBUG
       super_debug_read_tfile(
-         __builtin_return_address(0), bnum, count, 0, saved_errno);
+         __builtin_return_address(0), bnum, count, 0, errno);
 #endif
       return 0;
    }
@@ -309,16 +307,13 @@ size_t read_tfile
       /* perform read into buffer and cleanup -- check for EOF */
       n = fread(buffer, sizeof(BTRAILER), (size_t) count, fp);
       if (n != count && !ferror(fp)) set_errno(EMCM_EOF);
-      if (n != count) saved_errno = errno;
-   } else {
-      saved_errno = errno;
    }
 
    fclose(fp);
 
 #ifdef SUPER_DEBUG
    super_debug_read_tfile(
-      __builtin_return_address(0), bnum, count, n, saved_errno);
+      __builtin_return_address(0), bnum, count, n, errno);
 #endif
 
    return n;

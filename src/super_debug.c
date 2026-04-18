@@ -590,3 +590,9 @@ void super_debug_heartbeat(void)
 }
 
 #endif  /* SUPER_DEBUG */
+
+/* ISO C forbids an empty translation unit. When -DSUPER_DEBUG is not
+ * set, everything above compiles out; emit a harmless typedef so the
+ * object file is still well-formed and -Wpedantic stays quiet. */
+typedef int super_debug_translation_unit_marker;
+
